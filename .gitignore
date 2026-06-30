@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Runtime data
+data/
+*.log
+
+# MCP test artifacts
+.playwright-mcp/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Maven wrapper for Research Assistant
+JAVA_HOME="D:/JAVA/JDK_25"
+MAVEN_HOME="/c/temp/apache-maven-3.9.9"
+exec "$MAVEN_HOME/bin/mvn" "$@"
