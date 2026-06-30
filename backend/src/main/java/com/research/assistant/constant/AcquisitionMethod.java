@@ -13,6 +13,9 @@ public final class AcquisitionMethod {
     /** 用户手动上传 */
     public static final String MANUAL_UPLOAD = "MANUAL_UPLOAD";
 
+    /** 浏览器下载（从付费页面手动保存） */
+    public static final String BROWSER_DOWNLOAD = "BROWSER_DOWNLOAD";
+
     private AcquisitionMethod() {
         // 工具类不允许实例化
     }

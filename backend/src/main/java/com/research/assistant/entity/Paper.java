@@ -33,6 +33,18 @@ public class Paper {
 
     private String doi;
 
+    /** arXiv ID，如 2301.12345 */
+    @TableField("arxiv_id")
+    private String arxivId;
+
+    /** 论文来源 URL */
+    @TableField("source_url")
+    private String sourceUrl;
+
+    /** 被引次数 */
+    @TableField("citation_count")
+    private Integer citationCount;
+
     /** 数据库列名 abstract（MySQL 保留字）→ Java 字段名 abstractText */
     @TableField("abstract")
     private String abstractText;
@@ -52,6 +64,10 @@ public class Paper {
 
     /** Agent 生成的内容摘要（未实现） */
     private String aiSummary;
+
+    /** Agent 异步处理状态: PENDING / PROCESSING / COMPLETED / FAILED */
+    @TableField("processing_status")
+    private String processingStatus;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
@@ -79,6 +95,12 @@ public class Paper {
     public void setSource(String source) { this.source = source; }
     public String getDoi() { return doi; }
     public void setDoi(String doi) { this.doi = doi; }
+    public String getArxivId() { return arxivId; }
+    public void setArxivId(String arxivId) { this.arxivId = arxivId; }
+    public String getSourceUrl() { return sourceUrl; }
+    public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
+    public Integer getCitationCount() { return citationCount; }
+    public void setCitationCount(Integer citationCount) { this.citationCount = citationCount; }
     public String getAbstractText() { return abstractText; }
     public void setAbstractText(String abstractText) { this.abstractText = abstractText; }
     public String getKeywords() { return keywords; }
@@ -93,6 +115,8 @@ public class Paper {
     public void setReadingStatus(String readingStatus) { this.readingStatus = readingStatus; }
     public String getAiSummary() { return aiSummary; }
     public void setAiSummary(String aiSummary) { this.aiSummary = aiSummary; }
+    public String getProcessingStatus() { return processingStatus; }
+    public void setProcessingStatus(String processingStatus) { this.processingStatus = processingStatus; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

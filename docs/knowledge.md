@@ -272,3 +272,184 @@ Element Plus 的 `el-button` 自带 `padding: 8px 15px`、`min-width`、相邻�
 | 编辑树操作无视觉反馈 | Vue 未检测深层变更 | `:key` 计数器强制重建 |
 
 ---
+
+## 阶段 2.5：PDF 存储与数据底座 — 知识总结
+
+> 2026-06-30
+
+---
+
+### 一、Spring Boot 文件上传
+
+#### 1. Multipart 上传配置
+
+Spring Boot 默认上传限制为 1MB，需要在 `application.yml` 中放大：
+
+```yaml
+spring:
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+```
+
+否则上传稍大的 PDF 就报 413 Payload Too Large。
+
+#### 2. Multipart 控制器接收
+
+```java
+@PostMapping("/upload")
+public Result<Paper> upload(
+    @RequestParam("file") MultipartFile file,  // 文件
+    @RequestParam("title") String title,       // 其他字段
+    ...) { }
+```
+
+前端用 `FormData` 发送，`Content-Type: multipart/form-data`。不能再用 `@RequestBody` 接收 JSON。
+
+#### 3. 文件保存
+
+```java
+File dest = new File(storageDir, fileName);
+file.transferTo(dest);  // 核心：直接写入磁盘
+```
+
+`transferTo()` 是 Spring 封装的，底层调用 `InputStream.transferTo(OutputStream)`。
+
+#### 4. 文件下载/预览
+
+```java
+Resource resource = new FileSystemResource(file);
+return ResponseEntity.ok()
+    .contentType(MediaType.APPLICATION_PDF)
+    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=...")
+    .body(resource);
+```
+
+- `inline` = 浏览器内嵌预览；`attachment` = 强制下载
+- 中文文件名需 `URLEncoder.encode(name, UTF-8).replace("+", "%20")`，用 `filename*=UTF-8''` 格式
+
+---
+
+### 二、Apache PDFBox 文本提取
+
+#### 1. 依赖
+
+```xml
+<dependency>
+    <groupId>org.apache.pdfbox</groupId>
+    <artifactId>pdfbox</artifactId>
+    <version>3.0.4</version>
+</dependency>
+```
+
+#### 2. API 使用（3.x）
+
+```java
+try (PDDocument doc = Loader.loadPDF(file)) {      // 3.x: Loader.loadPDF(File)
+    PDFTextStripper stripper = new PDFTextStripper();
+    stripper.setSortByPosition(true);               // 按坐标排序文字
+    String text = stripper.getText(doc);             // 提取全文
+}
+```
+
+**坑**：PDFBox 2.x 的 `PDDocument.load(file)` 和 `RandomAccessReadBufferedFile` 在 3.x 已移除，改用 `Loader.loadPDF(File)`。
+
+#### 3. 纯图片 PDF 无法提取文字
+
+PDFBox 提取的是文字层（text layer），扫描版 PDF（图片）返回空字符串。需要 OCR 才能处理，不在 MVP 范围内。
+
+---
+
+### 三、Crossref API（DOI 元数据）
+
+#### 1. 接口
+
+```
+GET https://api.crossref.org/works/{doi}
+```
+
+免费、无需 API Key。返回 JSON 含标题、作者、年份、期刊、摘要、关键词等。
+
+#### 2. 字段映射
+
+| Crossref 字段 | 数据库字段 |
+|--------------|-----------|
+| `message.title[0]` | title |
+| `message.author[].given + family` | authors |
+| `message.issued.date-parts[0][0]` | year |
+| `message.container-title[0]` | source |
+| `message.abstract` | abstractText |
+| `message.subject[]` | keywords |
+| `message.URL` | sourceUrl |
+
+#### 3. `||` 短路陷阱
+
+```javascript
+// ❌ 错误：默认值 2025 是 truthy，永远覆盖 Crossref 数据
+form.value.year = form.value.year || crossrefYear
+
+// ✅ 正确：显式判断
+if (crossrefYear) form.value.year = crossrefYear
+```
+
+---
+
+### 四、前端 Pattern
+
+#### 1. el-upload 在 dialog 中的问题
+
+Element Plus 的 `el-upload` 在 `el-dialog` 内会产生多个隐藏 `<input type="file">`，弹窗打开时触发大量文件选择器，导致页面卡死。**解决方案**：不用 el-upload，改用原生 `<input type="file" style="display:none">` + 自定义 div 绑定 click/drop 事件。
+
+```html
+<input type="file" ref="inputRef" accept=".pdf" @change="onChange" style="display:none" />
+<div @click="$refs.inputRef.click()" @drop.prevent="onDrop">...</div>
+```
+
+#### 2. PDF 内嵌预览 overlay
+
+全屏 overlay 覆盖主内容但保留导航栏：
+```css
+.pdf-overlay {
+    position: fixed;
+    top: 56px;          /* 留出导航栏 */
+    left: 0; right: 0; bottom: 0;
+    z-index: 9999;
+}
+```
+
+#### 3. Element Plus 菜单 border 穿透
+
+`el-header` 的 `border-bottom` 会被 `el-menu` 内部白色背景覆盖。**最稳方案**：不用 CSS border，直接在 template 中插 `<div style="height:1px;background:#dcdfe6">`。
+
+#### 4. 删除确认弹窗
+
+```javascript
+import { ElMessageBox } from 'element-plus'
+
+async function confirmDelete() {
+    try {
+        await ElMessageBox.confirm('确定删除？', '确认', {
+            confirmButtonText: '删除',
+            cancelButtonText: '取消',
+            type: 'warning'
+        })
+        await deletePaper()
+    } catch {}
+    // 用户点取消 → catch 块静默忽略（reject 即取消）
+}
+```
+
+---
+
+### 五、踩坑速查（新增）
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| 上传 PDF 报 413 | Spring Boot 默认上传 1MB | `max-file-size: 50MB` |
+| PDFBox 编译报错 | 3.x 移除了 `PDDocument.load()` | 改用 `Loader.loadPDF(File)` |
+| PDF 路径找不到 | `./data/papers` 相对 Tomcat 临时目录 | `user.dir` 解析为绝对路径 |
+| el-upload 页面卡死 | dialog 内产生大量 file input | 原生 input + 自定义拖拽区 |
+| 中文文件名下载乱码 | HTTP 头只支持 ASCII | `URLEncoder + filename*=UTF-8''` |
+| DOI 年份始终显示 2025 | `||` 短路：默认值 truthy | 显式 `if (crossrefYear)` 覆盖 |
+| header 分割线断开 | el-menu 背景覆盖 border-bottom | 用真实 `<div>` 替代 CSS border |

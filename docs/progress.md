@@ -64,3 +64,53 @@
 - el-tree 改 sortOrder 不改变显示顺序 → 直接操作 children 数组
 - 深层对象变更不触发 Vue 重渲染 → `:key` 计数器强制重建
 - 前端按钮间距紧贴需要覆盖 Element Plus 内部 padding + min-width
+
+---
+
+## 阶段 2.5：数据底座完善（PDF 存储 + 自动提取）— 2026-06-30 ✅
+
+**目标**：让论文库真正能存 PDF、自动提取文本，为阶段三的 LLM 智能处理打好数据基础。
+
+**数据库**：
+- `paper` 表加 4 列：`arxiv_id`、`source_url`、`citation_count`、`processing_status`
+- 新建 `schema.sql` 完整建库脚本（含所有表 DDL）
+
+**后端**（4 个新文件 + 6 个修改）：
+- `POST /api/papers/upload` — multipart 上传 PDF + 元数据，一步入库
+- `GET /api/papers/{id}/pdf` — 浏览器内嵌预览 PDF
+- Apache PDFBox 3.0.4 自动提取 PDF 文本 → 存入 `aiSummary`
+- Crossref API 集成：输入 DOI → 自动获取标题/作者/年份/来源
+- 虚拟文件夹：`folder=uncategorized`（未分类）、`folder=recent`（最近新增）
+- 上传限制提升至 50MB
+- 新增 `ProcessingStatus` 常量类，`AcquisitionMethod` 补 `BROWSER_DOWNLOAD`
+
+**前端**：
+- 导入对话框重构：PDF 拖拽上传 + DOI 自动获取 → 元数据自动填充
+- PDF 内嵌预览 overlay（灰色系，顶部导航保留，Esc 关闭）
+- 虚拟文件夹：未分类、最近新增（左侧缩进显示）
+- 编辑/删除按钮移至标题行右侧（垂直排列，删除有确认弹窗）
+- 详情面板新增：获取方式、arXiv ID、来源链接、PDF 链接、PDF 提取文本
+
+**踩坑记录**：
+- el-upload 在 dialog 内产生大量 file input → 换用原生 input + 自定义拖拽区
+- Spring Boot 默认上传限制 1MB → `spring.servlet.multipart.max-file-size: 50MB`
+- PDFBox 3.x 移除 `RandomAccessReadBufferedFile` → 直接用 `Loader.loadPDF(File)`
+- 相对路径 `./data/papers` 在 Tomcat 工作目录下找不到 → 基于 `user.dir` 解析为绝对路径
+- 中文文件名导致 Content-Disposition 编码错误 → `URLEncoder + filename*=UTF-8''`
+- Element Plus CSS 覆盖 header border-bottom → 换用真实 `<div>` 分割线
+- `makeEmptyForm` 默认年份 2025 阻挡 DOI 自动填充 → `||` 短路问题，改用显式判断
+
+**文件清单**：
+- `backend/src/main/resources/schema.sql` — 新建
+- `backend/.../constant/ProcessingStatus.java` — 新建
+- `backend/.../service/PdfExtractor.java` — 新建
+- `backend/pom.xml` — + PDFBox 3.0.4
+- `backend/.../application.yml` — + 上传限制 + 存储路径
+- `backend/.../AcquisitionMethod.java` — + BROWSER_DOWNLOAD
+- `backend/.../Paper.java` — + 4 字段
+- `backend/.../PaperMapper.java` — SQL 补列 + uncategorized
+- `backend/.../PaperService.java` — + 2 方法
+- `backend/.../PaperServiceImpl.java` — 上传逻辑
+- `backend/.../PaperController.java` — upload + downloadPdf
+- `frontend/src/App.vue` — 分割线
+- `frontend/src/views/LibraryView.vue` — 导入重构 + overlay + 虚拟文件夹 + 按钮移位

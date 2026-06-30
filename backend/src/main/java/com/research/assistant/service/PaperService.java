@@ -2,6 +2,7 @@ package com.research.assistant.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.research.assistant.entity.Paper;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -12,8 +13,9 @@ import java.util.List;
  */
 public interface PaperService {
 
-    /** 分页 + 筛选查询（按文件夹/标签/阅读状态），标签随论文一起返回 */
-    IPage<Paper> listWithFilters(List<Long> folderIds, Long tagId, String status, String keyword,
+    /** 分页 + 筛选查询（按文件夹/标签/阅读状态/未分类），标签随论文一起返回 */
+    IPage<Paper> listWithFilters(List<Long> folderIds, boolean uncategorized, Long tagId,
+                                String status, String keyword,
                                 String sortBy, String sortDir, int page, int size);
 
     /** 查单篇论文详情（含标签） */
@@ -27,4 +29,10 @@ public interface PaperService {
 
     /** 删除论文 */
     void delete(Long id);
+
+    /** 上传 PDF 到已有论文，返回存储的相对路径 */
+    String uploadPdf(Long paperId, MultipartFile file);
+
+    /** 上传 PDF 并创建论文（一步完成入库），返回创建后的论文 */
+    Paper uploadPdfAndCreate(MultipartFile file, Paper paper);
 }

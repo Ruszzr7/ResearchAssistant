@@ -25,14 +25,16 @@ public interface PaperMapper extends BaseMapper<Paper> {
      */
     @Select("<script>" +
         "SELECT DISTINCT p.id, p.title, p.authors, p.year, p.source, p.doi, " +
+        "p.arxiv_id, p.source_url, p.citation_count, " +
         "p.`abstract` AS abstract_text, p.keywords, p.pdf_path, " +
         "p.acquisition_method, p.folder_id, p.reading_status, p.ai_summary, " +
-        "p.created_at, p.updated_at " +
+        "p.processing_status, p.created_at, p.updated_at " +
         "FROM paper p " +
         "<if test='tagId != null'>" +
         "INNER JOIN paper_tag pt ON p.id = pt.paper_id " +
         "</if>" +
         "<where>" +
+        "  <if test='uncategorized'> AND p.folder_id IS NULL</if>" +
         "  <if test='folderIds != null and folderIds.size() > 0'>" +
         "    AND p.folder_id IN <foreach item='id' collection='folderIds' open='(' separator=',' close=')'>#{id}</foreach>" +
         "  </if>" +
@@ -50,6 +52,7 @@ public interface PaperMapper extends BaseMapper<Paper> {
         "</script>")
     IPage<Paper> selectPageWithFilters(Page<Paper> page,
                                        @Param("folderIds") List<Long> folderIds,
+                                       @Param("uncategorized") boolean uncategorized,
                                        @Param("tagId") Long tagId,
                                        @Param("status") String status,
                                        @Param("keyword") String keyword,
@@ -58,9 +61,10 @@ public interface PaperMapper extends BaseMapper<Paper> {
 
     /** 覆盖 BaseMapper.selectById — 重载 Long 版本处理 abstract 列别名 */
     @Select("SELECT p.id, p.title, p.authors, p.year, p.source, p.doi, " +
+        "p.arxiv_id, p.source_url, p.citation_count, " +
         "p.`abstract` AS abstract_text, p.keywords, p.pdf_path, " +
         "p.acquisition_method, p.folder_id, p.reading_status, p.ai_summary, " +
-        "p.created_at, p.updated_at " +
+        "p.processing_status, p.created_at, p.updated_at " +
         "FROM paper p WHERE p.id = #{id}")
     Paper selectById(@Param("id") Long id);
 

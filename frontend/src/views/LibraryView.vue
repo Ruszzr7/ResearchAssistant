@@ -48,6 +48,17 @@
         <span>我的文库</span>
       </div>
 
+      <div class="virtual-folders">
+        <div class="folder-all sub" :class="{ active: currentFolder === 'uncategorized' }" @click="setVirtualFolder('uncategorized')">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5A1.5 1.5 0 013.5 3h3l1.5 2h4A1.5 1.5 0 0113.5 6.5v5A1.5 1.5 0 0112 13H4a1.5 1.5 0 01-1.5-1.5z"/><path d="M5 8h6"/></svg>
+          <span>未分类</span>
+        </div>
+        <div class="folder-all sub" :class="{ active: currentFolder === 'recent' }" @click="setVirtualFolder('recent')">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 2"/></svg>
+          <span>最近新增</span>
+        </div>
+      </div>
+
       <el-tree ref="treeRef" :data="sortedFolders" :props="treeProps" node-key="id"
         highlight-current :current-node-key="selectedFolderId" @node-click="onFolderClick" class="folder-tree"
         :filter-node-method="filterFolderNode">
@@ -150,6 +161,10 @@
         <input v-if="editingTitle" v-model="editTitleText" class="title-input"
           @blur="saveTitle" @keyup.enter="saveTitle" ref="titleInputRef" />
         <h2 v-else class="detail-title" @click="startEditTitle">{{ currentPaper.title }}</h2>
+        <div class="detail-title-actions">
+          <el-button size="small" text @click="openEditDialog">编辑</el-button>
+          <el-button size="small" text type="danger" @click="confirmDelete">删除</el-button>
+        </div>
       </div>
       <div class="detail-divider"></div>
       <div class="detail-item"><span class="label">作者</span>{{ formatAuthors(currentPaper.authors) }}</div>
@@ -157,7 +172,26 @@
       <div class="detail-item"><span class="label">来源</span>{{ currentPaper.source }}</div>
       <div class="detail-item"><span class="label">DOI</span>{{ currentPaper.doi }}</div>
       <div class="detail-item"><span class="label">摘要</span>{{ currentPaper.abstractText || '暂无摘要' }}</div>
+      <div class="detail-item" v-if="currentPaper.aiSummary">
+        <span class="label">PDF 提取文本</span>
+        <p class="extracted-text">{{ currentPaper.aiSummary.slice(0, 500) }}{{ currentPaper.aiSummary.length > 500 ? '…' : '' }}</p>
+      </div>
       <div class="detail-item"><span class="label">关键词</span>{{ currentPaper.keywords }}</div>
+      <div class="detail-item"><span class="label">获取方式</span>{{ acquisitionLabel(currentPaper.acquisitionMethod) }}</div>
+      <div class="detail-item"><span class="label">arXiv ID</span>{{ currentPaper.arxivId || '--' }}</div>
+      <div class="detail-item">
+        <span class="label">来源链接</span>
+        <a v-if="currentPaper.sourceUrl" :href="currentPaper.sourceUrl" target="_blank" style="word-break:break-all">{{ currentPaper.sourceUrl }}</a>
+        <span v-else>--</span>
+      </div>
+      <div class="detail-item">
+        <span class="label">PDF</span>
+        <a v-if="currentPaper.pdfPath" @click.prevent="showPdfOverlay = true" href="#">打开 PDF</a>
+        <span v-else>暂无</span>
+      </div>
+      <div class="detail-item" v-if="currentPaper.processingStatus">
+        <span class="label">处理状态</span>{{ processingLabel(currentPaper.processingStatus) }}
+      </div>
       <div class="detail-item">
         <span class="label">阅读状态</span>
         <el-select v-model="currentPaper.readingStatus" size="small" @change="savePaper(currentPaper)">
@@ -168,10 +202,6 @@
       <div class="detail-item">
         <span class="label">标签</span>
         <el-tag v-for="t in currentPaper.tags" :key="t.id" size="small">{{ t.name }}</el-tag>
-      </div>
-      <div class="detail-actions">
-        <el-button size="small" @click="openEditDialog">编辑</el-button>
-        <el-button size="small" type="danger" @click="deletePaper">删除</el-button>
       </div>
     </div>
 
@@ -205,13 +235,44 @@
     </el-dialog>
 
     <!-- ==================== 导入对话框 ==================== -->
-    <el-dialog v-model="dialogVisible" :title="isEditing ? '编辑论文' : '导入论文'" width="560px">
-      <el-form :model="form" label-width="80px">
+    <el-dialog v-model="dialogVisible" :title="isEditing ? '编辑论文' : '导入论文'" width="520px">
+      <!-- 新建模式：PDF 上传 + DOI 自动获取 -->
+      <template v-if="!isEditing">
+        <div class="upload-zone" @click="$refs.uploadInputRef.click()" @dragover.prevent @drop.prevent="onDropFile">
+          <svg width="28" height="28" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M4 2v12l4-3 4 3V2a1 1 0 00-1-1H5a1 1 0 00-1 1z"/><path d="M6 10V4h4v3H7v3"/></svg>
+          <div v-if="!uploadFile" class="upload-text">拖拽 PDF 到此处或 <em>点击上传</em></div>
+          <div v-else class="upload-file">{{ uploadFile.name }} <span class="upload-remove" @click.stop="uploadFile=null">✕</span></div>
+        </div>
+        <input type="file" ref="uploadInputRef" accept=".pdf" @change="onFileChange" style="display:none" />
+        <div class="doi-row">
+          <span class="doi-or">— 或输入 DOI —</span>
+          <div class="doi-input-wrap">
+            <el-input v-model="doiInput" placeholder="如 10.1038/nature14539" size="small" @keyup.enter="fetchDoi" clearable />
+            <el-button size="small" type="primary" @click="fetchDoi" :loading="fetchingDoi">获取</el-button>
+          </div>
+        </div>
+        <div class="import-preview" v-if="form.title">
+          <div class="preview-title">识别结果</div>
+          <el-form label-width="60px" size="small">
+            <el-form-item label="标题"><el-input v-model="form.title" /></el-form-item>
+            <el-form-item label="作者"><el-input v-model="form.authors" placeholder="自动识别或手动输入" /></el-form-item>
+            <el-form-item label="年份"><el-input-number v-model="form.year" :min="1900" :max="2030" style="width:120px" /></el-form-item>
+            <el-form-item label="来源"><el-input v-model="form.source" /></el-form-item>
+            <el-form-item label="文件夹">
+              <el-tree-select v-model="form.folderId" :data="folders" :props="treeProps"
+                check-strictly node-key="id" placeholder="选择文件夹" clearable style="width:100%" />
+            </el-form-item>
+          </el-form>
+        </div>
+      </template>
+      <!-- 编辑模式：完整表单 -->
+      <el-form v-else :model="form" label-width="80px">
         <el-form-item label="标题"><el-input v-model="form.title" /></el-form-item>
-        <el-form-item label="作者"><el-input v-model="form.authors" placeholder='[{"name":"xxx","role":"first"}]' /></el-form-item>
+        <el-form-item label="作者"><el-input v-model="form.authors" /></el-form-item>
         <el-form-item label="年份"><el-input-number v-model="form.year" :min="1900" :max="2030" /></el-form-item>
         <el-form-item label="来源"><el-input v-model="form.source" /></el-form-item>
         <el-form-item label="DOI"><el-input v-model="form.doi" /></el-form-item>
+        <el-form-item label="arXiv ID"><el-input v-model="form.arxivId" /></el-form-item>
         <el-form-item label="摘要"><el-input v-model="form.abstractText" type="textarea" rows="3" /></el-form-item>
         <el-form-item label="关键词"><el-input v-model="form.keywords" placeholder="逗号分隔" /></el-form-item>
         <el-form-item label="文件夹">
@@ -227,15 +288,29 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitPaper">{{ isEditing ? '保存' : '导入' }}</el-button>
+        <el-button type="primary" @click="submitPaper" :disabled="!isEditing && !form.title && !uploadFile">
+          {{ isEditing ? '保存' : '导入论文' }}
+        </el-button>
       </template>
     </el-dialog>
+
+    <!-- ==================== PDF 预览 overlay ==================== -->
+    <div v-if="showPdfOverlay && currentPaper" class="pdf-overlay" @keydown.esc="showPdfOverlay = false">
+      <div class="pdf-toolbar">
+        <span class="pdf-toolbar-title">{{ currentPaper.title }}</span>
+        <el-button size="small" text @click="showPdfOverlay = false" style="padding:2px 4px;min-width:auto">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </el-button>
+      </div>
+      <iframe :src="`/api/papers/${currentPaper.id}/pdf`" class="pdf-frame" />
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
+import { ElMessageBox } from 'element-plus'
 
 const treeRef = ref(null)
 const pathKeys = ref(new Map())
@@ -271,12 +346,17 @@ const editingTitle = ref(false)
 const editTitleText = ref('')
 const titleInputRef = ref(null)
 const resizing = ref(null)
+const uploadFile = ref(null)
+const doiInput = ref('')
+const fetchingDoi = ref(false)
+const showPdfOverlay = ref(false)
 
 const DEFAULT_YEAR = 2025
 const treeProps = { children: 'children', label: 'name' }
 
 function makeEmptyForm() {
   return { title: '', authors: '', year: DEFAULT_YEAR, source: '', doi: '',
+    arxivId: '', sourceUrl: '',
     abstractText: '', keywords: '', folderId: null, readingStatus: 'UNREAD' }
 }
 
@@ -305,6 +385,8 @@ function formatAuthors(json) {
   catch { return json||'' }
 }
 function formatDate(d) { return d?.substring(0,7)||'' }
+function acquisitionLabel(v) { const m={OA:'开放获取',BROWSER_DOWNLOAD:'浏览器下载',MANUAL_UPLOAD:'手动上传'}; return m[v]||v||'--' }
+function processingLabel(v) { const m={PENDING:'等待处理',PROCESSING:'处理中',COMPLETED:'已完成',FAILED:'失败'}; return m[v]||v }
 function sortLabel(col) { return sortBy.value!==col?'↕':sortDir.value==='ASC'?'↑':'↓' }
 function toggleSort(col) { sortDir.value=sortBy.value===col?(sortDir.value==='ASC'?'DESC':'ASC'):'ASC'; sortBy.value=col; loadPapers() }
 function handleFolderSort(cmd) {
@@ -345,6 +427,10 @@ function onFolderClick(node) {
   if(expandedId.value===node.id){treeRef.value?.getNode(node.id)?.collapse();expandedId.value=null}
   else{if(expandedId.value)treeRef.value?.getNode(expandedId.value)?.collapse();for(const id of path)treeRef.value?.getNode(id)?.expand();expandedId.value=node.id}
   loadPapers()
+}
+function setVirtualFolder(type) {
+  currentFolder.value=type;selectedFolderId.value=null;expandedId.value=null;pathKeys.value=new Map()
+  collectAllIds(folders.value).forEach(id=>treeRef.value?.getNode(id)?.collapse());loadPapers()
 }
 function clearFolderFilter() {
   currentFolder.value=null;selectedFolderId.value=null;expandedId.value=null;pathKeys.value=new Map()
@@ -537,33 +623,76 @@ function onResize(e){
 }
 function stopResize(){resizing.value=null}
 
-function openImportDialog(){isEditing.value=false;editPaperId.value=null;form.value={...makeEmptyForm(),folderId:selectedFolderId.value};dialogVisible.value=true}
-function openEditDialog(){isEditing.value=true;editPaperId.value=currentPaper.value.id;form.value={...currentPaper.value};dialogVisible.value=true}
+function openImportDialog(){isEditing.value=false;editPaperId.value=null;uploadFile.value=null;doiInput.value='';form.value={...makeEmptyForm(),folderId:selectedFolderId.value};dialogVisible.value=true}
+function openEditDialog(){isEditing.value=true;editPaperId.value=currentPaper.value.id;uploadFile.value=null;form.value={...currentPaper.value};dialogVisible.value=true}
+function onFileChange(e){const f=e.target.files?.[0];if(f){uploadFile.value=f;autoSetTitle(f.name)}}
+function onDropFile(e){const f=e.dataTransfer?.files?.[0];if(f?.name?.endsWith('.pdf')){uploadFile.value=f;autoSetTitle(f.name)}}
+function autoSetTitle(name){const t=name.replace(/\.pdf$/i,'').replace(/[_-]/g,' ').trim();if(t&&!form.value.title)form.value.title=t}
+
+/** Crossref DOI → 自动提取元数据 */
+async function fetchDoi(){
+  const doi=doiInput.value.trim();if(!doi)return
+  fetchingDoi.value=true
+  try{
+    const r=await axios.get(`https://api.crossref.org/works/${encodeURIComponent(doi)}`)
+    const m=r.data.message;if(!m)throw new Error('未找到')
+    const c=m
+    if(c.title?.[0]&&!form.value.title)form.value.title=c.title[0]
+    const crossrefAuthors=(c.author||[]).map(a=>({name:(a.given||'')+' '+(a.family||''),role:''}))
+    if(crossrefAuthors.length)form.value.authors=JSON.stringify(crossrefAuthors)
+    const crossrefYear=c.issued?.['date-parts']?.[0]?.[0]||c.created?.['date-parts']?.[0]?.[0]
+    if(crossrefYear)form.value.year=crossrefYear
+    if(c['container-title']?.[0])form.value.source=c['container-title'][0]
+    form.value.doi=doi
+    const ab=(c.abstract||'').replace(/<[^>]+>/g,'').slice(0,2000)
+    if(ab)form.value.abstractText=ab
+    const kw=(c.subject||[]).join(', ')
+    if(kw)form.value.keywords=kw
+    if(c.URL)form.value.sourceUrl=c.URL
+    if(c.link){const pdf=c.link.find(l=>l['content-type']==='application/pdf');if(pdf)form.value.sourceUrl=pdf.URL}
+  }catch(e){alert('DOI 获取失败：'+(e.response?.data?.message||e.message))}
+  finally{fetchingDoi.value=false}
+}
+
 async function submitPaper() {
-  if(isEditing.value)await axios.put(`/api/papers/${editPaperId.value}`,form.value)
-  else await axios.post('/api/papers',form.value)
-  dialogVisible.value=false;loadPapers()
+  try{
+    if(isEditing.value){
+      await axios.put(`/api/papers/${editPaperId.value}`,form.value)
+    } else {
+      const fd=new FormData()
+      if(uploadFile.value) fd.append('file',uploadFile.value)
+      Object.entries(form.value).forEach(([k,v])=>{if(v!=null&&v!=='')fd.append(k,v)})
+      await axios.post('/api/papers/upload',fd,{headers:{'Content-Type':'multipart/form-data'}})
+    }
+    dialogVisible.value=false;uploadFile.value=null;loadPapers()
+  }catch(e){alert('操作失败：'+(e.response?.data?.message||e.message))}
 }
 async function savePaper(p){await axios.put(`/api/papers/${p.id}`,p)}
 function toggleFolderSearch(){showFolderSearch.value=!showFolderSearch.value;if(showFolderSearch.value)setTimeout(()=>folderSearchRef.value?.focus(),100)}
 function startEditTitle(){editTitleText.value=currentPaper.value.title;editingTitle.value=true;setTimeout(()=>titleInputRef.value?.focus(),100)}
 async function saveTitle(){editingTitle.value=false;if(editTitleText.value.trim()&&editTitleText.value!==currentPaper.value.title){currentPaper.value.title=editTitleText.value.trim();await savePaper(currentPaper.value)}}
+async function confirmDelete(){
+  try{await ElMessageBox.confirm('确定删除这篇论文？', '确认删除',{confirmButtonText:'删除',cancelButtonText:'取消',type:'warning'});await deletePaper()}
+  catch{}
+}
 async function deletePaper(){await axios.delete(`/api/papers/${currentPaper.value.id}`);currentPaper.value=null;loadPapers()}
 
-onMounted(()=>{loadFolders();loadPapers()})
+function onKeyDown(e){if(e.key==='Escape')showPdfOverlay.value=false}
+onMounted(()=>{loadFolders();loadPapers();window.addEventListener('keydown',onKeyDown)})
+onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown)})
 </script>
 
 <style scoped>
-.library { display:flex; height:calc(100vh - 100px); }
+.library { display:flex; height:calc(100vh - 61px); }
 .library.is-resizing { user-select:none; }
 
 /* ===== 三栏配色 ===== */
-.left-panel { flex-shrink:0; overflow-y:auto; padding:0 10px; transition:width 0.2s; background:#f5f6f8; display:flex; flex-direction:column; }
+.left-panel { flex-shrink:0; overflow-y:auto; padding:0 0 0 10px; transition:width 0.2s; background:#f5f6f8; display:flex; flex-direction:column; }
 .left-panel.collapsed { padding:0; overflow:hidden; }
 .filter-section { margin-top:auto; padding:6px 0 12px; border-top:1px solid #e4e7ed; }
 .filter-section h4 { margin:4px 0 6px; }
-.center-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; padding:0 12px; background:#fff; }
-.right-panel { flex-shrink:0; overflow-y:auto; padding:8px 12px 0; transition:width 0.2s; background:#f5f6f8; }
+.center-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; padding:0 0 0 12px; background:#fff; }
+.right-panel { flex-shrink:0; overflow-y:auto; padding:8px 0 0 12px; transition:width 0.2s; background:#f5f6f8; }
 
 /* 顶栏 */
 .panel-header { display:flex; align-items:center; gap:4px; padding:6px 0; }
@@ -574,12 +703,13 @@ onMounted(()=>{loadFolders();loadPapers()})
 .folder-all { display:flex; align-items:center; gap:4px; padding:5px 8px; cursor:pointer; font-size:13px; border-radius:4px; margin-bottom:2px; color:#303133; }
 .folder-all:hover { background:#e8eaed; }
 .folder-all.active { color:#1677d2; font-weight:600; background:#d9ecff; }
-.folder-tree { background:transparent; }
+.folder-all.sub { padding-left:20px; }
+.folder-tree { background:transparent; padding-left:8px; }
 .tree-node-label { font-size:13px; display:flex; justify-content:space-between; width:100%; }
 .tree-node-label.path-0 { color:#1677d2; font-weight:600; }
 .tree-node-label.path-1 { color:#0958a3; font-weight:600; }
 .tree-node-label.path-2 { color:#05427a; font-weight:600; }
-.folder-count { color:#909399; font-size:11px; }
+.folder-count { color:#909399; font-size:11px; margin-right:8px; }
 .el-tree-node.is-current>.el-tree-node__content,
 .el-tree-node.is-current>.el-tree-node__content:hover { background-color:#d9ecff !important; }
 
@@ -588,7 +718,7 @@ onMounted(()=>{loadFolders();loadPapers()})
 .w-full { width:100%; }
 
 /* 分割线 */
-.divider { width:1px; flex-shrink:0; cursor:col-resize; position:relative; background:#e2e4e7; transition:width 0.15s,background 0.15s; }
+.divider { width:1px; flex-shrink:0; cursor:col-resize; position:relative; background:#dcdfe6; transition:width 0.15s,background 0.15s; }
 .divider:hover { background:#c8cacd; }
 .divider.active { width:4px; background:#a0c4e8; }
 .divider-handle { position:absolute; top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:28px;border-radius:2px;background:#999;opacity:0;transition:opacity 0.15s; }
@@ -619,14 +749,38 @@ onMounted(()=>{loadFolders();loadPapers()})
 .pagination-bar { display:flex; justify-content:center; padding:8px 0; }
 
 /* 右栏详情 */
-.detail-title-row { margin-bottom:10px; }
-.detail-title { font-size:18px; font-weight:600; margin:0; cursor:text; line-height:1.4; }
+.detail-title-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.detail-title { font-size:18px; font-weight:600; margin:0; cursor:text; line-height:1.4; flex:1; min-width:0; }
 .detail-title:hover { background:#e8eaed; border-radius:3px; }
+.detail-title-actions { display:flex; flex-direction:column; align-items:stretch; flex-shrink:0; }
+.detail-title-actions .el-button { margin-left:0 !important; }
 .title-input { font-size:18px; font-weight:600; width:100%; border:1px solid #409eff; border-radius:3px; padding:2px 6px; outline:none; }
 .detail-divider { height:1px; background:#e4e7ed; margin:10px 4px 14px; }
 .detail-item { margin-bottom:12px; font-size:13px; line-height:1.6; }
 .detail-item .label { font-size:12px; color:#909399; display:block; margin-bottom:2px; }
-.detail-actions { margin-top:20px; display:flex; gap:8px; }
+.extracted-text { margin:0; font-size:12px; color:#606266; line-height:1.5; max-height:120px; overflow-y:auto; white-space:pre-wrap; }
+/** 上传区域 */
+.upload-zone { border:2px dashed #dcdfe6; border-radius:6px; padding:20px; text-align:center; cursor:pointer; transition:border-color 0.2s; margin-bottom:12px; }
+.upload-zone:hover { border-color:#409eff; }
+.upload-text { font-size:14px; color:#909399; margin-top:6px; }
+.upload-text em { color:#409eff; font-style:normal; }
+.upload-file { font-size:14px; color:#303133; margin-top:6px; }
+.upload-remove { color:#f56c6c; cursor:pointer; margin-left:8px; font-weight:bold; }
+
+/** DOI 行 */
+.doi-or { display:block; text-align:center; font-size:12px; color:#c0c4cc; margin:0 0 8px; }
+.doi-input-wrap { display:flex; gap:6px; margin-bottom:12px; }
+.doi-input-wrap .el-input { flex:1; }
+
+/** 识别结果 */
+.import-preview { border-top:1px solid #e4e7ed; padding-top:10px; }
+.preview-title { font-size:13px; font-weight:600; color:#303133; margin-bottom:8px; }
+
+/** PDF 全屏预览 */
+.pdf-overlay { position:fixed; top:61px; left:0; right:0; bottom:0; z-index:9999; background:#f0f2f5; display:flex; flex-direction:column; }
+.pdf-toolbar { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:#e4e7ed; flex-shrink:0; border-bottom:1px solid #dcdfe6; }
+.pdf-toolbar-title { color:#303133; font-size:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.pdf-frame { flex:1; border:none; width:100%; }
 </style>
 
 <!-- 非 scoped：强制覆盖 Element Plus 组件内部样式 -->
