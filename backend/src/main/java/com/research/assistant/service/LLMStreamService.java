@@ -2,6 +2,13 @@ package com.research.assistant.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.research.assistant.service.ai.LangChain4jModelFactory;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,23 +25,28 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 /**
- * LLM 流式响应服务 —— 直接向 OutputStream 写入 SSE 格式数据并强制刷新。
+ * LLM 流式响应服务 —— 优先基于 LangChain4j StreamingChatModel，对不兼容的流式响应回退到手动 SSE 解析。
  * <p>
- * 相比 {@link org.springframework.web.servlet.mvc.method.annotation.SseEmitter}，
- * 这种方式可以每收到一个 token 就 flush，避免 Tomcat/Spring 的响应缓冲导致前端看不到实时流。
+ * 直接向 OutputStream 写入 SSE 格式数据并强制刷新，每收到一个 token 即推送，
+ * 保持与前端原有的 `event:token` / `event:done` / `event:error` 协议一致。
  */
 @Service
 public class LLMStreamService {
 
     private static final Logger log = LoggerFactory.getLogger(LLMStreamService.class);
 
+    private final LangChain4jModelFactory modelFactory;
     private final SettingsService settingsService;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    public LLMStreamService(SettingsService settingsService, ObjectMapper objectMapper) {
+    public LLMStreamService(LangChain4jModelFactory modelFactory, SettingsService settingsService,
+                            ObjectMapper objectMapper) {
+        this.modelFactory = modelFactory;
         this.settingsService = settingsService;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder()
@@ -46,6 +58,91 @@ public class LLMStreamService {
      * 向指定输出流推送 LLM 流式响应（SSE 格式）。
      */
     public void streamChat(OutputStream out, String systemPrompt, String userMessage) {
+        try {
+            streamWithLangChain4j(out, systemPrompt, userMessage);
+        } catch (Exception e) {
+            // 某些 Provider（如 Kimi 的 reasoning_content）返回的流式 JSON 片段 LangChain4j 无法解析，
+            // 此时回退到手动 SSE 解析，保证前端仍能看到流式输出。
+            log.warn("LangChain4j 流式调用失败，回退到手动 SSE 解析: {}", e.getMessage());
+            streamManually(out, systemPrompt, userMessage);
+        }
+    }
+
+    /** 使用 LangChain4j StreamingChatModel 输出流式响应。 */
+    private void streamWithLangChain4j(OutputStream out, String systemPrompt, String userMessage) throws Exception {
+        Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
+        StreamingChatModel model = modelFactory.createStreamingModel();
+
+        CountDownLatch latch = new CountDownLatch(1);
+        StringBuilder fullContent = new StringBuilder();
+        boolean[] outputClosed = { false };
+        Throwable[] errorHolder = { null };
+
+        model.chat(
+                List.of(SystemMessage.from(systemPrompt), UserMessage.from(userMessage)),
+                new StreamingChatResponseHandler() {
+                    @Override
+                    public void onPartialResponse(String partialResponse) {
+                        if (outputClosed[0]) return;
+                        try {
+                            if (partialResponse != null && !partialResponse.isEmpty()) {
+                                fullContent.append(partialResponse);
+                                sendEvent(writer, "token", partialResponse);
+                                writer.flush();
+                            }
+                        } catch (Exception e) {
+                            outputClosed[0] = true;
+                            log.warn("SSE token 写入失败，停止推送: {}", e.getMessage());
+                        }
+                    }
+
+                    @Override
+                    public void onCompleteResponse(ChatResponse response) {
+                        if (outputClosed[0]) {
+                            latch.countDown();
+                            return;
+                        }
+                        try {
+                            TokenUsage usage = response != null ? response.tokenUsage() : null;
+                            if (usage != null) {
+                                log.info("流式调用 Token 消耗 — prompt: {}, completion: {}, total: {}",
+                                        usage.inputTokenCount(), usage.outputTokenCount(), usage.totalTokenCount());
+                            }
+                            String fullText = response != null && response.aiMessage() != null
+                                    ? response.aiMessage().text() : null;
+                            if (fullText != null && !fullText.equals(fullContent.toString())) {
+                                sendEvent(writer, "token", fullText);
+                                writer.flush();
+                            }
+                            sendEvent(writer, "done", "");
+                            writer.flush();
+                        } catch (Exception e) {
+                            log.warn("SSE done 写入失败: {}", e.getMessage());
+                        } finally {
+                            latch.countDown();
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        log.warn("LangChain4j 流式调用报告错误: {}", error.getMessage());
+                        errorHolder[0] = error;
+                        outputClosed[0] = true;
+                        latch.countDown();
+                    }
+                }
+        );
+
+        awaitLatch(latch);
+
+        // 如果 LangChain4j 一条 token 都没能成功输出就失败，抛给上层走手动回退
+        if (errorHolder[0] != null && fullContent.isEmpty()) {
+            throw new RuntimeException("LangChain4j 流式调用未输出任何 token 即失败", errorHolder[0]);
+        }
+    }
+
+    /** 手动 SSE 解析 —— 与旧版实现一致，对 Provider 特殊格式更宽容。 */
+    private void streamManually(OutputStream out, String systemPrompt, String userMessage) {
         Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
         try {
             String apiKey = settingsService.getValue("api_key");
@@ -97,7 +194,6 @@ public class LLMStreamService {
                         if (choices != null && choices.size() > 0) {
                             JsonNode delta = choices.get(0).get("delta");
                             if (delta != null) {
-                                // kimi-k2.7-code 等思考模型把流式内容放在 reasoning_content 里
                                 String content = null;
                                 if (delta.has("content") && !delta.get("content").isNull()) {
                                     content = delta.get("content").asText();
@@ -113,14 +209,14 @@ public class LLMStreamService {
                             }
                         }
                     } catch (Exception ignored) {
-                        // 忽略无法解析的行
+                        // 忽略无法解析的行，继续下一条
                     }
                 }
             }
             sendEvent(writer, "done", "");
             writer.flush();
         } catch (Exception e) {
-            log.warn("SSE 流式输出异常: {}", e.getMessage());
+            log.warn("手动 SSE 流式输出异常: {}", e.getMessage());
             try {
                 sendEvent(writer, "error", e.getMessage());
                 writer.flush();
@@ -130,17 +226,19 @@ public class LLMStreamService {
         }
     }
 
+    private void awaitLatch(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private void sendEvent(Writer writer, String eventName, String data) throws IOException {
         writer.write("event:" + eventName + "\n");
         writer.write("data:" + data + "\n\n");
     }
 
-    // ========== URL 规范化 ==========
-
-    /**
-     * 兼容用户填写带或不带 /v1、带或不带末尾斜杠的 Base URL，
-     * 统一输出 {base}/v1/chat/completions，避免重复 /v1。
-     */
     private String buildChatUrl(String baseUrl) {
         String normalized = baseUrl.trim();
         while (normalized.endsWith("/")) {
@@ -155,10 +253,6 @@ public class LLMStreamService {
         return normalized + "/v1/chat/completions";
     }
 
-    /**
-     * 根据模型名决定可用采样参数。
-     * kimi-k2.7-code 强制 temperature=1.0，其他模型可自由调整。
-     */
     private double resolveTemperature(String model) {
         if (model != null && model.toLowerCase().contains("kimi-k2.7-code")) {
             return 1.0;

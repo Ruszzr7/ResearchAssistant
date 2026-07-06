@@ -1021,3 +1021,92 @@ String normalizeReadingStatus(String raw) {
 | 推荐结果不合法（如状态拼写错误） | 模型输出不稳定 | 调用方做归一化和默认值兜底 |
 
 ---
+
+## 阶段 4.13：LangChain4j 流式输出 — 知识总结
+
+> 2026-07-07
+
+---
+
+### 一、StreamingChatModel 基本用法
+
+```java
+StreamingChatModel model = modelFactory.createStreamingModel();
+
+model.chat(
+    List.of(SystemMessage.from(systemPrompt), UserMessage.from(userMessage)),
+    new StreamingChatResponseHandler() {
+        @Override
+        public void onPartialResponse(String partialResponse) {
+            // 每个 token
+        }
+
+        @Override
+        public void onCompleteResponse(ChatResponse response) {
+            // 流结束
+        }
+
+        @Override
+        public void onError(Throwable error) {
+            // 流式过程中出错
+        }
+    }
+);
+```
+
+- 1.0.0 接口名是 `onPartialResponse` / `onCompleteResponse` / `onError`。
+- 调用是阻塞的，直到整个流结束；如果要在 HTTP 响应中推送，需要确保调用方线程等待完成。
+
+### 二、与 Spring StreamingResponseBody 配合
+
+```java
+@Override
+public StreamingResponseBody chatStream(String systemPrompt, String userMessage) {
+    return out -> streamService.streamChat(out, systemPrompt, userMessage);
+}
+```
+
+- `streamChat` 内部负责 `CountDownLatch.await()`，等 LLM 流结束再返回，避免 Tomcat 提前关闭连接。
+- 每收到 token 立即 `writer.flush()`，配合 Controller 里 `response.setBufferSize(0)` 保证实时推送。
+
+### 三、处理客户端断开
+
+流式响应期间用户可能刷新或关闭页面，此时 `writer.flush()` 会抛 `IOException`。需要：
+
+```java
+boolean outputClosed = false;
+
+public void onPartialResponse(String token) {
+    if (outputClosed) return;
+    try {
+        sendEvent(writer, "token", token);
+        writer.flush();
+    } catch (Exception e) {
+        outputClosed = true;
+        log.warn("客户端已断开，停止推送");
+    }
+}
+```
+
+否则 LangChain4j 会继续回调，产生大量 "Response not usable after response errors" 日志。
+
+### 四、对 Provider 异常 JSON 的回退
+
+LangChain4j 内部会用 Jackson 解析每个 SSE chunk。某些 Provider（如 Kimi）的 `reasoning_content` 字段可能返回非法 JSON，导致 LangChain4j 直接 `onError` 且一条 token 都不输出。
+
+解决方案：
+- 记录 `onError` 并不在前端写 error。
+- 等 `model.chat` 返回后，如果 `fullContent` 为空，抛异常让上层走手动 SSE 解析。
+- 手动解析可以 `try-catch` 每一行，忽略坏行，继续后续 token。
+
+### 五、踩坑速查
+
+| 问题 | 原因 | 解决 |
+|---|---|---|
+| 编译找不到 `StreamingResponseHandler` | 包名错误 | `dev.langchain4j.model.chat.response.StreamingChatResponseHandler` |
+| 接口名 `onNext` 不存在 | 1.0.0 已改名 | 用 `onPartialResponse` |
+| 前端收不到流 | 未 `flush` 或 Tomcat 缓冲 | `setBufferSize(0)` + 每次 `writer.flush()` |
+| 客户端断开后日志刷屏 | 继续向已关闭的 response 写入 | 加 `outputClosed` 标志 |
+| LangChain4j 流式报错但手动可以 | Provider 返回非法 JSON | 保留手动 SSE 回退 |
+
+---

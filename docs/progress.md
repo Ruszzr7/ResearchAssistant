@@ -763,6 +763,49 @@
 
 ---
 
+## 阶段 4.13：LangChain4j 集成 Phase 5 — 2026-07-07 ✅
+
+**目标**：将流式 SSE 精读分析迁移到 LangChain4j `StreamingChatModel`，同时保留对 Provider 异常流式 JSON 的手动回退。
+
+**完成内容**：
+
+1. **流式模型工厂**：
+   - `LangChain4jModelFactory.createStreamingModel()` 已存在，直接用于 `LLMStreamService`。
+
+2. **`LLMStreamService` 重构**：
+   - 优先调用 `StreamingChatModel.chat(List<ChatMessage>, StreamingChatResponseHandler)`。
+   - 每条 `onPartialResponse` 立即以 `event:token` 推送给前端。
+   - `onCompleteResponse` 写入 `event:done` 并记录 token 消耗。
+   - 增加 `outputClosed` 标志：一旦写入失败（如客户端断开）立即停止后续推送，避免日志刷屏。
+
+3. **手动 SSE 回退**：
+   - 当 LangChain4j 在尚未输出任何 token 时就失败（如 Kimi 的 `reasoning_content` 返回非法 JSON 导致其内部 Jackson 解析失败），自动回退到旧的手动 `HttpClient` + SSE 解析。
+   - 回退逻辑保留 `reasoning_content` → `content` 的兼容处理。
+
+4. **接口协议不变**：
+   - 前端仍接收 `event:token` / `event:done` / `event:error`，无需改动。
+
+**验证结果**：
+
+- `mvn test` 28 项全部通过。
+- curl 实测 `/api/agent/process/28/stream`：
+  - 首先尝试 LangChain4j 流式路径。
+  - 成功收到连续的 `event:token` 数据流，最终 `event:done`。
+  - 若 Provider 返回非法 JSON，日志显示回退到手动 SSE 解析。
+
+**关键踩坑**：
+
+- `StreamingChatResponseHandler` 在 LangChain4j 1.0.0 中的方法名为 `onPartialResponse` / `onCompleteResponse` / `onError`，不是 0.x 的 `onNext` / `onComplete`。
+- Kimi 等 Provider 的 `reasoning_content` 流式片段可能包含非法 JSON，LangChain4j 会调用 `onError` 并停止；保留手动回退是生产环境必需的。
+- 客户端断开后，`StreamingChatModel` 仍可能继续回调，必须加 `outputClosed` 标志避免无限 IOException 刷屏。
+
+**文件清单**：
+
+- 修改：
+  - `backend/src/main/java/com/research/assistant/service/LLMStreamService.java`
+
+---
+
 **目标**：将当前开发态项目转为可分发态，使他人拉取项目后能通过 Docker 一键部署，无需手动安装 JDK、Node.js、MySQL。
 
 **推荐方案**：Docker Compose 容器化部署。
