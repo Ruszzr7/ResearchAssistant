@@ -82,3 +82,60 @@
 - 工具类封装：`ArxivFetcher`、`CrossrefFetcher`、`PdfExtractor` 如何变成 `@Tool`。
 - 记忆存储选型：内存 `ChatMemory` vs 数据库存储（`paper_analysis` / 新增 `conversation` 表）。
 - 先选一个最小闭环做 PoC：例如用 LangChain4j 重写「论文精读 → 结构化 JSON 输出」，验证端到端可行性。
+
+---
+
+## 五、LangChain4j 重构/扩展方案（已确认，待实施）
+
+> 以下内容已将设计方案凝练写入本文档，作为后续实施的参考基线。具体实施需先进入 Plan 模式，按阶段推进。
+
+### 5.1 集成策略
+
+- **保留 `LLMService` 作为防腐层**，前后端接口 URL 不变；
+- 内部引入 `LangChain4jModelFactory`，从 `settings` 表热读 Key/BaseURL/Model，构建 `OpenAiChatModel` / `OpenAiStreamingChatModel`；
+- 依赖：`langchain4j-core` + `langchain4j-open-ai`（不用 starter 的静态自动配置）；
+- 采用 **编程式 `AiServices.builder()`** 创建 `ResearchAiService` 代理，支持动态配置、`ChatMemoryProvider`、`Tools`。
+
+### 5.2 统一科研 Agent 接口
+
+新建 `ResearchAiService`（`AiServices` 接口），核心方法：
+
+| 方法 | 说明 |
+|---|---|
+| `analyzePaper(String text)` | 论文精读，返回结构化 POJO |
+| `comparePapers(String context)` | 横向对比，返回 markdown |
+| `identifyGaps(String context)` | Gap 分析，返回结构化报告 |
+| `chat(@MemoryId String id, @UserMessage String question)` | 带多轮记忆的追问 |
+| `suggestTags(...)` | 标签建议 |
+| `suggestFolder(...)` | 文件夹推荐 |
+| `recommendReadingStatus(...)` | 阅读状态推荐 |
+
+### 5.3 类改造/保留清单
+
+- **保留**：`LLMService` 接口、Controller 层、`ArxivFetcher`、`CrossrefFetcher`、`PdfExtractor`、`AsyncTaskService`、Entities/Mappers；
+- **改造**：`LLMServiceImpl`、`LLMStreamService`、`AgentOrchestratorImpl`、`PaperProcessingService`、`SearchServiceImpl`；
+- **新增**：`LangChain4jModelFactory`、`ResearchAiService`、`ResearchTools`、`PaperAnalysisResult` 等 POJO、`ChatMemoryStore` 实现。
+
+### 5.4 分阶段实施计划（按 ROI）
+
+1. **Phase 0**：加依赖 + 重写 `LLMServiceImpl`/`LLMStreamService` 非流式部分，验证现有功能 100% 正常；
+2. **Phase 1**：论文精读结构化输出改 POJO，替换 `PaperProcessingService` 手写 JSON 解析；
+3. **Phase 2**：追问对话接入 `ChatMemory`，新增 `conversation` 表或 Redis 存储；
+4. **Phase 3**：将 `ArxivFetcher`/`CrossrefFetcher`/`PdfExtractor` 封装为 `@Tool`，改造 Gap 验证与扩展检索；
+5. **Phase 4**：补齐标签建议 UI、阅读状态推荐、文件夹推荐；
+6. **Phase 5**（可选）：流式 + 记忆 + 工具完整整合。
+
+### 5.5 主要风险与规避
+
+- **版本兼容性**：LangChain4j 1.x + Java 17 + Spring Boot 3.2.6 兼容，但避免使用 starter 自动配置动态 Key；
+- **流式 SSE**：先保持手写实现，稳定后再迁移到 LangChain4j Streaming；
+- **异步与记忆**：`@Async` 一次性分析不使用 ChatMemory，对话类接口同步使用 `@MemoryId`；
+- **MyBatis Plus 事务**：LLM 调用在事务边界内但属外部 HTTP，失败时手动更新 `ProcessingStatus`；
+- **k2.7-code 温度**：温度强制 1.0，结构化输出保留旧解析 fallback。
+
+### 5.6 参考文档
+
+- [LangChain4j AI Services](https://docs.langchain4j.dev/tutorials/ai-services/)
+- [OpenAI integration](https://docs.langchain4j.dev/integrations/language-models/open-ai/)
+- [ChatMemory](https://docs.langchain4j.dev/tutorials/chat-memory/)
+- [Tools](https://docs.langchain4j.dev/tutorials/tools/)

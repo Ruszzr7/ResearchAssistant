@@ -61,6 +61,7 @@ Plan（计划） → Explain（凝炼讲解） → Code（写代码） → Test�
 - 每个功能模块完成后，进行代码审查，精简代码
 - 功能完成情况写入 `docs/progress.md`
 - 重点知识总结写入 `docs/knowledge.md`
+- AI 能力规划、阶段化实施路线与待补齐功能统一记录在 `docs/ai-features-roadmap.md`，每次 AI 层重构前优先阅读
 - 代码编写时加入**必要注释**，方便后续系统性查阅代码
 
 ## 用户环境
