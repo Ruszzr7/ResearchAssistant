@@ -1,10 +1,15 @@
 package com.research.assistant.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
+import com.research.assistant.service.ai.PaperAnalysisResult;
+import com.research.assistant.service.ai.ResearchAiService;
+import dev.langchain4j.service.Result;
+import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -13,7 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 论文处理服务 —— 编排完整的 PDF → 文本 → LLM 理解 → 持久化流水线。
  * <p>
- * 异步处理模式：前端触发后立即返回，后台执行 LLM 调用通过 processingStatus 状态机跟踪。
+ * Phase 1 引入 LangChain4j 结构化输出：优先使用 {@link ResearchAiService#analyzePaper(String)}
+ * 返回 POJO；若 POJO 解析失败，回退到旧的手写 JSON 字段提取。
  */
 @Service
 public class PaperProcessingService {
@@ -25,18 +31,23 @@ public class PaperProcessingService {
     private final PdfExtractor pdfExtractor;
     private final TextPreprocessor textPreprocessor;
     private final LLMService llmService;
+    private final ResearchAiService researchAiService;
+    private final ObjectMapper objectMapper;
 
     /** LLM 输入的最大字符数（防止 token 超限） */
     private static final int MAX_INPUT_CHARS = 12000;
 
     public PaperProcessingService(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
                                    PdfExtractor pdfExtractor, TextPreprocessor textPreprocessor,
-                                   LLMService llmService) {
+                                   LLMService llmService, ResearchAiService researchAiService,
+                                   ObjectMapper objectMapper) {
         this.paperMapper = paperMapper;
         this.analysisMapper = analysisMapper;
         this.pdfExtractor = pdfExtractor;
         this.textPreprocessor = textPreprocessor;
         this.llmService = llmService;
+        this.researchAiService = researchAiService;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -66,19 +77,17 @@ public class PaperProcessingService {
         String inputText = textPreprocessor.truncate(cleanedText, MAX_INPUT_CHARS);
         log.info("Paper {} 文本预处理完成: {} 字符 → {} 字符", paperId, rawText.length(), inputText.length());
 
-        // Step 3: LLM 结构化理解
-        LlmResponse llmResponse = llmService.chatWithUsage(ANALYSIS_SYSTEM_PROMPT, inputText);
-        String resultJson = llmResponse.getContent();
-        log.info("Paper {} LLM 分析完成, 结果长度: {}, token 消耗: {}", paperId, resultJson.length(), llmResponse.getTotalTokens());
-
-        // Step 4: 保存分析结果
+        // Step 3: LLM 结构化理解（POJO 优先，失败回退旧解析）
         PaperAnalysis analysis = new PaperAnalysis();
         analysis.setPaperId(paperId);
-        parseAndFillAnalysis(analysis, resultJson);
         analysis.setRawText(inputText);
-        analysis.setTokenUsed(llmResponse.getTotalTokens());
 
-        // 删除旧分析（如存在），插入新分析
+        boolean pojoSuccess = analyzeWithPojo(paperId, inputText, analysis);
+        if (!pojoSuccess) {
+            analyzeWithFallback(paperId, inputText, analysis);
+        }
+
+        // Step 4: 保存分析结果
         PaperAnalysis old = analysisMapper.selectOne(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PaperAnalysis>()
                         .eq(PaperAnalysis::getPaperId, paperId));
@@ -91,9 +100,87 @@ public class PaperProcessingService {
     }
 
     /**
+     * 主路径：使用 LangChain4j AiServices 获取结构化 POJO。
+     *
+     * @return true 表示成功，false 表示需要回退
+     */
+    private boolean analyzeWithPojo(Long paperId, String inputText, PaperAnalysis analysis) {
+        try {
+            Result<PaperAnalysisResult> result = researchAiService.analyzePaper(inputText);
+            if (result == null || result.content() == null) {
+                log.warn("Paper {} POJO 分析返回 null，准备回退", paperId);
+                return false;
+            }
+            PaperAnalysisResult pojo = result.content();
+            fillFromPojo(analysis, pojo);
+
+            TokenUsage usage = result.tokenUsage();
+            int totalTokens = usage != null && usage.totalTokenCount() != null
+                    ? usage.totalTokenCount() : 0;
+            analysis.setTokenUsed(totalTokens);
+
+            log.info("Paper {} 使用 LangChain4j POJO 分析完成，token: {}", paperId, totalTokens);
+            return true;
+        } catch (Exception e) {
+            log.warn("Paper {} POJO 分析失败，准备回退: {}", paperId, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 降级路径：使用旧的手写 Prompt + 手动 JSON 字段提取。
+     */
+    private void analyzeWithFallback(Long paperId, String inputText, PaperAnalysis analysis) {
+        LlmResponse llmResponse = llmService.chatWithUsage(ANALYSIS_SYSTEM_PROMPT, inputText);
+        String resultJson = llmResponse.getContent();
+        log.info("Paper {} LLM 分析完成（旧解析路径）, 结果长度: {}, token 消耗: {}",
+                paperId, resultJson.length(), llmResponse.getTotalTokens());
+
+        parseAndFillAnalysis(analysis, resultJson);
+        analysis.setTokenUsed(llmResponse.getTotalTokens());
+    }
+
+    /**
+     * 将 POJO 结果映射到 PaperAnalysis 实体。
+     */
+    private void fillFromPojo(PaperAnalysis analysis, PaperAnalysisResult result) {
+        analysis.setCoreContribution(result.getCoreContribution());
+
+        // 保持与旧解析一致的存储格式：domain 与 method_type 用 "|" 拼接
+        String domain = result.getDomain();
+        String methodType = result.getMethodType();
+        if (domain != null && !domain.isBlank()) {
+            analysis.setMethodType((domain + "|" + (methodType != null ? methodType : "")).trim());
+        } else {
+            analysis.setMethodType(methodType);
+        }
+
+        analysis.setMethodSummary(result.getMethodSummary());
+        analysis.setSectionsJson(toJson(result.getSections()));
+        analysis.setDatasetsJson(toJson(result.getDatasets()));
+        analysis.setModelsJson(toJson(result.getModels()));
+        analysis.setKeyFindingsJson(toJson(result.getKeyFindings()));
+        analysis.setLimitationsJson(toJson(result.getLimitations()));
+        analysis.setTablesSummaryJson(toJson(result.getTablesSummary()));
+        analysis.setFiguresSummaryJson(toJson(result.getFiguresSummary()));
+    }
+
+    private String toJson(Object value) {
+        if (value == null) {
+            return "[]";
+        }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            log.warn("JSON 序列化失败: {}", e.getMessage());
+            return "[]";
+        }
+    }
+
+    /**
      * 将 LLM 返回的 JSON 解析填充到 PaperAnalysis 实体。
      * <p>
-     * 使用简单的字符串解析而非 Jackson 反序列化——
+     * 作为 POJO 路径的 fallback 保留。使用简单的字符串解析而非 Jackson 反序列化——
      * LLM 返回的 JSON 可能含 markdown 代码块标记，需要先清洗。
      */
     private void parseAndFillAnalysis(PaperAnalysis analysis, String llmOutput) {
@@ -217,6 +304,6 @@ public class PaperProcessingService {
 }
 ```
 
-**规则**：信息无法确定时用空数组 [] 或空字符串 ""；不要编造内容；sections 按实际结构输出。
+**规则**：信息无法确定时用空数组 [] 或空字符串 "";不要编造内容；sections 按实际结构输出。
 """;
 }

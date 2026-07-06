@@ -534,7 +534,68 @@
 
 ---
 
-## 阶段 5：项目打包与分发部署（待处理）
+## 阶段 4.9：LangChain4j 集成 Phase 0 + Phase 1 — 2026-07-06 ✅
+
+**目标**：在不破坏现有功能的前提下引入 LangChain4j 做 AI 编排，先解决“结构化输出不稳定”这一最痛问题。
+
+**完成内容**：
+
+1. **依赖接入**：
+   - `backend/pom.xml` 新增 `langchain4j` + `langchain4j-open-ai`（版本 `1.0.0`），不使用 starter 的静态自动配置。
+
+2. **动态模型工厂**：
+   - 新建 `LangChain4jModelFactory`，从 `settings` 表热读 `api_key` / `base_url` / `model`。
+   - 复现原 `LLMServiceImpl` 的 base URL 规范化（兼容带/不带 `/v1`、斜杠）与 `kimi-k2.7-code` 温度=1.0 逻辑。
+
+3. **非流式 LLM 调用迁移**：
+   - 重写 `LLMServiceImpl.chat()` / `chatWithUsage()`，内部改走 `ChatModel.chat(...)`。
+   - 保留 `LLMService` 接口与 `LLMStreamService` 委托，前后端 URL/DTO 不变。
+
+4. **论文精读结构化输出 POJO 化**：
+   - 新建 `ResearchAiService`（`AiServices` 接口）+ `PaperAnalysisResult` POJO（带 `@Description`）。
+   - 新建 `ResearchAiConfig` 用 `AiServices.builder(...).chatModel(...)` 编程式构建代理。
+   - 改造 `PaperProcessingService.process()`：优先走 POJO 输出；失败时回退到旧的手写 `extractField` 解析。
+   - 通过 `Result<PaperAnalysisResult>` 获取 token usage 并写入 `paper_analysis.token_used`。
+
+5. **单元测试**：
+   - `LangChain4jModelFactoryTest`：base URL 规范化、温度解析、缺失配置抛异常。
+   - `LLMServiceImplTest`：验证 content 与 token 计数、null usage 处理。
+   - `PaperProcessingServiceTest`：POJO 成功路径映射到实体、POJO 失败回退到旧解析。
+
+**验证结果**：
+
+- `mvn clean compile` 通过，`mvn test` 28 项全部通过。
+- Spring Boot 成功启动，`settings` 表配置被正确读取，无 bean 循环依赖。
+- `PaperAnalysis.method_type` 仍保持旧格式 `domain|methodType`，DB schema 无需变更。
+
+**关键踩坑**：
+
+- LangChain4j 1.0.0 中 `AiServices` / `@SystemMessage` / `@UserMessage` 在 `langchain4j` artifact，不在 `langchain4j-core`。
+- 1.0.0 API 与 0.x 差异大：`ChatModel` 替代 `ChatLanguageModel`，`chat(ChatMessage...)` 返回 `ChatResponse`，`generate(...)` 已不存在。
+- `Result<T>` 才能拿到 token usage，普通 POJO 返回拿不到。
+- `OpenAiChatModel` 实现 `ChatModel`，`AiServices.builder().chatModel(...)` 接收 `ChatModel`。
+
+**文件清单**：
+
+- 新建：
+  - `backend/src/main/java/com/research/assistant/service/ai/LangChain4jModelFactory.java`
+  - `backend/src/main/java/com/research/assistant/service/ai/ResearchAiService.java`
+  - `backend/src/main/java/com/research/assistant/service/ai/ResearchAiConfig.java`
+  - `backend/src/main/java/com/research/assistant/service/ai/PaperAnalysisResult.java`
+  - `backend/src/test/java/com/research/assistant/service/ai/LangChain4jModelFactoryTest.java`
+  - `backend/src/test/java/com/research/assistant/service/impl/LLMServiceImplTest.java`
+  - `backend/src/test/java/com/research/assistant/service/PaperProcessingServiceTest.java`
+- 修改：
+  - `backend/pom.xml`
+  - `backend/src/main/java/com/research/assistant/service/impl/LLMServiceImpl.java`
+  - `backend/src/main/java/com/research/assistant/service/PaperProcessingService.java`
+
+**待后续验证**：
+
+- 真实 DeepSeek/Kimi Key 下论文精读是否成功、POJO 解析稳定性、fallback 触发率。
+- 流式 SSE 改用 LangChain4j（Phase 5）。
+
+
 
 **目标**：将当前开发态项目转为可分发态，使他人拉取项目后能通过 Docker 一键部署，无需手动安装 JDK、Node.js、MySQL。
 

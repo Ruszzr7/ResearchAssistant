@@ -626,3 +626,146 @@ HttpClient.newBuilder()
 | 上传大文件失败 | Spring 默认限制 1MB | `multipart.max-file-size: 50MB` |
 
 ---
+
+## 阶段 4.9：LangChain4j 集成 — 知识总结
+
+> 2026-07-06
+
+---
+
+### 一、LangChain4j 1.0.0 版本选型与依赖
+
+#### 1. 核心依赖
+
+```xml
+<properties>
+    <langchain4j.version>1.0.0</langchain4j.version>
+</properties>
+
+<dependencies>
+    <!-- AiServices、@SystemMessage、@UserMessage、结构化输出 POJO -->
+    <dependency>
+        <groupId>dev.langchain4j</groupId>
+        <artifactId>langchain4j</artifactId>
+        <version>${langchain4j.version}</version>
+    </dependency>
+    <!-- OpenAI 兼容模型（DeepSeek / Kimi / OpenRouter 等） -->
+    <dependency>
+        <groupId>dev.langchain4j</groupId>
+        <artifactId>langchain4j-open-ai</artifactId>
+        <version>${langchain4j.version}</version>
+    </dependency>
+</dependencies>
+```
+
+**坑**：`AiServices` 不在 `langchain4j-core` 中，必须在 `langchain4j` artifact 里。1.0.0 API 与 0.x 差异很大。
+
+---
+
+### 二、关键 API 变化（1.0.0 vs 0.x）
+
+| 0.x 概念 | 1.0.0 对应 | 说明 |
+|---|---|---|
+| `ChatLanguageModel` | `ChatModel` | 同步聊天模型接口 |
+| `StreamingChatLanguageModel` | `StreamingChatModel` | 流式聊天模型接口 |
+| `model.generate(messages)` | `model.chat(messages)` | 返回 `ChatResponse` |
+| `Response<AiMessage>` | `ChatResponse` | 通过 `aiMessage()` / `tokenUsage()` 取结果 |
+| `AiServices.builder(...).chatLanguageModel(...)` | `.chatModel(...)` | 参数改为 `ChatModel` |
+| `dev.langchain4j.data.message.SystemMessage` | 仍在 `dev.langchain4j.data.message` | 注解同名类在 `dev.langchain4j.service` |
+
+---
+
+### 三、AiServices 编程式构建
+
+当配置需要运行时从 DB 读取时，不要用 starter 的 `@AiService` 自动扫描，而是手动构建 Bean：
+
+```java
+@Configuration
+public class ResearchAiConfig {
+
+    @Bean
+    public ResearchAiService researchAiService(LangChain4jModelFactory modelFactory) {
+        return AiServices.builder(ResearchAiService.class)
+                .chatModel(modelFactory.createChatModel())
+                .build();
+    }
+}
+```
+
+接口示例：
+
+```java
+public interface ResearchAiService {
+
+    @SystemMessage("你是学术论文审稿人...")
+    @UserMessage("请分析：\n\n{{it}}")
+    Result<PaperAnalysisResult> analyzePaper(String text);
+}
+```
+
+- `{{it}}` 代表单个参数。
+- 返回 `Result<T>` 才能拿到 `tokenUsage()`；直接返回 POJO 拿不到用量。
+
+---
+
+### 四、结构化输出 POJO
+
+```java
+@Data
+public class PaperAnalysisResult {
+
+    @Description("论文领域，如 AI / CV / NLP")
+    private String domain;
+
+    @Description("三句话概括核心贡献")
+    private String coreContribution;
+
+    private List<String> datasets;
+    // ...
+}
+```
+
+- `@Description` 帮助 LLM 理解字段含义。
+- LangChain4j 会自动把 POJO 转成 JSON schema 并要求模型按 JSON 输出。
+- 模型输出不稳定时务必保留 fallback（旧解析或重试）。
+
+---
+
+### 五、动态配置工厂
+
+```java
+@Component
+public class LangChain4jModelFactory {
+
+    private final SettingsService settingsService;
+
+    public ChatModel createChatModel() {
+        return OpenAiChatModel.builder()
+                .baseUrl(normalizeBaseUrl(settingsService.getValue("base_url")))
+                .apiKey(settingsService.getValue("api_key"))
+                .modelName(settingsService.getValue("model"))
+                .temperature(resolveTemperature())
+                .maxTokens(4096)
+                .timeout(Duration.ofSeconds(120))
+                .build();
+    }
+}
+```
+
+- 每次调用都重新读 settings，支持前端修改后热生效。
+- `OpenAiChatModel` 的 baseUrl 需要带 `/v1`；它会再追加 `/chat/completions`。
+
+---
+
+### 六、踩坑速查
+
+| 问题 | 原因 | 解决 |
+|---|---|---|
+| 编译报找不到 `dev.langchain4j.service.AiServices` | 只引了 `langchain4j-core` | 加 `langchain4j` artifact |
+| `AiServices.builder(...).chatLanguageModel(...)` 不存在 | 1.0.0 改名 | 用 `.chatModel(...)` |
+| `OpenAiChatModel.generate(...)` 不存在 | 1.0.0 改名 | 用 `.chat(SystemMessage, UserMessage)` |
+| 拿不到 token usage | 方法返回了纯 POJO | 返回 `Result<T>`，调用 `result.tokenUsage()` |
+| POJO 字段为空 | LLM 输出不稳定 | 加 fallback 路径；或调 temperature / 换模型 |
+| baseUrl 404 | 多拼或少拼 `/v1` | 工厂里统一规范化成 `.../v1` |
+
+---
