@@ -47,9 +47,18 @@ public interface AgentOrchestrator {
     String analyzeGaps(Long folderId);
 
     /**
-     * 对话追问 —— 基于分析上下文回答用户问题。
+     * 对话追问 —— 基于分析上下文回答用户问题（单轮，无记忆）。
      */
     String chatAbout(String context, String question);
+
+    /**
+     * 对话追问 —— 基于分析上下文回答用户问题（多轮记忆）。
+     *
+     * @param conversationId 会话标识，为空则退化为单轮
+     * @param context 初次提问时的分析上下文
+     * @param question 用户问题
+     */
+    String chatAbout(String conversationId, String context, String question);
 
     /**
      * Agent 建议标签 —— 基于论文标题和摘要。

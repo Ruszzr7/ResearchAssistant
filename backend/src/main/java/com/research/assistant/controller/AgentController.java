@@ -148,10 +148,11 @@ public class AgentController {
         return Result.ok(result);
     }
 
-    /** POST /api/agent/chat — 分析追问对话 */
+    /** POST /api/agent/chat — 分析追问对话（支持多轮记忆） */
     @PostMapping("/chat")
     public Result<String> chat(@RequestBody @Valid ChatRequest request) {
-        String result = agentOrchestrator.chatAbout(request.getContext(), request.getQuestion());
+        String result = agentOrchestrator.chatAbout(
+                request.getConversationId(), request.getContext(), request.getQuestion());
         return Result.ok(result);
     }
 
@@ -249,10 +250,11 @@ public class AgentController {
         return verified;
     }
 
-    /** POST /api/agent/gap/chat — Gap 追问 */
+    /** POST /api/agent/gap/chat — Gap 追问（支持多轮记忆） */
     @PostMapping("/gap/chat")
     public Result<String> gapChat(@RequestBody @Valid ChatRequest request) {
-        String result = agentOrchestrator.chatAbout(request.getContext(), request.getQuestion());
+        String result = agentOrchestrator.chatAbout(
+                request.getConversationId(), request.getContext(), request.getQuestion());
         return Result.ok(result);
     }
 

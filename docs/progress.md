@@ -597,6 +597,61 @@
 
 
 
+## 阶段 4.10：LangChain4j 集成 Phase 2 — 2026-07-06 ✅
+
+**目标**：在 Phase 0/1 基础上实现多轮对话记忆，让 Agent 追问能联系上下文。
+
+**完成内容**：
+
+1. **数据层**：
+   - `schema.sql` 新增 `conversation` 表（`memory_id`, `role`, `content`, `created_at`）。
+   - 新建 `Conversation` 实体 + `ConversationMapper`（按 `memory_id` 查询/删除）。
+
+2. **ChatMemory 持久化**：
+   - 新建 `JdbcChatMemoryStore` 实现 LangChain4j `ChatMemoryStore`，消息按 `SYSTEM/USER/AI` 角色落库。
+   - `ResearchAiConfig` 注入 `ChatMemoryStore`，构建 `MessageWindowChatMemory`（maxMessages=20）。
+
+3. **多轮对话接口**：
+   - `ResearchAiService.chat(@MemoryId, @V("question"))` 返回 `Result<String>`。
+   - `AgentOrchestrator.chatAbout(conversationId, context, question)` 首次调用时把角色提示 + 上下文作为 `SystemMessage` 写入记忆；后续调用直接追加用户问题。
+   - `AgentOrchestrator` 保留原 `chatAbout(context, question)` 单轮方法作为退化 fallback。
+
+4. **Controller 接入**：
+   - `ChatRequest` 新增 `conversationId` 字段。
+   - `POST /api/agent/chat` 与 `POST /api/agent/gap/chat` 都改为多轮版本，传入 `conversationId`。
+
+**验证结果**：
+
+- `mvn test` 28 项全部通过。
+- 后端启动后，curl 实测 `/api/agent/chat`：
+  - 第一轮：提供论文上下文并问核心贡献 → 正确回答 Transformer。
+  - 第二轮：仅问“它用了什么注意力机制？” → 模型结合记忆回答 Scaled Dot-Product Attention / Multi-Head Attention。
+- `/api/agent/gap/chat` 同样能基于 Gap 上下文连续对话。
+
+**关键踩坑**：
+
+- `ConversationMapper.deleteByMemoryId` 误用 `@Select` 注解导致返回 null 报错，应使用 `@Delete`。
+- `ResearchAiService.chat` 同时存在方法级 `@SystemMessage` 与调用方手动写入记忆的 `SystemMessage` 时，LangChain4j 会优先/覆盖注解版本，导致上下文丢失。解决：移除 chat 方法的 `@SystemMessage`，完全由调用方通过记忆注入角色 + 上下文。
+- `{{it}}` 模板在存在 `@MemoryId` 与问题两个参数时无法自动映射，改用 `@V("question")` + `{{question}}`。
+- 已有运行中的旧后端进程占用 8080，必须杀掉重启才能加载新代码。
+
+**文件清单**：
+
+- 新建：
+  - `backend/src/main/java/com/research/assistant/entity/Conversation.java`
+  - `backend/src/main/java/com/research/assistant/mapper/ConversationMapper.java`
+  - `backend/src/main/java/com/research/assistant/service/ai/JdbcChatMemoryStore.java`
+- 修改：
+  - `backend/src/main/resources/schema.sql`
+  - `backend/src/main/java/com/research/assistant/service/ai/ResearchAiConfig.java`
+  - `backend/src/main/java/com/research/assistant/service/ai/ResearchAiService.java`
+  - `backend/src/main/java/com/research/assistant/service/AgentOrchestrator.java`
+  - `backend/src/main/java/com/research/assistant/service/impl/AgentOrchestratorImpl.java`
+  - `backend/src/main/java/com/research/assistant/dto/ChatRequest.java`
+  - `backend/src/main/java/com/research/assistant/controller/AgentController.java`
+
+---
+
 **目标**：将当前开发态项目转为可分发态，使他人拉取项目后能通过 Docker 一键部署，无需手动安装 JDK、Node.js、MySQL。
 
 **推荐方案**：Docker Compose 容器化部署。

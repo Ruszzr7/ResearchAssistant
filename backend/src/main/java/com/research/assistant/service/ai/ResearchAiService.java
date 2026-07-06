@@ -1,14 +1,16 @@
 package com.research.assistant.service.ai;
 
+import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.Result;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
 
 /**
  * 统一科研 Agent 接口 —— 基于 LangChain4j AiServices。
  * <p>
- * 目前仅暴露 Phase 1 所需的论文精读方法，后续阶段逐步扩展：
- * 对比、Gap 分析、多轮对话、标签/文件夹/阅读状态推荐等。
+ * 目前暴露论文精读与追问对话方法，后续阶段逐步扩展：
+ * 对比、Gap 分析、标签/文件夹/阅读状态推荐等。
  */
 public interface ResearchAiService {
 
@@ -35,4 +37,21 @@ public interface ResearchAiService {
             """)
     @UserMessage("请对以下论文文本进行结构化分析：\n\n{{it}}")
     Result<PaperAnalysisResult> analyzePaper(String cleanedPaperText);
+
+    /**
+     * 基于已有分析上下文进行多轮追问。
+     *
+     * @param memoryId 会话标识（如 paperId）
+     * @param question 用户问题
+     * @return 回答
+     */
+    /**
+     * 多轮追问。
+     * <p>
+     * 不通过 {@code @SystemMessage} 注入角色，而是由调用方在首次调用时把上下文作为
+     * {@link dev.langchain4j.data.message.SystemMessage} 写入记忆。这样同一会话始终
+     * 保留论文分析上下文，避免注解 SystemMessage 覆盖已持久化的上下文。
+     */
+    @UserMessage("{{question}}")
+    Result<String> chat(@MemoryId String memoryId, @V("question") String question);
 }

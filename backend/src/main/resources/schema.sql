@@ -93,6 +93,16 @@ CREATE TABLE IF NOT EXISTS comparison (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 对话历史（多轮 ChatMemory 持久化）
+CREATE TABLE IF NOT EXISTS conversation (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    memory_id    VARCHAR(100) NOT NULL,     -- 会话标识（如 paperId 或 frontend sessionId）
+    role         VARCHAR(20)  NOT NULL,     -- SYSTEM / USER / AI
+    content      MEDIUMTEXT,                -- 消息内容
+    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_memory_id (memory_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 论文-标签关联（多对多）
 CREATE TABLE paper_tag (
     paper_id BIGINT NOT NULL,

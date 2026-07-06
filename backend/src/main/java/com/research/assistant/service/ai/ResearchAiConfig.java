@@ -1,6 +1,8 @@
 package com.research.assistant.service.ai;
 
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -14,9 +16,15 @@ import org.springframework.context.annotation.Configuration;
 public class ResearchAiConfig {
 
     @Bean
-    public ResearchAiService researchAiService(LangChain4jModelFactory modelFactory) {
+    public ResearchAiService researchAiService(LangChain4jModelFactory modelFactory,
+                                                ChatMemoryStore chatMemoryStore) {
         return AiServices.builder(ResearchAiService.class)
                 .chatModel(modelFactory.createChatModel())
+                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
+                        .id(memoryId)
+                        .maxMessages(20)
+                        .chatMemoryStore(chatMemoryStore)
+                        .build())
                 .build();
     }
 }

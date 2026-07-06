@@ -13,6 +13,11 @@ import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.AgentOrchestrator;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.PaperProcessingService;
+import com.research.assistant.service.ai.ResearchAiService;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.service.Result;
+import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,16 +42,21 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
     private final FolderMapper folderMapper;
     private final PaperProcessingService processingService;
     private final LLMService llmService;
+    private final ResearchAiService researchAiService;
+    private final ChatMemoryStore chatMemoryStore;
 
     public AgentOrchestratorImpl(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
                                   ComparisonMapper comparisonMapper, FolderMapper folderMapper,
-                                  PaperProcessingService processingService, LLMService llmService) {
+                                  PaperProcessingService processingService, LLMService llmService,
+                                  ResearchAiService researchAiService, ChatMemoryStore chatMemoryStore) {
         this.paperMapper = paperMapper;
         this.analysisMapper = analysisMapper;
         this.comparisonMapper = comparisonMapper;
         this.folderMapper = folderMapper;
         this.processingService = processingService;
         this.llmService = llmService;
+        this.researchAiService = researchAiService;
+        this.chatMemoryStore = chatMemoryStore;
     }
 
     @Override
@@ -192,6 +202,29 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
         return llmService.chat(
                 "你是一位学术研究助手，帮助用户深入理解论文分析结果。回答简洁专业。",
                 prompt);
+    }
+
+    @Override
+    public String chatAbout(String conversationId, String context, String question) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return chatAbout(context, question);
+        }
+
+        // 如果是该会话的第一条消息，先把角色 + 上下文作为 system message 写入记忆
+        List<ChatMessage> messages = chatMemoryStore.getMessages(conversationId);
+        if (messages.isEmpty()) {
+            String systemContent = """
+                    你是一位学术研究助手，帮助用户深入理解论文分析结果。回答简洁专业；
+                    如果上下文中没有相关信息，诚实说明。
+                    """;
+            if (context != null && !context.isBlank()) {
+                systemContent += "\n\n以下是对论文分析结果的上下文：\n\n" + context;
+            }
+            chatMemoryStore.updateMessages(conversationId, List.of(SystemMessage.from(systemContent)));
+        }
+
+        Result<String> result = researchAiService.chat(conversationId, question);
+        return result != null ? result.content() : "";
     }
 
     @Override

@@ -769,3 +769,100 @@ public class LangChain4jModelFactory {
 | baseUrl 404 | 多拼或少拼 `/v1` | 工厂里统一规范化成 `.../v1` |
 
 ---
+
+## 阶段 4.10：LangChain4j 多轮 ChatMemory — 知识总结
+
+> 2026-07-06
+
+---
+
+### 一、ChatMemory 与 ChatMemoryStore
+
+LangChain4j 的 `ChatMemory` 负责在单次请求中组装历史消息，`ChatMemoryStore` 负责持久化。
+
+```java
+// 内存版（仅本次 JVM 有效）
+ChatMemory memory = MessageWindowChatMemory.withMaxMessages(20);
+
+// 持久版（自定义 store）
+ChatMemory memory = MessageWindowChatMemory.builder()
+        .id(memoryId)
+        .maxMessages(20)
+        .chatMemoryStore(myStore)
+        .build();
+```
+
+- `id(memoryId)`：同 id 会共用同一份历史。
+- `maxMessages(20)`：只保留最近 20 条，避免 token 爆炸。
+- `ChatMemoryStore` 接口只有 `getMessages` / `updateMessages` / `deleteMessages` 三个方法。
+
+### 二、通过 AiServices 使用记忆
+
+```java
+@Bean
+public ResearchAiService researchAiService(LangChain4jModelFactory modelFactory,
+                                            ChatMemoryStore chatMemoryStore) {
+    return AiServices.builder(ResearchAiService.class)
+            .chatModel(modelFactory.createChatModel())
+            .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
+                    .id(memoryId)
+                    .maxMessages(20)
+                    .chatMemoryStore(chatMemoryStore)
+                    .build())
+            .build();
+}
+```
+
+接口方法：
+
+```java
+@UserMessage("{{question}}")
+Result<String> chat(@MemoryId String memoryId, @V("question") String question);
+```
+
+- `@MemoryId` 标记会话标识。
+- `@V("question")` 把参数注入模板变量 `{{question}}`。
+- **不要**在方法上加 `@SystemMessage`  if 你还想通过记忆动态注入上下文；LangChain4j 的注解 system message 会覆盖或优先于记忆中的 system message。
+
+### 三、MySQL 持久化实现要点
+
+1. 表结构：`memory_id`（会话标识）、`role`（SYSTEM/USER/AI）、`content`、时间戳。
+2. `updateMessages` 通常是“全量覆盖”：先 delete 再 insert。
+3. 注意 MyBatis 注解：删除语句用 `@Delete`，不要误用 `@Select`。
+4. 消息类型转换：
+   - `SystemMessage` → `SYSTEM`
+   - `UserMessage` → `USER`
+   - `AiMessage` → `AI`
+   - `UserMessage.singleText()` 取文本。
+
+### 四、多轮对话的调用方设计
+
+首次调用时注入上下文作为 system message，后续调用只传问题：
+
+```java
+public String chatAbout(String conversationId, String context, String question) {
+    List<ChatMessage> messages = chatMemoryStore.getMessages(conversationId);
+    if (messages.isEmpty()) {
+        String systemContent = "角色提示...";
+        if (context != null && !context.isBlank()) {
+            systemContent += "\n\n上下文：\n" + context;
+        }
+        chatMemoryStore.updateMessages(conversationId,
+                List.of(SystemMessage.from(systemContent)));
+    }
+    Result<String> result = researchAiService.chat(conversationId, question);
+    return result.content();
+}
+```
+
+### 五、踩坑速查
+
+| 问题 | 原因 | 解决 |
+|---|---|---|
+| 模型无法记住上文 | 没配 `chatMemoryProvider` 或 id 不同 | 给 `MessageWindowChatMemory` 设 id 并注入 store |
+| 模型说“没有上下文” | chat 方法上的 `@SystemMessage` 覆盖了记忆中的 system message | 移除 chat 方法的 `@SystemMessage`，全由记忆注入 |
+| 删除消息报错“return null from primitive int” | `deleteByMemoryId` 用了 `@Select` | 改用 `@Delete` |
+| 多参数时模板不识别 `{{it}}` | 存在 `@MemoryId` + 问题两个参数 | 用 `@V("question")` + `{{question}}` |
+| 同 conversationId 第二次请求无记忆 | 旧后端进程仍在运行，没加载新代码 | 杀掉旧进程后重启 |
+
+---

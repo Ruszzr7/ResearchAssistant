@@ -9,6 +9,9 @@ import lombok.Data;
 @Data
 public class ChatRequest {
 
+    /** 会话标识，用于多轮记忆；为空则每次独立调用 */
+    private String conversationId;
+
     private String context;
 
     @NotBlank(message = "问题不能为空")
