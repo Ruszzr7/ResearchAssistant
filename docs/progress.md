@@ -705,6 +705,64 @@
 
 ---
 
+## 阶段 4.12：LangChain4j 集成 Phase 4 — 2026-07-07 ✅
+
+**目标**：补齐 Agent 推荐能力：标签建议、文件夹推荐、阅读状态推荐，并把标签建议 UI 接线。
+
+**完成内容**：
+
+1. **结构化输出 POJO**：
+   - 新建 `SuggestionPojos`：
+     - `TagSuggestionResult`（tags 列表）
+     - `FolderSuggestionResult`（folderId / reason / suggestNew / newName）
+     - `ReadingStatusSuggestionResult`（status / reason）
+
+2. **工具型 Agent 扩展推荐方法**：
+   - `ResearchToolAgent` 新增 `suggestTags`、`suggestFolder`、`suggestReadingStatus`。
+   - 统一使用 `@SystemMessage` + `@UserMessage("{{xxx}}")` + `@V` 参数注入，返回 `Result<POJO>`。
+
+3. **AgentOrchestrator 推荐逻辑升级**：
+   - `suggestTags`：优先走 POJO 输出；失败回退到旧字符串逗号拆分。
+   - `suggestFolder` / `suggestFolderByTitle`：优先走 POJO 输出；失败回退到旧 JSON 字符串解析。
+   - 新增 `suggestReadingStatus`：返回 `{status, reason}`，状态归一化为 `UNREAD/READING/READ`。
+
+4. **Controller 暴露新端点**：
+   - `POST /api/agent/reading-status-suggest`
+   - 已有 `/api/agent/tag-suggestions`、`/api/agent/folder-suggest` 改为内部走新 POJO 路径。
+
+5. **前端 UI 接线（LibraryView.vue）**：
+   - 标签编辑对话框增加「AI 推荐标签」按钮：调用后端建议接口，自动创建不存在的标签并勾选。
+   - 右侧详情面板阅读状态选择器旁增加「AI 推荐」按钮：调用 `/agent/reading-status-suggest` 并自动保存。
+   - 导入对话框的「Agent 推荐文件夹」保持原有链路，后端已升级为 POJO 路径。
+
+**验证结果**：
+
+- `mvn test` 28 项全部通过。
+- 前端 `npm run build` 通过。
+- curl 实测：
+  - `/api/agent/tag-suggestions` paperId=28 → `["Transformer","Attention Mechanism","Machine Translation","Sequence-to-Sequence Models","Encoder-Decoder"]`。
+  - `/api/agent/folder-suggest` paperId=28 → 建议新建 `Deep Learning` 文件夹并给出理由。
+  - `/api/agent/reading-status-suggest` paperId=28 → `{"status":"READING","reason":"..."}`。
+- 前端功能待用户进入页面后人工体验验证。
+
+**关键踩坑**：
+
+- POJO 字段注解 `@Description` 必须使用 `dev.langchain4j.model.output.structured.Description`，而不是 `dev.langchain4j.service.Description`。
+- 工具型 Agent 仍然不要绑定 ChatMemoryProvider，推荐方法也放在 `ResearchToolAgent` 中。
+
+**文件清单**：
+
+- 新建：
+  - `backend/src/main/java/com/research/assistant/service/ai/SuggestionPojos.java`
+- 修改：
+  - `backend/src/main/java/com/research/assistant/service/ai/ResearchToolAgent.java`
+  - `backend/src/main/java/com/research/assistant/service/AgentOrchestrator.java`
+  - `backend/src/main/java/com/research/assistant/service/impl/AgentOrchestratorImpl.java`
+  - `backend/src/main/java/com/research/assistant/controller/AgentController.java`
+  - `frontend/src/views/LibraryView.vue`
+
+---
+
 **目标**：将当前开发态项目转为可分发态，使他人拉取项目后能通过 Docker 一键部署，无需手动安装 JDK、Node.js、MySQL。
 
 **推荐方案**：Docker Compose 容器化部署。

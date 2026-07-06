@@ -955,3 +955,69 @@ List<Map<String, Object>> verified = objectMapper.readValue(json, List.class);
 | 同个 Bean 既有记忆又有工具，工具方法报错 | 默认 memoryId 污染 | 拆分接口/Bean |
 
 ---
+
+## 阶段 4.12：LangChain4j Agent 推荐 — 知识总结
+
+> 2026-07-07
+
+---
+
+### 一、推荐类任务也适合结构化输出 POJO
+
+标签、文件夹、阅读状态推荐的结果结构固定，非常适合用 POJO + `@Description` 让 LangChain4j 自动生成 JSON schema：
+
+```java
+public class TagSuggestionResult {
+    @Description("3-5 个精准的技术关键词标签，英文优先，用列表返回")
+    private List<String> tags;
+    // getter/setter
+}
+```
+
+接口方法：
+
+```java
+@SystemMessage("你是一位学术文献分类专家。请根据论文标题和摘要建议 3-5 个精准的技术关键词标签。")
+@UserMessage("论文标题：{{title}}\n摘要：{{abstract}}\n\n请返回 JSON：{\"tags\":[\"tag1\", \"tag2\", ...]}")
+Result<TagSuggestionResult> suggestTags(@V("title") String title, @V("abstract") String abstractText);
+```
+
+### 二、@Description 的正确包名
+
+用于 POJO 字段描述的 `@Description` 必须是：
+
+```java
+import dev.langchain4j.model.output.structured.Description;
+```
+
+`dev.langchain4j.service.Description` 是用于服务方法参数的，不能用在 POJO 上。
+
+### 三、推荐结果的后处理
+
+LLM 返回的 POJO 可能不完全符合业务约束，调用方需要兜底：
+
+```java
+String normalizeReadingStatus(String raw) {
+    return switch (raw.toUpperCase()) {
+        case "READING" -> ReadingStatus.READING;
+        case "READ" -> ReadingStatus.READ;
+        default -> ReadingStatus.UNREAD;
+    };
+}
+```
+
+### 四、前端接线要点
+
+- 标签建议：拿到字符串数组后，对已有标签直接勾选，不存在的标签先调 `POST /tags` 创建再勾选。
+- 阅读状态建议：拿到 `{status, reason}` 后更新 `currentPaper.readingStatus` 并调保存接口。
+- 文件夹推荐：导入对话框已有按钮，后端接口升级后前端无需改动。
+
+### 五、踩坑速查
+
+| 问题 | 原因 | 解决 |
+|---|---|---|
+| 编译找不到 `@Description` | 包名引错 | 用 `dev.langchain4j.model.output.structured.Description` |
+| POJO 字段为空 | `@Description` 不够清晰或模型未按要求输出 | 优化描述，保留 fallback |
+| 推荐结果不合法（如状态拼写错误） | 模型输出不稳定 | 调用方做归一化和默认值兜底 |
+
+---

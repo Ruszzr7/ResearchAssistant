@@ -250,4 +250,13 @@ public class AgentController {
         }
         return Result.ok(agentOrchestrator.suggestFolderByTitle(title));
     }
+
+    @PostMapping("/reading-status-suggest")
+    public Result<Map<String, Object>> suggestReadingStatus(@RequestBody Map<String, Long> body) {
+        Long paperId = body.get("paperId");
+        if (paperId == null) {
+            return Result.error(400, "请提供 paperId");
+        }
+        return Result.ok(agentOrchestrator.suggestReadingStatus(paperId));
+    }
 }

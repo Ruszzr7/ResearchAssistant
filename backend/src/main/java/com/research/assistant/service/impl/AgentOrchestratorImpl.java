@@ -303,6 +303,21 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
     public List<String> suggestTags(Long paperId) {
         Paper paper = paperMapper.selectById(paperId);
         if (paper == null) return Collections.emptyList();
+        try {
+            var result = researchToolAgent.suggestTags(
+                    paper.getTitle(),
+                    paper.getAbstractText() != null ? paper.getAbstractText() : "");
+            if (result != null && result.content() != null && result.content().getTags() != null) {
+                return result.content().getTags().stream()
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toList());
+            }
+        } catch (Exception e) {
+            log.warn("Agent 标签建议失败，回退到字符串解析: {}", e.getMessage());
+        }
+
+        // Fallback: 旧字符串解析
         String prompt = "论文标题：" + paper.getTitle() + "\n摘要：" +
                 (paper.getAbstractText() != null ? paper.getAbstractText() : "无") +
                 "\n\n请为这篇论文建议 3-5 个标签（技术关键词），用逗号分隔，只返回标签列表。";
@@ -314,16 +329,16 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
     public Map<String, Object> suggestFolder(Long paperId) {
         Paper paper = paperMapper.selectById(paperId);
         if (paper == null) return Map.of("recommended", null, "suggestNew", false);
-        return doSuggestFolder(paper.getTitle());
+        return doSuggestFolder(paper.getTitle(), paper.getAbstractText());
     }
 
     @Override
     public Map<String, Object> suggestFolderByTitle(String title) {
-        return doSuggestFolder(title);
+        return doSuggestFolder(title, "");
     }
 
     /** 通用文件夹推荐逻辑 */
-    private Map<String, Object> doSuggestFolder(String title) {
+    private Map<String, Object> doSuggestFolder(String title, String abstractText) {
         List<Folder> folders = folderMapper.selectList(null);
         if (folders.isEmpty()) return Map.of("recommended", null, "suggestNew", true, "newName", "新文件夹");
 
@@ -331,6 +346,26 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
         for (Folder f : folders) {
             folderList.append("- ").append(f.getName()).append(" (id=").append(f.getId()).append(")\n");
         }
+
+        try {
+            var result = researchToolAgent.suggestFolder(
+                    title,
+                    abstractText != null ? abstractText : "",
+                    folderList.toString());
+            if (result != null && result.content() != null) {
+                var pojo = result.content();
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("recommended", pojo.getFolderId());
+                map.put("reason", pojo.getReason());
+                map.put("suggestNew", pojo.isSuggestNew());
+                map.put("newName", pojo.getNewName());
+                return map;
+            }
+        } catch (Exception e) {
+            log.warn("Agent 文件夹推荐失败，回退到字符串解析: {}", e.getMessage());
+        }
+
+        // Fallback: 旧 JSON 字符串解析
         String prompt = "论文标题：" + title + "\n现有文件夹列表：\n" + folderList +
                 "\n请为这篇论文推荐最合适的现有文件夹。返回 JSON: {\"folderId\": 数字 或 null, \"reason\": \"一句话理由\", \"suggestNew\": true/false, \"newName\": \"建议新文件夹名（若 suggestNew 为 true）\"}";
         String result = llmService.chat("你是一位学术文献管理助手。请为论文推荐最合适的文件夹。只返回JSON。", prompt);
@@ -339,6 +374,41 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
         } catch (Exception e) {
             return Map.of("recommended", null, "suggestNew", false);
         }
+    }
+
+    @Override
+    public Map<String, Object> suggestReadingStatus(Long paperId) {
+        Paper paper = paperMapper.selectById(paperId);
+        if (paper == null) {
+            return Map.of("status", com.research.assistant.constant.ReadingStatus.UNREAD,
+                    "reason", "论文不存在，默认未读");
+        }
+
+        try {
+            var result = researchToolAgent.suggestReadingStatus(
+                    paper.getTitle(),
+                    paper.getAbstractText() != null ? paper.getAbstractText() : "");
+            if (result != null && result.content() != null) {
+                var pojo = result.content();
+                return Map.of(
+                        "status", normalizeReadingStatus(pojo.getStatus()),
+                        "reason", pojo.getReason() != null ? pojo.getReason() : "");
+            }
+        } catch (Exception e) {
+            log.warn("Agent 阅读状态推荐失败，返回默认 UNREAD: {}", e.getMessage());
+        }
+
+        return Map.of("status", com.research.assistant.constant.ReadingStatus.UNREAD,
+                "reason", "推荐失败，默认未读");
+    }
+
+    private String normalizeReadingStatus(String raw) {
+        if (raw == null) return com.research.assistant.constant.ReadingStatus.UNREAD;
+        return switch (raw.toUpperCase()) {
+            case "READING" -> com.research.assistant.constant.ReadingStatus.READING;
+            case "READ" -> com.research.assistant.constant.ReadingStatus.READ;
+            default -> com.research.assistant.constant.ReadingStatus.UNREAD;
+        };
     }
 
     private String extractJson(String s) {

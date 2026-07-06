@@ -323,9 +323,10 @@
       </div>
       <div class="detail-item">
         <span class="label">阅读状态</span>
-        <el-select v-model="currentPaper.readingStatus" size="small" @change="savePaper(currentPaper)">
+        <el-select v-model="currentPaper.readingStatus" size="small" @change="savePaper(currentPaper)" style="flex:1">
           <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
+        <el-button size="small" text type="primary" :loading="recommendingStatus" @click="recommendReadingStatus" :disabled="!currentPaper">AI 推荐</el-button>
       </div>
       <div class="detail-item">
         <span class="label">标签</span>
@@ -415,6 +416,7 @@
       </el-select>
       <template #footer>
         <el-button @click="tagDialogVisible = false">取消</el-button>
+        <el-button :loading="suggestingTags" @click="suggestTagsForDialog" :disabled="!tagDialogPaper">AI 推荐标签</el-button>
         <el-button type="primary" @click="saveTagDialog">保存</el-button>
       </template>
     </el-dialog>
@@ -590,6 +592,8 @@ const batchMoving = ref(false)
 const tagDialogVisible = ref(false)
 const tagDialogPaper = ref(null)
 const tagDialogSelectedIds = ref([])
+const suggestingTags = ref(false)
+const recommendingStatus = ref(false)
 
 const isAllSelected = computed(() => {
   if (papers.value.length === 0) return false
@@ -717,6 +721,36 @@ function openTagDialog(paper) {
   tagDialogVisible.value = true
 }
 
+async function suggestTagsForDialog() {
+  if (!tagDialogPaper.value) return
+  suggestingTags.value = true
+  try {
+    const names = await api.post('/agent/tag-suggestions', { paperId: tagDialogPaper.value.id }).then(r => r.data || [])
+    const ids = []
+    for (const name of names) {
+      const trimmed = name.trim()
+      if (!trimmed) continue
+      const existing = allTags.value.find(t => t.name === trimmed)
+      if (existing) {
+        ids.push(existing.id)
+      } else {
+        try {
+          const created = await api.post('/tags', { name: trimmed }).then(r => r.data)
+          allTags.value.push(created)
+          ids.push(created.id)
+        } catch (e) {
+          console.warn('创建标签失败:', trimmed, e)
+        }
+      }
+    }
+    tagDialogSelectedIds.value = [...new Set([...tagDialogSelectedIds.value, ...ids])]
+  } catch (e) {
+    ElMessage.error('AI 标签建议失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    suggestingTags.value = false
+  }
+}
+
 async function saveTagDialog() {
   if (!tagDialogPaper.value) return
   await saveTagsForPaper(tagDialogPaper.value.id, tagDialogSelectedIds.value)
@@ -745,6 +779,23 @@ async function setPaperStatus(paper, status) {
     await loadPapers()
   } catch (e) {
     ElMessage.error('状态更新失败：' + (e.response?.data?.message || e.message))
+  }
+}
+
+async function recommendReadingStatus() {
+  if (!currentPaper.value) return
+  recommendingStatus.value = true
+  try {
+    const result = await api.post('/agent/reading-status-suggest', { paperId: currentPaper.value.id }).then(r => r.data)
+    if (result && result.status) {
+      currentPaper.value.readingStatus = result.status
+      await savePaper(currentPaper.value)
+      ElMessage.success(`AI 推荐阅读状态：${statusLabel(result.status)}`)
+    }
+  } catch (e) {
+    ElMessage.error('阅读状态推荐失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    recommendingStatus.value = false
   }
 }
 

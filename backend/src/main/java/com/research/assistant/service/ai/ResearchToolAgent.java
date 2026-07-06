@@ -3,6 +3,9 @@ package com.research.assistant.service.ai;
 import dev.langchain4j.service.Result;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
+
+import static com.research.assistant.service.ai.SuggestionPojos.*;
 
 /**
  * 工具型科研 Agent 接口 —— 用于需要 LLM 自主调用工具但不需要对话记忆的任务。
@@ -39,4 +42,28 @@ public interface ResearchToolAgent {
             """)
     @UserMessage("请验证以下 Gap 分析报告：\n\n{{it}}")
     Result<String> verifyGaps(String gapReport);
+
+    /**
+     * 标签建议。
+     */
+    @SystemMessage("你是一位学术文献分类专家。请根据论文标题和摘要建议 3-5 个精准的技术关键词标签。")
+    @UserMessage("论文标题：{{title}}\n摘要：{{abstract}}\n\n请返回 JSON：{\"tags\":[\"tag1\", \"tag2\", ...]}")
+    Result<TagSuggestionResult> suggestTags(@V("title") String title, @V("abstract") String abstractText);
+
+    /**
+     * 文件夹推荐。
+     */
+    @SystemMessage("你是一位学术文献管理助手。请从现有文件夹中为论文推荐最合适的位置。")
+    @UserMessage("论文标题：{{title}}\n摘要：{{abstract}}\n\n现有文件夹列表：\n{{folders}}\n\n请返回 JSON：{\"folderId\": 数字或null, \"reason\": \"一句话理由\", \"suggestNew\": true/false, \"newName\": \"建议新文件夹名\"}")
+    Result<FolderSuggestionResult> suggestFolder(@V("title") String title,
+                                                  @V("abstract") String abstractText,
+                                                  @V("folders") String folderList);
+
+    /**
+     * 阅读状态推荐。
+     */
+    @SystemMessage("你是一位科研阅读管理助手。根据论文标题、摘要以及用户近期阅读行为，推荐阅读状态。")
+    @UserMessage("论文标题：{{title}}\n摘要：{{abstract}}\n\n请返回 JSON：{\"status\": \"UNREAD|READING|READ\", \"reason\": \"一句话理由\"}")
+    Result<ReadingStatusSuggestionResult> suggestReadingStatus(@V("title") String title,
+                                                                @V("abstract") String abstractText);
 }

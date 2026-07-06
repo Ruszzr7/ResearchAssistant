@@ -82,4 +82,11 @@ public interface AgentOrchestrator {
      * Agent 推荐文件夹 —— 基于论文标题（导入时尚未入库的场景）。
      */
     Map<String, Object> suggestFolderByTitle(String title);
+
+    /**
+     * Agent 推荐阅读状态 —— 基于论文标题和摘要。
+     *
+     * @return Map of {status: UNREAD/READING/READ, reason: string}
+     */
+    Map<String, Object> suggestReadingStatus(Long paperId);
 }
