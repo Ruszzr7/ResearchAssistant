@@ -1,0 +1,71 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=e7]:
+      - menuitem "文库管理" [ref=e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=e11] [cursor=pointer]
+    - button [ref=e12] [cursor=pointer]:
+      - img [ref=e14]
+  - main [ref=e18]:
+    - generic [ref=e333]:
+      - generic [ref=e334]:
+        - generic [ref=e335]:
+          - heading "选择论文" [level=4] [ref=e336]
+          - generic [ref=e337]:
+            - button "全选" [ref=e338] [cursor=pointer]:
+              - generic [ref=e339]: 全选
+            - button "取消" [ref=e340] [cursor=pointer]:
+              - generic [ref=e341]: 取消
+        - textbox "搜索论文…" [ref=e344]
+        - group "checkbox-group" [ref=e347]:
+          - generic [ref=e349] [cursor=pointer]:
+            - generic [ref=e350]:
+              - checkbox "1 17831444089262025" [checked]
+            - generic [ref=e352]: 1 17831444089262025
+          - generic [ref=e354] [cursor=pointer]:
+            - generic [ref=e355]:
+              - checkbox "2201.009782025" [checked]
+            - generic [ref=e357]: "2201.009782025"
+          - generic [ref=e359] [cursor=pointer]:
+            - generic [ref=e360]:
+              - checkbox "WY 进一步优化短块长CSIT的RSMA和速率2025" [checked]
+            - generic [ref=e362]: WY 进一步优化短块长CSIT的RSMA和速率2025
+      - generic [ref=e363]:
+        - generic [ref=e364]:
+          - generic [ref=e365]:
+            - text: 已选
+            - strong [ref=e366]: "3"
+            - text: 篇论文
+          - button "开始空白分析" [ref=e367] [cursor=pointer]:
+            - generic [ref=e368]: 开始空白分析
+        - generic [ref=e371]:
+          - generic [ref=e372]:
+            - generic [ref=e373]:
+              - generic [ref=e374]: 🟢 已被明确解决
+              - generic [ref=e376]: 已有研究
+            - heading "[方法 Gap] 短包非完美 CSIT 下 RSMA 的预编码与资源分配仍为次优" [level=4] [ref=e377]
+            - generic [ref=e378]:
+              - generic [ref=e379]: 描述
+              - paragraph [ref=e380]: "midTNT）** 两个方向提取出以下研究空白。所有 Gap 均标注了维度、不确定性评估以及可验证的 arXiv 关键词。 --- ### [方法 Gap] 短包非完美 CSIT 下 RSMA 的预编码与资源分配仍为次优 - **描述**：WY（2025）仅采用一层 RSMA，并对私有流使用 **ZF 预编码 + 等功率分配**，公共流采用随机波束成形。在高移动性 URLLC 的有限块长（FBL）场景下，这种设计在接收机复杂度与性能之间做了简单折中，但远非最优。 - **为什么是 Gap**：现有闭式推导建立在线性 ZF 与等功率假设上，尚未充分考虑： 1. 多层级 RSMA 的消息分"
+            - generic [ref=e381]:
+              - generic [ref=e382]: 依据
+              - paragraph [ref=e383]: 库内论文覆盖空白
+            - generic [ref=e384]:
+              - generic [ref=e385]: 外部验证
+              - paragraph [ref=e386]: 已有较多相关研究（检索到 3 篇相关论文），例如：The Degrees of Freedom Region of Temporally-Correlated MIMO Networks with Delayed CSIT
+            - generic [ref=e387]:
+              - generic [ref=e388]: 建议
+              - paragraph [ref=e389]: 建议深入调研后评估可行性
+          - generic [ref=e390]:
+            - button "复制报告" [ref=e391] [cursor=pointer]:
+              - generic [ref=e392]: 复制报告
+            - button "导出 Markdown" [ref=e393] [cursor=pointer]:
+              - generic [ref=e394]: 导出 Markdown
+        - generic [ref=e395]:
+          - generic [ref=e396]: 追问
+          - generic [ref=e397]:
+            - textbox "对这些 Gap 还有什么想问的？" [ref=e400]
+            - button "发送" [ref=e401] [cursor=pointer]:
+              - generic [ref=e402]: 发送

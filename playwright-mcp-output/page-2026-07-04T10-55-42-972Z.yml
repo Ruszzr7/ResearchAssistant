@@ -1,0 +1,34 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=e7]:
+      - menuitem "文库管理" [ref=e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=e11] [cursor=pointer]
+    - button [ref=e12] [cursor=pointer]:
+      - img [ref=e14]
+  - main [ref=e18]:
+    - generic [ref=e363]:
+      - generic [ref=e364]:
+        - heading "当前论文" [level=4] [ref=e365]
+        - generic [ref=e366]:
+          - generic [ref=e367]: "2201.00978"
+          - generic [ref=e368] [cursor=pointer]: ✕
+      - generic [ref=e369]:
+        - generic [ref=e370]:
+          - button "精读" [ref=e371] [cursor=pointer]
+          - button "对比" [ref=e372] [cursor=pointer]
+          - button "推荐" [ref=e373] [cursor=pointer]
+        - generic [ref=e374]:
+          - button "开始精读分析" [disabled]:
+            - generic:
+              - img
+            - generic: 开始精读分析
+          - generic [ref=e377]: "Weneedanswerassenioracademicreviewer.Needoutputmarkdownstructuredanalysis:firstjudgedomain(AI/CV/NLP/communication/control),thenanalyzecorecontributions,methodoverview(model/algorithm/framework),datasetsandmodelsused,mainfindings,limitations.Wehavepapertext.Needparse.Wecanproducecomprehensivereview.Let'sanalyze.Domain:ComputerVision/AI.Specificallyvisiontransformers,imageclassification,objectdetection.Corecontributions:PyramidTNTintroducesimprovedTNTbaselineswithtwoadvanceddesigns:pyramidarchitecture(hierarchicalmulti-stage,reducedresolutionasdepthincreases)andconvolutionalstem(insteadofpatchifylinear).Theyalsouserelativepositionencoding,LinearSpatialReductionAttention(LSRA)infirsttwostages,downsamplepatchmerging,etc.TheyproposemodelsT/S/M/B.AchievesbetterImageNettop-1accuracyvsTNTandSwin,betterCOCOdetectionwithfewerFLOPs.Methodoverview:-BasedonTNT[11]:innertransformerforsub-patches(words)andoutertransformerforpatches(sentences).PyramidTNTaddsstageswithdifferenttokenresolutions:wordsspatialshapeH/4×W/4,H/8×W/8,H/16×W/16,H/16×W/16?Waitstages:Stage1wordH/4×W/4sentenceH/8×W/8;Stage2wordH/8×W/8sentenceH/16×W/16;Stage3wordH/16×W/16sentenceH/32×W/32;Stage4wordH/16?ActuallyTable1textmessy.Butdetails:4stages,downsampleoperationsviaconvolutionstride2/patchmerging.-Convolutionalstem:5×3x3conv?ThetablesaysStemConv×5.ProducesvisualwordsYofH/2×W/2×CandvisualsentencesZofH/8×W/8×D?Waitconvstemproducesvisualwords(sub-patches)H/2×W/2×C.VisualsentencesZofH/8×W/8×D.ActuallyTNToriginalhadpatchsize16andsub-patch4;thuswordgridH/4×W/4,sentencegridH/16×W/16.Hereconvstemmaybe5convstride2?Let'sinfer:TheysaystemproducesvisualwordsYinR^{H/2×W/2×C}andvisualsentencesZinR^{H/8×W/8×D}.Theword-levelandsentence-levelpositionencodingsadded.Thenpyramidstagesreduce.-TNTblockoperatesonword-levelandsentence-levelfeatures.-LSRA:LinearSpatialReductionAttentionusedinfirsttwostagestoreducecomputationforlongsequences,withreductionratioRinTable1.-Relativepositionencoding.-Classificationhead:pooling+FC.-Objectdetection:usesRetinaNet?ProbablytheexperimentsmentionCOCOdetection.ThepaperincludesCOCOdetectionresultsmaybenotfullyprovided.WeneedstatedatasetC"
+        - generic [ref=e378]:
+          - generic [ref=e379]: 追问
+          - generic [ref=e380]:
+            - textbox "对这篇论文还有什么想问的？" [ref=e383]
+            - button "发送" [ref=e384] [cursor=pointer]:
+              - generic [ref=e385]: 发送

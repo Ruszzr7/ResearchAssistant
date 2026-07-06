@@ -1,0 +1,43 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=e7]:
+      - menuitem "文库管理" [ref=e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=e11] [cursor=pointer]
+    - button [ref=e12] [cursor=pointer]:
+      - img [ref=e14]
+  - main [ref=e18]:
+    - generic [ref=e363]:
+      - generic [ref=e364]:
+        - heading "当前论文" [level=4] [ref=e365]
+        - generic [ref=e366]:
+          - generic [ref=e367]: "2201.00978"
+          - generic [ref=e368] [cursor=pointer]: ✕
+        - heading "对比论文" [level=4] [ref=e386]
+        - generic [ref=e407]:
+          - generic [ref=e408]: WY 进一步优化短块长CSIT的RSMA和速率
+          - generic [ref=e409] [cursor=pointer]: ✕
+        - generic [ref=e388]:
+          - generic [ref=e389]:
+            - combobox [ref=e391]
+            - generic [ref=e392]: + 添加对比论文
+          - img [ref=e395] [cursor=pointer]
+      - generic [ref=e369]:
+        - generic [ref=e370]:
+          - button "精读" [ref=e371] [cursor=pointer]
+          - button "对比" [ref=e372] [cursor=pointer]
+          - button "推荐" [ref=e373] [cursor=pointer]
+        - generic [ref=e397]:
+          - textbox "自定义对比维度（可选），如：只对比损失函数设计" [ref=e412]
+          - button "开始对比分析" [disabled]:
+            - generic:
+              - img
+            - generic: 开始对比分析
+        - generic [ref=e378]:
+          - generic [ref=e379]: 追问
+          - generic [ref=e380]:
+            - textbox "对这篇论文还有什么想问的？" [ref=e383]
+            - button "发送" [ref=e384] [cursor=pointer]:
+              - generic [ref=e385]: 发送

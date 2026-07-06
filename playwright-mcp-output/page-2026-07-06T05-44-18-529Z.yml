@@ -1,0 +1,133 @@
+- generic [ref=f11e4]:
+  - generic [ref=f11e5]:
+    - generic [ref=f11e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f11e7]:
+      - menuitem "文库管理" [ref=f11e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=f11e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=f11e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=f11e11] [cursor=pointer]
+    - button [ref=f11e12] [cursor=pointer]:
+      - img [ref=f11e14]
+  - main [ref=f11e18]:
+    - generic [ref=f11e521]:
+      - generic [ref=f11e522]:
+        - generic [ref=f11e523]:
+          - generic [ref=f11e524]: "1"
+          - text: 描述研究方向
+        - generic [ref=f11e526]:
+          - textbox "用自然语言描述你想研究的方向…例如：我想研究大规模MIMO系统中的资源分配优化问题" [disabled] [ref=f11e529]: RSMA rate splitting multiple access
+          - button "开始检索" [ref=f11e535] [cursor=pointer]:
+            - generic [ref=f11e532]: 开始检索
+      - generic [ref=f11e536]:
+        - generic [ref=f11e537]:
+          - generic [ref=f11e538]: "2"
+          - text: Agent 理解确认 — 可编辑每一项
+        - generic [ref=f11e539]:
+          - generic [ref=f11e540]:
+            - generic [ref=f11e541]:
+              - generic [ref=f11e542]: 领域
+              - textbox [ref=f11e545]: 通信
+            - generic [ref=f11e546]:
+              - generic [ref=f11e547]: 子方向
+              - textbox [ref=f11e550]: 速率分割多址接入（RSMA）技术在无线通信系统中的物理层设计、资源分配与干扰管理研究
+            - generic [ref=f11e551]:
+              - generic [ref=f11e552]: 英文关键词
+              - generic [ref=f11e553]:
+                - generic [ref=f11e554]:
+                  - generic [ref=f11e555]: Rate-Splitting Multiple Access
+                  - button "Close this tag" [ref=f11e556]:
+                    - img [ref=f11e558] [cursor=pointer]
+                - generic [ref=f11e560]:
+                  - generic [ref=f11e561]: RSMA
+                  - button "Close this tag" [ref=f11e562]:
+                    - img [ref=f11e564] [cursor=pointer]
+                - generic [ref=f11e566]:
+                  - generic [ref=f11e567]: rate splitting
+                  - button "Close this tag" [ref=f11e568]:
+                    - img [ref=f11e570] [cursor=pointer]
+                - generic [ref=f11e572]:
+                  - generic [ref=f11e573]: multiple access
+                  - button "Close this tag" [ref=f11e574]:
+                    - img [ref=f11e576] [cursor=pointer]
+                - generic [ref=f11e578]:
+                  - generic [ref=f11e579]: non-orthogonal multiple access
+                  - button "Close this tag" [ref=f11e580]:
+                    - img [ref=f11e582] [cursor=pointer]
+                - generic [ref=f11e584]:
+                  - generic [ref=f11e585]: NOMA
+                  - button "Close this tag" [ref=f11e586]:
+                    - img [ref=f11e588] [cursor=pointer]
+                - generic [ref=f11e590]:
+                  - generic [ref=f11e591]: MIMO
+                  - button "Close this tag" [ref=f11e592]:
+                    - img [ref=f11e594] [cursor=pointer]
+                - generic [ref=f11e596]:
+                  - generic [ref=f11e597]: multiuser MIMO
+                  - button "Close this tag" [ref=f11e598]:
+                    - img [ref=f11e600] [cursor=pointer]
+                - generic [ref=f11e602]:
+                  - generic [ref=f11e603]: beamforming
+                  - button "Close this tag" [ref=f11e604]:
+                    - img [ref=f11e606] [cursor=pointer]
+                - generic [ref=f11e608]:
+                  - generic [ref=f11e609]: precoding
+                  - button "Close this tag" [ref=f11e610]:
+                    - img [ref=f11e612] [cursor=pointer]
+                - generic [ref=f11e614]:
+                  - generic [ref=f11e615]: interference management
+                  - button "Close this tag" [ref=f11e616]:
+                    - img [ref=f11e618] [cursor=pointer]
+                - generic [ref=f11e620]:
+                  - generic [ref=f11e621]: power allocation
+                  - button "Close this tag" [ref=f11e622]:
+                    - img [ref=f11e624] [cursor=pointer]
+                - generic [ref=f11e626]:
+                  - generic [ref=f11e627]: spectral efficiency
+                  - button "Close this tag" [ref=f11e628]:
+                    - img [ref=f11e630] [cursor=pointer]
+                - generic [ref=f11e632]:
+                  - generic [ref=f11e633]: energy efficiency
+                  - button "Close this tag" [ref=f11e634]:
+                    - img [ref=f11e636] [cursor=pointer]
+                - generic [ref=f11e638]:
+                  - generic [ref=f11e639]: 5G
+                  - button "Close this tag" [ref=f11e640]:
+                    - img [ref=f11e642] [cursor=pointer]
+                - generic [ref=f11e644]:
+                  - generic [ref=f11e645]: 6G
+                  - button "Close this tag" [ref=f11e646]:
+                    - img [ref=f11e648] [cursor=pointer]
+                - generic [ref=f11e650]:
+                  - generic [ref=f11e651]: wireless communications
+                  - button "Close this tag" [ref=f11e652]:
+                    - img [ref=f11e654] [cursor=pointer]
+                - textbox "+ 添加" [ref=f11e658]
+            - generic [ref=f11e659]:
+              - generic [ref=f11e660]: 时间范围
+              - textbox [ref=f11e663]: 近8年
+            - generic [ref=f11e664]:
+              - generic [ref=f11e665]: 论文类型
+              - generic [ref=f11e666]:
+                - generic [ref=f11e667]:
+                  - generic [ref=f11e668]: journal
+                  - button "Close this tag" [ref=f11e669]:
+                    - img [ref=f11e671] [cursor=pointer]
+                - generic [ref=f11e673]:
+                  - generic [ref=f11e674]: conference
+                  - button "Close this tag" [ref=f11e675]:
+                    - img [ref=f11e677] [cursor=pointer]
+                - generic [ref=f11e679]:
+                  - generic [ref=f11e680]: preprint
+                  - button "Close this tag" [ref=f11e681]:
+                    - img [ref=f11e683] [cursor=pointer]
+                - textbox "+ 添加" [ref=f11e687]
+          - generic [ref=f11e688]:
+            - button "✓ 确认，开始搜索" [active] [ref=f11e704] [cursor=pointer]:
+              - generic [ref=f11e691]: ✓ 确认，开始搜索
+            - button "✏ 重新描述" [ref=f11e692] [cursor=pointer]:
+              - generic [ref=f11e693]: ✏ 重新描述
+      - generic [ref=f11e696]:
+        - generic [ref=f11e697]:
+          - generic [ref=f11e698]: "3"
+          - text: 精选搜索结果
+        - paragraph [ref=f11e706]: 未找到匹配论文。请尝试修改关键词。

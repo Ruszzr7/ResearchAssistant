@@ -1,0 +1,34 @@
+- generic [ref=f4e4]:
+  - generic [ref=f4e5]:
+    - generic [ref=f4e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f4e7]:
+      - menuitem "文库管理" [ref=f4e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=f4e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=f4e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=f4e11] [cursor=pointer]
+    - button [ref=f4e12] [cursor=pointer]:
+      - img [ref=f4e14]
+  - main [ref=f4e18]:
+    - generic [ref=f4e19]:
+      - generic [ref=f4e20]:
+        - heading "论文选择" [level=4] [ref=f4e21]
+        - generic [ref=f4e23]:
+          - generic [ref=f4e24]:
+            - combobox [ref=f4e26]
+            - generic [ref=f4e27]: RSMA适用于高移动性场景
+          - img [ref=f4e30] [cursor=pointer]
+      - generic [ref=f4e32]:
+        - generic [ref=f4e33]:
+          - button "精读" [ref=f4e34] [cursor=pointer]
+          - button "对比" [ref=f4e35] [cursor=pointer]
+          - button "推荐" [ref=f4e36] [cursor=pointer]
+        - generic [ref=f4e37]:
+          - button "开始精读分析" [active] [ref=f4e42] [cursor=pointer]:
+            - generic [ref=f4e40]: 开始精读分析
+          - generic [ref=f4e43]: Weneedactassenioracademicreviewer.Readtheprovidedpapertext(whichisalongpaper,butonlyasnippetshown)andoutputmarkdownstructuredanalysis:firstdeterminedomain(AI/CV/NLP/communication/control),thenanalyzecorecontributions,methodoverview(model/algorithm/framework),
+        - generic [ref=f4e44]:
+          - generic [ref=f4e45]: 追问
+          - generic [ref=f4e46]:
+            - textbox "对这篇论文还有什么想问的？" [ref=f4e49]
+            - button "发送" [ref=f4e50] [cursor=pointer]:
+              - generic [ref=f4e51]: 发送

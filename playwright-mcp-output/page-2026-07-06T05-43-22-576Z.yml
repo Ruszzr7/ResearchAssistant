@@ -1,0 +1,19 @@
+- generic [ref=f11e4]:
+  - generic [ref=f11e5]:
+    - generic [ref=f11e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f11e7]:
+      - menuitem "文库管理" [ref=f11e8] [cursor=pointer]
+      - menuitem "文献检索" [active] [ref=f11e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=f11e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=f11e11] [cursor=pointer]
+    - button [ref=f11e12] [cursor=pointer]:
+      - img [ref=f11e14]
+  - main [ref=f11e18]:
+    - generic [ref=f11e522]:
+      - generic [ref=f11e523]:
+        - generic [ref=f11e524]: "1"
+        - text: 描述研究方向
+      - generic [ref=f11e526]:
+        - textbox "用自然语言描述你想研究的方向…例如：我想研究大规模MIMO系统中的资源分配优化问题" [ref=f11e529]
+        - button "开始检索" [disabled] [ref=f11e531]:
+          - generic [ref=f11e532]: 开始检索

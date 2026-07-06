@@ -4,10 +4,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
-  { path: '/',          name: 'library',  component: () => import('@/views/LibraryView.vue') },
-  { path: '/search',    name: 'search',   component: () => import('@/views/SearchView.vue') },
-  { path: '/analysis',  name: 'analysis', component: () => import('@/views/AnalysisView.vue') },
-  { path: '/gap',       name: 'gap',      component: () => import('@/views/GapView.vue') },
+  { path: '/',          name: 'library',   component: () => import('@/views/LibraryView.vue') },
+  { path: '/search',    name: 'search',    component: () => import('@/views/SearchView.vue') },
+  { path: '/analysis',  name: 'analysis',  component: () => import('@/views/AnalysisView.vue') },
+  { path: '/gap',       name: 'gap',       component: () => import('@/views/GapView.vue') },
+  { path: '/settings',  name: 'settings',  component: () => import('@/views/SettingsView.vue') },
 ]
 
 const router = createRouter({

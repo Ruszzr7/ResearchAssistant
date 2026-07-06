@@ -1,0 +1,159 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=e7]:
+      - menuitem "文库管理" [ref=e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=e11] [cursor=pointer]
+    - button [ref=e12] [cursor=pointer]:
+      - img [ref=e14]
+  - main [ref=e18]:
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - button [ref=e22] [cursor=pointer]:
+            - img [ref=e24]
+          - button [ref=e27] [cursor=pointer]:
+            - img [ref=e29]
+          - button [ref=e33] [cursor=pointer]:
+            - img [ref=e35]
+          - button [ref=e39] [cursor=pointer]:
+            - img [ref=e41]
+        - generic [ref=e44] [cursor=pointer]:
+          - img [ref=e45]
+          - generic [ref=e47]: 我的文库
+        - generic [ref=e48]:
+          - generic [ref=e49] [cursor=pointer]:
+            - img [ref=e50]
+            - generic [ref=e52]: 未分类
+          - generic [ref=e53] [cursor=pointer]:
+            - img [ref=e54]
+            - generic [ref=e57]: 最近新增
+        - tree [ref=e58]:
+          - treeitem "Child (0)" [ref=e59]:
+            - generic [ref=e61] [cursor=pointer]:
+              - generic [ref=e62]: Child
+              - generic [ref=e63]: (0)
+        - generic [ref=e64]:
+          - heading "筛选" [level=4] [ref=e65]
+          - generic [ref=e66]:
+            - generic [ref=e67]: 阅读状态
+            - generic [ref=e69] [cursor=pointer]:
+              - generic:
+                - combobox [ref=e71]
+                - generic [ref=e72]: 全部
+              - img [ref=e75]
+          - generic [ref=e77]:
+            - generic [ref=e78]: 标签
+            - generic [ref=e80] [cursor=pointer]:
+              - generic:
+                - combobox [ref=e82]
+                - generic [ref=e83]: 全部
+              - img [ref=e86]
+      - generic [ref=e90]:
+        - generic [ref=e91]:
+          - generic [ref=e92]:
+            - button [ref=e93] [cursor=pointer]:
+              - img [ref=e95]
+            - button [ref=e99] [cursor=pointer]:
+              - img [ref=e101]
+          - generic [ref=e103]:
+            - textbox "搜索论文…" [ref=e106]
+            - button [ref=e109] [cursor=pointer]:
+              - img [ref=e111]
+        - table [ref=e115]:
+          - rowgroup [ref=e116]:
+            - row "标题 ↕ 出版年份 ↕ 导入年份 ↓" [ref=e117]:
+              - columnheader [ref=e118] [cursor=pointer]:
+                - generic [ref=e120]:
+                  - checkbox
+              - columnheader "标题 ↕" [ref=e122] [cursor=pointer]
+              - columnheader "出版年份 ↕" [ref=e123] [cursor=pointer]
+              - columnheader "导入年份 ↓" [ref=e124] [cursor=pointer]
+          - rowgroup [ref=e125]:
+            - row "17 2201.00978 2025 2026-07" [ref=e282]:
+              - cell "17" [ref=e283] [cursor=pointer]:
+                - generic [ref=e284]:
+                  - generic [ref=e285]:
+                    - checkbox "17"
+                  - generic [ref=e287]: "17"
+              - cell "2201.00978" [ref=e288] [cursor=pointer]
+              - cell "2025" [ref=e289] [cursor=pointer]
+              - cell "2026-07" [ref=e290] [cursor=pointer]
+            - row "10 WY 进一步优化短块长CSIT的RSMA和速率 2025 2026-07" [ref=e128]:
+              - cell "10" [ref=e129]:
+                - generic [ref=e130] [cursor=pointer]:
+                  - generic [ref=e131]:
+                    - checkbox "10"
+                  - generic [ref=e133]: "10"
+              - cell "WY 进一步优化短块长CSIT的RSMA和速率" [ref=e134]
+              - cell "2025" [ref=e135]
+              - cell "2026-07" [ref=e136]
+        - generic [ref=e138]:
+          - button "Go to previous page" [disabled] [ref=e139]:
+            - generic:
+              - img
+          - list [ref=e140]:
+            - listitem "page 1" [ref=e141]: "1"
+          - button "Go to next page" [disabled] [ref=e142]:
+            - generic:
+              - img
+      - generic [ref=e298]:
+        - heading "2201.00978" [level=2] [ref=e300]
+        - generic [ref=e301]:
+          - button "编辑" [ref=e302] [cursor=pointer]:
+            - generic [ref=e303]: 编辑
+          - button "AI 分析" [ref=e304] [cursor=pointer]:
+            - generic [ref=e305]: AI 分析
+          - button "精读" [ref=e306] [cursor=pointer]:
+            - generic [ref=e307]: 精读
+          - button "对比" [ref=e308] [cursor=pointer]:
+            - generic [ref=e309]: 对比
+          - button "推荐" [ref=e310] [cursor=pointer]:
+            - generic [ref=e311]: 推荐
+          - button "删除" [ref=e312] [cursor=pointer]:
+            - generic [ref=e313]: 删除
+        - generic [ref=e316]: 作者
+        - generic [ref=e317]:
+          - generic [ref=e318]: 年份
+          - text: "2025"
+        - generic [ref=e320]: 来源
+        - generic [ref=e322]: DOI
+        - generic [ref=e323]:
+          - generic [ref=e324]: 摘要
+          - text: 暂无摘要
+        - generic [ref=e325]:
+          - generic [ref=e326]: PDF 提取文本
+          - paragraph [ref=e327]: "PyramidTNT: Improved Transformer-in-Transformer Baselines with Pyramid Architecture Kai Han, Jianyuan Guo, Yehui Tang, Yunhe Wang Huawei Noah’s Ark Lab {kai.han,jianyuan.guo,tangyehui,yunhe.wang}@huawei.com Abstract Transformer networks have achieved great progress for computer vision tasks. Transformer-in-Transformer (TNT) architecture utilizes inner transformer and outer trans- former to extract both local and global representations. In this work, we present new TNT baselines by intr…"
+        - generic [ref=e329]: 关键词
+        - generic [ref=e330]:
+          - generic [ref=e331]: 获取方式
+          - text: 手动上传
+        - generic [ref=e332]:
+          - generic [ref=e333]: arXiv ID
+          - text: "--"
+        - generic [ref=e334]:
+          - generic [ref=e335]: 来源链接
+          - text: "--"
+        - generic [ref=e336]:
+          - generic [ref=e337]: PDF
+          - link "打开 PDF" [ref=e338] [cursor=pointer]:
+            - /url: "#"
+        - generic [ref=e339]:
+          - generic [ref=e340]: 处理状态
+          - text: 等待处理
+        - generic [ref=e341]:
+          - generic [ref=e342]: 阅读状态
+          - generic [ref=e344] [cursor=pointer]:
+            - generic:
+              - combobox [ref=e346]
+              - generic [ref=e347]: 未读
+            - img [ref=e350]
+        - generic [ref=e352]:
+          - generic [ref=e353]: 标签
+          - generic [ref=e355]:
+            - generic:
+              - combobox [ref=e357]
+              - generic [ref=e358]: 选择或输入新标签
+            - img [ref=e361] [cursor=pointer]

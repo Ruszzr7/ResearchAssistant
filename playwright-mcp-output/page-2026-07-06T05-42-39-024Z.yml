@@ -1,0 +1,43 @@
+- generic [ref=f11e4]:
+  - generic [ref=f11e5]:
+    - generic [ref=f11e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f11e7]:
+      - menuitem "文库管理" [ref=f11e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=f11e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=f11e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=f11e11] [cursor=pointer]
+    - button [ref=f11e12] [cursor=pointer]:
+      - img [ref=f11e14]
+  - main [ref=f11e18]:
+    - generic [ref=f11e480]:
+      - generic [ref=f11e481]:
+        - generic [ref=f11e482]:
+          - heading "选择论文" [level=4] [ref=f11e483]
+          - generic [ref=f11e484]:
+            - button "全选" [active] [ref=f11e485] [cursor=pointer]:
+              - generic [ref=f11e486]: 全选
+            - button "取消" [ref=f11e487] [cursor=pointer]:
+              - generic [ref=f11e488]: 取消
+        - textbox "搜索论文…" [ref=f11e491]
+        - group "checkbox-group" [ref=f11e494]:
+          - generic [ref=f11e496] [cursor=pointer]:
+            - generic [ref=f11e497]:
+              - checkbox "RSMA适用于高移动性场景2025" [checked]
+            - generic [ref=f11e499]: RSMA适用于高移动性场景2025
+          - generic [ref=f11e501] [cursor=pointer]:
+            - generic [ref=f11e502]:
+              - checkbox "WY 进一步优化短块长CSIT的RSMA和速率2025" [checked]
+            - generic [ref=f11e504]: WY 进一步优化短块长CSIT的RSMA和速率2025
+          - generic [ref=f11e506] [cursor=pointer]:
+            - generic [ref=f11e507]:
+              - checkbox "ZJP 非完美CSIT有限块长和速率闭式2025" [checked]
+            - generic [ref=f11e509]: ZJP 非完美CSIT有限块长和速率闭式2025
+      - generic [ref=f11e510]:
+        - generic [ref=f11e511]:
+          - generic [ref=f11e512]:
+            - text: 已选
+            - strong [ref=f11e513]: "3"
+            - text: 篇论文
+          - button "开始空白分析" [ref=f11e514] [cursor=pointer]:
+            - generic [ref=f11e515]: 开始空白分析
+        - generic [ref=f11e516]: 从库中勾选至少 3 篇代表领域现状的论文，点击"开始空白分析"

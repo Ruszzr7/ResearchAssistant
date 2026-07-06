@@ -4,39 +4,49 @@
     <!-- ==================== 左栏 ==================== -->
     <div class="left-panel" :class="{ collapsed: !sidebarVisible }" :style="{ width: sidebarVisible ? leftWidth + 'px' : '0px' }">
       <div class="panel-header">
-        <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openNewFolderForm">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5A1.5 1.5 0 013.5 3h3l1.5 2h4A1.5 1.5 0 0113.5 6.5v5A1.5 1.5 0 0112 13H4a1.5 1.5 0 01-1.5-1.5z"/><path d="M8 8v3M6.5 9.5h3"/></svg>
-        </el-button>
-        <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openEditFoldersDialog">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12l-1 1 1 1 1-1M12 4l1-1-1-1-1 1M4 12l8-8"/><rect x="2" y="2" width="12" height="12" rx="1"/></svg>
-        </el-button>
-        <el-dropdown trigger="click" @command="handleFolderSort" style="display:inline-flex">
-          <el-button size="small" text style="padding:2px 4px;min-width:auto">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5A1.5 1.5 0 013.5 2h3l1.5 2h4A1.5 1.5 0 0113.5 5.5v5A1.5 1.5 0 0112 12H4a1.5 1.5 0 01-1.5-1.5z"/><path d="M9 4.5l1.5 1.5L9 7.5M9 11.5l1.5-1.5L9 8.5"/></svg>
+        <el-tooltip content="新建" placement="top">
+          <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openNewFolderForm" ref="newFolderBtnRef">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5A1.5 1.5 0 013.5 3h3l1.5 2h4A1.5 1.5 0 0113.5 6.5v5A1.5 1.5 0 0112 13H4a1.5 1.5 0 01-1.5-1.5z"/><path d="M8 8v3M6.5 9.5h3"/></svg>
           </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="custom-asc">默认排序</el-dropdown-item>
-              <el-dropdown-item command="alpha-asc" divided>字母正序</el-dropdown-item>
-              <el-dropdown-item command="alpha-desc">字母倒序</el-dropdown-item>
-              <el-dropdown-item command="count-asc">文献数正序</el-dropdown-item>
-              <el-dropdown-item command="count-desc">文献数倒序</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <div class="header-search">
-          <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="toggleFolderSearch">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4"/><path d="M9.5 9.5L13 13"/></svg>
+        </el-tooltip>
+        <el-tooltip content="管理" placement="top">
+          <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openEditFoldersDialog">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12l-1 1 1 1 1-1M12 4l1-1-1-1-1 1M4 12l8-8"/><rect x="2" y="2" width="12" height="12" rx="1"/></svg>
           </el-button>
+        </el-tooltip>
+        <el-tooltip content="排序" placement="top">
+          <el-dropdown trigger="click" @command="handleFolderSort" style="display:inline-flex">
+            <el-button size="small" text style="padding:2px 4px;min-width:auto">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5A1.5 1.5 0 013.5 2h3l1.5 2h4A1.5 1.5 0 0113.5 5.5v5A1.5 1.5 0 0112 12H4a1.5 1.5 0 01-1.5-1.5z"/><path d="M9 4.5l1.5 1.5L9 7.5M9 11.5l1.5-1.5L9 8.5"/></svg>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="custom-asc">默认排序</el-dropdown-item>
+                <el-dropdown-item command="alpha-asc" divided>字母正序</el-dropdown-item>
+                <el-dropdown-item command="alpha-desc">字母倒序</el-dropdown-item>
+                <el-dropdown-item command="count-asc">文献数正序</el-dropdown-item>
+                <el-dropdown-item command="count-desc">文献数倒序</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </el-tooltip>
+        <div class="header-search" ref="folderSearchWrapRef">
+          <el-tooltip content="搜索" placement="top">
+            <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="toggleFolderSearch">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4"/><path d="M9.5 9.5L13 13"/></svg>
+            </el-button>
+          </el-tooltip>
           <el-input v-if="showFolderSearch" v-model="folderSearchKeyword" placeholder="搜文件夹…" size="small" clearable class="search-input" ref="folderSearchRef" />
         </div>
       </div>
 
       <!-- 新建文件夹表单 -->
-      <div v-if="showNewFolderForm" class="inline-form">
-        <el-tree-select v-model="newFolderParentId" :data="folders" :props="treeProps"
-          check-strictly node-key="id" placeholder="父文件夹" clearable size="small" style="flex:1;min-width:0" />
-        <el-input v-model="newFolderName" placeholder="文件夹名" size="small" style="flex:1;min-width:0" @keyup.enter="createFolder" />
+      <div v-if="showNewFolderForm" class="inline-form" ref="newFolderFormRef">
+        <div class="inline-form-fields">
+          <el-tree-select v-model="newFolderParentId" :data="folderTreeWithRoot" :props="treeProps"
+            check-strictly node-key="id" placeholder="父文件夹" clearable size="small" style="flex:1;min-width:0" />
+          <el-input v-model="newFolderName" placeholder="文件夹名" size="small" style="flex:1;min-width:0" @keyup.enter="createFolder" />
+        </div>
         <div class="inline-form-actions">
           <el-button size="small" type="primary" @click="createFolder">创建</el-button>
           <el-button size="small" @click="showNewFolderForm = false">取消</el-button>
@@ -81,16 +91,13 @@
           <span class="filter-label">阅读状态</span>
           <el-select v-model="filterStatus" placeholder="全部" clearable size="small" class="w-full" @change="loadPapers">
             <el-option label="全部" value="" />
-            <el-option label="未读" value="UNREAD" />
-            <el-option label="略读" value="SKIMMED" />
-            <el-option label="精读" value="CLOSE_READ" />
-            <el-option label="已归档" value="ARCHIVED" />
+            <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
           </el-select>
         </div>
         <div class="filter-group">
           <span class="filter-label">标签</span>
           <el-select v-model="filterTag" placeholder="全部" clearable size="small" class="w-full" @change="loadPapers">
-            <el-option label="全部" :value="null" />
+            <el-option label="全部" value="" />
             <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </div>
@@ -104,20 +111,28 @@
     <div class="center-panel">
       <div class="toolbar">
         <div class="toolbar-left">
-          <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="sidebarVisible = !sidebarVisible">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="4" height="12" rx="1"/><rect x="6" y="2" width="8" height="12" rx="1"/></svg>
-          </el-button>
+          <el-tooltip :content="sidebarVisible ? '收起侧栏' : '展开侧栏'" placement="top">
+            <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="sidebarVisible = !sidebarVisible">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="4" height="12" rx="1"/><rect x="6" y="2" width="8" height="12" rx="1"/></svg>
+            </el-button>
+          </el-tooltip>
           <span class="toolbar-divider"></span>
-          <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openImportDialog">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10v2.5A1.5 1.5 0 003.5 14h9a1.5 1.5 0 001.5-1.5V10M8 2v9M5 8l3 3 3-3"/></svg>
-          </el-button>
+          <el-tooltip content="导入论文" placement="top">
+            <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openImportDialog">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10v2.5A1.5 1.5 0 003.5 14h9a1.5 1.5 0 001.5-1.5V10M8 2v9M5 8l3 3 3-3"/></svg>
+            </el-button>
+          </el-tooltip>
+          <!-- 批量操作 -->
+          <template v-if="selectedPaperIds.length">
+            <span class="toolbar-divider"></span>
+            <span style="font-size:12px;color:#606266">已选 {{ selectedPaperIds.length }}</span>
+            <el-button size="small" text @click="openBatchMoveDialog">移动</el-button>
+            <el-button size="small" text type="danger" @click="confirmBatchDelete">删除</el-button>
+            <el-button size="small" text @click="selectedPaperIds = []">取消</el-button>
+          </template>
         </div>
         <div class="toolbar-right">
           <el-input v-model="paperSearchKeyword" placeholder="搜索论文…" size="small" clearable class="toolbar-search" @input="onPaperSearch" />
-          <span class="toolbar-divider"></span>
-          <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="currentPaper = null" :disabled="!currentPaper">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="10" y="2" width="4" height="12" rx="1"/><rect x="2" y="2" width="8" height="12" rx="1"/></svg>
-          </el-button>
         </div>
       </div>
 
@@ -126,21 +141,108 @@
         <table class="paper-table">
           <thead>
             <tr>
-              <th class="col-title" @click="toggleSort('title')">标题 <span class="sort-arrow">{{ sortLabel('title') }}</span></th>
-              <th class="col-year" @click="toggleSort('year')">出版年份 <span class="sort-arrow">{{ sortLabel('year') }}</span></th>
-              <th class="col-created" @click="toggleSort('created_at')">导入年份 <span class="sort-arrow">{{ sortLabel('created_at') }}</span></th>
+              <th class="col-check" :style="{ width: colWidths.check + 'px' }">
+                <el-checkbox :model-value="isAllSelected" @change="toggleSelectAll" size="small" />
+              </th>
+              <th class="col-title" :style="{ width: colWidths.title + 'px' }" @click="toggleSort('title')">
+                <span class="th-content">标题 <span class="sort-arrow">{{ sortLabel('title') }}</span></span>
+                <span class="col-resizer" @mousedown.stop="startColResize($event, 'title')"></span>
+              </th>
+              <th class="col-category" :style="{ width: colWidths.category + 'px' }">
+                <span class="th-content">类目</span>
+                <span class="col-resizer" @mousedown.stop="startColResize($event, 'category')"></span>
+              </th>
+              <th class="col-tags" :style="{ width: colWidths.tags + 'px' }">
+                <span class="th-content">标签</span>
+                <span class="col-resizer" @mousedown.stop="startColResize($event, 'tags')"></span>
+              </th>
+              <th class="col-status" :style="{ width: colWidths.status + 'px' }">
+                <span class="th-content">状态</span>
+                <span class="col-resizer" @mousedown.stop="startColResize($event, 'status')"></span>
+              </th>
+              <th class="col-source" :style="{ width: colWidths.source + 'px' }" @click="toggleSort('source')">
+                <span class="th-content">期刊/会议 <span class="sort-arrow">{{ sortLabel('source') }}</span></span>
+                <span class="col-resizer" @mousedown.stop="startColResize($event, 'source')"></span>
+              </th>
+              <th class="col-year" :style="{ width: colWidths.year + 'px' }" @click="toggleSort('year')">
+                <span class="th-content">出版年份 <span class="sort-arrow">{{ sortLabel('year') }}</span></span>
+                <span class="col-resizer" @mousedown.stop="startColResize($event, 'year')"></span>
+              </th>
+              <th class="col-created" :style="{ width: colWidths.created + 'px' }" @click="toggleSort('created_at')">
+                <span class="th-content">导入年份 <span class="sort-arrow">{{ sortLabel('created_at') }}</span></span>
+                <span class="col-resizer" @mousedown.stop="startColResize($event, 'created')"></span>
+              </th>
+              <th class="col-actions" :style="{ width: colWidths.actions + 'px' }">
+                <span class="th-content">操作</span>
+                <span class="col-resizer" @mousedown.stop="startColResize($event, 'actions')"></span>
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(paper, idx) in papers" :key="paper.id"
-                :class="{ 'row-active': currentPaper?.id === paper.id, 'row-stripe': idx % 2 === 1 }"
-                @click="selectPaper(paper.id)">
-              <td class="col-title">{{ paper.title }}</td>
-              <td class="col-year">{{ paper.year }}</td>
-              <td class="col-created">{{ formatDate(paper.createdAt) }}</td>
+                :class="{ 'row-active': currentPaper?.id === paper.id, 'row-stripe': idx % 2 === 1, 'row-pinned': paper.pinned }">
+              <td class="col-check" :style="{ width: colWidths.check + 'px' }" @click.stop>
+                <el-checkbox
+                  :model-value="selectedPaperIds.includes(paper.id)"
+                  @change="checked => togglePaperSelection(paper.id, checked)"
+                  size="small"
+                />
+              </td>
+              <td class="col-title" :style="{ width: colWidths.title + 'px' }">{{ paper.title }}</td>
+              <td class="col-category" :style="{ width: colWidths.category + 'px' }">{{ categoryLabel(paper) }}</td>
+              <td class="col-tags" :style="{ width: colWidths.tags + 'px' }" @click.stop="openTagDialog(paper)">
+                <div class="tags-cell" :class="{ empty: !(paper.tags||[]).length }">
+                  <el-tag v-for="t in (paper.tags||[]).slice(0,2)" :key="t.id" size="small" style="margin-right:4px">{{ t.name }}</el-tag>
+                  <span v-if="(paper.tags||[]).length > 2" style="font-size:11px;color:#909399">+{{ paper.tags.length - 2 }}</span>
+                  <span v-if="!(paper.tags||[]).length" style="color:#c0c4cc;font-size:12px">点击添加标签</span>
+                </div>
+              </td>
+              <td class="col-status" :style="{ width: colWidths.status + 'px' }" @click.stop>
+                <el-dropdown trigger="click" @command="s => setPaperStatus(paper, s)">
+                  <el-tag :type="statusType(paper.readingStatus)" size="small" class="status-tag" style="cursor:pointer">{{ statusLabel(paper.readingStatus) }}</el-tag>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item v-for="s in statusOptions" :key="s.value" :command="s.value">
+                        <span class="status-dot" :class="'status-' + s.value.toLowerCase()"></span>{{ s.label }}
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </td>
+              <td class="col-source" :style="{ width: colWidths.source + 'px' }">{{ paper.source || '--' }}</td>
+              <td class="col-year" :style="{ width: colWidths.year + 'px' }">{{ paper.year }}</td>
+              <td class="col-created" :style="{ width: colWidths.created + 'px' }">{{ formatDate(paper.createdAt) }}</td>
+              <td class="col-actions" :style="{ width: colWidths.actions + 'px' }" @click.stop>
+                <div class="action-btns">
+                  <el-button size="small" text type="primary" @click="goToAnalysis(paper.id, 'read')">论文分析</el-button>
+                  <el-button size="small" text @click="showPaperInfo(paper.id)">信息</el-button>
+                  <el-dropdown trigger="click" @command="cmd => handlePaperAction(cmd, paper)">
+                    <el-button size="small" text class="action-more">···</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                        <el-dropdown-item command="top">{{ paper.pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
+                        <el-dropdown-item command="delete" style="color:#f56c6c">删除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </td>
             </tr>
-            <tr v-if="papers.length === 0">
-              <td colspan="3" class="empty-row">暂无论文</td>
+            <tr v-if="papers.length === 0 && folders.length > 0">
+              <td colspan="9" class="empty-row">暂无论文 — 点击左上角「+ 导入」添加第一篇论文</td>
+            </tr>
+            <tr v-if="papers.length === 0 && folders.length === 0">
+              <td colspan="9" class="empty-row onboarding">
+                <div class="onboard-box">
+                  <h3>📚 你的文库是空的</h3>
+                  <p>导入第一篇论文，或开始一次 AI 检索来发现文献。</p>
+                  <div class="onboard-actions">
+                    <el-button type="primary" @click="$router.push('/search')">🔍 开始 AI 检索</el-button>
+                    <el-button @click="openImportDialog">📄 导入论文</el-button>
+                  </div>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -157,14 +259,35 @@
 
     <!-- ==================== 右栏 ==================== -->
     <div class="right-panel" v-if="currentPaper" :style="{ width: rightWidth + 'px' }">
-      <div class="detail-title-row">
-        <input v-if="editingTitle" v-model="editTitleText" class="title-input"
-          @blur="saveTitle" @keyup.enter="saveTitle" ref="titleInputRef" />
-        <h2 v-else class="detail-title" @click="startEditTitle">{{ currentPaper.title }}</h2>
-        <div class="detail-title-actions">
-          <el-button size="small" text @click="openEditDialog">编辑</el-button>
-          <el-button size="small" text type="danger" @click="confirmDelete">删除</el-button>
+      <div class="detail-header">
+        <div class="detail-title-row">
+          <el-input v-if="editingTitle" v-model="editTitleText" type="textarea" :autosize="{ minRows: 1, maxRows: 5 }"
+            class="title-input" @blur="saveTitle" @keydown.enter.prevent="saveTitle" ref="titleInputRef" />
+          <h2 v-else class="detail-title" @click="startEditTitle">{{ currentPaper.title }}</h2>
         </div>
+        <el-tooltip content="收起详情" placement="top">
+          <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="currentPaper = null">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="10" y="2" width="4" height="12" rx="1"/><rect x="2" y="2" width="8" height="12" rx="1"/></svg>
+          </el-button>
+        </el-tooltip>
+      </div>
+      <!-- AI 分析触发/状态/取消/重试入口 -->
+      <div class="detail-ai-status">
+        <el-button
+          size="small"
+          type="primary"
+          :disabled="!aiLoading && currentPaper.processingStatus === 'COMPLETED'"
+          @click="aiLoading ? cancelAiWithHint() : triggerAiAnalysis()"
+        >
+          {{ aiLoading ? '取消分析' : 'AI 分析' }}
+        </el-button>
+        <el-tag v-if="!aiLoading && currentPaper.processingStatus" :type="statusTagType" size="small" style="margin-left:8px">
+          {{ currentPaper.processingStatus === 'COMPLETED' ? '已完成' : processingLabel(currentPaper.processingStatus) }}
+        </el-tag>
+        <span v-if="aiLoading" class="stage-text" style="margin-left:8px">{{ aiStatus }}</span>
+        <span v-else-if="aiError" class="error-text" style="margin-left:8px">{{ aiError.message }}
+          <el-button size="small" link type="primary" @click="retryAi()">重试</el-button>
+        </span>
       </div>
       <div class="detail-divider"></div>
       <div class="detail-item"><span class="label">作者</span>{{ formatAuthors(currentPaper.authors) }}</div>
@@ -172,7 +295,16 @@
       <div class="detail-item"><span class="label">来源</span>{{ currentPaper.source }}</div>
       <div class="detail-item"><span class="label">DOI</span>{{ currentPaper.doi }}</div>
       <div class="detail-item"><span class="label">摘要</span>{{ currentPaper.abstractText || '暂无摘要' }}</div>
-      <div class="detail-item" v-if="currentPaper.aiSummary">
+      <!-- AI 分析结果 -->
+      <div class="detail-item" v-if="paperAnalysis && paperAnalysis.coreContribution">
+        <span class="label">AI · 核心贡献</span>
+        <p class="extracted-text">{{ paperAnalysis.coreContribution }}</p>
+      </div>
+      <div class="detail-item" v-if="paperAnalysis && paperAnalysis.methodSummary">
+        <span class="label">AI · 方法概述</span>
+        <p class="extracted-text">{{ paperAnalysis.methodSummary }}</p>
+      </div>
+      <div class="detail-item" v-if="currentPaper.aiSummary && !paperAnalysis">
         <span class="label">PDF 提取文本</span>
         <p class="extracted-text">{{ currentPaper.aiSummary.slice(0, 500) }}{{ currentPaper.aiSummary.length > 500 ? '…' : '' }}</p>
       </div>
@@ -189,19 +321,28 @@
         <a v-if="currentPaper.pdfPath" @click.prevent="showPdfOverlay = true" href="#">打开 PDF</a>
         <span v-else>暂无</span>
       </div>
-      <div class="detail-item" v-if="currentPaper.processingStatus">
-        <span class="label">处理状态</span>{{ processingLabel(currentPaper.processingStatus) }}
-      </div>
       <div class="detail-item">
         <span class="label">阅读状态</span>
         <el-select v-model="currentPaper.readingStatus" size="small" @change="savePaper(currentPaper)">
-          <el-option label="未读" value="UNREAD" /><el-option label="略读" value="SKIMMED" />
-          <el-option label="精读" value="CLOSE_READ" /><el-option label="已归档" value="ARCHIVED" />
+          <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
       </div>
       <div class="detail-item">
         <span class="label">标签</span>
-        <el-tag v-for="t in currentPaper.tags" :key="t.id" size="small">{{ t.name }}</el-tag>
+        <el-select
+          v-model="currentPaperTagIds"
+          placeholder="选择或输入新标签"
+          multiple
+          filterable
+          allow-create
+          collapse-tags
+          collapse-tags-tooltip
+          size="small"
+          style="flex:1"
+          @change="savePaperTags"
+        >
+          <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
+        </el-select>
       </div>
     </div>
 
@@ -234,6 +375,50 @@
       </template>
     </el-dialog>
 
+    <!-- ==================== 批量移动对话框 ==================== -->
+    <el-dialog v-model="batchMoveDialogVisible" title="批量移动论文" width="420px">
+      <p style="font-size:13px;color:#606266;margin:0 0 12px">已选 {{ selectedPaperIds.length }} 篇论文</p>
+      <el-form label-width="80px">
+        <el-form-item label="目标文件夹">
+          <el-tree-select v-model="batchMoveFolderId" :data="folders" :props="treeProps"
+            check-strictly node-key="id" placeholder="暂不分类（根目录）" clearable class="w-full" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchMoveDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="doBatchMove" :loading="batchMoving">确认移动</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ==================== 标签编辑对话框 ==================== -->
+    <el-dialog v-model="tagDialogVisible" :title="tagDialogPaper?.title || '编辑标签'" width="420px"
+      :close-on-click-modal="false" @closed="tagDialogPaper = null">
+      <p v-if="tagDialogPaper" style="font-size:12px;color:#909399;margin:0 0 10px">为论文选择或输入新标签</p>
+      <el-select
+        v-if="tagDialogPaper"
+        v-model="tagDialogSelectedIds"
+        placeholder="选择或输入新标签"
+        multiple
+        filterable
+        allow-create
+        collapse-tags
+        collapse-tags-tooltip
+        size="small"
+        style="width:100%"
+      >
+        <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id">
+          <div class="tag-option-row">
+            <span>{{ t.name }}</span>
+            <span class="tag-delete-btn" @click.stop="deleteTag(t)" title="删除标签">✕</span>
+          </div>
+        </el-option>
+      </el-select>
+      <template #footer>
+        <el-button @click="tagDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveTagDialog">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- ==================== 导入对话框 ==================== -->
     <el-dialog v-model="dialogVisible" :title="isEditing ? '编辑论文' : '导入论文'" width="520px">
       <!-- 新建模式：PDF 上传 + DOI 自动获取 -->
@@ -245,22 +430,32 @@
         </div>
         <input type="file" ref="uploadInputRef" accept=".pdf" @change="onFileChange" style="display:none" />
         <div class="doi-row">
-          <span class="doi-or">— 或输入 DOI —</span>
+          <span class="doi-or">— 或 —</span>
           <div class="doi-input-wrap">
             <el-input v-model="doiInput" placeholder="如 10.1038/nature14539" size="small" @keyup.enter="fetchDoi" clearable />
             <el-button size="small" type="primary" @click="fetchDoi" :loading="fetchingDoi">获取</el-button>
+            <el-button size="small" :type="enriching ? 'info' : 'success'" @click="autoIdentify" :loading="enriching" :disabled="!uploadFile">
+              {{ enriching ? '识别中…' : '自动识别' }}
+            </el-button>
           </div>
         </div>
         <div class="import-preview" v-if="form.title">
           <div class="preview-title">识别结果</div>
-          <el-form label-width="60px" size="small">
+          <el-form label-width="70px" size="small">
             <el-form-item label="标题"><el-input v-model="form.title" /></el-form-item>
             <el-form-item label="作者"><el-input v-model="form.authors" placeholder="自动识别或手动输入" /></el-form-item>
             <el-form-item label="年份"><el-input-number v-model="form.year" :min="1900" :max="2030" style="width:120px" /></el-form-item>
             <el-form-item label="来源"><el-input v-model="form.source" /></el-form-item>
+            <el-form-item label="DOI"><el-input v-model="form.doi" placeholder="自动识别或手动输入" /></el-form-item>
+            <el-form-item label="arXiv ID"><el-input v-model="form.arxivId" placeholder="自动识别或手动输入" /></el-form-item>
+            <el-form-item label="摘要"><el-input v-model="form.abstractText" type="textarea" :rows="3" placeholder="自动识别或手动输入" /></el-form-item>
             <el-form-item label="文件夹">
-              <el-tree-select v-model="form.folderId" :data="folders" :props="treeProps"
-                check-strictly node-key="id" placeholder="选择文件夹" clearable style="width:100%" />
+              <div style="display:flex;gap:6px;width:100%">
+                <el-tree-select v-model="form.folderId" :data="folders" :props="treeProps"
+                  check-strictly node-key="id" placeholder="选择文件夹" clearable style="flex:1" />
+                <el-button size="small" text type="primary" @click="recommendFolder" :loading="recommending"
+                  :disabled="!form.title">Agent 推荐</el-button>
+              </div>
             </el-form-item>
           </el-form>
         </div>
@@ -281,8 +476,7 @@
         </el-form-item>
         <el-form-item label="阅读状态">
           <el-select v-model="form.readingStatus" class="w-full">
-            <el-option label="未读" value="UNREAD" /><el-option label="略读" value="SKIMMED" />
-            <el-option label="精读" value="CLOSE_READ" /><el-option label="已归档" value="ARCHIVED" />
+            <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -309,8 +503,13 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import axios from 'axios'
-import { ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
+import api from '@/api'
+import { waitForAnalysis } from '@/utils/analysis.js'
+import { useGlobalTask } from '@/composables/useGlobalTask.js'
+
+const router = useRouter()
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const treeRef = ref(null)
 const pathKeys = ref(new Map())
@@ -322,11 +521,14 @@ const currentPaper = ref(null)
 const currentFolder = ref(null)
 const folderSearchKeyword = ref('')
 const filterStatus = ref('')
-const filterTag = ref(null)
+const filterTag = ref('')
 const allTags = ref([])
 const paperSearchKeyword = ref('')
 const showFolderSearch = ref(false)
 const folderSearchRef = ref(null)
+const folderSearchWrapRef = ref(null)
+const newFolderBtnRef = ref(null)
+const newFolderFormRef = ref(null)
 const pagination = ref({ page: 1, size: 20, total: 0 })
 const showNewFolderForm = ref(false)
 const newFolderName = ref('')
@@ -340,8 +542,22 @@ const sortBy = ref('created_at')
 const sortDir = ref('DESC')
 const folderSortMode = ref('custom')
 const folderSortDir = ref('ASC')
-const leftWidth = ref(220)
+const leftWidth = ref(240)
 const rightWidth = ref(300)
+const colWidths = ref({
+  check: 32,
+  title: 260,
+  category: 75,
+  tags: 110,
+  status: 70,
+  source: 140,
+  year: 80,
+  created: 85,
+  actions: 130
+})
+const resizingCol = ref(null)
+const resizeStartX = ref(0)
+const resizeStartWidth = ref(0)
 const editingTitle = ref(false)
 const editTitleText = ref('')
 const titleInputRef = ref(null)
@@ -349,10 +565,60 @@ const resizing = ref(null)
 const uploadFile = ref(null)
 const doiInput = ref('')
 const fetchingDoi = ref(false)
+const enriching = ref(false)
 const showPdfOverlay = ref(false)
+
+// ===== 全局后台任务：论文库 AI 分析切换页面不取消 =====
+const {
+  isLoading: aiLoading,
+  statusText: aiStatus,
+  error: aiError,
+  run: runAi,
+  cancel: cancelAi,
+  retry: retryAi
+} = useGlobalTask('library-ai-analysis')
+
+const recommending = ref(false)
+const paperAnalysis = ref(null)
+const currentPaperTagIds = ref([])
+const selectedPaperIds = ref([])
+const batchMoveDialogVisible = ref(false)
+const batchMoveFolderId = ref(null)
+const batchMoving = ref(false)
+
+// 标签编辑对话框
+const tagDialogVisible = ref(false)
+const tagDialogPaper = ref(null)
+const tagDialogSelectedIds = ref([])
+
+const isAllSelected = computed(() => {
+  if (papers.value.length === 0) return false
+  const selected = new Set(selectedPaperIds.value)
+  return papers.value.every(p => selected.has(p.id))
+})
+
+const statusTagType = computed(() => {
+  const s = currentPaper.value?.processingStatus
+  if (s === 'COMPLETED') return 'success'
+  if (s === 'PROCESSING') return 'warning'
+  if (s === 'FAILED') return 'danger'
+  return 'info'
+})
 
 const DEFAULT_YEAR = 2025
 const treeProps = { children: 'children', label: 'name' }
+const statusOptions = [
+  { label: '未读', value: 'UNREAD', type: 'info' },
+  { label: '正读', value: 'READING', type: 'danger' },
+  { label: '已读', value: 'READ', type: 'success' }
+]
+
+// 新建/移动文件夹时，在真实文件夹树顶部附加「我的文库」虚拟根节点
+const folderTreeWithRoot = computed(() => [{
+  id: null,
+  name: '我的文库',
+  children: folders.value
+}])
 
 function makeEmptyForm() {
   return { title: '', authors: '', year: DEFAULT_YEAR, source: '', doi: '',
@@ -387,6 +653,18 @@ function formatAuthors(json) {
 function formatDate(d) { return d?.substring(0,7)||'' }
 function acquisitionLabel(v) { const m={OA:'开放获取',BROWSER_DOWNLOAD:'浏览器下载',MANUAL_UPLOAD:'手动上传'}; return m[v]||v||'--' }
 function processingLabel(v) { const m={PENDING:'等待处理',PROCESSING:'处理中',COMPLETED:'已完成',FAILED:'失败'}; return m[v]||v }
+function statusLabel(v) { return statusOptions.find(o => o.value === v)?.label || v || '--' }
+function statusType(v) { return statusOptions.find(o => o.value === v)?.type || 'info' }
+function categoryLabel(paper) {
+  if (paper.arxivId) return '预印本'
+  if (paper.source) {
+    const s = paper.source.toLowerCase()
+    if (s.includes('journal') || s.includes('letters') || s.includes('transactions') || s.includes('magazine')) return '期刊'
+    if (s.includes('conference') || s.includes('proceedings') || s.includes('symposium') || s.includes('workshop')) return '会议'
+    return '期刊/会议'
+  }
+  return '--'
+}
 function sortLabel(col) { return sortBy.value!==col?'↕':sortDir.value==='ASC'?'↑':'↓' }
 function toggleSort(col) { sortDir.value=sortBy.value===col?(sortDir.value==='ASC'?'DESC':'ASC'):'ASC'; sortBy.value=col; loadPapers() }
 function handleFolderSort(cmd) {
@@ -395,14 +673,81 @@ function handleFolderSort(cmd) {
   folderSortDir.value = dir === 'asc' ? 'ASC' : 'DESC'
 }
 
-async function loadFolders() { const r=await axios.get('/api/folders'); folders.value=r.data.data }
+async function loadFolders() { const r=await api.get('/folders'); folders.value=r.data }
+async function loadAllTags() { const r=await api.get('/tags'); allTags.value=r.data || [] }
 async function loadPapers() {
-  const r=await axios.get('/api/papers',{params:{folder:currentFolder.value,keyword:paperSearchKeyword.value||null,tag:filterTag.value||null,status:filterStatus.value||null,sortBy:sortBy.value,sortDir:sortDir.value,page:pagination.value.page,size:pagination.value.size}})
-  const d=r.data.data; papers.value=d.records; pagination.value.total=d.total; pagination.value.page=d.current
-  const tagSet=new Map(); for(const p of d.records){if(p.tags)p.tags.forEach(t=>tagSet.set(t.id,t))}
-  allTags.value=Array.from(tagSet.values())
+  const r=await api.get('/papers',{params:{folder:currentFolder.value,keyword:paperSearchKeyword.value||null,tag:filterTag.value||null,status:filterStatus.value||null,sortBy:sortBy.value,sortDir:sortDir.value,page:pagination.value.page,size:pagination.value.size}})
+  const d=r.data; papers.value=d.records; pagination.value.total=d.total; pagination.value.page=d.current
 }
-async function selectPaper(id) { const r=await axios.get(`/api/papers/${id}`); currentPaper.value=r.data.data }
+async function selectPaper(id) {
+  const r=await api.get(`/papers/${id}`)
+  currentPaper.value=r.data
+  currentPaperTagIds.value=(currentPaper.value.tags||[]).map(t=>t.id)
+  loadAnalysis(id)
+}
+async function savePaperTags() {
+  if (!currentPaper.value) return
+  await saveTagsForPaper(currentPaper.value.id, currentPaperTagIds.value)
+  await selectPaper(currentPaper.value.id)
+}
+
+/**
+ * 保存论文标签。
+ * @param {number} paperId
+ * @param {Array} selectedIds 标签 id 或新标签名称的混合数组
+ */
+async function saveTagsForPaper(paperId, selectedIds) {
+  const existingIds = selectedIds
+    .filter(v => typeof v === 'number' || /^\d+$/.test(v))
+    .map(v => Number(v))
+  const newNames = selectedIds
+    .filter(v => !(typeof v === 'number' || /^\d+$/.test(v)))
+    .map(v => String(v).trim())
+    .filter(Boolean)
+
+  const created = await Promise.all(newNames.map(name => api.post('/tags', { name }).then(r => r.data.id)))
+  const tagIds = [...existingIds, ...created]
+  await api.post(`/tags/papers/${paperId}/tags`, { tagIds })
+  await Promise.all([loadPapers(), loadAllTags()])
+}
+
+function openTagDialog(paper) {
+  tagDialogPaper.value = paper
+  tagDialogSelectedIds.value = (paper.tags || []).map(t => t.id)
+  tagDialogVisible.value = true
+}
+
+async function saveTagDialog() {
+  if (!tagDialogPaper.value) return
+  await saveTagsForPaper(tagDialogPaper.value.id, tagDialogSelectedIds.value)
+  tagDialogVisible.value = false
+  tagDialogPaper.value = null
+}
+
+/** 在标签下拉框中直接删除某个全局标签 */
+async function deleteTag(tag) {
+  try {
+    await api.delete(`/tags/${tag.id}`)
+    // 如果当前论文已选中该标签，从选中列表中移除
+    tagDialogSelectedIds.value = tagDialogSelectedIds.value.filter(id => id !== tag.id)
+    await Promise.all([loadPapers(), loadAllTags()])
+    ElMessage.success('标签已删除')
+  } catch (e) {
+    ElMessage.error('删除标签失败：' + (e.response?.data?.message || e.message))
+  }
+}
+
+async function setPaperStatus(paper, status) {
+  try {
+    paper.readingStatus = status
+    await api.put(`/papers/${paper.id}`, paper)
+    ElMessage.success('状态已更新')
+    await loadPapers()
+  } catch (e) {
+    ElMessage.error('状态更新失败：' + (e.response?.data?.message || e.message))
+  }
+}
+
 
 let paperSearchTimer=null
 function onPaperSearch() { clearTimeout(paperSearchTimer); paperSearchTimer=setTimeout(()=>loadPapers(),300) }
@@ -462,9 +807,9 @@ function addEditOp(type, id, body) { editOps.value.push({ type, id, body }) }
 async function confirmEditFolders() {
   try {
     for (const op of editOps.value) {
-      if (op.type === 'move') await axios.put(`/api/folders/${op.id}/move`, op.body)
-      else if (op.type === 'rename') await axios.put(`/api/folders/${op.id}`, op.body)
-      else if (op.type === 'delete') await axios.delete(`/api/folders/${op.id}`)
+      if (op.type === 'move') await api.put(`/folders/${op.id}/move`, op.body)
+      else if (op.type === 'rename') await api.put(`/folders/${op.id}`, op.body)
+      else if (op.type === 'delete') await api.delete(`/folders/${op.id}`)
     }
     showEditFoldersDialog.value = false
     await loadFolders()
@@ -611,75 +956,275 @@ function moveFolderToLocal(targetId) {
 function openNewFolderForm() { newFolderName.value=''; newFolderParentId.value=selectedFolderId.value; showNewFolderForm.value=true }
 async function createFolder() {
   if(!newFolderName.value.trim())return
-  try{await axios.post('/api/folders',{name:newFolderName.value.trim(),parentId:newFolderParentId.value});newFolderName.value='';showNewFolderForm.value=false;loadFolders()}
+  try{await api.post('/folders',{name:newFolderName.value.trim(),parentId:newFolderParentId.value});newFolderName.value='';showNewFolderForm.value=false;loadFolders()}
   catch(e){alert('创建失败：'+(e.response?.data?.message||e.message))}
 }
 
 function startResize(e,side){resizing.value=side;e.preventDefault()}
-function onResize(e){
-  if(!resizing.value)return
-  if(resizing.value==='left')leftWidth.value=Math.max(160,Math.min(400,e.clientX-6))
-  else rightWidth.value=Math.max(240,Math.min(500,window.innerWidth-e.clientX-6))
+function startColResize(e, key) {
+  resizingCol.value = key
+  resizeStartX.value = e.clientX
+  resizeStartWidth.value = colWidths.value[key]
+  e.preventDefault()
+  e.stopPropagation()
 }
-function stopResize(){resizing.value=null}
+function onResize(e){
+  if(resizing.value==='left')leftWidth.value=Math.max(160,Math.min(400,e.clientX-6))
+  else if(resizing.value==='right')rightWidth.value=Math.max(240,Math.min(500,window.innerWidth-e.clientX-6))
+  else if (resizingCol.value) {
+    const delta = e.clientX - resizeStartX.value
+    colWidths.value[resizingCol.value] = Math.max(40, resizeStartWidth.value + delta)
+  }
+}
+function stopResize(){
+  resizing.value=null
+  resizingCol.value=null
+  resizeStartX.value=0
+  resizeStartWidth.value=0
+}
 
 function openImportDialog(){isEditing.value=false;editPaperId.value=null;uploadFile.value=null;doiInput.value='';form.value={...makeEmptyForm(),folderId:selectedFolderId.value};dialogVisible.value=true}
-function openEditDialog(){isEditing.value=true;editPaperId.value=currentPaper.value.id;uploadFile.value=null;form.value={...currentPaper.value};dialogVisible.value=true}
+function openEditDialog(paper){isEditing.value=true;editPaperId.value=paper.id;uploadFile.value=null;form.value={...paper};dialogVisible.value=true}
 function onFileChange(e){const f=e.target.files?.[0];if(f){uploadFile.value=f;autoSetTitle(f.name)}}
 function onDropFile(e){const f=e.dataTransfer?.files?.[0];if(f?.name?.endsWith('.pdf')){uploadFile.value=f;autoSetTitle(f.name)}}
 function autoSetTitle(name){const t=name.replace(/\.pdf$/i,'').replace(/[_-]/g,' ').trim();if(t&&!form.value.title)form.value.title=t}
 
 /** Crossref DOI → 自动提取元数据 */
 async function fetchDoi(){
-  const doi=doiInput.value.trim();if(!doi)return
+  if(!doiInput.value.trim())return
   fetchingDoi.value=true
   try{
-    const r=await axios.get(`https://api.crossref.org/works/${encodeURIComponent(doi)}`)
-    const m=r.data.message;if(!m)throw new Error('未找到')
-    const c=m
-    if(c.title?.[0]&&!form.value.title)form.value.title=c.title[0]
-    const crossrefAuthors=(c.author||[]).map(a=>({name:(a.given||'')+' '+(a.family||''),role:''}))
-    if(crossrefAuthors.length)form.value.authors=JSON.stringify(crossrefAuthors)
-    const crossrefYear=c.issued?.['date-parts']?.[0]?.[0]||c.created?.['date-parts']?.[0]?.[0]
-    if(crossrefYear)form.value.year=crossrefYear
-    if(c['container-title']?.[0])form.value.source=c['container-title'][0]
-    form.value.doi=doi
-    const ab=(c.abstract||'').replace(/<[^>]+>/g,'').slice(0,2000)
-    if(ab)form.value.abstractText=ab
-    const kw=(c.subject||[]).join(', ')
-    if(kw)form.value.keywords=kw
-    if(c.URL)form.value.sourceUrl=c.URL
-    if(c.link){const pdf=c.link.find(l=>l['content-type']==='application/pdf');if(pdf)form.value.sourceUrl=pdf.URL}
-  }catch(e){alert('DOI 获取失败：'+(e.response?.data?.message||e.message))}
+    const res=await fetch(`https://api.crossref.org/works/${encodeURIComponent(doiInput.value.trim())}`)
+    if(!res.ok) throw new Error('DOI 未找到')
+    const r=await res.json()
+    const d=r.message
+    if(!d)throw new Error('DOI 未找到')
+    form.value.doi=doiInput.value.trim()
+    if(!form.value.title&&d.title&&d.title[0])form.value.title=d.title[0]
+    if(!form.value.source&&d['container-title']&&d['container-title'][0])form.value.source=d['container-title'][0]
+    if(d.author)form.value.authors=d.author.map(a=>(a.given||'')+' '+(a.family||'')).join(', ')
+    if(d['published-print']?.dateParts)form.value.year=d['published-print'].dateParts[0][0]
+    else if(d['created']?.dateParts)form.value.year=d['created'].dateParts[0][0]
+    if(!form.value.abstractText&&d.abstract)form.value.abstractText=d.abstract.replace(/<[^>]+>/g,'').slice(0,2000)
+    ElMessage.success('DOI 元数据获取成功')
+  }catch(e){ElMessage.error('DOI 获取失败：'+(e.message))}
   finally{fetchingDoi.value=false}
+}
+
+/** PDF 自动识别 → 后端提取 DOI/arXiv ID 并返回元数据 */
+async function autoIdentify() {
+  if (!uploadFile.value) {
+    ElMessage.warning('请先选择 PDF')
+    return
+  }
+  enriching.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', uploadFile.value)
+    const res = await api.post('/papers/enrich-metadata', fd, { timeout: 25000 })
+    fillFormFromEnrichment(res.data)
+    if (res.data.found) {
+      ElMessage.success('已自动填充元数据')
+    } else {
+      ElMessage.info(res.data.message || '未识别到 DOI/arXiv ID，请手动填写')
+    }
+  } catch (e) {
+    ElMessage.error('自动识别失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    enriching.value = false
+  }
+}
+
+function fillFormFromEnrichment(data) {
+  const empty = v => v == null || v === '' || (typeof v === 'string' && v.trim() === '')
+  if (empty(form.value.title) && data.title) form.value.title = data.title
+  if (empty(form.value.authors) && data.authors) form.value.authors = formatAuthors(data.authors)
+  if ((form.value.year == null || form.value.year === DEFAULT_YEAR) && data.year) form.value.year = data.year
+  if (empty(form.value.source) && data.source) form.value.source = data.source
+  if (empty(form.value.doi) && data.doi) form.value.doi = data.doi
+  if (empty(form.value.arxivId) && data.arxivId) form.value.arxivId = data.arxivId
+  if (empty(form.value.sourceUrl) && data.sourceUrl) form.value.sourceUrl = data.sourceUrl
+  if (empty(form.value.abstractText) && data.abstractText) form.value.abstractText = data.abstractText
+  if (empty(form.value.keywords) && data.keywords) form.value.keywords = data.keywords
 }
 
 async function submitPaper() {
   try{
     if(isEditing.value){
-      await axios.put(`/api/papers/${editPaperId.value}`,form.value)
+      await api.put(`/papers/${editPaperId.value}`,form.value)
+      ElMessage.success('论文已保存')
     } else {
       const fd=new FormData()
       if(uploadFile.value) fd.append('file',uploadFile.value)
       Object.entries(form.value).forEach(([k,v])=>{if(v!=null&&v!=='')fd.append(k,v)})
-      await axios.post('/api/papers/upload',fd,{headers:{'Content-Type':'multipart/form-data'}})
+      await api.post('/papers/upload', fd)
+      ElMessage.success('论文导入成功')
     }
     dialogVisible.value=false;uploadFile.value=null;loadPapers()
-  }catch(e){alert('操作失败：'+(e.response?.data?.message||e.message))}
+  }catch(e){
+    console.error('导入/保存失败', e)
+    alert('操作失败：'+(e.response?.data?.message||e.message))
+  }
 }
-async function savePaper(p){await axios.put(`/api/papers/${p.id}`,p)}
+async function triggerAiAnalysis() {
+  const paperId = currentPaper.value?.id
+  if (!paperId) return
+
+  await runAi(async ({ signal, setStage }) => {
+    setStage('已提交，等待分析完成…')
+    await api.post(`/agent/process/${paperId}`, {}, { signal })
+
+    await waitForAnalysis(api.get.bind(api), paperId, signal, data => {
+      paperAnalysis.value = data
+    })
+
+    await Promise.all([loadPapers(), loadAnalysis(paperId)])
+  })
+}
+
+function cancelAiWithHint() {
+  cancelAi()
+  ElMessage.info('已取消')
+}
+
+async function loadAnalysis(paperId) {
+  paperAnalysis.value = null
+  try { const r = await api.get(`/agent/analysis/${paperId}`); if (r.data) paperAnalysis.value = r.data } catch (e) {}
+}
+
+async function savePaper(p){await api.put(`/papers/${p.id}`,p)}
 function toggleFolderSearch(){showFolderSearch.value=!showFolderSearch.value;if(showFolderSearch.value)setTimeout(()=>folderSearchRef.value?.focus(),100)}
 function startEditTitle(){editTitleText.value=currentPaper.value.title;editingTitle.value=true;setTimeout(()=>titleInputRef.value?.focus(),100)}
 async function saveTitle(){editingTitle.value=false;if(editTitleText.value.trim()&&editTitleText.value!==currentPaper.value.title){currentPaper.value.title=editTitleText.value.trim();await savePaper(currentPaper.value)}}
-async function confirmDelete(){
-  try{await ElMessageBox.confirm('确定删除这篇论文？', '确认删除',{confirmButtonText:'删除',cancelButtonText:'取消',type:'warning'});await deletePaper()}
+async function confirmDelete(paper){
+  try{await ElMessageBox.confirm('确定删除这篇论文？', '确认删除',{confirmButtonText:'删除',cancelButtonText:'取消',type:'warning'});await deletePaper(paper)}
   catch{}
 }
-async function deletePaper(){await axios.delete(`/api/papers/${currentPaper.value.id}`);currentPaper.value=null;loadPapers()}
+async function deletePaper(paper){await api.delete(`/papers/${paper.id}`);if(currentPaper.value?.id===paper.id)currentPaper.value=null;loadPapers();selectedPaperIds.value=selectedPaperIds.value.filter(id=>id!==paper.id)}
 
+// ===== 批量操作 =====
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    selectedPaperIds.value = []
+  } else {
+    selectedPaperIds.value = papers.value.map(p => p.id)
+  }
+}
+
+function togglePaperSelection(paperId, checked) {
+  if (checked) {
+    if (!selectedPaperIds.value.includes(paperId)) {
+      selectedPaperIds.value.push(paperId)
+    }
+  } else {
+    selectedPaperIds.value = selectedPaperIds.value.filter(id => id !== paperId)
+  }
+}
+
+function openBatchMoveDialog() {
+  if (!selectedPaperIds.value.length) return
+  batchMoveFolderId.value = null
+  batchMoveDialogVisible.value = true
+}
+
+async function doBatchMove() {
+  batchMoving.value = true
+  try {
+    await api.post('/papers/batch/move', { ids: selectedPaperIds.value, folderId: batchMoveFolderId.value })
+    ElMessage.success('批量移动成功')
+    batchMoveDialogVisible.value = false
+    selectedPaperIds.value = []
+    await loadPapers()
+  } catch (e) {
+    ElMessage.error('批量移动失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    batchMoving.value = false
+  }
+}
+
+async function confirmBatchDelete() {
+  if (!selectedPaperIds.value.length) return
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${selectedPaperIds.value.length} 篇论文？此操作不可恢复。`, '确认批量删除', {
+      confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning'
+    })
+    await api.post('/papers/batch/delete', selectedPaperIds.value)
+    ElMessage.success('批量删除成功')
+    selectedPaperIds.value = []
+    currentPaper.value = null
+    await loadPapers()
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('批量删除失败：' + (e.response?.data?.message || e.message))
+    }
+  }
+}
+
+function goToAnalysis(paperId, mode) {
+  if (!paperId) return
+  router.push({ path: '/analysis', query: { paperId, mode } })
+}
+
+function showPaperInfo(paperId) {
+  selectPaper(paperId)
+}
+
+async function handlePaperAction(cmd, paper) {
+  if (cmd === 'edit') {
+    openEditDialog(paper)
+  } else if (cmd === 'top') {
+    await togglePin(paper)
+  } else if (cmd === 'delete') {
+    confirmDelete(paper)
+  }
+}
+
+async function togglePin(paper) {
+  try {
+    await api.post(`/papers/${paper.id}/pin`)
+    ElMessage.success(paper.pinned ? '已取消置顶' : '已置顶')
+    await loadPapers()
+  } catch (e) {
+    ElMessage.error('置顶失败：' + (e.response?.data?.message || e.message))
+  }
+}
+
+/** Agent 推荐文件夹（基于论文标题和现有文件夹列表） */
+async function recommendFolder() {
+  if (!form.value.title) return
+  recommending.value = true
+  try {
+    const res = await api.post('/agent/folder-suggest', { title: form.value.title })
+    const data = res.data
+    if (data.recommended) {
+      form.value.folderId = data.recommended
+      ElMessage.success(`已推荐文件夹${data.reason ? '：' + data.reason : ''}`)
+    } else if (data.suggestNew) {
+      ElMessage.info(`建议新建文件夹「${data.newName}」${data.reason ? '：' + data.reason : ''}`)
+    }
+  } catch (e) {
+    ElMessage.error('推荐失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    recommending.value = false
+  }
+}
+
+async function initLibrary() {
+  await Promise.all([loadFolders(), loadAllTags(), loadPapers()])
+}
 function onKeyDown(e){if(e.key==='Escape')showPdfOverlay.value=false}
-onMounted(()=>{loadFolders();loadPapers();window.addEventListener('keydown',onKeyDown)})
-onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown)})
+function handleDocClick(e) {
+  if (showFolderSearch.value && folderSearchWrapRef.value && !folderSearchWrapRef.value.contains(e.target)) {
+    showFolderSearch.value = false
+  }
+  const newFolderBtnEl = newFolderBtnRef.value?.$el
+  if (showNewFolderForm.value && newFolderFormRef.value && !newFolderFormRef.value.contains(e.target)
+      && !(newFolderBtnEl && newFolderBtnEl.contains(e.target))) {
+    showNewFolderForm.value = false
+  }
+}
+onMounted(()=>{initLibrary();window.addEventListener('keydown',onKeyDown);document.addEventListener('click',handleDocClick)})
+onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.removeEventListener('click',handleDocClick)})
 </script>
 
 <style scoped>
@@ -687,11 +1232,13 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown)})
 .library.is-resizing { user-select:none; }
 
 /* ===== 三栏配色 ===== */
-.left-panel { flex-shrink:0; overflow-y:auto; padding:0 0 0 10px; transition:width 0.2s; background:#f5f6f8; display:flex; flex-direction:column; }
+.left-panel { flex-shrink:0; overflow-y:auto; padding:10px 14px; transition:width 0.2s; background:#f5f6f8; display:flex; flex-direction:column; }
 .left-panel.collapsed { padding:0; overflow:hidden; }
 .filter-section { margin-top:auto; padding:6px 0 12px; border-top:1px solid #e4e7ed; }
-.filter-section h4 { margin:4px 0 6px; }
-.center-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; padding:0 0 0 12px; background:#fff; }
+.filter-section h4 { margin:4px 0 6px; font-size:14px; font-weight:600; color:#303133; }
+.filter-group { margin-bottom:6px; }
+.filter-label { display:block; font-size:11px; color:#909399; margin-bottom:2px; }
+.center-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; padding:0 12px; background:#fff; }
 .right-panel { flex-shrink:0; overflow-y:auto; padding:8px 0 0 12px; transition:width 0.2s; background:#f5f6f8; }
 
 /* 顶栏 */
@@ -713,8 +1260,10 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown)})
 .el-tree-node.is-current>.el-tree-node__content,
 .el-tree-node.is-current>.el-tree-node__content:hover { background-color:#d9ecff !important; }
 
-.inline-form { display:flex; gap:3px; margin-bottom:8px; align-items:center; }
-.inline-form-actions { display:flex; gap:2px; margin-left:auto; flex-shrink:0; }
+.inline-form { display:flex; gap:12px; margin-bottom:8px; align-items:center; }
+.inline-form-fields { display:flex; gap:3px; flex:1; min-width:0; }
+.inline-form-actions { display:flex; gap:2px; flex-shrink:0; }
+.inline-form-actions :deep(.el-button + .el-button) { margin-left: 0 !important; }
 .w-full { width:100%; }
 
 /* 分割线 */
@@ -732,29 +1281,61 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown)})
 .toolbar-divider { display:inline-block; width:1px; height:16px; background:#dcdfe6; margin:0 3px; vertical-align:middle; }
 
 /* 表格 */
-.table-wrapper { flex:1; overflow-y:auto; }
-.paper-table { width:100%; border-collapse:collapse; font-size:13px; }
-.paper-table th { position:sticky; top:0; background:#fafbfc; padding:6px 10px; text-align:left; border-bottom:2px solid #e4e7ed; cursor:pointer; user-select:none; white-space:nowrap; font-weight:500; color:#606266; }
+.table-wrapper { flex:1; overflow:auto; }
+.paper-table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+.paper-table th { position:sticky; top:0; background:#fafbfc; padding:6px 10px; text-align:left; border-bottom:2px solid #e4e7ed; cursor:pointer; user-select:none; white-space:nowrap; font-weight:500; color:#606266; overflow:hidden; }
 .paper-table th:hover { background:#f0f2f5; }
-.paper-table td { padding:5px 10px; border-bottom:1px solid #f0f1f3; }
-.paper-table tr:hover td { background:#f5f6f8; cursor:pointer; }
+.paper-table th .th-content { display:inline-block; max-width:calc(100% - 10px); overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
+.paper-table th .col-resizer { position:absolute; right:0; top:0; bottom:0; width:6px; cursor:col-resize; z-index:1; }
+.paper-table th .col-resizer:hover { background:#a0c4e8; }
+.paper-table td { padding:5px 10px; border-bottom:1px solid #f0f1f3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.paper-table tr:hover td { background:#f5f6f8; }
 .paper-table .row-active td { background:#ecf5ff !important; }
+.paper-table .row-pinned td:first-child { box-shadow: inset 3px 0 0 0 #409eff; }
 .paper-table .row-stripe td { background:#fafbfc; }
 .paper-table .row-active.row-stripe td { background:#ecf5ff !important; }
-.col-year { width:85px; }
-.col-created { width:95px; }
+.col-check { width: 32px; text-align: center; }
+.col-category { width: 75px; }
+.col-tags { width: 110px; }
+.col-status { width: 70px; }
+.col-source { min-width: 120px; }
+.col-year { width:80px; }
+.col-created { width:85px; }
+.col-actions { width: 160px; }
+.col-actions .action-btns { display:flex; align-items:center; gap:2px; }
+.col-actions .action-more { color:#606266; font-weight:600; font-size:14px; padding:2px 6px !important; }
+.col-actions .action-more:hover { color:#303133; background:#e4e7ed; }
+.col-source, .col-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sort-arrow { font-size:11px; color:#909399; }
 .empty-row { text-align:center; color:#c0c4cc; padding:40px 10px !important; cursor:default !important; }
+.empty-row.onboarding { padding:60px 20px !important; }
+.onboard-box h3 { font-size:18px; color:#303133; margin:0 0 8px; }
+.onboard-box p { font-size:14px; color:#909399; margin:0 0 20px; }
+.onboard-actions { display:flex; gap:12px; justify-content:center; }
 
 .pagination-bar { display:flex; justify-content:center; padding:8px 0; }
 
+.col-tags { cursor:pointer; }
+.col-tags .tags-cell { display:flex; align-items:center; flex-wrap:wrap; min-height:22px; }
+.col-tags .tags-cell.empty:hover span { color:#409eff; }
+.col-status .status-tag { cursor:pointer; }
+.status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+.status-dot.status-unread { background:#909399; }
+.status-dot.status-reading { background:#f56c6c; }
+.status-dot.status-read { background:#67c23a; }
+
 /* 右栏详情 */
-.detail-title-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
-.detail-title { font-size:18px; font-weight:600; margin:0; cursor:text; line-height:1.4; flex:1; min-width:0; }
+.detail-header { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:6px; }
+.detail-title-row { display:flex; flex-direction:column; align-items:flex-start; gap:8px; flex:1; min-width:0; }
+.detail-title { font-size:18px; font-weight:600; margin:0; cursor:text; line-height:1.4; width:100%; }
 .detail-title:hover { background:#e8eaed; border-radius:3px; }
-.detail-title-actions { display:flex; flex-direction:column; align-items:stretch; flex-shrink:0; }
-.detail-title-actions .el-button { margin-left:0 !important; }
-.title-input { font-size:18px; font-weight:600; width:100%; border:1px solid #409eff; border-radius:3px; padding:2px 6px; outline:none; }
+.detail-ai-status { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; font-size:12px; }
+.detail-ai-status .stage-text { color:#409eff; }
+.detail-ai-status .error-text { color:#f56c6c; }
+.stage-text { font-size:12px; color:#409eff; margin-left:4px; }
+.error-text { font-size:12px; color:#f56c6c; margin-left:4px; }
+.title-input { font-size:18px; font-weight:600; width:100%; }
+.title-input :deep(.el-textarea__inner) { border:1px solid #409eff; border-radius:3px; padding:2px 6px; font-size:18px; font-weight:600; line-height:1.4; resize:none; min-height:32px; }
 .detail-divider { height:1px; background:#e4e7ed; margin:10px 4px 14px; }
 .detail-item { margin-bottom:12px; font-size:13px; line-height:1.6; }
 .detail-item .label { font-size:12px; color:#909399; display:block; margin-bottom:2px; }
@@ -768,9 +1349,9 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown)})
 .upload-remove { color:#f56c6c; cursor:pointer; margin-left:8px; font-weight:bold; }
 
 /** DOI 行 */
-.doi-or { display:block; text-align:center; font-size:12px; color:#c0c4cc; margin:0 0 8px; }
-.doi-input-wrap { display:flex; gap:6px; margin-bottom:12px; }
-.doi-input-wrap .el-input { flex:1; }
+.doi-row { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.doi-or { font-size:12px; color:#c0c4cc; white-space:nowrap; flex-shrink:0; }
+.doi-input-wrap { display:flex; gap:6px; flex:1; flex-wrap:wrap; }
 
 /** 识别结果 */
 .import-preview { border-top:1px solid #e4e7ed; padding-top:10px; }
@@ -781,6 +1362,18 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown)})
 .pdf-toolbar { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:#e4e7ed; flex-shrink:0; border-bottom:1px solid #dcdfe6; }
 .pdf-toolbar-title { color:#303133; font-size:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .pdf-frame { flex:1; border:none; width:100%; }
+
+/* 标签下拉框：每个选项显示删除按钮 */
+.tag-option-row { display:flex; align-items:center; justify-content:space-between; width:100%; padding-right:0; box-sizing:border-box; }
+.tag-option-row .tag-delete-btn {
+  display:inline-block;
+  color:#f56c6c;
+  font-size:12px;
+  cursor:pointer;
+  padding:2px 6px;
+  border-radius:3px;
+}
+.tag-option-row .tag-delete-btn:hover { background:#fde2e2; }
 </style>
 
 <!-- 非 scoped：强制覆盖 Element Plus 组件内部样式 -->
@@ -791,4 +1384,5 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown)})
 .library .panel-header .el-tooltip { display: inline-flex !important; }
 .library .toolbar .el-button { padding: 2px 4px !important; min-width: auto !important; }
 .library .toolbar .el-button + .el-button { margin-left: 0 !important; }
+.el-select-dropdown__item:has(.tag-option-row) { padding-right: 8px !important; }
 </style>

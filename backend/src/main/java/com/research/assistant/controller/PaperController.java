@@ -5,7 +5,9 @@ import com.research.assistant.common.Result;
 import com.research.assistant.constant.AcquisitionMethod;
 import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.entity.Paper;
+import com.research.assistant.dto.EnrichmentResult;
 import com.research.assistant.service.PaperService;
+import com.research.assistant.service.metadata.MetadataEnrichmentService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -20,6 +22,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -30,12 +33,14 @@ import java.util.stream.Collectors;
 public class PaperController {
 
     private final PaperService paperService;
+    private final MetadataEnrichmentService metadataEnrichmentService;
 
     @Value("${app.storage.pdf-dir:./data/papers}")
     private String pdfStorageDir;
 
-    public PaperController(PaperService paperService) {
+    public PaperController(PaperService paperService, MetadataEnrichmentService metadataEnrichmentService) {
         this.paperService = paperService;
+        this.metadataEnrichmentService = metadataEnrichmentService;
     }
 
     /** GET /api/papers?folder=1,2 或 folder=uncategorized 或 folder=recent */
@@ -125,6 +130,47 @@ public class PaperController {
         paper.setAcquisitionMethod(AcquisitionMethod.MANUAL_UPLOAD);
         paper.setReadingStatus(ReadingStatus.UNREAD);
         return Result.ok(paperService.uploadPdfAndCreate(file, paper));
+    }
+
+    /** POST /api/papers/enrich-metadata — 从上传的 PDF 中识别并返回元数据预览 */
+    @PostMapping("/enrich-metadata")
+    public Result<EnrichmentResult> enrichMetadataFromPdf(@RequestParam("file") MultipartFile file) {
+        return Result.ok(metadataEnrichmentService.enrichFromPdf(file));
+    }
+
+    /** POST /api/papers/batch/delete — 批量删除论文 */
+    @PostMapping("/batch/delete")
+    public Result<Void> deleteBatch(@RequestBody List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Result.error(400, "请选择要删除的论文");
+        }
+        paperService.deleteBatch(ids);
+        return Result.ok();
+    }
+
+    /** POST /api/papers/batch/move — 批量移动论文 */
+    @PostMapping("/batch/move")
+    public Result<Void> moveBatch(@RequestBody Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        List<Long> ids = (List<Long>) body.get("ids");
+        Long folderId = body.get("folderId") != null ? ((Number) body.get("folderId")).longValue() : null;
+        if (ids == null || ids.isEmpty()) {
+            return Result.error(400, "请选择要移动的论文");
+        }
+        paperService.moveBatch(ids, folderId);
+        return Result.ok();
+    }
+
+    /** POST /api/papers/{id}/pin — 切换论文置顶状态 */
+    @PostMapping("/{id}/pin")
+    public Result<Paper> togglePin(@PathVariable Long id) {
+        return Result.ok(paperService.togglePin(id));
+    }
+
+    /** POST /api/papers/{id}/enrich-metadata — 为已入库论文补全缺失元数据 */
+    @PostMapping("/{id}/enrich-metadata")
+    public Result<EnrichmentResult> enrichMetadataForPaper(@PathVariable Long id) {
+        return Result.ok(metadataEnrichmentService.enrichFromPaper(id));
     }
 
     /** GET /api/papers/:id/pdf — 下载/浏览器预览 PDF */

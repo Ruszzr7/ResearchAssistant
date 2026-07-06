@@ -1,0 +1,24 @@
+- generic [ref=f3e4]:
+  - generic [ref=f3e5]:
+    - generic [ref=f3e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f3e7]:
+      - menuitem "文库管理" [ref=f3e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=f3e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=f3e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=f3e11] [cursor=pointer]
+    - button [ref=f3e12] [cursor=pointer]:
+      - img [ref=f3e14]
+  - main [ref=f3e18]:
+    - generic [ref=f3e20]:
+      - generic [ref=f3e21]:
+        - generic [ref=f3e22]: "1"
+        - text: 描述研究方向
+      - generic [ref=f3e24]:
+        - textbox "用自然语言描述你想研究的方向…例如：我想研究大规模MIMO系统中的资源分配优化问题" [ref=f3e27]: MIMO resource allocation optimization
+        - generic [ref=f3e28]:
+          - button "开始检索" [active] [ref=f3e29] [cursor=pointer]:
+            - generic [ref=f3e30]: 开始检索
+          - generic [ref=f3e31]:
+            - text: 数据库操作失败，请稍后重试
+            - button "重试" [ref=f3e32] [cursor=pointer]:
+              - generic [ref=f3e33]: 重试

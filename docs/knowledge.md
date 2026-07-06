@@ -453,3 +453,176 @@ async function confirmDelete() {
 | 中文文件名下载乱码 | HTTP 头只支持 ASCII | `URLEncoder + filename*=UTF-8''` |
 | DOI 年份始终显示 2025 | `||` 短路：默认值 truthy | 显式 `if (crossrefYear)` 覆盖 |
 | header 分割线断开 | el-menu 背景覆盖 border-bottom | 用真实 `<div>` 替代 CSS border |
+
+---
+
+## 阶段 3.5：需求对齐审计与功能补全 — 知识总结
+
+> 2026-07-03
+
+---
+
+### 一、Spring 循环依赖
+
+#### 1. 典型场景
+
+`AsyncTaskService` 注入 `PaperService`，`PaperService` 又注入 `AsyncTaskService`，Spring Boot 默认禁止循环引用，启动报错：
+
+```
+Requested bean is currently in creation: Is there an unresolvable circular reference?
+```
+
+#### 2. 解决思路
+
+| 方案 | 适用场景 |
+|------|----------|
+| 拆层：把底层操作下沉到 Mapper/DAO | 两个 Service 互相调用时最干净 |
+| `@Lazy` 延迟注入 | 必须互相调用时 |
+| 启用 `spring.main.allow-circular-references=true` | 不推荐，掩盖设计问题 |
+
+本项目中 `AsyncTaskService` 只需要更新 `paper.pdf_path`，直接注入 `PaperMapper` 而非 `PaperService`，既打破循环，又避免多余事务。
+
+---
+
+### 二、Spring `@Async` 与线程池
+
+#### 1. 启用异步
+
+```java
+@EnableAsync
+@SpringBootApplication
+public class BackendApplication { ... }
+```
+
+#### 2. 自定义线程池
+
+```java
+@Bean("taskExecutor")
+public Executor taskExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(4);
+    executor.setMaxPoolSize(20);
+    executor.setQueueCapacity(200);
+    executor.setThreadNamePrefix("task-");
+    executor.initialize();
+    return executor;
+}
+```
+
+#### 3. 使用
+
+```java
+@Async("taskExecutor")
+public void processPaperAsync(Long paperId) { ... }
+```
+
+**注意**：同一个类内部调用 `@Async` 方法不会走代理，因此不会异步。必须外部调用。
+
+---
+
+### 三、全局异常处理
+
+```java
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public Result<Void> handleIllegalArgument(IllegalArgumentException e) {
+        return Result.error(400, e.getMessage());
+    }
+
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handleException(Exception e) {
+        log.error("服务器内部错误", e);
+        return Result.error(500, "服务器内部错误: " + e.getMessage());
+    }
+}
+```
+
+- `@RestControllerAdvice` 统一捕获 Controller 层抛出的异常
+- 避免 Tomcat 默认返回 HTML 错误页，前后端都能按统一格式处理
+
+---
+
+### 四、CORS 安全
+
+#### 1. 开发环境
+
+只允许前端开发服务器：
+
+```java
+registry.addMapping("/api/**")
+    .allowedOrigins("http://localhost:5173")
+    .allowCredentials(true)
+    .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS");
+```
+
+#### 2. 生产环境
+
+不要写死 origin，应从配置文件读取：
+
+```java
+@Value("${app.cors.allowed-origins:http://localhost:5173}")
+private String allowedOrigins;
+```
+
+---
+
+### 五、参数校验
+
+#### 1. DTO + `@Valid`
+
+```java
+public record GapRequest(
+    @NotNull @Size(min = 3, message = "至少需要 3 篇论文")
+    List<Long> paperIds
+) {}
+```
+
+```java
+@PostMapping("/gap")
+public Result<?> gap(@RequestBody @Valid GapRequest request) { ... }
+```
+
+#### 2. 全局捕获校验失败
+
+```java
+@ExceptionHandler(MethodArgumentNotValidException.class)
+public Result<Void> handleValidation(MethodArgumentNotValidException e) {
+    String msg = e.getBindingResult().getFieldErrors().stream()
+        .map(FieldError::getDefaultMessage)
+        .collect(Collectors.joining("; "));
+    return Result.error(400, msg);
+}
+```
+
+---
+
+### 六、HttpClient 重定向
+
+Java 11+ `HttpClient` 默认对 GET/HEAD 跟随 `NORMAL` 级别重定向，但某些站点仍返回 301。显式声明更保险：
+
+```java
+HttpClient.newBuilder()
+    .connectTimeout(Duration.ofSeconds(15))
+    .followRedirects(HttpClient.Redirect.NORMAL)
+    .build();
+```
+
+另外，URL 尽量使用站点的 canonical 地址，避免依赖重定向。
+
+---
+
+### 七、踩坑速查（新增）
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| 启动报循环依赖 | `AsyncTaskService` 与 `PaperService` 互相注入 | `AsyncTaskService` 改注入 `PaperMapper` |
+| 异常返回 HTML | 缺少全局异常处理 | 加 `@RestControllerAdvice` |
+| `ORDER BY` 被注入 | `${sortDir}` 直接拼接 | Service 层白名单仅允许 ASC/DESC |
+| arXiv PDF 下载 301 | URL 带 `.pdf` 触发重定向 | 改用 canonical URL 并显式 follow redirect |
+| CORS 其他来源也能访问 | 配置成 `allowedOriginPatterns("*")` | 收紧为 `allowedOrigins("http://localhost:5173")` |
+| 手动创建论文 processingStatus 为 null | 数据库默认 NULL | schema 默认值改为 `PENDING` |
+| 上传大文件失败 | Spring 默认限制 1MB | `multipart.max-file-size: 50MB` |
+
+---

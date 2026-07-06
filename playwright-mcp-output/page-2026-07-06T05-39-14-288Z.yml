@@ -1,0 +1,222 @@
+- generic [ref=f11e1]:
+  - generic [ref=f11e4]:
+    - generic [ref=f11e5]:
+      - generic [ref=f11e6] [cursor=pointer]: Research Assistant
+      - menubar [ref=f11e7]:
+        - menuitem "文库管理" [ref=f11e8] [cursor=pointer]
+        - menuitem "文献检索" [ref=f11e9] [cursor=pointer]
+        - menuitem "论文分析" [ref=f11e10] [cursor=pointer]
+        - menuitem "研究空白" [ref=f11e11] [cursor=pointer]
+      - button [ref=f11e12] [cursor=pointer]:
+        - img [ref=f11e14]
+    - main [ref=f11e18]:
+      - generic [ref=f11e19]:
+        - generic [ref=f11e20]:
+          - generic [ref=f11e21]:
+            - button [ref=f11e22] [cursor=pointer]:
+              - img [ref=f11e24]
+            - button [ref=f11e27] [cursor=pointer]:
+              - img [ref=f11e29]
+            - button [ref=f11e33] [cursor=pointer]:
+              - img [ref=f11e35]
+            - button [ref=f11e39] [cursor=pointer]:
+              - img [ref=f11e41]
+          - generic [ref=f11e44] [cursor=pointer]:
+            - img [ref=f11e45]
+            - generic [ref=f11e47]: 我的文库
+          - generic [ref=f11e48]:
+            - generic [ref=f11e49] [cursor=pointer]:
+              - img [ref=f11e50]
+              - generic [ref=f11e52]: 未分类
+            - generic [ref=f11e53] [cursor=pointer]:
+              - img [ref=f11e54]
+              - generic [ref=f11e57]: 最近新增
+          - tree [ref=f11e58]:
+            - treeitem "RSMA (1)" [ref=f11e59]:
+              - generic [ref=f11e60] [cursor=pointer]:
+                - img [ref=f11e62]
+                - generic [ref=f11e64]:
+                  - generic [ref=f11e65]: RSMA
+                  - generic [ref=f11e66]: (1)
+          - generic [ref=f11e67]:
+            - heading "筛选" [level=4] [ref=f11e68]
+            - generic [ref=f11e69]:
+              - generic [ref=f11e70]: 阅读状态
+              - generic [ref=f11e72] [cursor=pointer]:
+                - generic:
+                  - combobox [ref=f11e74]
+                  - generic [ref=f11e75]: 全部
+                - img [ref=f11e78]
+            - generic [ref=f11e80]:
+              - generic [ref=f11e81]: 标签
+              - generic [ref=f11e83] [cursor=pointer]:
+                - generic:
+                  - combobox [ref=f11e85]
+                  - generic [ref=f11e86]: 全部
+                - img [ref=f11e89]
+        - generic [ref=f11e93]:
+          - generic [ref=f11e94]:
+            - generic [ref=f11e95]:
+              - button [ref=f11e96] [cursor=pointer]:
+                - img [ref=f11e98]
+              - button [ref=f11e102] [cursor=pointer]:
+                - img [ref=f11e104]
+            - textbox "搜索论文…" [ref=f11e109]
+          - table [ref=f11e112]:
+            - rowgroup [ref=f11e113]:
+              - row "标题 ↕ 类目 标签 状态 期刊/会议 ↕ 出版年份 ↕ 导入年份 ↓ 操作" [ref=f11e114]:
+                - columnheader [ref=f11e115] [cursor=pointer]:
+                  - generic [ref=f11e117]:
+                    - checkbox
+                - columnheader "标题 ↕" [ref=f11e119] [cursor=pointer]:
+                  - generic [ref=f11e120]: 标题 ↕
+                - columnheader "类目" [ref=f11e122] [cursor=pointer]:
+                  - generic [ref=f11e123]: 类目
+                - columnheader "标签" [ref=f11e125] [cursor=pointer]:
+                  - generic [ref=f11e126]: 标签
+                - columnheader "状态" [ref=f11e128] [cursor=pointer]:
+                  - generic [ref=f11e129]: 状态
+                - columnheader "期刊/会议 ↕" [ref=f11e131] [cursor=pointer]:
+                  - generic [ref=f11e132]: 期刊/会议 ↕
+                - columnheader "出版年份 ↕" [ref=f11e134] [cursor=pointer]:
+                  - generic [ref=f11e135]: 出版年份 ↕
+                - columnheader "导入年份 ↓" [ref=f11e137] [cursor=pointer]:
+                  - generic [ref=f11e138]: 导入年份 ↓
+                - columnheader "操作" [ref=f11e140] [cursor=pointer]:
+                  - generic [ref=f11e141]: 操作
+            - rowgroup [ref=f11e143]:
+              - row "RSMA适用于高移动性场景 -- survey 已读 -- 2025 2026-07 论文分析 信息 ···" [ref=f11e358]:
+                - cell [ref=f11e145]:
+                  - generic [ref=f11e147] [cursor=pointer]:
+                    - checkbox
+                - cell "RSMA适用于高移动性场景" [ref=f11e149]
+                - cell "--" [ref=f11e150]
+                - cell "survey" [ref=f11e359] [cursor=pointer]:
+                  - generic [ref=f11e361]: survey
+                - cell "已读" [ref=f11e154]:
+                  - button "已读" [ref=f11e156] [cursor=pointer]:
+                    - generic [ref=f11e157]: 已读
+                - cell "--" [ref=f11e158]
+                - cell "2025" [ref=f11e159]
+                - cell "2026-07" [ref=f11e160]
+                - cell "论文分析 信息 ···" [ref=f11e161]:
+                  - generic [ref=f11e162]:
+                    - button "论文分析" [ref=f11e163] [cursor=pointer]:
+                      - generic [ref=f11e164]: 论文分析
+                    - button "信息" [ref=f11e165] [cursor=pointer]:
+                      - generic [ref=f11e166]: 信息
+                    - button "···" [ref=f11e168] [cursor=pointer]:
+                      - generic [ref=f11e169]: ···
+              - row "WY 进一步优化短块长CSIT的RSMA和速率 -- 点击添加标签 未读 -- 2025 2026-07 论文分析 信息 ···" [ref=f11e170]:
+                - cell [ref=f11e171] [cursor=pointer]:
+                  - generic [ref=f11e173]:
+                    - checkbox
+                - cell "WY 进一步优化短块长CSIT的RSMA和速率" [ref=f11e175] [cursor=pointer]
+                - cell "--" [ref=f11e176] [cursor=pointer]
+                - cell "点击添加标签" [ref=f11e177] [cursor=pointer]:
+                  - generic [ref=f11e179]: 点击添加标签
+                - cell "未读" [ref=f11e180] [cursor=pointer]:
+                  - button "未读" [expanded] [ref=f11e182]:
+                    - generic [ref=f11e183]: 未读
+                - cell "--" [ref=f11e184] [cursor=pointer]
+                - cell "2025" [ref=f11e185] [cursor=pointer]
+                - cell "2026-07" [ref=f11e186] [cursor=pointer]
+                - cell "论文分析 信息 ···" [ref=f11e187] [cursor=pointer]:
+                  - generic [ref=f11e188]:
+                    - button "论文分析" [ref=f11e189]:
+                      - generic [ref=f11e190]: 论文分析
+                    - button "信息" [ref=f11e191]:
+                      - generic [ref=f11e192]: 信息
+                    - button "···" [ref=f11e194]:
+                      - generic [ref=f11e195]: ···
+              - row "ZJP 非完美CSIT有限块长和速率闭式 -- 点击添加标签 未读 -- 2025 2026-07 论文分析 信息 ···" [ref=f11e196]:
+                - cell [ref=f11e197]:
+                  - generic [ref=f11e199] [cursor=pointer]:
+                    - checkbox
+                - cell "ZJP 非完美CSIT有限块长和速率闭式" [ref=f11e201]
+                - cell "--" [ref=f11e202]
+                - cell "点击添加标签" [ref=f11e203] [cursor=pointer]:
+                  - generic [ref=f11e205]: 点击添加标签
+                - cell "未读" [ref=f11e206]:
+                  - button "未读" [ref=f11e208] [cursor=pointer]:
+                    - generic [ref=f11e209]: 未读
+                - cell "--" [ref=f11e210]
+                - cell "2025" [ref=f11e211]
+                - cell "2026-07" [ref=f11e212]
+                - cell "论文分析 信息 ···" [ref=f11e213]:
+                  - generic [ref=f11e214]:
+                    - button "论文分析" [ref=f11e215] [cursor=pointer]:
+                      - generic [ref=f11e216]: 论文分析
+                    - button "信息" [ref=f11e217] [cursor=pointer]:
+                      - generic [ref=f11e218]: 信息
+                    - button "···" [ref=f11e220] [cursor=pointer]:
+                      - generic [ref=f11e221]: ···
+          - generic [ref=f11e223]:
+            - button "Go to previous page" [disabled] [ref=f11e224]:
+              - generic:
+                - img
+            - list [ref=f11e225]:
+              - listitem "page 1" [ref=f11e226]: "1"
+            - button "Go to next page" [disabled] [ref=f11e227]:
+              - generic:
+                - img
+        - generic [ref=f11e230]:
+          - generic [ref=f11e231]:
+            - heading "RSMA适用于高移动性场景" [level=2] [ref=f11e233]
+            - button [ref=f11e234] [cursor=pointer]:
+              - img [ref=f11e236]
+          - button "开始 AI 分析" [ref=f11e296] [cursor=pointer]:
+            - generic [ref=f11e297]: 开始 AI 分析
+          - generic [ref=f11e241]: 作者
+          - generic [ref=f11e242]:
+            - generic [ref=f11e243]: 年份
+            - text: "2025"
+          - generic [ref=f11e245]: 来源
+          - generic [ref=f11e247]: DOI
+          - generic [ref=f11e248]:
+            - generic [ref=f11e249]: 摘要
+            - text: 暂无摘要
+          - generic [ref=f11e305]:
+            - generic [ref=f11e306]: 处理状态
+            - generic [ref=f11e308]: 已完成
+          - generic [ref=f11e309]:
+            - generic [ref=f11e310]: AI · 核心贡献
+            - paragraph [ref=f11e311]: This paper presents the first comprehensive tutorial and survey on rate-splitting multiple access (RSMA), reviewing its architecture, taxonomy, and applications while benchmarking it against existing multiple access schemes. It establishes RSMA as a unified physical-layer non-orthogonal transmission framework that bridges SDMA and NOMA by splitting user messages into common and private parts and partially decoding interference. It also identifies standardization and research challenges for RSMA in beyond-5G/6G wireless networks.
+          - generic [ref=f11e312]:
+            - generic [ref=f11e313]: AI · 方法概述
+            - paragraph [ref=f11e314]: "The treatise is a survey and tutorial: it reviews RSMA fundamentals, information-theoretic results, and system-level performance, compares it with OMA, SDMA, and NOMA, and outlines taxonomy, use cases, and future research directions."
+          - generic [ref=f11e261]: 关键词
+          - generic [ref=f11e262]:
+            - generic [ref=f11e263]: 获取方式
+            - text: 手动上传
+          - generic [ref=f11e264]:
+            - generic [ref=f11e265]: arXiv ID
+            - text: "--"
+          - generic [ref=f11e266]:
+            - generic [ref=f11e267]: 来源链接
+            - text: "--"
+          - generic [ref=f11e268]:
+            - generic [ref=f11e269]: PDF
+            - link "打开 PDF" [ref=f11e270] [cursor=pointer]:
+              - /url: "#"
+          - generic [ref=f11e303]:
+            - generic [ref=f11e304]: 处理状态
+            - text: 已完成
+          - generic [ref=f11e273]:
+            - generic [ref=f11e274]: 阅读状态
+            - generic [ref=f11e276] [cursor=pointer]:
+              - generic:
+                - combobox [ref=f11e278]
+                - generic [ref=f11e279]: 已读
+              - img [ref=f11e282]
+          - generic [ref=f11e284]:
+            - generic [ref=f11e285]: 标签
+            - generic [ref=f11e287]:
+              - generic:
+                - combobox [ref=f11e289]
+                - generic [ref=f11e290]: 选择或输入新标签
+              - img [ref=f11e293] [cursor=pointer]
+  - menu "未读" [active] [ref=f11e366]:
+    - menuitem "未读" [ref=f11e367] [cursor=pointer]: 未读
+    - menuitem "正读" [ref=f11e369] [cursor=pointer]: 正读
+    - menuitem "已读" [ref=f11e371] [cursor=pointer]: 已读

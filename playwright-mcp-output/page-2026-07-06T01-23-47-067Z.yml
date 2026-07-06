@@ -1,0 +1,11 @@
+- generic [ref=f16e4]:
+  - generic [ref=f16e5]:
+    - generic [ref=f16e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f16e7]:
+      - menuitem "文库管理" [ref=f16e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=f16e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=f16e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=f16e11] [cursor=pointer]
+    - button [ref=f16e12] [cursor=pointer]:
+      - img [ref=f16e14]
+  - main

@@ -35,4 +35,13 @@ public interface PaperService {
 
     /** 上传 PDF 并创建论文（一步完成入库），返回创建后的论文 */
     Paper uploadPdfAndCreate(MultipartFile file, Paper paper);
+
+    /** 批量删除论文 */
+    void deleteBatch(List<Long> ids);
+
+    /** 批量移动论文到指定文件夹（folderId 为 null 表示移出到根） */
+    void moveBatch(List<Long> ids, Long folderId);
+
+    /** 切换论文置顶状态 */
+    Paper togglePin(Long id);
 }

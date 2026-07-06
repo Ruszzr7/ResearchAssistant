@@ -10,14 +10,11 @@ public final class ReadingStatus {
     /** 未读 */
     public static final String UNREAD = "UNREAD";
 
-    /** 略读 */
-    public static final String SKIMMED = "SKIMMED";
+    /** 正读（正在阅读） */
+    public static final String READING = "READING";
 
-    /** 精读 */
-    public static final String CLOSE_READ = "CLOSE_READ";
-
-    /** 已归档 */
-    public static final String ARCHIVED = "ARCHIVED";
+    /** 已读 */
+    public static final String READ = "READ";
 
     private ReadingStatus() {
         // 工具类不允许实例化

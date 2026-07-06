@@ -1,0 +1,183 @@
+- generic [ref=f6e4]:
+  - generic [ref=f6e5]:
+    - generic [ref=f6e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f6e7]:
+      - menuitem "文库管理" [ref=f6e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=f6e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=f6e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=f6e11] [cursor=pointer]
+    - button [ref=f6e12] [cursor=pointer]:
+      - img [ref=f6e14]
+  - main [ref=f6e18]:
+    - generic [ref=f6e19]:
+      - generic [ref=f6e20]:
+        - generic [ref=f6e21]:
+          - button [ref=f6e22] [cursor=pointer]:
+            - img [ref=f6e24]
+          - button [ref=f6e27] [cursor=pointer]:
+            - img [ref=f6e29]
+          - button [ref=f6e33] [cursor=pointer]:
+            - img [ref=f6e35]
+          - button [ref=f6e39] [cursor=pointer]:
+            - img [ref=f6e41]
+        - generic [ref=f6e44] [cursor=pointer]:
+          - img [ref=f6e45]
+          - generic [ref=f6e47]: 我的文库
+        - generic [ref=f6e48]:
+          - generic [ref=f6e49] [cursor=pointer]:
+            - img [ref=f6e50]
+            - generic [ref=f6e52]: 未分类
+          - generic [ref=f6e53] [cursor=pointer]:
+            - img [ref=f6e54]
+            - generic [ref=f6e57]: 最近新增
+        - tree [ref=f6e58]:
+          - treeitem "RSMA (1)" [ref=f6e59]:
+            - generic [ref=f6e60] [cursor=pointer]:
+              - img [ref=f6e62]
+              - generic [ref=f6e64]:
+                - generic [ref=f6e65]: RSMA
+                - generic [ref=f6e66]: (1)
+        - generic [ref=f6e67]:
+          - heading "筛选" [level=4] [ref=f6e68]
+          - generic [ref=f6e69]:
+            - generic [ref=f6e70]: 阅读状态
+            - generic [ref=f6e72] [cursor=pointer]:
+              - generic:
+                - combobox [ref=f6e74]
+                - generic [ref=f6e75]: 全部
+              - img [ref=f6e78]
+          - generic [ref=f6e80]:
+            - generic [ref=f6e81]: 标签
+            - generic [ref=f6e83] [cursor=pointer]:
+              - generic:
+                - combobox [ref=f6e85]
+                - generic [ref=f6e86]: 全部
+              - img [ref=f6e89]
+      - generic [ref=f6e93]:
+        - generic [ref=f6e94]:
+          - generic [ref=f6e95]:
+            - button [ref=f6e96] [cursor=pointer]:
+              - img [ref=f6e98]
+            - button [ref=f6e102] [cursor=pointer]:
+              - img [ref=f6e104]
+          - textbox "搜索论文…" [ref=f6e109]
+        - table [ref=f6e112]:
+          - rowgroup [ref=f6e113]:
+            - row "标题 ↕ 类目 标签 状态 期刊/会议 ↕ 出版年份 ↕ 导入年份 ↓ 操作" [ref=f6e114]:
+              - columnheader [ref=f6e115] [cursor=pointer]:
+                - generic [ref=f6e117]:
+                  - checkbox
+              - columnheader "标题 ↕" [ref=f6e119] [cursor=pointer]:
+                - generic [ref=f6e120]: 标题 ↕
+              - columnheader "类目" [ref=f6e122] [cursor=pointer]:
+                - generic [ref=f6e123]: 类目
+              - columnheader "标签" [ref=f6e125] [cursor=pointer]:
+                - generic [ref=f6e126]: 标签
+              - columnheader "状态" [ref=f6e128] [cursor=pointer]:
+                - generic [ref=f6e129]: 状态
+              - columnheader "期刊/会议 ↕" [ref=f6e131] [cursor=pointer]:
+                - generic [ref=f6e132]: 期刊/会议 ↕
+              - columnheader "出版年份 ↕" [ref=f6e134] [cursor=pointer]:
+                - generic [ref=f6e135]: 出版年份 ↕
+              - columnheader "导入年份 ↓" [ref=f6e137] [cursor=pointer]:
+                - generic [ref=f6e138]: 导入年份 ↓
+              - columnheader "操作" [ref=f6e140] [cursor=pointer]:
+                - generic [ref=f6e141]: 操作
+          - rowgroup [ref=f6e143]:
+            - row "attention 预印本 点击添加标签 未读 arXiv 2017 2026-07 论文分析 信息 ···" [ref=f6e144]:
+              - cell [ref=f6e145]:
+                - generic [ref=f6e147] [cursor=pointer]:
+                  - checkbox
+              - cell "attention" [ref=f6e149]
+              - cell "预印本" [ref=f6e150]
+              - cell "点击添加标签" [ref=f6e151] [cursor=pointer]:
+                - generic [ref=f6e153]: 点击添加标签
+              - cell "未读" [ref=f6e154]:
+                - button "未读" [ref=f6e156] [cursor=pointer]:
+                  - generic [ref=f6e157]: 未读
+              - cell "arXiv" [ref=f6e158]
+              - cell "2017" [ref=f6e159]
+              - cell "2026-07" [ref=f6e160]
+              - cell "论文分析 信息 ···" [ref=f6e161]:
+                - generic [ref=f6e162]:
+                  - button "论文分析" [ref=f6e163] [cursor=pointer]:
+                    - generic [ref=f6e164]: 论文分析
+                  - button "信息" [ref=f6e165] [cursor=pointer]:
+                    - generic [ref=f6e166]: 信息
+                  - button "···" [ref=f6e168] [cursor=pointer]:
+                    - generic [ref=f6e169]: ···
+            - row "RSMA适用于高移动性场景 -- 点击添加标签 未读 -- 2025 2026-07 论文分析 信息 ···" [ref=f6e170]:
+              - cell [ref=f6e171]:
+                - generic [ref=f6e173] [cursor=pointer]:
+                  - checkbox
+              - cell "RSMA适用于高移动性场景" [ref=f6e175]
+              - cell "--" [ref=f6e176]
+              - cell "点击添加标签" [ref=f6e177] [cursor=pointer]:
+                - generic [ref=f6e179]: 点击添加标签
+              - cell "未读" [ref=f6e180]:
+                - button "未读" [ref=f6e182] [cursor=pointer]:
+                  - generic [ref=f6e183]: 未读
+              - cell "--" [ref=f6e184]
+              - cell "2025" [ref=f6e185]
+              - cell "2026-07" [ref=f6e186]
+              - cell "论文分析 信息 ···" [ref=f6e187]:
+                - generic [ref=f6e188]:
+                  - button "论文分析" [ref=f6e189] [cursor=pointer]:
+                    - generic [ref=f6e190]: 论文分析
+                  - button "信息" [ref=f6e191] [cursor=pointer]:
+                    - generic [ref=f6e192]: 信息
+                  - button "···" [ref=f6e194] [cursor=pointer]:
+                    - generic [ref=f6e195]: ···
+            - row "WY 进一步优化短块长CSIT的RSMA和速率 -- 点击添加标签 未读 -- 2025 2026-07 论文分析 信息 ···" [ref=f6e196]:
+              - cell [ref=f6e197]:
+                - generic [ref=f6e199] [cursor=pointer]:
+                  - checkbox
+              - cell "WY 进一步优化短块长CSIT的RSMA和速率" [ref=f6e201]
+              - cell "--" [ref=f6e202]
+              - cell "点击添加标签" [ref=f6e203] [cursor=pointer]:
+                - generic [ref=f6e205]: 点击添加标签
+              - cell "未读" [ref=f6e206]:
+                - button "未读" [ref=f6e208] [cursor=pointer]:
+                  - generic [ref=f6e209]: 未读
+              - cell "--" [ref=f6e210]
+              - cell "2025" [ref=f6e211]
+              - cell "2026-07" [ref=f6e212]
+              - cell "论文分析 信息 ···" [ref=f6e213]:
+                - generic [ref=f6e214]:
+                  - button "论文分析" [ref=f6e215] [cursor=pointer]:
+                    - generic [ref=f6e216]: 论文分析
+                  - button "信息" [ref=f6e217] [cursor=pointer]:
+                    - generic [ref=f6e218]: 信息
+                  - button "···" [ref=f6e220] [cursor=pointer]:
+                    - generic [ref=f6e221]: ···
+            - row "ZJP 非完美CSIT有限块长和速率闭式 -- 点击添加标签 未读 -- 2025 2026-07 论文分析 信息 ···" [ref=f6e222]:
+              - cell [ref=f6e223]:
+                - generic [ref=f6e225] [cursor=pointer]:
+                  - checkbox
+              - cell "ZJP 非完美CSIT有限块长和速率闭式" [ref=f6e227]
+              - cell "--" [ref=f6e228]
+              - cell "点击添加标签" [ref=f6e229] [cursor=pointer]:
+                - generic [ref=f6e231]: 点击添加标签
+              - cell "未读" [ref=f6e232]:
+                - button "未读" [ref=f6e234] [cursor=pointer]:
+                  - generic [ref=f6e235]: 未读
+              - cell "--" [ref=f6e236]
+              - cell "2025" [ref=f6e237]
+              - cell "2026-07" [ref=f6e238]
+              - cell "论文分析 信息 ···" [ref=f6e239]:
+                - generic [ref=f6e240]:
+                  - button "论文分析" [ref=f6e241] [cursor=pointer]:
+                    - generic [ref=f6e242]: 论文分析
+                  - button "信息" [ref=f6e243] [cursor=pointer]:
+                    - generic [ref=f6e244]: 信息
+                  - button "···" [ref=f6e246] [cursor=pointer]:
+                    - generic [ref=f6e247]: ···
+        - generic [ref=f6e249]:
+          - button "Go to previous page" [disabled] [ref=f6e250]:
+            - generic:
+              - img
+          - list [ref=f6e251]:
+            - listitem "page 1" [ref=f6e252]: "1"
+          - button "Go to next page" [disabled] [ref=f6e253]:
+            - generic:
+              - img

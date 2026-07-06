@@ -27,7 +27,7 @@ public interface PaperMapper extends BaseMapper<Paper> {
         "SELECT DISTINCT p.id, p.title, p.authors, p.year, p.source, p.doi, " +
         "p.arxiv_id, p.source_url, p.citation_count, " +
         "p.`abstract` AS abstract_text, p.keywords, p.pdf_path, " +
-        "p.acquisition_method, p.folder_id, p.reading_status, p.ai_summary, " +
+        "p.acquisition_method, p.folder_id, p.reading_status, p.pinned, p.ai_summary, " +
         "p.processing_status, p.created_at, p.updated_at " +
         "FROM paper p " +
         "<if test='tagId != null'>" +
@@ -44,10 +44,11 @@ public interface PaperMapper extends BaseMapper<Paper> {
         "    AND (p.title LIKE CONCAT('%',#{keyword},'%') OR p.authors LIKE CONCAT('%',#{keyword},'%') OR p.keywords LIKE CONCAT('%',#{keyword},'%'))" +
         "  </if>" +
         "</where>" +
+        " ORDER BY p.pinned DESC, " +
         " <choose>" +
-        "  <when test='sortBy == \"title\"'> ORDER BY p.title ${sortDir}</when>" +
-        "  <when test='sortBy == \"year\"'> ORDER BY p.year ${sortDir}</when>" +
-        "  <otherwise> ORDER BY p.created_at ${sortDir}</otherwise>" +
+        "  <when test='sortBy == \"title\"'> p.title ${sortDir}</when>" +
+        "  <when test='sortBy == \"year\"'> p.year ${sortDir}</when>" +
+        "  <otherwise> p.created_at ${sortDir}</otherwise>" +
         " </choose>" +
         "</script>")
     IPage<Paper> selectPageWithFilters(Page<Paper> page,
@@ -63,7 +64,7 @@ public interface PaperMapper extends BaseMapper<Paper> {
     @Select("SELECT p.id, p.title, p.authors, p.year, p.source, p.doi, " +
         "p.arxiv_id, p.source_url, p.citation_count, " +
         "p.`abstract` AS abstract_text, p.keywords, p.pdf_path, " +
-        "p.acquisition_method, p.folder_id, p.reading_status, p.ai_summary, " +
+        "p.acquisition_method, p.folder_id, p.reading_status, p.pinned, p.ai_summary, " +
         "p.processing_status, p.created_at, p.updated_at " +
         "FROM paper p WHERE p.id = #{id}")
     Paper selectById(@Param("id") Long id);

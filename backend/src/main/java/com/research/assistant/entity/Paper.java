@@ -62,6 +62,9 @@ public class Paper {
     /** {@link com.research.assistant.constant.ReadingStatus} */
     private String readingStatus;
 
+    /** 是否置顶 */
+    private Boolean pinned;
+
     /** Agent 生成的内容摘要（未实现） */
     private String aiSummary;
 
@@ -113,6 +116,8 @@ public class Paper {
     public void setFolderId(Long folderId) { this.folderId = folderId; }
     public String getReadingStatus() { return readingStatus; }
     public void setReadingStatus(String readingStatus) { this.readingStatus = readingStatus; }
+    public Boolean getPinned() { return pinned; }
+    public void setPinned(Boolean pinned) { this.pinned = pinned; }
     public String getAiSummary() { return aiSummary; }
     public void setAiSummary(String aiSummary) { this.aiSummary = aiSummary; }
     public String getProcessingStatus() { return processingStatus; }

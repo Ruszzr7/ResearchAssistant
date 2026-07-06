@@ -45,11 +45,52 @@ CREATE TABLE paper (
     acquisition_method  VARCHAR(30)   DEFAULT NULL,    -- OA / BROWSER_DOWNLOAD / MANUAL_UPLOAD
     folder_id           BIGINT        DEFAULT NULL,
     reading_status      VARCHAR(20)   DEFAULT 'UNREAD',
-    ai_summary          TEXT          DEFAULT NULL,    -- Agent 生成内容摘要
-    processing_status   VARCHAR(20)   DEFAULT NULL,    -- PENDING / PROCESSING / COMPLETED / FAILED
+    pinned              TINYINT(1)    DEFAULT 0 COMMENT '是否置顶',
+    ai_summary          MEDIUMTEXT    DEFAULT NULL,    -- Agent 生成内容摘要（PDF 提取文本可能较大）
+    processing_status   VARCHAR(20)   DEFAULT 'PENDING',    -- PENDING / PROCESSING / COMPLETED / FAILED
     created_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================
+-- 阶段三新增表
+-- ============================================================
+
+-- 系统设置（Key-Value，如 API Key、模型名）
+CREATE TABLE IF NOT EXISTS settings (
+    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    key_name   VARCHAR(100) NOT NULL UNIQUE,
+    value      VARCHAR(2000) NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 论文结构化分析结果（Agent 深度阅读产出）
+CREATE TABLE IF NOT EXISTS paper_analysis (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id            BIGINT NOT NULL UNIQUE,
+    sections_json       MEDIUMTEXT,       -- 章节结构 JSON
+    core_contribution   TEXT,             -- 核心贡献
+    method_type         VARCHAR(50),      -- THEORETICAL / EXPERIMENTAL / SYSTEM / SURVEY
+    method_summary      TEXT,             -- 方法概述
+    datasets_json       TEXT,             -- 使用的数据集
+    models_json         TEXT,             -- 使用的模型/算法
+    key_findings_json   TEXT,             -- 主要发现
+    limitations_json    TEXT,             -- 局限性
+    tables_summary_json TEXT,             -- 表格摘要
+    figures_summary_json TEXT,            -- 图表摘要
+    raw_text            MEDIUMTEXT,       -- 原始提取文本（供后续引用）
+    token_used          INT DEFAULT 0,    -- 本次分析消耗 token
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 论文对比记录
+CREATE TABLE IF NOT EXISTS comparison (
+    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_ids  VARCHAR(500) NOT NULL,     -- 逗号分隔的论文 ID
+    result_json MEDIUMTEXT,               -- 对比结果 JSON
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 论文-标签关联（多对多）
