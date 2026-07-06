@@ -652,6 +652,59 @@
 
 ---
 
+## 阶段 4.11：LangChain4j 集成 Phase 3 — 2026-07-06 ✅
+
+**目标**：将项目中已有的 arXiv 搜索、Crossref 查询、PDF 文本提取等能力封装为 LangChain4j `@Tool`，让 LLM 在 Gap 验证中自主调用。
+
+**完成内容**：
+
+1. **工具类封装**：
+   - 新建 `ResearchTools`，用 `@Tool` 暴露：
+     - `searchArxiv(query, maxResults)`
+     - `fetchCrossref(doi)`
+     - `searchLocalPapersByTitle(keyword)`
+     - `extractPdfTextByPath(pdfPath, maxPages)`
+   - 工具内部调用现有 `ArxivFetcher` / `CrossrefFetcher` / `PdfExtractor` / `PaperMapper`，不重复实现网络/解析逻辑。
+
+2. **工具型 Agent 接口拆分**：
+   - 新建 `ResearchToolAgent`，仅包含需要工具调用的 `verifyGaps(gapReport)`。
+   - `ResearchAiConfig` 单独构建 `ResearchToolAgent` Bean，**不绑定 ChatMemoryProvider**，避免工具任务受历史消息污染。
+   - `ResearchAiService` 保持只负责论文精读与多轮对话，不加载 tools。
+
+3. **Gap 验证改造**：
+   - `AgentOrchestrator.verifyGaps(gapReport)` 优先调用 `ResearchToolAgent.verifyGaps`，解析返回的 JSON 数组。
+   - 失败时回退到旧的手动关键词 + arXiv 搜索规则验证。
+   - `AgentController` 的 `/api/agent/gap`、`/api/agent/gap/folder/{folderId}`、`/api/agent/gap/verify` 统一走新的 `AgentOrchestrator.verifyGaps`。
+
+**验证结果**：
+
+- `mvn test` 28 项全部通过。
+- curl 实测 `/api/agent/gap/verify`：
+  - LLM 调用 `searchArxiv` 检索每个 Gap，返回带 `evidence` 和 `relatedPapers` 的验证结果。
+  - 第一个 Gap（Transformer 长序列复杂度高）被判定为 `green`，并列出多篇相关论文。
+  - 第二个 Gap（大模型推理理论基础）被判定为 `yellow`，证据准确。
+- 多轮对话 `/api/agent/chat` 仍正常工作，记忆未受工具 Agent 影响。
+
+**关键踩坑**：
+
+- 工具方法与对话方法共用同一个 `AiServices` Bean 时，LangChain4j 会为无 `@MemoryId` 的方法使用默认 memoryId，加载到历史消息中内容为 null 的 AI 记录后会抛 `IllegalArgumentException: text cannot be null`。
+- 解决：将需要工具但不需要记忆的方法拆到独立的 `ResearchToolAgent`，配置时不设 `chatMemoryProvider`。
+- 数据库中 `conversation` 表曾残留 `memory_id='default'` 的脏数据（来自早期调试），清理后对话恢复正常。
+
+**文件清单**：
+
+- 新建：
+  - `backend/src/main/java/com/research/assistant/service/ai/ResearchTools.java`
+  - `backend/src/main/java/com/research/assistant/service/ai/ResearchToolAgent.java`
+- 修改：
+  - `backend/src/main/java/com/research/assistant/service/ai/ResearchAiConfig.java`
+  - `backend/src/main/java/com/research/assistant/service/ai/ResearchAiService.java`
+  - `backend/src/main/java/com/research/assistant/service/AgentOrchestrator.java`
+  - `backend/src/main/java/com/research/assistant/service/impl/AgentOrchestratorImpl.java`
+  - `backend/src/main/java/com/research/assistant/controller/AgentController.java`
+
+---
+
 **目标**：将当前开发态项目转为可分发态，使他人拉取项目后能通过 Docker 一键部署，无需手动安装 JDK、Node.js、MySQL。
 
 **推荐方案**：Docker Compose 容器化部署。

@@ -11,9 +11,11 @@ import com.research.assistant.mapper.FolderMapper;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.AgentOrchestrator;
+import com.research.assistant.service.ArxivFetcher;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.PaperProcessingService;
 import com.research.assistant.service.ai.ResearchAiService;
+import com.research.assistant.service.ai.ResearchToolAgent;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.service.Result;
@@ -43,12 +45,15 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
     private final PaperProcessingService processingService;
     private final LLMService llmService;
     private final ResearchAiService researchAiService;
+    private final ResearchToolAgent researchToolAgent;
     private final ChatMemoryStore chatMemoryStore;
+    private final ArxivFetcher arxivFetcher;
 
     public AgentOrchestratorImpl(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
                                   ComparisonMapper comparisonMapper, FolderMapper folderMapper,
                                   PaperProcessingService processingService, LLMService llmService,
-                                  ResearchAiService researchAiService, ChatMemoryStore chatMemoryStore) {
+                                  ResearchAiService researchAiService, ResearchToolAgent researchToolAgent,
+                                  ChatMemoryStore chatMemoryStore, ArxivFetcher arxivFetcher) {
         this.paperMapper = paperMapper;
         this.analysisMapper = analysisMapper;
         this.comparisonMapper = comparisonMapper;
@@ -56,7 +61,9 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
         this.processingService = processingService;
         this.llmService = llmService;
         this.researchAiService = researchAiService;
+        this.researchToolAgent = researchToolAgent;
         this.chatMemoryStore = chatMemoryStore;
+        this.arxivFetcher = arxivFetcher;
     }
 
     @Override
@@ -192,6 +199,71 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
         }
 
         return llmService.chat(GAP_SYSTEM_PROMPT, context.toString());
+    }
+
+    @Override
+    public List<Map<String, Object>> verifyGaps(String gapReport) {
+        if (gapReport == null || gapReport.isBlank()) {
+            return List.of();
+        }
+
+        try {
+            Result<String> result = researchToolAgent.verifyGaps(gapReport);
+            String json = result != null ? result.content() : "";
+            if (json != null && !json.isBlank()) {
+                json = extractJson(json);
+                ObjectMapper mapper = new ObjectMapper();
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> verified = mapper.readValue(json, List.class);
+                for (Map<String, Object> item : verified) {
+                    item.put("searchDepth", "LLM 工具调用：arXiv/Crossref/PDF 提取综合验证");
+                }
+                return verified;
+            }
+        } catch (Exception e) {
+            log.warn("Agent Gap 验证失败，将回退到手动规则验证", e);
+        }
+
+        return verifyGapsManually(gapReport);
+    }
+
+    /**
+     * 旧版手动 Gap 验证：按标题关键词拆分 → arXiv 搜索 → 按结果数量分级。
+     */
+    private List<Map<String, Object>> verifyGapsManually(String gapReport) {
+        List<Map<String, Object>> verified = new ArrayList<>();
+        String[] parts = gapReport.split("(?=###\\s+|Gap\\s*\\d)");
+        for (String part : parts) {
+            if (part.trim().isEmpty()) continue;
+            String firstLine = part.split("\\n")[0].trim();
+            String gapTitle = firstLine.replaceAll("^#+\\s*", "")
+                    .replaceAll("[🔴🟡🟢]", "").trim();
+            if (gapTitle.isEmpty()) continue;
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("gapTitle", gapTitle);
+            try {
+                String[] words = gapTitle.split("\\s+");
+                String query = String.join(" ", java.util.Arrays.copyOf(words, Math.min(5, words.length)));
+                List<Map<String, Object>> results = arxivFetcher.search(query, 3);
+                int count = results.size();
+                item.put("resultCount", count);
+                item.put("level", count == 0 ? "red" : count <= 1 ? "yellow" : "green");
+                item.put("label", count == 0 ? "未发现相关研究" : count <= 1 ? "有少量相关工作" : "已有较多相关研究");
+                item.put("searchDepth", "摘要级搜索（arXiv API max_results=3），未检索付费墙后正文");
+                item.put("searchQuery", query);
+                if (!results.isEmpty()) {
+                    item.put("sampleTitle", results.get(0).get("title"));
+                }
+            } catch (Exception e) {
+                item.put("resultCount", 0);
+                item.put("level", "yellow");
+                item.put("label", "外部验证失败: " + e.getMessage());
+                item.put("searchDepth", "验证过程出错，无法评估");
+            }
+            verified.add(item);
+        }
+        return verified;
     }
 
     @Override

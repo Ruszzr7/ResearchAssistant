@@ -866,3 +866,92 @@ public String chatAbout(String conversationId, String context, String question) 
 | 同 conversationId 第二次请求无记忆 | 旧后端进程仍在运行，没加载新代码 | 杀掉旧进程后重启 |
 
 ---
+
+## 阶段 4.11：LangChain4j 工具调用 — 知识总结
+
+> 2026-07-06
+
+---
+
+### 一、用 `@Tool` 把现有服务暴露给 LLM
+
+```java
+@Component
+public class ResearchTools {
+
+    private final ArxivFetcher arxivFetcher;
+    // ...
+
+    @Tool("Search arXiv for papers matching the query. Returns title, authors, summary, ...")
+    public List<Map<String, Object>> searchArxiv(String query, int maxResults) {
+        // 复用已有 fetcher
+    }
+}
+```
+
+- `@Tool` 的 value 就是 LLM 看到的“函数说明”，要写清楚输入、输出、用途。
+- 工具方法可以是同步的； LangChain4j 会自动生成 schema 并在请求中发给模型。
+- 失败时返回空结果或带 `error` 的 map，不要抛异常，否则整个 Agent 调用中断。
+
+### 二、AiServices 注册工具
+
+```java
+@Bean
+public ResearchToolAgent researchToolAgent(LangChain4jModelFactory modelFactory,
+                                            ResearchTools researchTools) {
+    return AiServices.builder(ResearchToolAgent.class)
+            .chatModel(modelFactory.createChatModel())
+            .tools(researchTools)
+            .build();
+}
+```
+
+- `.tools(...)` 可以传入单个工具实例或数组。
+- 工具接口里不要有 `@MemoryId` 方法，除非你确实需要记忆。
+
+### 三、工具型 Agent 与对话型 Agent 拆分的必要性
+
+**不要**把需要工具的 `verifyGaps` 和需要记忆的 `chat` 放在同一个 `AiServices` 接口里，尤其当该接口配置了 `chatMemoryProvider`。
+
+原因：
+- 无 `@MemoryId` 的方法会使用默认 memoryId（如 `"default"`）。
+- 如果该 memory 里存过内容为空的历史消息（例如早期调试），LangChain4j 加载时会抛 `IllegalArgumentException: text cannot be null`。
+- 工具任务通常是无状态的，独立配置更干净。
+
+推荐做法：
+
+| Agent 接口 | 是否需要记忆 | 是否加载工具 | 示例方法 |
+|---|---|---|---|
+| `ResearchAiService` | 是 | 否 | `analyzePaper`、`chat` |
+| `ResearchToolAgent` | 否 | 是 | `verifyGaps` |
+
+### 四、工具返回值的约定
+
+为了让 LLM 能正确理解工具结果，返回结构最好稳定：
+
+- arXiv 搜索：返回 `List<Map<String, Object>>`，字段固定 `title`、`summary`、`arxivId`、`pdfUrl`。
+- 本地搜索：返回 `id`、`title`、`year`、`pdfPath`。
+- 错误：返回空集合或在 map 里加 `"error"` 字段，不要抛异常。
+
+### 五、调用方解析工具 Agent 输出
+
+工具 Agent 的 LLM 输出通常是 JSON，需要调用方自己解析：
+
+```java
+Result<String> result = researchToolAgent.verifyGaps(gapReport);
+String json = extractJson(result.content());   // 去掉可能的 ```json 包裹
+List<Map<String, Object>> verified = objectMapper.readValue(json, List.class);
+```
+
+务必保留 fallback：Agent 调用可能超时、模型不按要求返回 JSON、工具失败。
+
+### 六、踩坑速查
+
+| 问题 | 原因 | 解决 |
+|---|---|---|
+| `text cannot be null` 来自 `JdbcChatMemoryStore` | 历史消息中某条 AI message 内容为空 | 清理 conversation 表脏数据；把工具方法拆到无 memory 的 Agent |
+| 模型不调用工具 | 工具说明写得太抽象 | `@Tool` value 里明确输入输出和用途 |
+| 工具抛异常导致 Agent 失败 | 工具方法把外部 API 异常抛出 | 工具内部 try-catch，返回空结果或错误 map |
+| 同个 Bean 既有记忆又有工具，工具方法报错 | 默认 memoryId 污染 | 拆分接口/Bean |
+
+---

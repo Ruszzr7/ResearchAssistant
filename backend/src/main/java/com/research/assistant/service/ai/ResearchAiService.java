@@ -9,8 +9,8 @@ import dev.langchain4j.service.V;
 /**
  * 统一科研 Agent 接口 —— 基于 LangChain4j AiServices。
  * <p>
- * 目前暴露论文精读与追问对话方法，后续阶段逐步扩展：
- * 对比、Gap 分析、标签/文件夹/阅读状态推荐等。
+ * 目前暴露论文精读、追问对话、Gap 验证等方法，后续阶段逐步扩展：
+ * 对比、标签/文件夹/阅读状态推荐等。
  */
 public interface ResearchAiService {
 
@@ -38,13 +38,6 @@ public interface ResearchAiService {
     @UserMessage("请对以下论文文本进行结构化分析：\n\n{{it}}")
     Result<PaperAnalysisResult> analyzePaper(String cleanedPaperText);
 
-    /**
-     * 基于已有分析上下文进行多轮追问。
-     *
-     * @param memoryId 会话标识（如 paperId）
-     * @param question 用户问题
-     * @return 回答
-     */
     /**
      * 多轮追问。
      * <p>

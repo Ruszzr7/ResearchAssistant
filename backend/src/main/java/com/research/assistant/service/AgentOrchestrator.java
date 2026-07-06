@@ -47,6 +47,14 @@ public interface AgentOrchestrator {
     String analyzeGaps(Long folderId);
 
     /**
+     * 对 Gap 报告进行外部验证（Agent + 工具调用）。
+     *
+     * @param gapReport Gap 分析报告（markdown）
+     * @return 每个 Gap 的验证结果列表
+     */
+    java.util.List<java.util.Map<String, Object>> verifyGaps(String gapReport);
+
+    /**
      * 对话追问 —— 基于分析上下文回答用户问题（单轮，无记忆）。
      */
     String chatAbout(String context, String question);

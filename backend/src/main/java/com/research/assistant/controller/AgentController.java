@@ -162,7 +162,7 @@ public class AgentController {
     @PostMapping("/gap/folder/{folderId}")
     public Result<Map<String, Object>> gapByFolder(@PathVariable Long folderId) {
         String gapReport = agentOrchestrator.analyzeGaps(folderId);
-        List<Map<String, Object>> verified = verifyGaps(gapReport);
+        List<Map<String, Object>> verified = agentOrchestrator.verifyGaps(gapReport);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("gaps", gapReport);
         result.put("verified", verified);
@@ -178,7 +178,7 @@ public class AgentController {
         // Step 1: 库内分析
         String gapReport = agentOrchestrator.analyzeGapsByPaperIds(paperIds);
         // Step 2: 外部验证（对提取的 gap 逐一检索）
-        List<Map<String, Object>> verified = verifyGaps(gapReport);
+        List<Map<String, Object>> verified = agentOrchestrator.verifyGaps(gapReport);
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("gaps", gapReport);
         result.put("verified", verified);
@@ -194,7 +194,7 @@ public class AgentController {
 
     /**
      * POST /api/agent/gap/verify — Step 2: 外部验证。
-     * 对每个 Gap 标题生成检索关键词，搜索 arXiv，返回验证等级和证据。
+     * 由 Agent 调用 arXiv/Crossref/PDF 提取等工具综合判断每个 Gap 是否已被研究。
      */
     @PostMapping("/gap/verify")
     public Result<List<Map<String, Object>>> gapVerify(@RequestBody Map<String, Object> body) {
@@ -202,52 +202,7 @@ public class AgentController {
         if (gaps == null || gaps.isBlank()) {
             return Result.error(400, "请提供库内 Gap 分析结果");
         }
-        return Result.ok(verifyGaps(gaps));
-    }
-
-    /**
-     * 对 Gap 报告中的每个 Gap 条目进行外部验证。
-     * 策略：从标题中提取关键词 → arXiv 搜索 → 根据搜索结果数量判断验证等级。
-     */
-    private List<Map<String, Object>> verifyGaps(String gapReport) {
-        List<Map<String, Object>> verified = new ArrayList<>();
-        // 按 "Gap N:" 或 "### " 标题分割
-        String[] parts = gapReport.split("(?=###\\s+|Gap\\s*\\d)");
-        for (String part : parts) {
-            if (part.trim().isEmpty()) continue;
-            // 提取标题（第一行）
-            String firstLine = part.split("\\n")[0].trim();
-            // 移除 markdown 标记
-            String gapTitle = firstLine.replaceAll("^#+\\s*", "")
-                    .replaceAll("[🔴🟡🟢]", "").trim();
-            if (gapTitle.isEmpty()) continue;
-
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("gapTitle", gapTitle);
-            try {
-                // 用 Gap 标题的前 5 个词作为搜索关键词
-                String[] words = gapTitle.split("\\s+");
-                String query = String.join(" ", java.util.Arrays.copyOf(words, Math.min(5, words.length)));
-                List<Map<String, Object>> results = arxivFetcher.search(query, 3);
-                int count = results.size();
-                item.put("resultCount", count);
-                item.put("level", count == 0 ? "red" : count <= 1 ? "yellow" : "green");
-                item.put("label", count == 0 ? "未发现相关研究" : count <= 1 ? "有少量相关工作" : "已有较多相关研究");
-                // 搜索深度说明
-                item.put("searchDepth", "摘要级搜索（arXiv API max_results=3），未检索付费墙后正文");
-                item.put("searchQuery", query);
-                if (!results.isEmpty()) {
-                    item.put("sampleTitle", results.get(0).get("title"));
-                }
-            } catch (Exception e) {
-                item.put("resultCount", 0);
-                item.put("level", "yellow");
-                item.put("label", "外部验证失败: " + e.getMessage());
-                item.put("searchDepth", "验证过程出错，无法评估");
-            }
-            verified.add(item);
-        }
-        return verified;
+        return Result.ok(agentOrchestrator.verifyGaps(gaps));
     }
 
     /** POST /api/agent/gap/chat — Gap 追问（支持多轮记忆） */

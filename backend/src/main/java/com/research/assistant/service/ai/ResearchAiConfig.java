@@ -16,6 +16,15 @@ import org.springframework.context.annotation.Configuration;
 public class ResearchAiConfig {
 
     @Bean
+    public ResearchToolAgent researchToolAgent(LangChain4jModelFactory modelFactory,
+                                                ResearchTools researchTools) {
+        return AiServices.builder(ResearchToolAgent.class)
+                .chatModel(modelFactory.createChatModel())
+                .tools(researchTools)
+                .build();
+    }
+
+    @Bean
     public ResearchAiService researchAiService(LangChain4jModelFactory modelFactory,
                                                 ChatMemoryStore chatMemoryStore) {
         return AiServices.builder(ResearchAiService.class)
