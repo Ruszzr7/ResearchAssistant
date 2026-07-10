@@ -194,8 +194,8 @@
    - 批注数据持久化到数据库，支持按论文查看与导出。
 
 2. **项目打包与分发部署**
-   - 将前端构建产物嵌入后端，由 Spring Boot 统一提供静态资源。
-   - 使用 Docker Compose 编排 MySQL 与后端服务，实现一键部署。
+   - 当前已提供 `scripts/start-all.sh` 与 `scripts/start-all.bat`，自动探测本机 JDK、MySQL 位置并一键启动，降低本地开发启动成本。
+   - 长期目标：将前端构建产物嵌入后端，由 Spring Boot 统一提供静态资源；使用 Docker Compose 编排 MySQL 与后端服务，实现一键部署。
    - 目标：他人拉取项目后，仅需安装 Docker Desktop 并执行容器编排命令即可运行。
 
 3. **向量检索与语义搜索**

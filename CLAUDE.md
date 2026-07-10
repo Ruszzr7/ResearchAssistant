@@ -33,6 +33,7 @@
 ResearchAssistant/
 ├── frontend/          # Vue 3 前端
 ├── backend/           # Spring Boot 后端
+├── scripts/           # 一键启动脚本（MySQL / 后端 / 环境检查）
 ├── docs/              # 文档
 │   ├── Spec.md        # 技术规格
 │   ├── progress.md    # 阶段性功能完成记录
@@ -59,9 +60,9 @@ Plan（计划） → Explain（凝炼讲解） → Code（写代码） → Test�
 - 技术细节与功能设计写入 `Spec.md`，不在 CLAUDE.md 中重复
 - 功能审查时可以调用playwright等mcp进行辅助
 - 每个功能模块完成后，进行代码审查，精简代码
-- 功能完成情况写入 `docs/progress.md`
+- 实质性功能构建完成后将情况写入 `docs/progress.md`
 - 重点知识总结写入 `docs/knowledge.md`
-- AI 能力规划、阶段化实施路线与待补齐功能统一记录在 `docs/ai-features-roadmap.md`，每次 AI 层重构前优先阅读
+- 每次进行git commit等git操作前进行请示。
 - 代码编写时加入**必要注释**，方便后续系统性查阅代码
 
 ## 用户环境
