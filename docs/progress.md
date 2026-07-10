@@ -2560,3 +2560,72 @@
 **文件清单**：
 
 - 修改：`frontend/src/App.vue`、`frontend/src/components/PaperTable.vue`、`frontend/src/views/LibraryView.vue`、`frontend/src/views/SearchView.vue`、`frontend/src/views/WritingView.vue`、`frontend/src/views/ReadingPlanView.vue`、`frontend/src/views/TaskCenterView.vue`、`frontend/src/views/SettingsView.vue`、`frontend/src/views/AnalysisView.vue`、`frontend/src/views/GapView.vue`、`frontend/src/components/StructuredAnalysis.vue`、`frontend/src/components/notes/NoteEditor.vue`、`frontend/src/components/notes/NoteLinkPanel.vue`、`frontend/src/components/pdf/PdfViewer.vue`
+
+---
+
+## 阶段 6.4：阅读计划增强、任务中心说明与删除、文库表格效果修复 — 2026-07-10 ✅
+
+**目标**：落实用户提出的三类 UI/UX 与功能反馈：阅读计划支持备注与标签导入、用状态灯条直观展示计划进度；任务中心说明其作用并允许删除终态任务；修复 vxe-table 迁移导致的文库斑马纹与置顶灯条丢失。
+
+**完成内容**：
+
+1. **阅读计划增强**：
+   - 数据库：`reading_plan_item` 新增 `notes TEXT` 字段；`schema.sql` 已更新。
+   - 后端：`ReadingPlanItem` 实体、`ReadingPlanItemRequest` / `ReadingPlanItemDto` 增加 `notes` 与 `paperTags`；`ReadingPlanService` 在增改条目时保存备注，并在查询时批量加载论文原始标签。
+   - 后端：`ReadingPlanDto` 增加 `totalItems`、`doneItems`、`inProgressItems`，列表接口即返回进度统计。
+   - 前端：`ReadingPlanView.vue`
+     - 添加论文弹窗新增「备注」多行输入框。
+     - 条目表格新增「标签」列（展示该论文在文库中的标签）和「备注」列。
+     - 左侧计划卡片左侧增加 4px 状态灯条：全部完成绿色、有进行中蓝色、全部待读灰色、空计划浅灰。
+     - 保留「本周要读」区域作为近期待读快捷入口。
+
+2. **任务中心说明与删除**：
+   - 后端：`AsyncTaskManager` 新增 `delete(taskId)`，仅允许删除 `COMPLETED/FAILED/CANCELLED` 终态任务；同步清理 `workflow_step` 步骤记录（对未建表场景做降级处理）。
+   - 后端：`AsyncTaskService` 暴露 `deleteTask`；`AgentController` 新增 `DELETE /api/agent/task/{taskId}`。
+   - 前端：`TaskCenterView.vue`
+     - 页面顶部增加可关闭的「任务中心说明」提示：解释任务由 AI Agent / 工作流自动创建，不需要手动新建，可查看进度、取消、重试、确认或删除。
+     - 终态任务操作列新增「删除」按钮，点击二次确认后调用删除接口。
+     - 说明关闭状态持久化到 `localStorage`。
+
+3. **文库表格效果修复**：
+   - `PaperTable.vue`：启用 `vxe-grid` 斑马纹 `stripe`；将置顶行左侧深蓝色灯条样式放到非 scoped style，避免 vxe-table 渲染的 DOM 丢失 scoped 属性。
+   - `LibraryView.vue`：移除整行点击展开详情；仅操作列「信息」按钮打开右侧详情面板；清理迁移后失效的 `.paper-table` CSS。
+
+4. **工程清理**：
+   - `.gitignore` 增加 `*.pid`，删除误跟踪的 `backend/backend.pid` 与 `backend/frontend.pid`。
+
+**数据库迁移**：
+
+```sql
+ALTER TABLE reading_plan_item ADD COLUMN notes TEXT COMMENT '阅读备注';
+```
+
+**验证结果**：
+
+- 后端 `./mvnw compile` 通过；Spring Boot 重启后新接口可用。
+- 前端 `npm run build` 通过。
+- Playwright 实测：
+  - 阅读计划页：计划卡片左侧出现灰色状态灯条；打开计划后条目表格包含「标签」「备注」列；添加论文弹窗包含「备注」输入框。
+  - 任务中心页：顶部说明可见；终态任务显示「删除」按钮；点击删除并确认后该行消失，列表进入空状态。
+  - 文库表格：斑马纹正常、置顶行左侧深蓝竖条可见、点击行不展开详情、点击「信息」按钮展开详情。
+
+**文件清单**：
+
+- 新增：无
+- 修改：
+  - `backend/src/main/resources/schema.sql`
+  - `backend/src/main/java/com/research/assistant/entity/ReadingPlanItem.java`
+  - `backend/src/main/java/com/research/assistant/dto/ReadingPlanItemRequest.java`
+  - `backend/src/main/java/com/research/assistant/dto/ReadingPlanItemDto.java`
+  - `backend/src/main/java/com/research/assistant/dto/ReadingPlanDto.java`
+  - `backend/src/main/java/com/research/assistant/service/reading/ReadingPlanService.java`
+  - `backend/src/main/java/com/research/assistant/service/async/AsyncTaskManager.java`
+  - `backend/src/main/java/com/research/assistant/service/AsyncTaskService.java`
+  - `backend/src/main/java/com/research/assistant/mapper/WorkflowStepMapper.java`
+  - `backend/src/main/java/com/research/assistant/controller/AgentController.java`
+  - `frontend/src/views/ReadingPlanView.vue`
+  - `frontend/src/views/TaskCenterView.vue`
+  - `frontend/src/components/PaperTable.vue`
+  - `frontend/src/views/LibraryView.vue`
+  - `.gitignore`
+
