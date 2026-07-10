@@ -13,6 +13,7 @@ target/
 # Runtime data
 data/
 *.log
+*.pid
 
 # MCP test artifacts
 .playwright-mcp/

@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS reading_plan_item (
     deadline    DATE                  COMMENT '阅读截止日期',
     priority    INT          DEFAULT 0 COMMENT '优先级，越大越优先',
     status      VARCHAR(32)  DEFAULT 'TODO' COMMENT 'TODO / IN_PROGRESS / DONE',
+    notes       TEXT                  COMMENT '阅读备注',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_plan_paper (plan_id, paper_id),

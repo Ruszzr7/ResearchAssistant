@@ -227,8 +227,33 @@ public class AsyncTaskManager {
     }
 
     /**
-     * 更新任务阶段文案。
+     * 删除任务（仅允许终态）。
+     *
+     * @return true 表示删除成功
      */
+    public boolean delete(String taskId) {
+        TaskHolder holder = tasks.get(taskId);
+        if (holder != null) {
+            if (!holder.result.getStatus().isTerminal()) {
+                return false;
+            }
+            tasks.remove(taskId);
+        }
+        AsyncTaskRecord record = taskRecordMapper.selectByTaskId(taskId);
+        if (record == null) {
+            return holder != null;
+        }
+        if (!isTerminal(record.getStatus())) {
+            return false;
+        }
+        try {
+            workflowStepMapper.deleteByTaskId(taskId);
+        } catch (Exception e) {
+            log.warn("删除任务步骤失败 taskId={}: {}", taskId, e.getMessage());
+        }
+        taskRecordMapper.deleteById(record.getId());
+        return true;
+    }
     public void updateStage(String taskId, String stageText) {
         TaskHolder holder = tasks.get(taskId);
         if (holder == null) {

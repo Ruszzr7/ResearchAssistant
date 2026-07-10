@@ -11,6 +11,7 @@ public class ReadingPlanItemRequest {
     private LocalDate deadline;
     private Integer priority;
     private String status;
+    private String notes;
 
     public Long getPaperId() { return paperId; }
     public void setPaperId(Long paperId) { this.paperId = paperId; }
@@ -23,4 +24,7 @@ public class ReadingPlanItemRequest {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public String getNotes() { return notes; }
+    public void setNotes(String notes) { this.notes = notes; }
 }

@@ -15,16 +15,23 @@
           :class="{ active: selectedPlan?.id === plan.id }"
           @click="selectPlan(plan)"
         >
-          <div class="plan-name">{{ plan.name }}</div>
-          <div class="plan-meta">
-            <span v-if="plan.startDate && plan.endDate">
-              {{ formatDate(plan.startDate) }} ~ {{ formatDate(plan.endDate) }}
-            </span>
-            <span v-else>未设置时间范围</span>
-          </div>
-          <div class="plan-actions">
-            <el-button size="small" link @click.stop="openPlanDialog(plan)">编辑</el-button>
-            <el-button size="small" link type="danger" @click.stop="deletePlan(plan.id)">删除</el-button>
+          <div class="plan-status-bar" :class="planStatusClass(plan)"></div>
+          <div class="plan-content">
+            <div class="plan-name">{{ plan.name }}</div>
+            <div class="plan-meta">
+              <span v-if="plan.startDate && plan.endDate">
+                {{ formatDate(plan.startDate) }} ~ {{ formatDate(plan.endDate) }}
+              </span>
+              <span v-else>未设置时间范围</span>
+            </div>
+            <div class="plan-progress">
+              <span v-if="plan.totalItems">{{ plan.doneItems }}/{{ plan.totalItems }} 完成</span>
+              <span v-else>空计划</span>
+            </div>
+            <div class="plan-actions">
+              <el-button size="small" link @click.stop="openPlanDialog(plan)">编辑</el-button>
+              <el-button size="small" link type="danger" @click.stop="deletePlan(plan.id)">删除</el-button>
+            </div>
           </div>
         </div>
       </div>
@@ -56,24 +63,36 @@
 
         <div v-if="items.length === 0" class="empty-hint-large">计划为空，点击右上角添加论文</div>
         <el-table v-else :data="items" style="width: 100%">
-          <el-table-column prop="paperTitle" label="论文" min-width="220" show-overflow-tooltip />
-          <el-table-column label="截止日期" width="130">
+          <el-table-column prop="paperTitle" label="论文" min-width="180" show-overflow-tooltip />
+          <el-table-column label="标签" min-width="140">
+            <template #default="{ row }">
+              <el-tag v-for="tag in (row.paperTags || [])" :key="tag" size="small" style="margin-right:4px">{{ tag }}</el-tag>
+              <span v-if="!(row.paperTags || []).length" style="color:var(--ra-text-tertiary);font-size:12px">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="截止日期" width="120">
             <template #default="{ row }">
               {{ row.deadline ? formatDate(row.deadline) : '—' }}
             </template>
           </el-table-column>
-          <el-table-column label="优先级" width="100">
+          <el-table-column label="优先级" width="90">
             <template #default="{ row }">
               <el-rate v-model="row.priority" :max="3" disabled />
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="130">
+          <el-table-column label="状态" width="120">
             <template #default="{ row }">
               <el-select v-model="row.status" size="small" @change="updateStatus(row)">
                 <el-option label="待读" value="TODO" />
                 <el-option label="在读" value="IN_PROGRESS" />
                 <el-option label="完成" value="DONE" />
               </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="备注" min-width="160">
+            <template #default="{ row }">
+              <span v-if="row.notes" class="item-notes" :title="row.notes">{{ row.notes }}</span>
+              <span v-else style="color:var(--ra-text-tertiary);font-size:12px">—</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="80">
@@ -118,6 +137,9 @@
         <el-form-item label="优先级">
           <el-rate v-model="itemForm.priority" :max="3" />
         </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="itemForm.notes" type="textarea" :rows="3" placeholder="记录阅读目标、关注点等" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="itemDialogVisible = false">取消</el-button>
@@ -154,7 +176,7 @@ const editingPlan = ref(null)
 const planForm = reactive({ name: '', startDate: null, endDate: null })
 
 const itemDialogVisible = ref(false)
-const itemForm = reactive({ paperId: null, deadline: null, priority: 1 })
+const itemForm = reactive({ paperId: null, deadline: null, priority: 1, notes: '' })
 
 async function loadPlans() {
   const res = await listReadingPlans()
@@ -231,6 +253,7 @@ function openItemDialog() {
   itemForm.paperId = null
   itemForm.deadline = null
   itemForm.priority = 1
+  itemForm.notes = ''
   itemDialogVisible.value = true
 }
 
@@ -243,6 +266,7 @@ async function saveItem() {
     paperId: itemForm.paperId,
     deadline: toDateString(itemForm.deadline),
     priority: itemForm.priority || 0,
+    notes: itemForm.notes || null,
   })
   itemDialogVisible.value = false
   await selectPlan(selectedPlan.value)
@@ -291,6 +315,14 @@ function statusText(s) {
   return '待读'
 }
 
+function planStatusClass(plan) {
+  const total = plan.totalItems || 0
+  if (!total) return 'status-empty'
+  if (plan.doneItems === total) return 'status-done'
+  if (plan.inProgressItems > 0) return 'status-progress'
+  return 'status-todo'
+}
+
 onMounted(() => {
   loadPlans()
   loadWeekly()
@@ -332,9 +364,10 @@ onMounted(() => {
   gap: 10px;
 }
 .plan-card {
+  display: flex;
   border: 1px solid var(--ra-border);
   border-radius: 8px;
-  padding: 12px;
+  overflow: hidden;
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s;
 }
@@ -343,8 +376,23 @@ onMounted(() => {
   border-color: var(--ra-link);
   background: var(--ra-active-bg);
 }
+.plan-status-bar {
+  width: 4px;
+  flex-shrink: 0;
+  background: #909399;
+}
+.plan-status-bar.status-done { background: #67c23a; }
+.plan-status-bar.status-progress { background: #409eff; }
+.plan-status-bar.status-todo { background: #909399; }
+.plan-status-bar.status-empty { background: #c0c4cc; }
+.plan-content {
+  flex: 1;
+  padding: 12px;
+  min-width: 0;
+}
 .plan-name { font-weight: 600; margin-bottom: 4px; }
-.plan-meta { font-size: 12px; color: var(--ra-text-tertiary); margin-bottom: 8px; }
+.plan-meta { font-size: 12px; color: var(--ra-text-tertiary); margin-bottom: 4px; }
+.plan-progress { font-size: 12px; color: var(--ra-text-secondary); margin-bottom: 8px; }
 .plan-actions { display: flex; gap: 8px; }
 .weekly-section {
   margin-top: 24px;
@@ -387,5 +435,14 @@ onMounted(() => {
   font-size: 15px;
   text-align: center;
   padding-top: 80px;
+}
+.item-notes {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--ra-text-secondary);
 }
 </style>

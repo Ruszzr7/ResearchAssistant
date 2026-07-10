@@ -201,5 +201,14 @@ public class AsyncTaskService {
     public boolean cancelTask(String taskId) {
         return asyncTaskManager.cancel(taskId);
     }
+
+    /**
+     * 删除已终态的异步任务。
+     *
+     * @return true 表示删除成功
+     */
+    public boolean deleteTask(String taskId) {
+        return asyncTaskManager.delete(taskId);
+    }
 }
 

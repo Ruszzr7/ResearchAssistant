@@ -8,6 +8,17 @@
       </div>
     </div>
 
+    <el-alert
+      v-model="showIntro"
+      title="任务中心说明"
+      type="info"
+      :closable="true"
+      @close="onIntroClose"
+      description="这里展示由 AI Agent / 工作流自动创建的后台任务（如文献综述、Gap 分析、论文导入、AI 精读等），不需要手动新建。你可以查看进度、取消运行中任务、重试失败任务或确认需要人工决策的步骤。已完成 / 失败 / 已取消的任务可手动删除。"
+      show-icon
+      style="margin-bottom: 16px"
+    />
+
     <el-table :data="tasks" v-loading="loading" style="width: 100%" row-key="taskId">
       <el-table-column prop="title" label="任务" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">
@@ -64,6 +75,13 @@
             type="success"
             @click="retryTask(row.taskId)"
           >重试</el-button>
+          <el-button
+            v-if="isTerminal(row.status)"
+            size="small"
+            link
+            type="danger"
+            @click="deleteTask(row.taskId)"
+          >删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -166,6 +184,7 @@ const tasks = ref([])
 const loading = ref(false)
 const polling = ref(false)
 let pollTimer = null
+const showIntro = ref(localStorage.getItem('hideTaskCenterIntro') !== 'true')
 
 const detailVisible = ref(false)
 const selected = ref(null)
@@ -207,6 +226,10 @@ function candidateKey(c) {
 
 function isTerminal(status) {
   return ['COMPLETED', 'FAILED', 'CANCELLED'].includes(status)
+}
+
+function onIntroClose() {
+  localStorage.setItem('hideTaskCenterIntro', 'true')
 }
 
 function formatTime(value) {
@@ -268,6 +291,19 @@ async function retryTask(taskId) {
     loadTasks()
   } catch (e) {
     ElMessage.error('重试失败: ' + (e.response?.data?.message || e.message))
+  }
+}
+
+async function deleteTask(taskId) {
+  try {
+    await ElMessageBox.confirm('删除后不可恢复，确定删除该任务记录？', '确认删除', { type: 'warning' })
+    await api.delete(`/agent/task/${taskId}`)
+    ElMessage.success('已删除')
+    loadTasks()
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('删除失败: ' + (e.response?.data?.message || e.message))
+    }
   }
 }
 

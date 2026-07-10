@@ -16,6 +16,9 @@ public class ReadingPlanDto {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private List<ReadingPlanItemDto> items;
+    private Integer totalItems;
+    private Integer doneItems;
+    private Integer inProgressItems;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -37,4 +40,13 @@ public class ReadingPlanDto {
 
     public List<ReadingPlanItemDto> getItems() { return items; }
     public void setItems(List<ReadingPlanItemDto> items) { this.items = items; }
+
+    public Integer getTotalItems() { return totalItems; }
+    public void setTotalItems(Integer totalItems) { this.totalItems = totalItems; }
+
+    public Integer getDoneItems() { return doneItems; }
+    public void setDoneItems(Integer doneItems) { this.doneItems = doneItems; }
+
+    public Integer getInProgressItems() { return inProgressItems; }
+    public void setInProgressItems(Integer inProgressItems) { this.inProgressItems = inProgressItems; }
 }

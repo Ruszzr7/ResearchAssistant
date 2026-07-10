@@ -11,6 +11,7 @@ import com.research.assistant.entity.ReadingPlanItem;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.ReadingPlanItemMapper;
 import com.research.assistant.mapper.ReadingPlanMapper;
+import com.research.assistant.mapper.TagMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -35,20 +37,36 @@ public class ReadingPlanService {
     private final ReadingPlanMapper planMapper;
     private final ReadingPlanItemMapper itemMapper;
     private final PaperMapper paperMapper;
+    private final TagMapper tagMapper;
 
-    public ReadingPlanService(ReadingPlanMapper planMapper, ReadingPlanItemMapper itemMapper, PaperMapper paperMapper) {
+    public ReadingPlanService(ReadingPlanMapper planMapper, ReadingPlanItemMapper itemMapper, PaperMapper paperMapper, TagMapper tagMapper) {
         this.planMapper = planMapper;
         this.itemMapper = itemMapper;
         this.paperMapper = paperMapper;
+        this.tagMapper = tagMapper;
     }
 
     /**
-     * 列出所有阅读计划（不含条目）。
+     * 列出所有阅读计划（不含条目，但含条目统计）。
      */
     public List<ReadingPlanDto> listPlans() {
         List<ReadingPlan> plans = planMapper.selectList(
                 new LambdaQueryWrapper<ReadingPlan>().orderByDesc(ReadingPlan::getUpdatedAt));
-        return plans.stream().map(this::toDto).toList();
+        if (plans.isEmpty()) return List.of();
+
+        List<Long> planIds = plans.stream().map(ReadingPlan::getId).toList();
+        Map<Long, List<ReadingPlanItem>> itemsByPlan = itemMapper.selectList(
+                        new LambdaQueryWrapper<ReadingPlanItem>().in(ReadingPlanItem::getPlanId, planIds))
+                .stream().collect(Collectors.groupingBy(ReadingPlanItem::getPlanId));
+
+        return plans.stream().map(plan -> {
+            ReadingPlanDto dto = toDto(plan);
+            List<ReadingPlanItem> items = itemsByPlan.getOrDefault(plan.getId(), Collections.emptyList());
+            dto.setTotalItems(items.size());
+            dto.setDoneItems((int) items.stream().filter(i -> "DONE".equals(i.getStatus())).count());
+            dto.setInProgressItems((int) items.stream().filter(i -> "IN_PROGRESS".equals(i.getStatus())).count());
+            return dto;
+        }).toList();
     }
 
     /**
@@ -134,8 +152,9 @@ public class ReadingPlanService {
         item.setDeadline(request.getDeadline());
         item.setPriority(request.getPriority() != null ? request.getPriority() : 0);
         item.setStatus(request.getStatus() != null ? request.getStatus() : "TODO");
+        item.setNotes(request.getNotes());
         itemMapper.insert(item);
-        return toDto(item, paperTitle(paperId));
+        return toDto(item, paperTitle(paperId), paperTags(paperId));
     }
 
     /**
@@ -149,8 +168,9 @@ public class ReadingPlanService {
         if (request.getDeadline() != null) item.setDeadline(request.getDeadline());
         if (request.getPriority() != null) item.setPriority(request.getPriority());
         if (request.getStatus() != null) item.setStatus(request.getStatus());
+        if (request.getNotes() != null) item.setNotes(request.getNotes());
         itemMapper.updateById(item);
-        return toDto(item, paperTitle(item.getPaperId()));
+        return toDto(item, paperTitle(item.getPaperId()), paperTags(item.getPaperId()));
     }
 
     /**
@@ -206,14 +226,25 @@ public class ReadingPlanService {
         Map<Long, String> titleMap = paperIds.isEmpty() ? Map.of() :
                 paperMapper.selectBatchIds(paperIds).stream()
                         .collect(Collectors.toMap(Paper::getId, p -> p.getTitle() == null ? "" : p.getTitle(), (a, b) -> a));
+        Map<Long, List<String>> tagMap = paperIds.isEmpty() ? Map.of() :
+                tagMapper.selectByPaperIds(paperIds).stream()
+                        .collect(Collectors.groupingBy(
+                                TagMapper.TagWithPaperId::getPaperId,
+                                Collectors.mapping(TagMapper.TagWithPaperId::getName, Collectors.toList())));
         return items.stream()
-                .map(i -> toDto(i, titleMap.getOrDefault(i.getPaperId(), "")))
+                .map(i -> toDto(i, titleMap.getOrDefault(i.getPaperId(), ""), tagMap.getOrDefault(i.getPaperId(), Collections.emptyList())))
                 .toList();
     }
 
     private String paperTitle(Long paperId) {
         Paper paper = paperMapper.selectById(paperId);
         return paper != null && paper.getTitle() != null ? paper.getTitle() : "";
+    }
+
+    private List<String> paperTags(Long paperId) {
+        return tagMapper.selectByPaperId(paperId).stream()
+                .map(com.research.assistant.entity.Tag::getName)
+                .toList();
     }
 
     private ReadingPlanDto toDto(ReadingPlan plan) {
@@ -227,7 +258,7 @@ public class ReadingPlanService {
         return dto;
     }
 
-    private ReadingPlanItemDto toDto(ReadingPlanItem item, String paperTitle) {
+    private ReadingPlanItemDto toDto(ReadingPlanItem item, String paperTitle, List<String> paperTags) {
         ReadingPlanItemDto dto = new ReadingPlanItemDto();
         dto.setId(item.getId());
         dto.setPlanId(item.getPlanId());
@@ -236,6 +267,8 @@ public class ReadingPlanService {
         dto.setDeadline(item.getDeadline());
         dto.setPriority(item.getPriority());
         dto.setStatus(item.getStatus());
+        dto.setNotes(item.getNotes());
+        dto.setPaperTags(paperTags);
         dto.setCreatedAt(item.getCreatedAt());
         dto.setUpdatedAt(item.getUpdatedAt());
         return dto;

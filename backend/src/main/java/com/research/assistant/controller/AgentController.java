@@ -218,6 +218,18 @@ public class AgentController {
         return Result.ok(Map.of("cancelled", cancelled));
     }
 
+    /**
+     * DELETE /api/agent/task/{taskId} — 删除已终态的异步任务。
+     */
+    @DeleteMapping("/task/{taskId}")
+    public Result<Map<String, Object>> deleteTask(@PathVariable String taskId) {
+        boolean deleted = asyncTaskService.deleteTask(taskId);
+        if (!deleted) {
+            return Result.error(409, "只能删除已完成、失败或已取消的任务");
+        }
+        return Result.ok(Map.of("deleted", true));
+    }
+
     /** POST /api/agent/gap/internal — Step 1: 库内 Gap 分析 */
     @PostMapping("/gap/internal")
     public Result<Map<String, Object>> gapInternal(@RequestBody @Valid GapRequest request) {

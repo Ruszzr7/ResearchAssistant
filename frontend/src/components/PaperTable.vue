@@ -11,11 +11,11 @@
     :pager-config="pagerConfig"
     :empty-text="emptyText"
     :row-class-name="rowClassName"
+    :stripe="true"
     @sort-change="onSortChange"
     @page-change="onPageChange"
     @checkbox-change="onCheckboxChange"
     @checkbox-all="onCheckboxAll"
-    @cell-click="onCellClick"
   >
     <template #title_default="{ row }">
       <span class="cell-title" :title="row.title">{{ row.title }}</span>
@@ -95,8 +95,7 @@ const emit = defineEmits([
   'status-change',
   'analyze',
   'info',
-  'action',
-  'row-click'
+  'action'
 ])
 
 const statusOptions = [
@@ -176,13 +175,6 @@ function onCheckboxAll({ checked, records }) {
   emit('selection-change', [...set])
 }
 
-function onCellClick({ row, column }) {
-  // 点击标题/类目/来源/年份/导入年份行时触发 info，其他列由内部控件处理
-  if (['title', 'category', 'source', 'year', 'createdAt'].includes(column.field)) {
-    emit('row-click', row.id)
-  }
-}
-
 function formatDate(d) {
   return d?.substring(0, 7) || ''
 }
@@ -254,7 +246,20 @@ function categoryLabel(paper) {
 .status-reading { background: #f56c6c; }
 .status-read { background: #67c23a; }
 
+/* 斑马纹：白 / 浅灰交替 */
+:deep(.vxe-body--row.row--stripe .vxe-body--column) { background-color: #fafbfc; }
+html.dark :deep(.vxe-body--row.row--stripe .vxe-body--column) { background-color: var(--ra-hover-bg); }
+
+/* 当前查看行高亮 */
+:deep(.vxe-body--row.row-active .vxe-body--column) { background-color: var(--ra-active-bg) !important; }
+
 html.dark .paper-table-vxe .vxe-body--column,
 html.dark .paper-table-vxe .vxe-header--column { border-color: var(--ra-border); }
 html.dark .paper-table-vxe .vxe-table--body-wrapper { background-color: var(--ra-panel-bg); }
+</style>
+
+<style>
+/* 非 scoped：vxe-table 渲染的行不在组件作用域内，需要全局选择器 */
+.paper-table-vxe .vxe-body--row.row-pinned .vxe-body--column:first-child { border-left: 3px solid #0958a3 !important; }
+html.dark .paper-table-vxe .vxe-body--row.row-pinned .vxe-body--column:first-child { border-left-color: #79bbff !important; }
 </style>
