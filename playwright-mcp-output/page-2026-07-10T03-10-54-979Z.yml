@@ -1,0 +1,167 @@
+- generic [ref=f9e3]:
+  - generic [ref=f9e4]:
+    - generic [ref=f9e5]:
+      - generic [ref=f9e6] [cursor=pointer]: Research Assistant
+      - menubar [ref=f9e7]:
+        - menuitem "看板" [ref=f9e8] [cursor=pointer]
+        - menuitem "文库管理" [ref=f9e9] [cursor=pointer]
+        - menuitem "文献检索" [ref=f9e10] [cursor=pointer]
+        - menuitem "论文分析" [ref=f9e11] [cursor=pointer]
+        - menuitem "研究空白" [ref=f9e12] [cursor=pointer]
+        - menuitem "任务中心" [ref=f9e13] [cursor=pointer]
+        - menuitem "阅读计划" [ref=f9e14] [cursor=pointer]
+        - menuitem "写作助手" [ref=f9e15] [cursor=pointer]
+      - button "切换暗色" [ref=f9e16] [cursor=pointer]:
+        - img [ref=f9e18]
+      - button [ref=f9e20] [cursor=pointer]:
+        - img [ref=f9e22]
+    - main [ref=f9e26]:
+      - generic [ref=f9e27]:
+        - generic [ref=f9e28]:
+          - generic [ref=f9e29]:
+            - heading "Research Assistant" [level=2] [ref=f9e30]
+            - paragraph [ref=f9e31]: 科研工作台 · 一眼掌握论文、计划与任务
+          - button "进入文库" [ref=f9e32] [cursor=pointer]:
+            - generic [ref=f9e33]: 进入文库
+        - generic [ref=f9e44]:
+          - generic [ref=f9e47]:
+            - generic [ref=f9e48]: 论文总数
+            - generic [ref=f9e50]: "4"
+          - generic [ref=f9e53]:
+            - generic [ref=f9e54]: 未读
+            - generic [ref=f9e56]: "4"
+          - generic [ref=f9e59]:
+            - generic [ref=f9e60]: 正读
+            - generic [ref=f9e62]: "0"
+          - generic [ref=f9e65]:
+            - generic [ref=f9e66]: 已读
+            - generic [ref=f9e68]: "0"
+          - generic [ref=f9e71]:
+            - generic [ref=f9e72]: 置顶
+            - generic [ref=f9e74]: "0"
+          - generic [ref=f9e77]:
+            - generic [ref=f9e78]: 本月新增
+            - generic [ref=f9e80]: "4"
+        - generic [ref=f9e81]:
+          - generic [ref=f9e83]:
+            - generic [ref=f9e85]:
+              - generic [ref=f9e86]: 阅读计划
+              - button "查看" [ref=f9e87] [cursor=pointer]:
+                - generic [ref=f9e88]: 查看
+            - generic [ref=f9e89]:
+              - generic [ref=f9e90]:
+                - generic [ref=f9e91]:
+                  - generic [ref=f9e92]: "0"
+                  - generic [ref=f9e93]: 已逾期
+                - generic [ref=f9e94]:
+                  - generic [ref=f9e95]: "0"
+                  - generic [ref=f9e96]: 3 天内到期
+                - generic [ref=f9e97]:
+                  - generic [ref=f9e98]: "0"
+                  - generic [ref=f9e99]: 本周待读
+              - generic [ref=f9e100]:
+                - generic [ref=f9e101]:
+                  - text: 阅读进度
+                  - generic [ref=f9e102]: 0%
+                - progressbar [ref=f9e103]
+          - generic [ref=f9e107]:
+            - generic [ref=f9e109]:
+              - generic [ref=f9e110]: 文件夹堆积 Top 2
+              - button "查看" [ref=f9e111] [cursor=pointer]:
+                - generic [ref=f9e112]: 查看
+            - generic [ref=f9e114]:
+              - generic [ref=f9e115]:
+                - generic [ref=f9e116]:
+                  - generic "RSMA" [ref=f9e117]
+                  - generic [ref=f9e118]: "3"
+                - progressbar [ref=f9e119]
+              - generic [ref=f9e123]:
+                - generic [ref=f9e124]:
+                  - generic "AoI" [ref=f9e125]
+                  - generic [ref=f9e126]: "0"
+                - progressbar [ref=f9e127]
+          - generic [ref=f9e131]:
+            - generic [ref=f9e133]:
+              - generic [ref=f9e134]: 任务中心
+              - button "查看" [ref=f9e135] [cursor=pointer]:
+                - generic [ref=f9e136]: 查看
+            - generic [ref=f9e137]:
+              - generic [ref=f9e138]:
+                - generic [ref=f9e139]: 待处理 0
+                - generic [ref=f9e140]: 进行中 0
+                - generic [ref=f9e141]: 已完成 2
+                - generic [ref=f9e142]: 失败 0
+                - generic [ref=f9e143]: 取消 0
+              - generic [ref=f9e144]:
+                - generic [ref=f9e145]: 最近任务
+                - generic [ref=f9e146]:
+                  - generic [ref=f9e148]: 已完成
+                  - generic [ref=f9e149]: 未命名任务
+                  - generic [ref=f9e150]: 2026-07-07
+                - generic [ref=f9e151]:
+                  - generic [ref=f9e153]: 已完成
+                  - generic [ref=f9e154]: 未命名任务
+                  - generic [ref=f9e155]: 2026-07-07
+        - generic [ref=f9e156]:
+          - generic [ref=f9e158]:
+            - generic [ref=f9e161]: 最近笔记
+            - generic [ref=f9e163]:
+              - img [ref=f9e165]
+              - paragraph [ref=f9e182]: 暂无笔记
+          - generic [ref=f9e184]:
+            - generic [ref=f9e187]: 最近批注
+            - generic [ref=f9e189]:
+              - img [ref=f9e191]
+              - paragraph [ref=f9e208]: 暂无批注
+  - dialog [ref=f9e210]:
+    - generic [ref=f9e211]:
+      - banner [ref=f9e212]:
+        - heading [level=2]
+      - generic [ref=f9e214]:
+        - generic [ref=f9e216]:
+          - generic [ref=f9e218]: ⌘K
+          - textbox "输入命令或快捷键…" [active] [ref=f9e219]
+        - generic [ref=f9e221]:
+          - generic [ref=f9e222] [cursor=pointer]:
+            - generic [ref=f9e223]: 打开看板
+            - generic [ref=f9e224]: 首页数据面板
+            - generic [ref=f9e225]: Ctrl+1
+          - generic [ref=f9e226] [cursor=pointer]:
+            - generic [ref=f9e227]: 打开文库管理
+            - generic [ref=f9e228]: 论文库与文件夹
+            - generic [ref=f9e229]: Ctrl+2
+          - generic [ref=f9e230] [cursor=pointer]:
+            - generic [ref=f9e231]: 打开文献检索
+            - generic [ref=f9e232]: AI 检索与多源搜索
+            - generic [ref=f9e233]: Ctrl+3
+          - generic [ref=f9e234] [cursor=pointer]:
+            - generic [ref=f9e235]: 打开论文分析
+            - generic [ref=f9e236]: 精读 / 对比 / 推荐
+            - generic [ref=f9e237]: Ctrl+4
+          - generic [ref=f9e238] [cursor=pointer]:
+            - generic [ref=f9e239]: 打开研究空白
+            - generic [ref=f9e240]: Gap 分析与验证
+            - generic [ref=f9e241]: Ctrl+5
+          - generic [ref=f9e242] [cursor=pointer]:
+            - generic [ref=f9e243]: 打开任务中心
+            - generic [ref=f9e244]: 异步任务与工作流
+            - generic [ref=f9e245]: Ctrl+6
+          - generic [ref=f9e246] [cursor=pointer]:
+            - generic [ref=f9e247]: 打开阅读计划
+            - generic [ref=f9e248]: 阅读计划与提醒
+            - generic [ref=f9e249]: Ctrl+7
+          - generic [ref=f9e250] [cursor=pointer]:
+            - generic [ref=f9e251]: 打开写作助手
+            - generic [ref=f9e252]: 大纲 / Related Work / 引用
+            - generic [ref=f9e253]: Ctrl+8
+          - generic [ref=f9e254] [cursor=pointer]:
+            - generic [ref=f9e255]: 全局搜索论文…
+            - generic [ref=f9e256]: 跳转到文献检索
+            - generic [ref=f9e257]: Ctrl+Shift+F
+          - generic [ref=f9e258] [cursor=pointer]:
+            - generic [ref=f9e259]: 打开设置
+            - generic [ref=f9e260]: API 与模型配置
+          - generic [ref=f9e261] [cursor=pointer]:
+            - generic [ref=f9e262]: 切换主题
+            - generic [ref=f9e263]: 亮色 / 暗色
+        - generic [ref=f9e264]: ↑↓ 选择 · Enter 执行 · Esc 关闭

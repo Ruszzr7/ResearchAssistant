@@ -1,0 +1,198 @@
+package com.research.assistant.service.impl;
+
+import com.research.assistant.dto.DashboardDto;
+import com.research.assistant.entity.AsyncTaskRecord;
+import com.research.assistant.entity.Folder;
+import com.research.assistant.entity.Note;
+import com.research.assistant.entity.Paper;
+import com.research.assistant.entity.PaperAnnotation;
+import com.research.assistant.mapper.AsyncTaskRecordMapper;
+import com.research.assistant.mapper.NoteMapper;
+import com.research.assistant.mapper.PaperAnnotationMapper;
+import com.research.assistant.mapper.PaperMapper;
+import com.research.assistant.mapper.ReadingPlanItemMapper;
+import com.research.assistant.service.FolderService;
+import org.junit.jupiter.api.Test;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+/**
+ * {@link DashboardServiceImpl} 单元测试。
+ */
+class DashboardServiceImplTest {
+
+    private final PaperMapper paperMapper = mock(PaperMapper.class);
+    private final FolderService folderService = mock(FolderService.class);
+    private final ReadingPlanItemMapper itemMapper = mock(ReadingPlanItemMapper.class);
+    private final AsyncTaskRecordMapper taskMapper = mock(AsyncTaskRecordMapper.class);
+    private final NoteMapper noteMapper = mock(NoteMapper.class);
+    private final PaperAnnotationMapper annotationMapper = mock(PaperAnnotationMapper.class);
+
+    private final DashboardServiceImpl service = new DashboardServiceImpl(
+            paperMapper, folderService, itemMapper, taskMapper, noteMapper, annotationMapper);
+
+    @Test
+    void aggregateReturnsPaperStats() {
+        when(paperMapper.selectCount(null)).thenReturn(10L);
+        when(paperMapper.countByReadingStatus("UNREAD")).thenReturn(3L);
+        when(paperMapper.countByReadingStatus("READING")).thenReturn(2L);
+        when(paperMapper.countByReadingStatus("READ")).thenReturn(5L);
+        when(paperMapper.countPinned()).thenReturn(1L);
+        when(paperMapper.countCreatedSince(any())).thenReturn(2L);
+        stubEmptyOther();
+
+        DashboardDto dto = service.aggregate();
+
+        assertThat(dto.getPaperStats().getTotal()).isEqualTo(10L);
+        assertThat(dto.getPaperStats().getUnread()).isEqualTo(3L);
+        assertThat(dto.getPaperStats().getThisMonth()).isEqualTo(2L);
+    }
+
+    @Test
+    void folderBacklogIsSortedAndLimited() {
+        Folder root = new Folder();
+        root.setId(1L);
+        root.setName("A");
+        root.setPaperCount(5);
+        Folder child = new Folder();
+        child.setId(2L);
+        child.setName("B");
+        child.setPaperCount(8);
+        root.setChildren(List.of(child));
+
+        stubEmptyCounts();
+        when(folderService.getTree()).thenReturn(List.of(root));
+
+        DashboardDto dto = service.aggregate();
+
+        assertThat(dto.getFolderBacklog()).hasSize(2);
+        assertThat(dto.getFolderBacklog().get(0).getName()).isEqualTo("B");
+        assertThat(dto.getFolderBacklog().get(0).getPaperCount()).isEqualTo(8);
+    }
+
+    @Test
+    void readingPlanStatsAreAggregated() {
+        LocalDate today = LocalDate.now();
+        stubEmptyCounts();
+        when(itemMapper.countOverdue(today)).thenReturn(1L);
+        when(itemMapper.countDueBetween(today, today.plusDays(3))).thenReturn(2L);
+        when(itemMapper.countThisWeek(today.with(java.time.DayOfWeek.MONDAY), today.with(java.time.DayOfWeek.SUNDAY)))
+                .thenReturn(4L);
+
+        DashboardDto dto = service.aggregate();
+
+        assertThat(dto.getReadingPlanStats().getOverdue()).isEqualTo(1L);
+        assertThat(dto.getReadingPlanStats().getDueSoon()).isEqualTo(2L);
+        assertThat(dto.getReadingPlanStats().getThisWeek()).isEqualTo(4L);
+    }
+
+    @Test
+    void recentNotesAreMapped() {
+        Note note = new Note();
+        note.setId(1L);
+        note.setTitle("Hello");
+        note.setCreatedAt(LocalDateTime.of(2026, 7, 10, 10, 0));
+
+        stubEmptyCounts();
+        when(noteMapper.selectList(any())).thenReturn(List.of(note));
+
+        DashboardDto dto = service.aggregate();
+
+        assertThat(dto.getRecentNotes()).hasSize(1);
+        assertThat(dto.getRecentNotes().get(0).getTitle()).isEqualTo("Hello");
+    }
+
+    @Test
+    void recentAnnotationsAreEnrichedWithPaperTitles() {
+        PaperAnnotation a = new PaperAnnotation();
+        a.setId(1L);
+        a.setPaperId(10L);
+        a.setPage(3);
+        a.setNote("note");
+        a.setCreatedAt(LocalDateTime.now());
+
+        Paper paper = new Paper();
+        paper.setId(10L);
+        paper.setTitle("Test Paper");
+
+        stubEmptyCounts();
+        when(annotationMapper.selectList(any())).thenReturn(List.of(a));
+        when(paperMapper.selectBatchIds(List.of(10L))).thenReturn(List.of(paper));
+
+        DashboardDto dto = service.aggregate();
+
+        assertThat(dto.getRecentAnnotations()).hasSize(1);
+        assertThat(dto.getRecentAnnotations().get(0).getPaperTitle()).isEqualTo("Test Paper");
+    }
+
+    @Test
+    void taskStatsIncludeStatusCountsAndRecentTasks() {
+        AsyncTaskRecord task = new AsyncTaskRecord();
+        task.setId(1L);
+        task.setTaskId("t1");
+        task.setTitle("Analyze");
+        task.setStatus("COMPLETED");
+        task.setStageText("Done");
+        task.setCreatedAt(LocalDateTime.now());
+
+        stubEmptyCountsExceptTasks();
+        when(taskMapper.countByStatus("PENDING")).thenReturn(2L);
+        when(taskMapper.countByStatus("PROCESSING")).thenReturn(1L);
+        when(taskMapper.countByStatus("COMPLETED")).thenReturn(4L);
+        when(taskMapper.countByStatus("FAILED")).thenReturn(1L);
+        when(taskMapper.countByStatus("CANCELLED")).thenReturn(0L);
+        when(taskMapper.selectRecent(5)).thenReturn(List.of(task));
+
+        DashboardDto dto = service.aggregate();
+
+        assertThat(dto.getTaskStats().getTotal()).isEqualTo(8L);
+        assertThat(dto.getTaskStats().getCompleted()).isEqualTo(4L);
+        assertThat(dto.getTaskStats().getRecent()).hasSize(1);
+        assertThat(dto.getTaskStats().getRecent().get(0).getTitle()).isEqualTo("Analyze");
+    }
+
+    private void stubEmptyCounts() {
+        when(paperMapper.selectCount(null)).thenReturn(0L);
+        when(paperMapper.countByReadingStatus(any())).thenReturn(0L);
+        when(paperMapper.countPinned()).thenReturn(0L);
+        when(paperMapper.countCreatedSince(any())).thenReturn(0L);
+        when(folderService.getTree()).thenReturn(List.of());
+        when(itemMapper.countOverdue(any())).thenReturn(0L);
+        when(itemMapper.countDueBetween(any(), any())).thenReturn(0L);
+        when(itemMapper.countThisWeek(any(), any())).thenReturn(0L);
+        when(taskMapper.countByStatus(any())).thenReturn(0L);
+        when(taskMapper.selectRecent(5)).thenReturn(List.of());
+        when(noteMapper.selectList(any())).thenReturn(List.of());
+        when(annotationMapper.selectList(any())).thenReturn(List.of());
+    }
+
+    private void stubEmptyCountsExceptTasks() {
+        when(paperMapper.selectCount(null)).thenReturn(0L);
+        when(paperMapper.countByReadingStatus(any())).thenReturn(0L);
+        when(paperMapper.countPinned()).thenReturn(0L);
+        when(paperMapper.countCreatedSince(any())).thenReturn(0L);
+        when(folderService.getTree()).thenReturn(List.of());
+        when(itemMapper.countOverdue(any())).thenReturn(0L);
+        when(itemMapper.countDueBetween(any(), any())).thenReturn(0L);
+        when(itemMapper.countThisWeek(any(), any())).thenReturn(0L);
+        when(noteMapper.selectList(any())).thenReturn(List.of());
+        when(annotationMapper.selectList(any())).thenReturn(List.of());
+    }
+
+    private void stubEmptyOther() {
+        when(folderService.getTree()).thenReturn(List.of());
+        when(itemMapper.countOverdue(any())).thenReturn(0L);
+        when(itemMapper.countDueBetween(any(), any())).thenReturn(0L);
+        when(itemMapper.countThisWeek(any(), any())).thenReturn(0L);
+        when(taskMapper.countByStatus(any())).thenReturn(0L);
+        when(taskMapper.selectRecent(5)).thenReturn(List.of());
+        when(noteMapper.selectList(any())).thenReturn(List.of());
+        when(annotationMapper.selectList(any())).thenReturn(List.of());
+    }
+}

@@ -1,6 +1,6 @@
 # 知识总结
 
-## 阶段 1：项目脚手架 — 技术全解
+## S1：项目脚手架 — 技术全解
 
 ---
 
@@ -87,7 +87,7 @@ URL 定位资源，HTTP 方法表达操作：`GET /api/papers`（查列表）、
 
 ---
 
-## 阶段 2：论文库开发 — 知识总结
+## S2：论文库开发 — 知识总结
 
 > 2026-06-29
 
@@ -273,7 +273,7 @@ Element Plus 的 `el-button` 自带 `padding: 8px 15px`、`min-width`、相邻�
 
 ---
 
-## 阶段 2.5：PDF 存储与数据底座 — 知识总结
+## S3：PDF 存储与数据底座 — 知识总结
 
 > 2026-06-30
 
@@ -456,7 +456,7 @@ async function confirmDelete() {
 
 ---
 
-## 阶段 3.5：需求对齐审计与功能补全 — 知识总结
+## S4：需求对齐审计与功能补全 — 知识总结
 
 > 2026-07-03
 
@@ -627,7 +627,7 @@ HttpClient.newBuilder()
 
 ---
 
-## 阶段 4.9：LangChain4j 集成 — 知识总结
+## S5：LangChain4j 集成 — 知识总结
 
 > 2026-07-06
 
@@ -770,7 +770,7 @@ public class LangChain4jModelFactory {
 
 ---
 
-## 阶段 4.10：LangChain4j 多轮 ChatMemory — 知识总结
+## S6：LangChain4j 多轮 ChatMemory — 知识总结
 
 > 2026-07-06
 
@@ -867,7 +867,7 @@ public String chatAbout(String conversationId, String context, String question) 
 
 ---
 
-## 阶段 4.11：LangChain4j 工具调用 — 知识总结
+## S7：LangChain4j 工具调用 — 知识总结
 
 > 2026-07-06
 
@@ -956,7 +956,7 @@ List<Map<String, Object>> verified = objectMapper.readValue(json, List.class);
 
 ---
 
-## 阶段 4.12：LangChain4j Agent 推荐 — 知识总结
+## S8：LangChain4j Agent 推荐 — 知识总结
 
 > 2026-07-07
 
@@ -1022,7 +1022,7 @@ String normalizeReadingStatus(String raw) {
 
 ---
 
-## 阶段 4.13：LangChain4j 流式输出 — 知识总结
+## S9：LangChain4j 流式输出 — 知识总结
 
 > 2026-07-07
 

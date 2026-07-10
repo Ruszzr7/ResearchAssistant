@@ -166,6 +166,12 @@ public class PaperServiceImpl implements PaperService {
                 paper.setYear(parsedYear);
             }
         }
+        // 提取 PDF 页数
+        int pageCount = pdfExtractor.countPages(storedName);
+        if (pageCount > 0) {
+            paper.setPageCount(pageCount);
+        }
+
         paperMapper.updateById(paper);
         return storedName;
     }

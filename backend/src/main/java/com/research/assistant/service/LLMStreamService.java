@@ -2,6 +2,7 @@ package com.research.assistant.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.research.assistant.service.ai.LLMConfigUtil;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -56,16 +57,32 @@ public class LLMStreamService {
 
     /**
      * 向指定输出流推送 LLM 流式响应（SSE 格式）。
+     * <p>
+     * 策略：
+     * <ul>
+     *   <li>Kimi 系列模型直接走手动 SSE 解析，避免其 reasoning_content 片段导致 LangChain4j 解析失败。</li>
+     *   <li>其他模型优先使用 LangChain4j StreamingChatModel；失败时回退到手动 SSE。</li>
+     * </ul>
      */
     public void streamChat(OutputStream out, String systemPrompt, String userMessage) {
+        if (isKimiModel()) {
+            log.debug("检测到 Kimi 模型，直接使用手动 SSE 流式解析");
+            streamManually(out, systemPrompt, userMessage);
+            return;
+        }
+
         try {
             streamWithLangChain4j(out, systemPrompt, userMessage);
         } catch (Exception e) {
-            // 某些 Provider（如 Kimi 的 reasoning_content）返回的流式 JSON 片段 LangChain4j 无法解析，
-            // 此时回退到手动 SSE 解析，保证前端仍能看到流式输出。
+            // 某些 Provider 返回的流式 JSON 片段 LangChain4j 无法解析，回退到手动 SSE 解析。
             log.warn("LangChain4j 流式调用失败，回退到手动 SSE 解析: {}", e.getMessage());
             streamManually(out, systemPrompt, userMessage);
         }
+    }
+
+    private boolean isKimiModel() {
+        String model = settingsService.getValue("model");
+        return model != null && model.toLowerCase().contains("kimi");
     }
 
     /** 使用 LangChain4j StreamingChatModel 输出流式响应。 */
@@ -155,8 +172,8 @@ public class LLMStreamService {
                 return;
             }
 
-            String url = buildChatUrl(baseUrl);
-            double temperature = resolveTemperature(model);
+            String url = LLMConfigUtil.normalizeBaseUrl(baseUrl) + "/v1/chat/completions";
+            double temperature = LLMConfigUtil.resolveTemperature(model);
             String requestBody = objectMapper.writeValueAsString(new StreamRequest(
                     model,
                     new Message[]{new Message("system", systemPrompt), new Message("user", userMessage)},
@@ -237,27 +254,6 @@ public class LLMStreamService {
     private void sendEvent(Writer writer, String eventName, String data) throws IOException {
         writer.write("event:" + eventName + "\n");
         writer.write("data:" + data + "\n\n");
-    }
-
-    private String buildChatUrl(String baseUrl) {
-        String normalized = baseUrl.trim();
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        if (normalized.endsWith("/v1")) {
-            normalized = normalized.substring(0, normalized.length() - 3);
-        }
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        return normalized + "/v1/chat/completions";
-    }
-
-    private double resolveTemperature(String model) {
-        if (model != null && model.toLowerCase().contains("kimi-k2.7-code")) {
-            return 1.0;
-        }
-        return 0.3;
     }
 
     private static class StreamRequest {

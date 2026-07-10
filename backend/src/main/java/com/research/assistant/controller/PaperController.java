@@ -6,8 +6,14 @@ import com.research.assistant.constant.AcquisitionMethod;
 import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.dto.EnrichmentResult;
+import com.research.assistant.dto.ReadingProgressDto;
+import com.research.assistant.dto.ReadingProgressUpdateRequest;
+import com.research.assistant.dto.ReadingTimeRequest;
 import com.research.assistant.service.PaperService;
+import com.research.assistant.service.ReadingProgressService;
+import com.research.assistant.service.ai.workflow.WorkflowService;
 import com.research.assistant.service.metadata.MetadataEnrichmentService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -33,14 +39,21 @@ import java.util.stream.Collectors;
 public class PaperController {
 
     private final PaperService paperService;
+    private final ReadingProgressService readingProgressService;
     private final MetadataEnrichmentService metadataEnrichmentService;
+    private final WorkflowService workflowService;
 
     @Value("${app.storage.pdf-dir:./data/papers}")
     private String pdfStorageDir;
 
-    public PaperController(PaperService paperService, MetadataEnrichmentService metadataEnrichmentService) {
+    public PaperController(PaperService paperService,
+                           ReadingProgressService readingProgressService,
+                           MetadataEnrichmentService metadataEnrichmentService,
+                           WorkflowService workflowService) {
         this.paperService = paperService;
+        this.readingProgressService = readingProgressService;
         this.metadataEnrichmentService = metadataEnrichmentService;
+        this.workflowService = workflowService;
     }
 
     /** GET /api/papers?folder=1,2 或 folder=uncategorized 或 folder=recent */
@@ -84,8 +97,11 @@ public class PaperController {
 
     /** POST /api/papers — 手动导入论文 */
     @PostMapping
-    public Result<Paper> create(@RequestBody Paper paper) {
-        return Result.ok(paperService.create(paper));
+    public Result<Map<String, Object>> create(@RequestBody Paper paper,
+                                                 @RequestParam(defaultValue = "true") boolean runWorkflow) {
+        Paper saved = paperService.create(paper);
+        String taskId = runWorkflow ? workflowService.submitPaperImport(saved.getId()) : null;
+        return Result.ok(buildPaperResult(saved, taskId));
     }
 
     /** PUT /api/papers/:id — 编辑论文 */
@@ -104,7 +120,7 @@ public class PaperController {
 
     /** POST /api/papers/upload — multipart: PDF 文件 + 论文元数据，一步完成上传和入库 */
     @PostMapping("/upload")
-    public Result<Paper> upload(
+    public Result<Map<String, Object>> upload(
             @RequestParam(value = "file", required = false) MultipartFile file,
             @RequestParam(value = "title", required = false) String title,
             @RequestParam(value = "authors", required = false) String authors,
@@ -115,7 +131,8 @@ public class PaperController {
             @RequestParam(value = "sourceUrl", required = false) String sourceUrl,
             @RequestParam(value = "abstractText", required = false) String abstractText,
             @RequestParam(value = "keywords", required = false) String keywords,
-            @RequestParam(value = "folderId", required = false) Long folderId) {
+            @RequestParam(value = "folderId", required = false) Long folderId,
+            @RequestParam(defaultValue = "true") boolean runWorkflow) {
         Paper paper = new Paper();
         paper.setTitle(title);
         paper.setAuthors(authors);
@@ -129,7 +146,16 @@ public class PaperController {
         paper.setFolderId(folderId);
         paper.setAcquisitionMethod(AcquisitionMethod.MANUAL_UPLOAD);
         paper.setReadingStatus(ReadingStatus.UNREAD);
-        return Result.ok(paperService.uploadPdfAndCreate(file, paper));
+        Paper saved = paperService.uploadPdfAndCreate(file, paper);
+        String taskId = runWorkflow ? workflowService.submitPaperImport(saved.getId()) : null;
+        return Result.ok(buildPaperResult(saved, taskId));
+    }
+
+    private Map<String, Object> buildPaperResult(Paper paper, String taskId) {
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("paper", paper);
+        result.put("taskId", taskId);
+        return result;
     }
 
     /** POST /api/papers/enrich-metadata — 从上传的 PDF 中识别并返回元数据预览 */
@@ -198,5 +224,27 @@ public class PaperController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "inline; filename*=UTF-8''" + encodedName)
                 .body(resource);
+    }
+
+    /** GET /api/papers/{id}/reading-progress — 查询阅读进度 */
+    @GetMapping("/{id}/reading-progress")
+    public Result<ReadingProgressDto> getReadingProgress(@PathVariable Long id) {
+        return Result.ok(readingProgressService.getProgress(id));
+    }
+
+    /** POST /api/papers/{id}/reading-progress — 更新当前页 */
+    @PostMapping("/{id}/reading-progress")
+    public Result<Void> updateReadingProgress(@PathVariable Long id,
+                                                @RequestBody @Valid ReadingProgressUpdateRequest request) {
+        readingProgressService.updateProgress(id, request.getCurrentPage());
+        return Result.ok();
+    }
+
+    /** POST /api/papers/{id}/reading-time — 增加阅读时长 */
+    @PostMapping("/{id}/reading-time")
+    public Result<Void> addReadingTime(@PathVariable Long id,
+                                        @RequestBody @Valid ReadingTimeRequest request) {
+        readingProgressService.addReadSeconds(id, request.getSeconds());
+        return Result.ok();
     }
 }

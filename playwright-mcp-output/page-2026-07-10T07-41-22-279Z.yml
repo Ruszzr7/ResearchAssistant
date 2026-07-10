@@ -1,0 +1,26 @@
+- generic [active] [ref=f16e1]:
+  - generic [ref=f16e4]:
+    - generic [ref=f16e5]:
+      - generic [ref=f16e6] [cursor=pointer]: Research Assistant
+      - menubar [ref=f16e7]:
+        - menuitem "看板" [ref=f16e8] [cursor=pointer]
+        - menuitem "文库管理" [ref=f16e9] [cursor=pointer]
+        - menuitem "文献检索" [ref=f16e10] [cursor=pointer]
+        - menuitem "论文分析" [ref=f16e11] [cursor=pointer]
+        - menuitem "研究空白" [ref=f16e12] [cursor=pointer]
+        - menuitem "任务中心" [ref=f16e13] [cursor=pointer]
+        - menuitem "阅读计划" [ref=f16e14] [cursor=pointer]
+        - menuitem "写作助手" [ref=f16e15] [cursor=pointer]
+      - button "切换亮色" [ref=f16e16] [cursor=pointer]:
+        - img [ref=f16e18]
+      - button "设置" [ref=f16e20] [cursor=pointer]:
+        - img [ref=f16e22]
+      - button "快捷键帮助 (?)" [ref=f16e25] [cursor=pointer]:
+        - img [ref=f16e27]
+    - main
+  - alert [ref=f16e31]:
+    - img [ref=f16e33]
+    - generic [ref=f16e35]:
+      - heading "阅读提醒" [level=2] [ref=f16e36]
+      - paragraph [ref=f16e38]: 1 项已逾期
+      - img [ref=f16e40] [cursor=pointer]

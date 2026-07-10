@@ -1,0 +1,70 @@
+- generic [ref=f2e1]:
+  - generic [ref=f2e4]:
+    - generic [ref=f2e5]:
+      - generic [ref=f2e6] [cursor=pointer]: Research Assistant
+      - menubar [ref=f2e7]:
+        - menuitem "文库管理" [ref=f2e8] [cursor=pointer]
+        - menuitem "文献检索" [ref=f2e9] [cursor=pointer]
+        - menuitem "论文分析" [ref=f2e10] [cursor=pointer]
+        - menuitem "研究空白" [ref=f2e11] [cursor=pointer]
+        - menuitem "任务中心" [ref=f2e12] [cursor=pointer]
+        - menuitem [ref=f2e13]:
+          - img [ref=f2e16] [cursor=pointer]
+      - button [ref=f2e18] [cursor=pointer]:
+        - img [ref=f2e20]
+    - main [ref=f2e24]:
+      - generic [ref=f2e25]:
+        - generic [ref=f2e26]:
+          - generic [ref=f2e27]:
+            - heading "阅读计划" [level=4] [ref=f2e28]
+            - button "新建" [ref=f2e29] [cursor=pointer]:
+              - generic [ref=f2e30]: 新建
+          - generic [ref=f2e80] [cursor=pointer]:
+            - generic [ref=f2e81]: 测试计划
+            - generic [ref=f2e82]: 未设置时间范围
+            - generic [ref=f2e83]:
+              - button "编辑" [ref=f2e84]:
+                - generic [ref=f2e85]: 编辑
+              - button "删除" [ref=f2e86]:
+                - generic [ref=f2e87]: 删除
+          - generic [ref=f2e32]:
+            - heading "本周要读" [level=4] [ref=f2e33]
+            - generic [ref=f2e34]: 本周没有待读任务
+        - generic [ref=f2e35]:
+          - generic [ref=f2e93]:
+            - heading "测试计划" [level=3] [ref=f2e94]
+            - button "添加论文" [ref=f2e95] [cursor=pointer]:
+              - generic [ref=f2e96]: 添加论文
+          - generic [ref=f2e97]: 计划为空，点击右上角添加论文
+        - dialog "添加论文到计划" [ref=f2e99]:
+          - generic [ref=f2e100]:
+            - generic [ref=f2e101]:
+              - heading "添加论文到计划" [level=2] [ref=f2e102]
+              - button "Close this dialog" [ref=f2e103] [cursor=pointer]:
+                - img [ref=f2e105]
+            - generic [ref=f2e108]:
+              - generic [ref=f2e109]:
+                - generic [ref=f2e110]: 论文
+                - generic [ref=f2e113]:
+                  - generic [ref=f2e114]:
+                    - combobox "论文" [expanded] [active] [ref=f2e116]
+                    - generic [ref=f2e117]: 从文库选择论文
+                  - img [ref=f2e120] [cursor=pointer]
+              - generic [ref=f2e122]:
+                - generic [ref=f2e123]: 截止日期
+                - generic [ref=f2e126]:
+                  - img [ref=f2e129]
+                  - combobox "截止日期" [ref=f2e131]
+              - generic [ref=f2e132]:
+                - generic [ref=f2e133]: 优先级
+                - slider "优先级" [ref=f2e135]:
+                  - img [ref=f2e138] [cursor=pointer]
+                  - img [ref=f2e142] [cursor=pointer]
+                  - img [ref=f2e146] [cursor=pointer]
+            - generic [ref=f2e148]:
+              - button "取消" [ref=f2e149] [cursor=pointer]:
+                - generic [ref=f2e150]: 取消
+              - button "添加" [ref=f2e151] [cursor=pointer]:
+                - generic [ref=f2e152]: 添加
+  - tooltip "No data" [ref=f2e153]:
+    - generic [ref=f2e155]: No data

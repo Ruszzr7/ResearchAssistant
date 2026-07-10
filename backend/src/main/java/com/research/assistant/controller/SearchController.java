@@ -4,12 +4,15 @@ import com.research.assistant.common.Result;
 import com.research.assistant.constant.AcquisitionMethod;
 import com.research.assistant.constant.ProcessingStatus;
 import com.research.assistant.constant.ReadingStatus;
+import com.research.assistant.dto.NetworkExpandRequest;
 import com.research.assistant.dto.SearchExpandRequest;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.service.ArxivFetcher;
 import com.research.assistant.service.AsyncTaskService;
 import com.research.assistant.service.PaperService;
 import com.research.assistant.service.SearchService;
+import com.research.assistant.service.source.CitationNetworkExpansionService;
+import com.research.assistant.service.source.LiteratureCandidate;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,13 +36,16 @@ public class SearchController {
     private final PaperService paperService;
     private final ArxivFetcher arxivFetcher;
     private final AsyncTaskService asyncTaskService;
+    private final CitationNetworkExpansionService expansionService;
 
     public SearchController(SearchService searchService, PaperService paperService,
-                            ArxivFetcher arxivFetcher, AsyncTaskService asyncTaskService) {
+                            ArxivFetcher arxivFetcher, AsyncTaskService asyncTaskService,
+                            CitationNetworkExpansionService expansionService) {
         this.searchService = searchService;
         this.paperService = paperService;
         this.arxivFetcher = arxivFetcher;
         this.asyncTaskService = asyncTaskService;
+        this.expansionService = expansionService;
     }
 
     /** POST /api/search/extract — Step 2: Agent 提炼检索要素 */
@@ -62,6 +68,27 @@ public class SearchController {
     @PostMapping("/expand")
     public Result<Map<String, Object>> expand(@RequestBody @Valid SearchExpandRequest request) {
         return Result.ok(searchService.expandSearch(request.getQueries()));
+    }
+
+    /** POST /api/search/expand/network — 按引用网络扩展（前向/后向/作者） */
+    @PostMapping("/expand/network")
+    public Result<Map<String, Object>> expandNetwork(@RequestBody @Valid NetworkExpandRequest request) {
+        if (request.getPaperId() == null && (request.getS2PaperId() == null || request.getS2PaperId().isBlank())) {
+            return Result.error(400, "请提供 paperId 或 s2PaperId");
+        }
+        List<String> directions = request.getDirections() != null ? request.getDirections()
+                : List.of("forward", "backward", "author");
+        List<LiteratureCandidate> candidates;
+        if (request.getS2PaperId() != null && !request.getS2PaperId().isBlank()) {
+            candidates = expansionService.expandByS2Id(request.getS2PaperId(), directions, request.getLimit());
+        } else {
+            candidates = expansionService.expandByLocalPaperId(request.getPaperId(), directions, request.getLimit());
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("candidates", candidates.stream().map(LiteratureCandidate::toMap).toList());
+        result.put("total", candidates.size());
+        result.put("directions", directions);
+        return Result.ok(result);
     }
 
     /**
@@ -140,9 +167,13 @@ public class SearchController {
             } catch (NumberFormatException ignored) {}
         }
 
-        paper.setSource("arXiv");
+        String source = String.valueOf(raw.getOrDefault("source", "arXiv"));
+        paper.setSource(source);
         paper.setArxivId((String) raw.get("arxivId"));
-        paper.setSourceUrl((String) raw.get("pdfUrl"));
+        paper.setSemanticScholarId("Semantic Scholar".equals(source) ? (String) raw.get("externalId") : null);
+        String sourceUrl = (String) raw.get("sourceUrl");
+        String pdfUrl = (String) raw.get("pdfUrl");
+        paper.setSourceUrl(sourceUrl != null && !sourceUrl.isBlank() ? sourceUrl : pdfUrl);
         paper.setAbstractText((String) raw.get("summary"));
         paper.setAcquisitionMethod(AcquisitionMethod.OA);
         paper.setReadingStatus(ReadingStatus.UNREAD);

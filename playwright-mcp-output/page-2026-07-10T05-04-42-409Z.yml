@@ -1,0 +1,183 @@
+- generic [ref=f13e3]:
+  - generic [ref=f13e4]:
+    - generic [ref=f13e5]:
+      - generic [ref=f13e6] [cursor=pointer]: Research Assistant
+      - menubar [ref=f13e7]:
+        - menuitem "看板" [ref=f13e8] [cursor=pointer]
+        - menuitem "文库管理" [ref=f13e9] [cursor=pointer]
+        - menuitem "文献检索" [ref=f13e10] [cursor=pointer]
+        - menuitem "论文分析" [ref=f13e11] [cursor=pointer]
+        - menuitem "研究空白" [ref=f13e12] [cursor=pointer]
+        - menuitem "任务中心" [ref=f13e13] [cursor=pointer]
+        - menuitem "阅读计划" [ref=f13e14] [cursor=pointer]
+        - menuitem "写作助手" [ref=f13e15] [cursor=pointer]
+      - button "切换暗色" [ref=f13e16] [cursor=pointer]:
+        - img [ref=f13e18]
+      - button "设置" [ref=f13e20] [cursor=pointer]:
+        - img [ref=f13e22]
+      - button "快捷键帮助 (?)" [ref=f13e25] [cursor=pointer]:
+        - img [ref=f13e27]
+    - main [ref=f13e31]:
+      - generic [ref=f13e32]:
+        - generic [ref=f13e33]:
+          - generic [ref=f13e34]:
+            - heading "Research Assistant" [level=2] [ref=f13e35]
+            - paragraph [ref=f13e36]: 科研工作台 · 一眼掌握论文、计划与任务
+          - button "进入文库" [ref=f13e37] [cursor=pointer]:
+            - generic [ref=f13e38]: 进入文库
+        - generic [ref=f13e49]:
+          - generic [ref=f13e52]:
+            - generic [ref=f13e53]: 论文总数
+            - generic [ref=f13e55]: "4"
+          - generic [ref=f13e58]:
+            - generic [ref=f13e59]: 未读
+            - generic [ref=f13e61]: "4"
+          - generic [ref=f13e64]:
+            - generic [ref=f13e65]: 正读
+            - generic [ref=f13e67]: "0"
+          - generic [ref=f13e70]:
+            - generic [ref=f13e71]: 已读
+            - generic [ref=f13e73]: "0"
+          - generic [ref=f13e76]:
+            - generic [ref=f13e77]: 置顶
+            - generic [ref=f13e79]: "0"
+          - generic [ref=f13e82]:
+            - generic [ref=f13e83]: 本月新增
+            - generic [ref=f13e85]: "4"
+        - generic [ref=f13e86]:
+          - generic [ref=f13e88]:
+            - generic [ref=f13e90]:
+              - generic [ref=f13e91]: 阅读计划
+              - button "查看" [ref=f13e92] [cursor=pointer]:
+                - generic [ref=f13e93]: 查看
+            - generic [ref=f13e94]:
+              - generic [ref=f13e95]:
+                - generic [ref=f13e96]:
+                  - generic [ref=f13e97]: "0"
+                  - generic [ref=f13e98]: 已逾期
+                - generic [ref=f13e99]:
+                  - generic [ref=f13e100]: "0"
+                  - generic [ref=f13e101]: 3 天内到期
+                - generic [ref=f13e102]:
+                  - generic [ref=f13e103]: "0"
+                  - generic [ref=f13e104]: 本周待读
+              - generic [ref=f13e105]:
+                - generic [ref=f13e106]:
+                  - text: 阅读进度
+                  - generic [ref=f13e107]: 0%
+                - progressbar [ref=f13e108]
+          - generic [ref=f13e112]:
+            - generic [ref=f13e114]:
+              - generic [ref=f13e115]: 文件夹堆积 Top 2
+              - button "查看" [ref=f13e116] [cursor=pointer]:
+                - generic [ref=f13e117]: 查看
+            - generic [ref=f13e119]:
+              - generic [ref=f13e120]:
+                - generic [ref=f13e121]:
+                  - generic "RSMA" [ref=f13e122]
+                  - generic [ref=f13e123]: "3"
+                - progressbar [ref=f13e124]
+              - generic [ref=f13e128]:
+                - generic [ref=f13e129]:
+                  - generic "AoI" [ref=f13e130]
+                  - generic [ref=f13e131]: "0"
+                - progressbar [ref=f13e132]
+          - generic [ref=f13e136]:
+            - generic [ref=f13e138]:
+              - generic [ref=f13e139]: 任务中心
+              - button "查看" [ref=f13e140] [cursor=pointer]:
+                - generic [ref=f13e141]: 查看
+            - generic [ref=f13e142]:
+              - generic [ref=f13e143]:
+                - generic [ref=f13e144]: 待处理 0
+                - generic [ref=f13e145]: 进行中 0
+                - generic [ref=f13e146]: 已完成 2
+                - generic [ref=f13e147]: 失败 0
+                - generic [ref=f13e148]: 取消 0
+              - generic [ref=f13e149]:
+                - generic [ref=f13e150]: 最近任务
+                - generic [ref=f13e151]:
+                  - generic [ref=f13e153]: 已完成
+                  - generic [ref=f13e154]: 未命名任务
+                  - generic [ref=f13e155]: 2026-07-07
+                - generic [ref=f13e156]:
+                  - generic [ref=f13e158]: 已完成
+                  - generic [ref=f13e159]: 未命名任务
+                  - generic [ref=f13e160]: 2026-07-07
+        - generic [ref=f13e161]:
+          - generic [ref=f13e163]:
+            - generic [ref=f13e166]: 最近笔记
+            - generic [ref=f13e168]:
+              - img [ref=f13e170]
+              - paragraph [ref=f13e187]: 暂无笔记
+          - generic [ref=f13e189]:
+            - generic [ref=f13e192]: 最近批注
+            - generic [ref=f13e194]:
+              - img [ref=f13e196]
+              - paragraph [ref=f13e213]: 暂无批注
+  - dialog "键盘快捷键" [ref=f13e215]:
+    - generic [active] [ref=f13e216]:
+      - banner [ref=f13e217]:
+        - heading "键盘快捷键" [level=2] [ref=f13e218]
+        - button "Close this dialog" [ref=f13e219] [cursor=pointer]:
+          - img [ref=f13e221]
+      - generic [ref=f13e225]:
+        - table [ref=f13e227]:
+          - rowgroup [ref=f13e231]:
+            - row "操作 快捷键" [ref=f13e232]:
+              - columnheader "操作" [ref=f13e233]:
+                - generic [ref=f13e234]: 操作
+              - columnheader "快捷键" [ref=f13e235]:
+                - generic [ref=f13e236]: 快捷键
+        - table [ref=f13e241]:
+          - rowgroup [ref=f13e245]:
+            - row "打开命令面板 Ctrl/Cmd + K" [ref=f13e246]:
+              - cell "打开命令面板" [ref=f13e247]:
+                - generic [ref=f13e248]: 打开命令面板
+              - cell "Ctrl/Cmd + K" [ref=f13e249]:
+                - generic [ref=f13e250]: Ctrl/Cmd + K
+            - row "全局搜索论文 Ctrl/Cmd + Shift + F" [ref=f13e251]:
+              - cell "全局搜索论文" [ref=f13e252]:
+                - generic [ref=f13e253]: 全局搜索论文
+              - cell "Ctrl/Cmd + Shift + F" [ref=f13e254]:
+                - generic [ref=f13e255]: Ctrl/Cmd + Shift + F
+            - row "打开看板 Ctrl/Cmd + 1" [ref=f13e256]:
+              - cell "打开看板" [ref=f13e257]:
+                - generic [ref=f13e258]: 打开看板
+              - cell "Ctrl/Cmd + 1" [ref=f13e259]:
+                - generic [ref=f13e260]: Ctrl/Cmd + 1
+            - row "打开文库管理 Ctrl/Cmd + 2" [ref=f13e261]:
+              - cell "打开文库管理" [ref=f13e262]:
+                - generic [ref=f13e263]: 打开文库管理
+              - cell "Ctrl/Cmd + 2" [ref=f13e264]:
+                - generic [ref=f13e265]: Ctrl/Cmd + 2
+            - row "打开文献检索 Ctrl/Cmd + 3" [ref=f13e266]:
+              - cell "打开文献检索" [ref=f13e267]:
+                - generic [ref=f13e268]: 打开文献检索
+              - cell "Ctrl/Cmd + 3" [ref=f13e269]:
+                - generic [ref=f13e270]: Ctrl/Cmd + 3
+            - row "打开论文分析 Ctrl/Cmd + 4" [ref=f13e271]:
+              - cell "打开论文分析" [ref=f13e272]:
+                - generic [ref=f13e273]: 打开论文分析
+              - cell "Ctrl/Cmd + 4" [ref=f13e274]:
+                - generic [ref=f13e275]: Ctrl/Cmd + 4
+            - row "打开研究空白 Ctrl/Cmd + 5" [ref=f13e276]:
+              - cell "打开研究空白" [ref=f13e277]:
+                - generic [ref=f13e278]: 打开研究空白
+              - cell "Ctrl/Cmd + 5" [ref=f13e279]:
+                - generic [ref=f13e280]: Ctrl/Cmd + 5
+            - row "打开任务中心 Ctrl/Cmd + 6" [ref=f13e281]:
+              - cell "打开任务中心" [ref=f13e282]:
+                - generic [ref=f13e283]: 打开任务中心
+              - cell "Ctrl/Cmd + 6" [ref=f13e284]:
+                - generic [ref=f13e285]: Ctrl/Cmd + 6
+            - row "打开阅读计划 Ctrl/Cmd + 7" [ref=f13e286]:
+              - cell "打开阅读计划" [ref=f13e287]:
+                - generic [ref=f13e288]: 打开阅读计划
+              - cell "Ctrl/Cmd + 7" [ref=f13e289]:
+                - generic [ref=f13e290]: Ctrl/Cmd + 7
+            - row "打开写作助手 Ctrl/Cmd + 8" [ref=f13e291]:
+              - cell "打开写作助手" [ref=f13e292]:
+                - generic [ref=f13e293]: 打开写作助手
+              - cell "Ctrl/Cmd + 8" [ref=f13e294]:
+                - generic [ref=f13e295]: Ctrl/Cmd + 8

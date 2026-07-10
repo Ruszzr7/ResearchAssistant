@@ -1,0 +1,29 @@
+- generic [active] [ref=f12e1]:
+  - generic [ref=f12e4]:
+    - generic [ref=f12e5]:
+      - generic [ref=f12e6] [cursor=pointer]: Research Assistant
+      - menubar [ref=f12e7]:
+        - menuitem "看板" [ref=f12e8] [cursor=pointer]
+        - menuitem "文库管理" [ref=f12e9] [cursor=pointer]
+        - menuitem "文献检索" [ref=f12e10] [cursor=pointer]
+        - menuitem "论文分析" [ref=f12e11] [cursor=pointer]
+        - menuitem "研究空白" [ref=f12e12] [cursor=pointer]
+        - menuitem "任务中心" [ref=f12e13] [cursor=pointer]
+        - menuitem "阅读计划" [ref=f12e14] [cursor=pointer]
+        - menuitem "写作助手" [ref=f12e15] [cursor=pointer]
+      - button "切换暗色" [ref=f12e16] [cursor=pointer]:
+        - img [ref=f12e18]
+      - button "设置" [ref=f12e20] [cursor=pointer]:
+        - img [ref=f12e22]
+      - button "快捷键帮助 (?)" [ref=f12e25] [cursor=pointer]:
+        - img [ref=f12e27]
+    - main [ref=f12e31]:
+      - generic [ref=f12e33]:
+        - generic [ref=f12e34]:
+          - heading "Research Assistant" [level=2] [ref=f12e35]
+          - paragraph [ref=f12e36]: 科研工作台 · 一眼掌握论文、计划与任务
+        - button "进入文库" [ref=f12e37] [cursor=pointer]:
+          - generic [ref=f12e38]: 进入文库
+  - alert [ref=f12e39]:
+    - img [ref=f12e41]
+    - paragraph [ref=f12e43]: 加载看板失败

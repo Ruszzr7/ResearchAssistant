@@ -1,0 +1,48 @@
+- generic [ref=f12e4]:
+  - generic [ref=f12e5]:
+    - generic [ref=f12e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f12e7]:
+      - menuitem "文库管理" [ref=f12e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=f12e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=f12e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=f12e11] [cursor=pointer]
+      - menuitem "任务中心" [ref=f12e12] [cursor=pointer]
+      - menuitem "阅读计划" [ref=f12e13] [cursor=pointer]
+      - menuitem "写作助手" [ref=f12e14] [cursor=pointer]
+    - button [ref=f12e15] [cursor=pointer]:
+      - img [ref=f12e17]
+  - main [ref=f12e21]:
+    - generic [ref=f12e22]:
+      - generic [ref=f12e23]:
+        - generic [ref=f12e24]:
+          - generic [ref=f12e26]:
+            - generic [ref=f12e27]:
+              - combobox [ref=f12e29]
+              - generic [ref=f12e30]: 选择写作项目
+            - img [ref=f12e33] [cursor=pointer]
+          - button "新建" [ref=f12e35] [cursor=pointer]:
+            - generic [ref=f12e36]: 新建
+        - generic [ref=f12e37]: 请先创建或选择一个写作项目
+      - generic [ref=f12e39]: 请从左侧选择或创建一个写作项目
+      - dialog "新建写作项目" [ref=f12e41]:
+        - generic [ref=f12e42]:
+          - generic [ref=f12e43]:
+            - heading "新建写作项目" [level=2] [ref=f12e44]
+            - button "Close this dialog" [ref=f12e45] [cursor=pointer]:
+              - img [ref=f12e47]
+          - generic [ref=f12e50]:
+            - generic [ref=f12e51]:
+              - generic [ref=f12e52]: 标题
+              - textbox "标题" [ref=f12e56]:
+                - /placeholder: 例如：毕业论文
+                - text: 测试写作项目
+            - generic [ref=f12e57]:
+              - generic [ref=f12e58]: 选题
+              - textbox "选题" [ref=f12e61]:
+                - /placeholder: 研究选题
+                - text: 多模态大模型医疗影像分割
+          - generic [ref=f12e62]:
+            - button "取消" [ref=f12e63] [cursor=pointer]:
+              - generic [ref=f12e64]: 取消
+            - button "创建" [active] [ref=f12e65] [cursor=pointer]:
+              - generic [ref=f12e66]: 创建

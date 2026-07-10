@@ -1,10 +1,10 @@
 package com.research.assistant.service.impl;
 
-import com.research.assistant.entity.Paper;
-import com.research.assistant.mapper.PaperMapper;
-import com.research.assistant.service.ArxivFetcher;
+import com.research.assistant.common.JsonUtils;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.SearchService;
+import com.research.assistant.service.source.LiteratureCandidate;
+import com.research.assistant.service.source.LiteratureSearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -20,13 +20,12 @@ public class SearchServiceImpl implements SearchService {
     private static final Logger log = LoggerFactory.getLogger(SearchServiceImpl.class);
 
     private final LLMService llmService;
-    private final ArxivFetcher arxivFetcher;
-    private final PaperMapper paperMapper;
+    private final LiteratureSearchService literatureSearchService;
 
-    public SearchServiceImpl(LLMService llmService, ArxivFetcher arxivFetcher, PaperMapper paperMapper) {
+    public SearchServiceImpl(LLMService llmService,
+                             LiteratureSearchService literatureSearchService) {
         this.llmService = llmService;
-        this.arxivFetcher = arxivFetcher;
-        this.paperMapper = paperMapper;
+        this.literatureSearchService = literatureSearchService;
     }
 
     @Override
@@ -53,22 +52,14 @@ public class SearchServiceImpl implements SearchService {
 
     @Override
     public List<Map<String, Object>> executeSearch(Map<String, Object> params) {
-        // 用英文关键词构建查询
         @SuppressWarnings("unchecked")
         List<String> keywords = (List<String>) params.getOrDefault("keywords_en", Collections.emptyList());
-        String query = String.join(" AND ", keywords);
-
-        try {
-            List<Map<String, Object>> papers = arxivFetcher.search(query, 15);
-            // 为每篇论文生成推荐理由
-            for (Map<String, Object> paper : papers) {
-                String reason = generateRecommendReason(paper, params);
-                paper.put("recommendReason", reason);
-            }
-            return papers;
-        } catch (Exception e) {
-            throw new RuntimeException("检索执行失败: " + e.getMessage(), e);
+        if (keywords.isEmpty()) {
+            return List.of();
         }
+
+        List<LiteratureCandidate> candidates = literatureSearchService.search(keywords, 15);
+        return literatureSearchService.toResultMaps(candidates, keywords);
     }
 
     @Override
@@ -78,65 +69,35 @@ public class SearchServiceImpl implements SearchService {
         // 扩展策略
         Map<String, Object> strategy = new LinkedHashMap<>();
         strategy.put("cited_by", "检索引用这些论文的后续研究");
-        strategy.put("related_articles", "检索 arXiv 上的相关工作");
+        strategy.put("related_articles", "检索 arXiv 与 Semantic Scholar 上的相关工作");
         strategy.put("author_tracking", "追踪一作和通信作者的其他论文");
         strategy.put("depth", "1-2 层扩展");
         result.put("strategy", strategy);
 
-        // 对每个查询词执行扩展检索
-        List<Map<String, Object>> allResults = new ArrayList<>();
+        // 对每个查询提取关键词后执行多源扩展检索，再统一去重
+        List<LiteratureCandidate> all = new ArrayList<>();
         for (String query : queries) {
             if (query == null || query.isBlank()) continue;
-            try {
-                // 取前几个关键词作为扩展查询
-                String[] words = query.split("\\s+");
-                String q = String.join(" AND ", java.util.Arrays.copyOf(words, Math.min(5, words.length)));
-                List<Map<String, Object>> related = arxivFetcher.search(q, 5);
-                allResults.addAll(related);
-            } catch (Exception e) {
-                log.warn("扩展检索失败 query={}: {}", query, e.getMessage());
-            }
+            String[] words = query.split("\\s+");
+            List<String> keywords = Arrays.stream(java.util.Arrays.copyOf(words, Math.min(5, words.length)))
+                    .filter(s -> s != null && !s.isBlank())
+                    .toList();
+            all.addAll(literatureSearchService.search(keywords, 5));
         }
 
-        // 去重（按 arxivId）
-        Map<String, Map<String, Object>> deduped = new LinkedHashMap<>();
-        for (Map<String, Object> p : allResults) {
-            String aid = (String) p.getOrDefault("arxivId", "");
-            if (!aid.isEmpty() && !deduped.containsKey(aid)) {
-                deduped.put(aid, p);
-            }
-        }
-        result.put("results", new ArrayList<>(deduped.values()));
-        result.put("total", deduped.size());
+        List<LiteratureCandidate> deduped = literatureSearchService.deduplicate(all);
+        List<Map<String, Object>> results = literatureSearchService.toResultMaps(deduped, List.of());
+        result.put("results", results);
+        result.put("total", results.size());
         return result;
-    }
-
-    /** 为检索结果生成推荐理由 */
-    private String generateRecommendReason(Map<String, Object> paper, Map<String, Object> params) {
-        String title = (String) paper.getOrDefault("title", "");
-        String summary = (String) paper.getOrDefault("summary", "");
-        if (title.isEmpty()) return "关键词匹配";
-
-        String prompt = "论文标题：" + title + "\n"
-                + "论文摘要：" + (summary.length() > 500 ? summary.substring(0, 500) + "…" : summary) + "\n"
-                + "检索关键词：" + params.getOrDefault("keywords_en", "") + "\n\n"
-                + "用一句话（20字以内）说明这篇论文为什么和检索目标相关。只返回这句话。";
-
-        try {
-            return llmService.chat("你是一位文献检索助手。简洁说明论文与检索目标的相关性。", prompt);
-        } catch (Exception e) {
-            return "关键词匹配";
-        }
     }
 
     /** 解析 LLM 返回的 JSON（处理可能的 markdown 包裹） */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseAgentJson(String llmOutput) {
-        String json = llmOutput.trim();
-        if (json.startsWith("```")) {
-            int start = json.indexOf('\n');
-            int end = json.lastIndexOf("```");
-            if (start > 0 && end > start) json = json.substring(start + 1, end).trim();
+        String json = JsonUtils.extractJson(llmOutput);
+        if (json == null) {
+            json = "";
         }
         // 简化：返回可解析的结果
         Map<String, Object> result = new HashMap<>();

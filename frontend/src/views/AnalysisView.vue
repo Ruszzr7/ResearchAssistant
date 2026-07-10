@@ -50,7 +50,17 @@
               <el-button size="small" link type="primary" @click="retryRead()">重试</el-button>
             </span>
           </div>
-          <div v-if="readReport" class="report" v-html="readReport"></div>
+          <div v-if="readReport" class="view-toggle">
+            <el-radio-group v-model="readView" size="small">
+              <el-radio-button label="report">报告</el-radio-button>
+              <el-radio-button label="structured">结构化</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div v-if="readView === 'report' && readReport" class="report" v-html="readReport"></div>
+          <div v-if="readView === 'structured'" class="structured-panel">
+            <StructuredAnalysis v-if="analysis" :data="analysis" />
+            <div v-else class="empty-hint">暂无结构化分析数据，请先点击「开始精读分析」。</div>
+          </div>
         </template>
       </div>
 
@@ -111,7 +121,9 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { waitForAnalysis } from '@/utils/analysis.js'
+import { waitForTask } from '@/utils/task.js'
 import { simpleMarkdownToHtml } from '@/utils/markdown.js'
+import StructuredAnalysis from '@/components/StructuredAnalysis.vue'
 
 const route = useRoute()
 import api from '@/api'
@@ -145,6 +157,8 @@ function restoreSession() {
   comparePapers.value = session.comparePapers || []
   mode.value = session.mode || 'read'
   readReport.value = session.readReport || null
+  readView.value = session.readView || 'report'
+  analysis.value = session.analysis || null
   compareReport.value = session.compareReport || null
   customDimensions.value = session.customDimensions || ''
 }
@@ -154,6 +168,8 @@ function saveSession() {
   session.comparePapers = comparePapers.value
   session.mode = mode.value
   session.readReport = readReport.value
+  session.readView = readView.value
+  session.analysis = analysis.value
   session.compareReport = compareReport.value
   session.customDimensions = customDimensions.value
 }
@@ -173,6 +189,8 @@ const comparePapers = ref([])
 const addCompareId = ref(null)
 const mode = ref('read')
 const readReport = ref(null)
+const readView = ref('report')
+const analysis = ref(null)
 const compareReport = ref(null)
 const customDimensions = ref('')
 const recommendations = ref([])
@@ -183,6 +201,8 @@ watch(mainPaper, saveSession, { deep: true })
 watch(comparePapers, saveSession, { deep: true })
 watch(mode, saveSession)
 watch(readReport, saveSession)
+watch(readView, saveSession)
+watch(analysis, saveSession)
 watch(compareReport, saveSession)
 watch(customDimensions, saveSession)
 
@@ -217,6 +237,8 @@ function onMainPaperSelect(id) {
   if (!id) { mainPaper.value = null; return }
   mainPaper.value = papers.value.find(p => p.id === id)
   readReport.value = null; compareReport.value = null
+  analysis.value = null
+  readView.value = 'report'
 }
 
 function onAddCompare(id) {
@@ -231,6 +253,7 @@ async function doRead() {
 
   await runRead(async ({ signal, setStage }) => {
     readReport.value = ''
+    analysis.value = null
     chatHistory.value = []
 
     // 先确保论文有 AI 分析
@@ -240,6 +263,14 @@ async function doRead() {
     // 轮询等待分析完成
     setStage('等待分析完成…')
     await waitForAnalysis(api.get.bind(api), paperId, signal)
+
+    // 获取结构化分析结果
+    try {
+      const { data } = await api.get('/agent/analysis/' + paperId, { signal })
+      analysis.value = data
+    } catch (e) {
+      console.warn('获取结构化分析失败', e)
+    }
 
     // SSE 流式消费
     setStage('正在流式输出分析报告…')
@@ -292,13 +323,16 @@ async function startStream(paperId, signal) {
 async function doCompare() {
   const allIds = [mainPaper.value.id, ...comparePapers.value.map(p => p.id)]
   await runCompare(async ({ signal, setStage }) => {
-    setStage('正在生成对比报告…')
     compareReport.value = null
-    const res = await api.post('/agent/compare', {
+    setStage('正在提交对比任务…')
+    const submitRes = await api.post('/agent/compare', {
       paperIds: allIds,
       customDimensions: customDimensions.value || null
     }, { signal })
-    compareReport.value = res.data
+    const taskId = submitRes.data.taskId
+    setStage('正在生成对比报告…')
+    const result = await waitForTask(api.get.bind(api), taskId, signal, setStage)
+    compareReport.value = result
   })
 }
 
@@ -376,17 +410,17 @@ async function sendChat() {
   width: 240px;
   flex-shrink: 0;
   padding: 10px 14px;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid var(--ra-border);
   overflow-y: auto;
-  background: #fafbfc;
+  background: var(--ra-bg);
 }
 .left-panel h4 {
-  font-size: 15px; font-weight: 600; color: #303133; margin: 0 0 10px;
+  font-size: 15px; font-weight: 600; color: var(--ra-text); margin: 0 0 10px;
 }
 
 .selected-paper {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 8px; background: #ecf5ff; border-radius: 4px; margin-bottom: 4px;
+  padding: 6px 8px; background: var(--ra-active-bg); border-radius: 4px; margin-bottom: 4px;
   font-size: 12px;
 }
 .paper-name {
@@ -404,18 +438,18 @@ async function sendChat() {
 }
 
 .mode-tabs {
-  display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #e4e7ed;
+  display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid var(--ra-border);
 }
 .mode-tabs button {
   padding: 8px 20px; border: none; background: none;
-  font-size: 14px; cursor: pointer; color: #909399;
+  font-size: 14px; cursor: pointer; color: var(--ra-text-tertiary);
   border-bottom: 2px solid transparent; margin-bottom: -2px;
   transition: color 0.2s, border-color 0.2s;
 }
 .mode-tabs button.active {
-  color: #409eff; border-bottom-color: #409eff; font-weight: 600;
+  color: var(--ra-link); border-bottom-color: var(--ra-link); font-weight: 600;
 }
-.mode-tabs button:disabled { color: #c0c4cc; cursor: not-allowed; }
+.mode-tabs button:disabled { color: var(--ra-text-tertiary); cursor: not-allowed; }
 
 .mode-content { min-height: 200px; }
 
@@ -427,43 +461,51 @@ async function sendChat() {
 }
 .stage-text {
   font-size: 13px;
-  color: #409eff;
+  color: var(--ra-link);
 }
 .error-text {
   font-size: 13px;
   color: #f56c6c;
 }
 
-.domain-tag { margin: 12px 0; font-size: 13px; color: #606266; }
+.domain-tag { margin: 12px 0; font-size: 13px; color: var(--ra-text-secondary); }
 
 .empty-hint {
-  text-align: center; color: #c0c4cc; padding: 60px 0; font-size: 14px;
+  text-align: center; color: var(--ra-text-tertiary); padding: 60px 0; font-size: 14px;
 }
 
 .report {
-  margin-top: 16px; font-size: 14px; line-height: 1.8; color: #303133;
+  margin-top: 16px; font-size: 14px; line-height: 1.8; color: var(--ra-text);
 }
 .report :deep(h4) { font-size: 15px; margin: 16px 0 6px; }
 .report :deep(p) { margin: 6px 0; }
 
+.view-toggle {
+  margin: 12px 0;
+}
+
+.structured-panel {
+  margin-top: 16px;
+}
+
 .rec-list { margin-top: 16px; }
 .rec-card {
-  padding: 10px 0; border-bottom: 1px solid #f0f1f3;
+  padding: 10px 0; border-bottom: 1px solid var(--ra-border-light);
 }
-.rec-title { font-size: 13px; font-weight: 600; color: #303133; }
+.rec-title { font-size: 13px; font-weight: 600; color: var(--ra-text); }
 .rec-reason { font-size: 12px; color: #67c23a; margin-top: 2px; }
 
 /* 追问 */
 .chat-area {
-  margin-top: 32px; border-top: 1px solid #e4e7ed; padding-top: 16px;
+  margin-top: 32px; border-top: 1px solid var(--ra-border); padding-top: 16px;
 }
 .chat-header { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
 .chat-messages {
   max-height: 200px; overflow-y: auto; margin-bottom: 8px;
 }
 .chat-msg { margin-bottom: 8px; }
-.chat-msg.user .msg-content { background: #ecf5ff; color: #303133; }
-.chat-msg.assistant .msg-content { background: #f5f7fa; color: #606266; }
+.chat-msg.user .msg-content { background: var(--ra-active-bg); color: var(--ra-text); }
+.chat-msg.assistant .msg-content { background: var(--ra-bg); color: var(--ra-text-secondary); }
 .msg-content {
   display: inline-block; max-width: 80%; padding: 6px 12px; border-radius: 8px;
   font-size: 13px; line-height: 1.5; white-space: pre-wrap;

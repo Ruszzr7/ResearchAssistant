@@ -37,6 +37,10 @@ public class Paper {
     @TableField("arxiv_id")
     private String arxivId;
 
+    /** Semantic Scholar paperId */
+    @TableField("semantic_scholar_id")
+    private String semanticScholarId;
+
     /** 论文来源 URL */
     @TableField("source_url")
     private String sourceUrl;
@@ -64,6 +68,22 @@ public class Paper {
 
     /** 是否置顶 */
     private Boolean pinned;
+
+    /** PDF 总页数 */
+    @TableField("page_count")
+    private Integer pageCount;
+
+    /** 当前读到第几页 */
+    @TableField("current_page")
+    private Integer currentPage;
+
+    /** 累计阅读时长（秒） */
+    @TableField("read_seconds")
+    private Integer readSeconds;
+
+    /** 最后阅读时间 */
+    @TableField("last_read_at")
+    private LocalDateTime lastReadAt;
 
     /** Agent 生成的内容摘要（未实现） */
     private String aiSummary;
@@ -100,6 +120,8 @@ public class Paper {
     public void setDoi(String doi) { this.doi = doi; }
     public String getArxivId() { return arxivId; }
     public void setArxivId(String arxivId) { this.arxivId = arxivId; }
+    public String getSemanticScholarId() { return semanticScholarId; }
+    public void setSemanticScholarId(String semanticScholarId) { this.semanticScholarId = semanticScholarId; }
     public String getSourceUrl() { return sourceUrl; }
     public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
     public Integer getCitationCount() { return citationCount; }
@@ -118,6 +140,14 @@ public class Paper {
     public void setReadingStatus(String readingStatus) { this.readingStatus = readingStatus; }
     public Boolean getPinned() { return pinned; }
     public void setPinned(Boolean pinned) { this.pinned = pinned; }
+    public Integer getPageCount() { return pageCount; }
+    public void setPageCount(Integer pageCount) { this.pageCount = pageCount; }
+    public Integer getCurrentPage() { return currentPage; }
+    public void setCurrentPage(Integer currentPage) { this.currentPage = currentPage; }
+    public Integer getReadSeconds() { return readSeconds; }
+    public void setReadSeconds(Integer readSeconds) { this.readSeconds = readSeconds; }
+    public LocalDateTime getLastReadAt() { return lastReadAt; }
+    public void setLastReadAt(LocalDateTime lastReadAt) { this.lastReadAt = lastReadAt; }
     public String getAiSummary() { return aiSummary; }
     public void setAiSummary(String aiSummary) { this.aiSummary = aiSummary; }
     public String getProcessingStatus() { return processingStatus; }

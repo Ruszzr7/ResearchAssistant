@@ -2,6 +2,7 @@ package com.research.assistant.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.dto.LlmResponse;
+import com.research.assistant.common.JsonUtils;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperAnalysisMapper;
@@ -18,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 论文处理服务 —— 编排完整的 PDF → 文本 → LLM 理解 → 持久化流水线。
  * <p>
- * Phase 1 引入 LangChain4j 结构化输出：优先使用 {@link ResearchAiService#analyzePaper(String)}
+ * Phase 1 引入 LangChain4j 结构化输出：优先使用 {@link ResearchAiService#analyzePaper(String, String)}
  * 返回 POJO；若 POJO 解析失败，回退到旧的手写 JSON 字段提取。
  */
 @Service
@@ -32,22 +33,30 @@ public class PaperProcessingService {
     private final TextPreprocessor textPreprocessor;
     private final LLMService llmService;
     private final ResearchAiService researchAiService;
+    private final SettingsService settingsService;
     private final ObjectMapper objectMapper;
+    private final AsyncTaskService asyncTaskService;
 
     /** LLM 输入的最大字符数（防止 token 超限） */
     private static final int MAX_INPUT_CHARS = 12000;
 
+    /** 用户研究主题设置 key */
+    private static final String RESEARCH_TOPIC_KEY = "research_topic";
+
     public PaperProcessingService(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
                                    PdfExtractor pdfExtractor, TextPreprocessor textPreprocessor,
                                    LLMService llmService, ResearchAiService researchAiService,
-                                   ObjectMapper objectMapper) {
+                                   SettingsService settingsService, ObjectMapper objectMapper,
+                                   AsyncTaskService asyncTaskService) {
         this.paperMapper = paperMapper;
         this.analysisMapper = analysisMapper;
         this.pdfExtractor = pdfExtractor;
         this.textPreprocessor = textPreprocessor;
         this.llmService = llmService;
         this.researchAiService = researchAiService;
+        this.settingsService = settingsService;
         this.objectMapper = objectMapper;
+        this.asyncTaskService = asyncTaskService;
     }
 
     /**
@@ -62,7 +71,7 @@ public class PaperProcessingService {
             throw new RuntimeException("论文不存在: " + paperId);
         }
 
-        // Step 1: 提取 PDF 文本
+        // Step 1: 提取 PDF 文本、公式与图表
         String pdfPath = paper.getPdfPath();
         if (pdfPath == null || pdfPath.isBlank()) {
             throw new RuntimeException("论文尚未上传 PDF，无法分析: " + paperId);
@@ -81,10 +90,12 @@ public class PaperProcessingService {
         PaperAnalysis analysis = new PaperAnalysis();
         analysis.setPaperId(paperId);
         analysis.setRawText(inputText);
+        enrichFormulasAndFigures(analysis, pdfPath);
 
-        boolean pojoSuccess = analyzeWithPojo(paperId, inputText, analysis);
+        String researchTopic = loadResearchTopic();
+        boolean pojoSuccess = analyzeWithPojo(paperId, inputText, researchTopic, analysis);
         if (!pojoSuccess) {
-            analyzeWithFallback(paperId, inputText, analysis);
+            analyzeWithFallback(paperId, inputText, researchTopic, analysis);
         }
 
         // Step 4: 保存分析结果
@@ -96,7 +107,34 @@ public class PaperProcessingService {
         }
         analysisMapper.insert(analysis);
 
+        // Step 5: 异步建立 RAG 向量索引
+        try {
+            asyncTaskService.submitRagIndex(paperId);
+        } catch (Exception e) {
+            log.warn("论文 {} RAG 索引任务提交失败: {}", paperId, e.getMessage());
+        }
+
         return analysis;
+    }
+
+    private String loadResearchTopic() {
+        String topic = settingsService.getValue(RESEARCH_TOPIC_KEY);
+        return topic != null ? topic : "";
+    }
+
+    private void enrichFormulasAndFigures(PaperAnalysis analysis, String pdfPath) {
+        try {
+            analysis.setFormulasJson(toJson(pdfExtractor.extractFormulas(pdfPath)));
+        } catch (Exception e) {
+            log.warn("Paper {} 公式提取失败: {}", analysis.getPaperId(), e.getMessage());
+            analysis.setFormulasJson("[]");
+        }
+        try {
+            analysis.setFiguresJson(toJson(pdfExtractor.extractFigures(pdfPath)));
+        } catch (Exception e) {
+            log.warn("Paper {} 图表提取失败: {}", analysis.getPaperId(), e.getMessage());
+            analysis.setFiguresJson("[]");
+        }
     }
 
     /**
@@ -104,9 +142,9 @@ public class PaperProcessingService {
      *
      * @return true 表示成功，false 表示需要回退
      */
-    private boolean analyzeWithPojo(Long paperId, String inputText, PaperAnalysis analysis) {
+    private boolean analyzeWithPojo(Long paperId, String inputText, String researchTopic, PaperAnalysis analysis) {
         try {
-            Result<PaperAnalysisResult> result = researchAiService.analyzePaper(inputText);
+            Result<PaperAnalysisResult> result = researchAiService.analyzePaper(inputText, researchTopic);
             if (result == null || result.content() == null) {
                 log.warn("Paper {} POJO 分析返回 null，准备回退", paperId);
                 return false;
@@ -130,14 +168,19 @@ public class PaperProcessingService {
     /**
      * 降级路径：使用旧的手写 Prompt + 手动 JSON 字段提取。
      */
-    private void analyzeWithFallback(Long paperId, String inputText, PaperAnalysis analysis) {
-        LlmResponse llmResponse = llmService.chatWithUsage(ANALYSIS_SYSTEM_PROMPT, inputText);
+    private void analyzeWithFallback(Long paperId, String inputText, String researchTopic, PaperAnalysis analysis) {
+        String userMessage = buildFallbackUserMessage(inputText, researchTopic);
+        LlmResponse llmResponse = llmService.chatWithUsage(ANALYSIS_SYSTEM_PROMPT, userMessage);
         String resultJson = llmResponse.getContent();
         log.info("Paper {} LLM 分析完成（旧解析路径）, 结果长度: {}, token 消耗: {}",
                 paperId, resultJson.length(), llmResponse.getTotalTokens());
 
         parseAndFillAnalysis(analysis, resultJson);
         analysis.setTokenUsed(llmResponse.getTotalTokens());
+    }
+
+    private String buildFallbackUserMessage(String inputText, String researchTopic) {
+        return "用户当前研究主题：" + researchTopic + "\n\n请对以下论文文本进行结构化分析：\n\n" + inputText;
     }
 
     /**
@@ -163,6 +206,11 @@ public class PaperProcessingService {
         analysis.setLimitationsJson(toJson(result.getLimitations()));
         analysis.setTablesSummaryJson(toJson(result.getTablesSummary()));
         analysis.setFiguresSummaryJson(toJson(result.getFiguresSummary()));
+        analysis.setReproducibleArtifactsJson(toJson(result.getReproducibleArtifacts()));
+        analysis.setExperimentSetupJson(toJson(result.getExperimentSetup()));
+        analysis.setBenchmarkResultsJson(toJson(result.getBenchmarkResults()));
+        analysis.setRelevanceScore(result.getRelevanceScore());
+        analysis.setRelevanceReason(result.getRelevanceReason());
     }
 
     private String toJson(Object value) {
@@ -184,7 +232,7 @@ public class PaperProcessingService {
      * LLM 返回的 JSON 可能含 markdown 代码块标记，需要先清洗。
      */
     private void parseAndFillAnalysis(PaperAnalysis analysis, String llmOutput) {
-        String json = extractJson(llmOutput);
+        String json = JsonUtils.extractJson(llmOutput);
 
         // domain 字段暂存到 methodType 前缀，如 "AI|THEORETICAL"
         String domain = extractField(json, "domain");
@@ -203,20 +251,11 @@ public class PaperProcessingService {
         analysis.setLimitationsJson(extractField(json, "limitations"));
         analysis.setTablesSummaryJson(extractField(json, "tables_summary"));
         analysis.setFiguresSummaryJson(extractField(json, "figures_summary"));
-    }
-
-    /** 从 LLM 输出中提取 JSON —— 去掉 markdown 代码块包裹 */
-    private String extractJson(String llmOutput) {
-        String s = llmOutput.trim();
-        // 去掉 ```json ... ``` 包裹
-        if (s.startsWith("```")) {
-            int start = s.indexOf('\n');
-            int end = s.lastIndexOf("```");
-            if (start > 0 && end > start) {
-                s = s.substring(start + 1, end).trim();
-            }
-        }
-        return s;
+        analysis.setReproducibleArtifactsJson(extractField(json, "reproducible_artifacts"));
+        analysis.setExperimentSetupJson(extractField(json, "experiment_setup"));
+        analysis.setBenchmarkResultsJson(extractField(json, "benchmark_results"));
+        analysis.setRelevanceScore(parseNullableInt(extractField(json, "relevance_score")));
+        analysis.setRelevanceReason(extractField(json, "relevance_reason"));
     }
 
     /** 从 JSON 字符串中提取指定字段的值（简单版，够用） */
@@ -272,6 +311,17 @@ public class PaperProcessingService {
         return null;
     }
 
+    private Integer parseNullableInt(String value) {
+        if (value == null || value.isBlank() || "null".equals(value)) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     // ========== LLM Prompt 模板 ==========
 
     /** 论文结构化分析的系统提示词（自适应领域） */
@@ -285,7 +335,17 @@ public class PaperProcessingService {
 - 控制/机器人：侧重控制策略、稳定性分析、实验平台
 - 其他：根据论文实际内容自适应
 
-**第二步：输出 JSON**
+**第二步：深度提取**
+除了基础信息外，必须尽可能提取：
+1. 可复现要素：核心公式（保留 LaTeX）、伪代码、源码/数据集链接、评测指标定义
+2. 实验设置：任务定义、数据集与划分、基线、评测指标、实现细节
+3. Benchmark 结果：关键指标、数值、与基线对比、来源图表
+
+**第三步：相关度评分（仅当用户研究主题非空时）**
+如果用户研究主题非空，请给出 1-10 的相关度评分并说明理由。
+1 = 完全无关；10 = 高度相关，可直接借鉴。
+
+**第四步：输出 JSON**
 请严格按照以下 JSON 格式（不要输出其他内容）：
 
 ```json
@@ -300,10 +360,30 @@ public class PaperProcessingService {
   "key_findings": ["主要实验发现或理论结果"],
   "limitations": ["论文自述的局限性和你推断的潜在问题"],
   "tables_summary": [{"caption": "表格标题", "content_hint": "大致内容"}],
-  "figures_summary": [{"caption": "图表标题"}]
+  "figures_summary": [{"caption": "图表标题"}],
+  "reproducible_artifacts": [
+    {"type": "FORMULA", "title": "Eq. (4)", "content": "LaTeX 或内容", "location": "Section 3.2"}
+  ],
+  "experiment_setup": {
+    "task_definition": "任务定义",
+    "datasets": ["数据集及划分方式"],
+    "baselines": ["基线方法"],
+    "metrics": ["评测指标"],
+    "implementation_details": "硬件、框架、超参数等"
+  },
+  "benchmark_results": [
+    {"metric": "指标名", "value": "论文值", "baseline_value": "基线值", "dataset": "数据集", "source": "Table 3", "note": "补充说明"}
+  ],
+  "relevance_score": null,
+  "relevance_reason": null
 }
 ```
 
-**规则**：信息无法确定时用空数组 [] 或空字符串 "";不要编造内容；sections 按实际结构输出。
+**规则**：
+- 信息无法确定时用空数组 [] 或空字符串 ""；
+- 不要编造内容；
+- sections 按实际结构输出；
+- 若用户研究主题为空字符串，relevance_score 和 relevance_reason 必须为 null；
+- 若研究主题非空，relevance_score 填 1-10 的整数，relevance_reason 填 1-2 句话。
 """;
 }

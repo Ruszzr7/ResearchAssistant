@@ -3,7 +3,9 @@ package com.research.assistant.service.ai;
 import com.research.assistant.service.SettingsService;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +32,9 @@ public class LangChain4jModelFactory {
 
     /**
      * 创建同步 ChatModel。
+     * <p>
+     * 超时设为 60s 并开启 1 次重试：若 Provider 响应慢，可快速失败并触发重试，
+     * 避免同步接口被单个慢请求挂死。
      */
     public ChatModel createChatModel() {
         return OpenAiChatModel.builder()
@@ -38,7 +43,8 @@ public class LangChain4jModelFactory {
                 .modelName(resolveModel())
                 .temperature(resolveTemperature())
                 .maxTokens(4096)
-                .timeout(Duration.ofSeconds(120))
+                .timeout(Duration.ofSeconds(60))
+                .maxRetries(1)
                 .build();
     }
 
@@ -58,7 +64,36 @@ public class LangChain4jModelFactory {
                 .build();
     }
 
-    // ========== 配置解析 ==========
+    /**
+     * 创建 Embedding 模型，用于 RAG 向量检索。
+     * <p>
+     * 优先读取 settings 中的 `embedding_base_url` / `embedding_model` / `embedding_api_key`；
+     * 任一缺失时回退到主 LLM 配置。
+     */
+    public EmbeddingModel createEmbeddingModel() {
+        String baseUrl = LLMConfigUtil.normalizeBaseUrl(settingsService.getValue("embedding_base_url"));
+        if (baseUrl.isBlank()) {
+            baseUrl = LLMConfigUtil.normalizeBaseUrl(settingsService.getValue("base_url"));
+        }
+        String model = settingsService.getValue("embedding_model");
+        if (model == null || model.isBlank()) {
+            model = settingsService.getValue("model");
+        }
+        String apiKey = settingsService.getValue("embedding_api_key");
+        if (apiKey == null || apiKey.isBlank()) {
+            apiKey = settingsService.getValue("api_key");
+        }
+        if (baseUrl.isBlank() || model == null || model.isBlank() || apiKey == null || apiKey.isBlank()) {
+            throw new RuntimeException("Embedding 配置不完整，请在设置页面填写 embedding/base_url、model、api_key");
+        }
+        return OpenAiEmbeddingModel.builder()
+                .baseUrl(baseUrl + "/v1")
+                .apiKey(apiKey)
+                .modelName(model)
+                .timeout(Duration.ofSeconds(60))
+                .maxRetries(1)
+                .build();
+    }
 
     private String resolveApiKey() {
         return requireSetting("api_key", "API Key");
@@ -69,34 +104,11 @@ public class LangChain4jModelFactory {
     }
 
     private String resolveBaseUrl() {
-        String raw = requireSetting("base_url", "Base URL");
-        String normalized = raw.trim();
-
-        // 去掉末尾斜杠
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-
-        // 去掉重复的 /v1，后面 LangChain4j 会自己追加 /chat/completions
-        if (normalized.endsWith("/v1")) {
-            normalized = normalized.substring(0, normalized.length() - 3);
-        }
-
-        // 再次去掉可能暴露的末尾斜杠
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-
-        return normalized + "/v1";
+        return LLMConfigUtil.normalizeBaseUrl(requireSetting("base_url", "Base URL")) + "/v1";
     }
 
     private double resolveTemperature() {
-        String model = resolveModel();
-        // kimi-k2.7-code 官方要求 temperature 固定为 1.0
-        if (model != null && model.toLowerCase().contains("kimi-k2.7-code")) {
-            return 1.0;
-        }
-        return 0.3;
+        return LLMConfigUtil.resolveTemperature(resolveModel());
     }
 
     private String requireSetting(String key, String displayName) {

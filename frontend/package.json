@@ -11,8 +11,11 @@
   "dependencies": {
     "axios": "^1.6.8",
     "element-plus": "^2.14.2",
+    "pdfjs-dist": "^4.10.38",
     "vue": "^3.5.38",
-    "vue-router": "^4.3.0"
+    "vue-router": "^4.3.0",
+    "vxe-pc-ui": "^4.16.3",
+    "vxe-table": "^4.19.25"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.4",

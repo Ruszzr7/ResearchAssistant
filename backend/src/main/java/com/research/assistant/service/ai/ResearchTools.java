@@ -4,7 +4,10 @@ import com.research.assistant.entity.Paper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.ArxivFetcher;
 import com.research.assistant.service.PdfExtractor;
+import com.research.assistant.service.SemanticScholarFetcher;
 import com.research.assistant.service.metadata.CrossrefFetcher;
+import com.research.assistant.service.rag.RagRetrievalService;
+import com.research.assistant.service.rag.ScoredChunk;
 import dev.langchain4j.agent.tool.Tool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,18 +30,24 @@ public class ResearchTools {
     private static final Logger log = LoggerFactory.getLogger(ResearchTools.class);
 
     private final ArxivFetcher arxivFetcher;
+    private final SemanticScholarFetcher semanticScholarFetcher;
     private final CrossrefFetcher crossrefFetcher;
     private final PdfExtractor pdfExtractor;
     private final PaperMapper paperMapper;
+    private final RagRetrievalService ragRetrievalService;
 
     public ResearchTools(ArxivFetcher arxivFetcher,
+                         SemanticScholarFetcher semanticScholarFetcher,
                          CrossrefFetcher crossrefFetcher,
                          PdfExtractor pdfExtractor,
-                         PaperMapper paperMapper) {
+                         PaperMapper paperMapper,
+                         RagRetrievalService ragRetrievalService) {
         this.arxivFetcher = arxivFetcher;
+        this.semanticScholarFetcher = semanticScholarFetcher;
         this.crossrefFetcher = crossrefFetcher;
         this.pdfExtractor = pdfExtractor;
         this.paperMapper = paperMapper;
+        this.ragRetrievalService = ragRetrievalService;
     }
 
     /**
@@ -58,6 +67,27 @@ public class ResearchTools {
             return arxivFetcher.search(query, limit);
         } catch (Exception e) {
             log.warn("arXiv 工具搜索失败 query={}: {}", query, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * 在 Semantic Scholar 上搜索与查询词相关的论文。
+     *
+     * @param query      英文或中文检索词（建议使用英文术语）
+     * @param maxResults 期望返回的最大论文数，1-50
+     * @return 论文列表，每篇包含 title、authors、summary、published、sourceUrl、source、arxivId、pdfUrl
+     */
+    @Tool("Search Semantic Scholar for papers matching the query. Returns a list of papers with title, authors, summary, published year, sourceUrl, source, arxivId and pdfUrl.")
+    public List<Map<String, Object>> searchSemanticScholar(String query, int maxResults) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        try {
+            int limit = Math.max(1, Math.min(maxResults, 50));
+            return semanticScholarFetcher.search(query, limit);
+        } catch (Exception e) {
+            log.warn("Semantic Scholar 工具搜索失败 query={}: {}", query, e.getMessage());
             return List.of();
         }
     }
@@ -140,6 +170,36 @@ public class ResearchTools {
         } catch (Exception e) {
             log.warn("PDF 文本提取工具失败 pdfPath={}: {}", pdfPath, e.getMessage());
             return "";
+        }
+    }
+
+    /**
+     * 在本地论文知识库中检索与查询相关的文本片段。
+     *
+     * @param query 查询词
+     * @return 相关片段列表，每个片段包含 paperId、chunkType、content、source、score
+     */
+    @Tool("Search the local paper knowledge base for chunks relevant to the query. Returns a list of relevant snippets with paperId, chunkType, content, source and similarity score.")
+    public List<Map<String, Object>> searchKnowledgeBase(String query) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<ScoredChunk> chunks = ragRetrievalService.retrieve(query, 5, 0.65);
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (ScoredChunk c : chunks) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("paperId", c.paperId());
+                item.put("chunkType", c.chunkType());
+                item.put("content", c.content());
+                item.put("source", c.source());
+                item.put("score", c.score());
+                result.add(item);
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("知识库检索工具失败 query={}: {}", query, e.getMessage());
+            return List.of();
         }
     }
 }

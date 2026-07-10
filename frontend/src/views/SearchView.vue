@@ -3,7 +3,12 @@
 
     <!-- ====== Step 1: 用户输入 ====== -->
     <div class="step" :class="{ active: step === 1, done: step > 1 }">
-      <div class="step-header"><span class="step-num">1</span> 描述研究方向</div>
+      <div class="step-header">
+        <span><span class="step-num">1</span> 描述研究方向</span>
+        <el-tooltip content="开启后调用 literature-survey 工作流，支持多源检索与人机确认入库">
+          <el-switch v-model="workflowMode" active-text="工作流模式" size="small" style="margin-left:auto" />
+        </el-tooltip>
+      </div>
       <div v-if="step >= 1" class="step-body">
         <div class="input-row">
           <el-input v-model="userInput" placeholder="用自然语言描述你想研究的方向…例如：我想研究大规模MIMO系统中的资源分配优化问题"
@@ -168,12 +173,15 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '@/api'
 import { useGlobalTask } from '@/composables/useGlobalTask.js'
 import { ElMessage } from 'element-plus'
 
+const router = useRouter()
 const step = ref(1)
 const userInput = ref('')
+const workflowMode = ref(false)
 
 // ===== 三个全局后台任务：切换页面不取消 =====
 const {
@@ -269,6 +277,16 @@ function truncate(text, len) {
 
 // Step 1→2: Agent 提炼
 async function startExtract() {
+  if (workflowMode.value) {
+    try {
+      const res = await api.post('/agent/workflow/literature-survey', { query: userInput.value })
+      ElMessage.success('已启动文献调研工作流')
+      router.push({ path: '/tasks', query: { highlight: res.data.taskId } })
+    } catch (e) {
+      ElMessage.error('启动工作流失败：' + (e.response?.data?.message || e.message))
+    }
+    return
+  }
   await runExtract(async ({ signal, setStage }) => {
     setStage('正在提炼检索要素…')
     const res = await api.post('/search/extract', { query: userInput.value }, { signal })
@@ -361,7 +379,7 @@ onMounted(async () => {
 .search-page {
   padding: 24px 8%;
   min-height: calc(100vh - 61px);
-  background: #fff;
+  background: var(--ra-panel-bg);
   max-width: 960px;
   margin: 0 auto;
 }
@@ -379,14 +397,17 @@ onMounted(async () => {
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 12px;
-  color: #303133;
+  color: var(--ra-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .step-num {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px; height: 24px;
-  background: #409eff; color: #fff;
+  background: var(--ra-link); color: #fff;
   border-radius: 50%;
   font-size: 13px;
   margin-right: 8px;
@@ -407,12 +428,12 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
 }
-.stage-text { font-size: 13px; color: #409eff; }
+.stage-text { font-size: 13px; color: var(--ra-link); }
 .error-text { font-size: 13px; color: #f56c6c; }
 
 /* Agent 确认 */
 .agent-confirm {
-  background: #f5f7fa;
+  background: var(--ra-bg);
   border-radius: 8px;
   padding: 16px;
 }

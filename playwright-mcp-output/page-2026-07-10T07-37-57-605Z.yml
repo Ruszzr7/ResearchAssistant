@@ -1,0 +1,32 @@
+- generic [active] [ref=f14e1]:
+  - generic [ref=f14e4]:
+    - generic [ref=f14e5]:
+      - generic [ref=f14e6] [cursor=pointer]: Research Assistant
+      - menubar [ref=f14e7]:
+        - menuitem "看板" [ref=f14e8] [cursor=pointer]
+        - menuitem "文库管理" [ref=f14e9] [cursor=pointer]
+        - menuitem "文献检索" [ref=f14e10] [cursor=pointer]
+        - menuitem "论文分析" [ref=f14e11] [cursor=pointer]
+        - menuitem "研究空白" [ref=f14e12] [cursor=pointer]
+        - menuitem "任务中心" [ref=f14e13] [cursor=pointer]
+        - menuitem "阅读计划" [ref=f14e14] [cursor=pointer]
+        - menuitem "写作助手" [ref=f14e15] [cursor=pointer]
+      - button "切换暗色" [ref=f14e16] [cursor=pointer]:
+        - img [ref=f14e18]
+      - button "设置" [ref=f14e20] [cursor=pointer]:
+        - img [ref=f14e22]
+      - button "快捷键帮助 (?)" [ref=f14e25] [cursor=pointer]:
+        - img [ref=f14e27]
+    - main [ref=f14e31]:
+      - generic [ref=f14e33]:
+        - generic [ref=f14e34]:
+          - heading "Research Assistant" [level=2] [ref=f14e35]
+          - paragraph [ref=f14e36]: 科研工作台 · 一眼掌握论文、计划与任务
+        - button "进入文库" [ref=f14e37] [cursor=pointer]:
+          - generic [ref=f14e38]: 进入文库
+  - alert [ref=f14e49]:
+    - img [ref=f14e51]
+    - generic [ref=f14e53]:
+      - heading "阅读提醒" [level=2] [ref=f14e54]
+      - paragraph [ref=f14e56]: 1 项已逾期
+      - img [ref=f14e58] [cursor=pointer]

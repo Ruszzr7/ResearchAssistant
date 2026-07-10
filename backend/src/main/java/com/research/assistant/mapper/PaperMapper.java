@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -25,9 +26,10 @@ public interface PaperMapper extends BaseMapper<Paper> {
      */
     @Select("<script>" +
         "SELECT DISTINCT p.id, p.title, p.authors, p.year, p.source, p.doi, " +
-        "p.arxiv_id, p.source_url, p.citation_count, " +
+        "p.arxiv_id, p.semantic_scholar_id, p.source_url, p.citation_count, " +
         "p.`abstract` AS abstract_text, p.keywords, p.pdf_path, " +
-        "p.acquisition_method, p.folder_id, p.reading_status, p.pinned, p.ai_summary, " +
+        "p.acquisition_method, p.folder_id, p.reading_status, p.pinned, " +
+        "p.page_count, p.current_page, p.read_seconds, p.last_read_at, p.ai_summary, " +
         "p.processing_status, p.created_at, p.updated_at " +
         "FROM paper p " +
         "<if test='tagId != null'>" +
@@ -62,9 +64,10 @@ public interface PaperMapper extends BaseMapper<Paper> {
 
     /** 覆盖 BaseMapper.selectById — 重载 Long 版本处理 abstract 列别名 */
     @Select("SELECT p.id, p.title, p.authors, p.year, p.source, p.doi, " +
-        "p.arxiv_id, p.source_url, p.citation_count, " +
+        "p.arxiv_id, p.semantic_scholar_id, p.source_url, p.citation_count, " +
         "p.`abstract` AS abstract_text, p.keywords, p.pdf_path, " +
-        "p.acquisition_method, p.folder_id, p.reading_status, p.pinned, p.ai_summary, " +
+        "p.acquisition_method, p.folder_id, p.reading_status, p.pinned, " +
+        "p.page_count, p.current_page, p.read_seconds, p.last_read_at, p.ai_summary, " +
         "p.processing_status, p.created_at, p.updated_at " +
         "FROM paper p WHERE p.id = #{id}")
     Paper selectById(@Param("id") Long id);
@@ -73,4 +76,16 @@ public interface PaperMapper extends BaseMapper<Paper> {
     @Select("SELECT p.folder_id AS folder_id, COUNT(*) AS cnt FROM paper p " +
         "WHERE p.folder_id IS NOT NULL GROUP BY p.folder_id")
     List<java.util.Map<String, Object>> countByFolder();
+
+    /** 按阅读状态统计论文数 */
+    @Select("SELECT COUNT(*) FROM paper WHERE reading_status = #{status}")
+    long countByReadingStatus(@Param("status") String status);
+
+    /** 统计置顶论文数 */
+    @Select("SELECT COUNT(*) FROM paper WHERE pinned = 1")
+    long countPinned();
+
+    /** 统计指定时间之后创建的论文数 */
+    @Select("SELECT COUNT(*) FROM paper WHERE created_at >= #{start}")
+    long countCreatedSince(@Param("start") LocalDateTime start);
 }

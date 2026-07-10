@@ -1,0 +1,306 @@
+- generic [ref=f8e4]:
+  - generic [ref=f8e5]:
+    - generic [ref=f8e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f8e7]:
+      - menuitem "看板" [ref=f8e8] [cursor=pointer]
+      - menuitem "文库管理" [ref=f8e9] [cursor=pointer]
+      - menuitem "文献检索" [ref=f8e10] [cursor=pointer]
+      - menuitem "论文分析" [ref=f8e11] [cursor=pointer]
+      - menuitem "研究空白" [ref=f8e12] [cursor=pointer]
+      - menuitem "任务中心" [ref=f8e13] [cursor=pointer]
+      - menuitem "阅读计划" [ref=f8e14] [cursor=pointer]
+      - menuitem "写作助手" [ref=f8e15] [cursor=pointer]
+    - button "切换暗色" [ref=f8e16] [cursor=pointer]:
+      - img [ref=f8e18]
+    - button [ref=f8e20] [cursor=pointer]:
+      - img [ref=f8e22]
+  - main [ref=f8e26]:
+    - generic [ref=f8e27]:
+      - generic [ref=f8e28]:
+        - generic [ref=f8e29]:
+          - button [ref=f8e30] [cursor=pointer]:
+            - img [ref=f8e32]
+          - button [ref=f8e35] [cursor=pointer]:
+            - img [ref=f8e37]
+          - button [ref=f8e41] [cursor=pointer]:
+            - img [ref=f8e43]
+          - button [ref=f8e47] [cursor=pointer]:
+            - img [ref=f8e49]
+        - generic [ref=f8e52] [cursor=pointer]:
+          - img [ref=f8e53]
+          - generic [ref=f8e55]: 我的文库
+        - generic [ref=f8e56]:
+          - generic [ref=f8e57] [cursor=pointer]:
+            - img [ref=f8e58]
+            - generic [ref=f8e60]: 未分类
+          - generic [ref=f8e61] [cursor=pointer]:
+            - img [ref=f8e62]
+            - generic [ref=f8e65]: 最近新增
+        - tree [ref=f8e66]:
+          - treeitem "RSMA (3)" [ref=f8e67]:
+            - generic [ref=f8e68] [cursor=pointer]:
+              - img [ref=f8e70]
+              - generic [ref=f8e72]:
+                - generic [ref=f8e73]: RSMA
+                - generic [ref=f8e74]: (3)
+        - generic [ref=f8e75]:
+          - heading "筛选" [level=4] [ref=f8e76]
+          - generic [ref=f8e77]:
+            - generic [ref=f8e78]: 阅读状态
+            - generic [ref=f8e80] [cursor=pointer]:
+              - generic:
+                - combobox [ref=f8e82]
+                - generic [ref=f8e83]: 全部
+              - img [ref=f8e86]
+          - generic [ref=f8e88]:
+            - generic [ref=f8e89]: 标签
+            - generic [ref=f8e91] [cursor=pointer]:
+              - generic:
+                - combobox [ref=f8e93]
+                - generic [ref=f8e94]: 全部
+              - img [ref=f8e97]
+      - generic [ref=f8e101]:
+        - generic [ref=f8e102]:
+          - generic [ref=f8e103]:
+            - button [ref=f8e104] [cursor=pointer]:
+              - img [ref=f8e106]
+            - button [ref=f8e110] [cursor=pointer]:
+              - img [ref=f8e112]
+            - button [ref=f8e115] [cursor=pointer]:
+              - img [ref=f8e117]
+          - textbox "搜索论文…" [ref=f8e122]
+        - generic [ref=f8e127]:
+          - generic [ref=f8e133]:
+            - generic [ref=f8e134]:
+              - table [ref=f8e138]:
+                - rowgroup [ref=f8e149]:
+                  - row "标题   类目 标签 状态 期刊/会议   出版年份   导入年份  " [ref=f8e425]:
+                    - columnheader "标题  " [ref=f8e159]:
+                      - generic [ref=f8e161]:
+                        - generic [ref=f8e162]: 标题
+                        - generic [ref=f8e163]:
+                          - generic "升序：最低到最高" [ref=f8e164] [cursor=pointer]: 
+                          - generic "降序：最高到最低" [ref=f8e165] [cursor=pointer]: 
+                    - columnheader "类目" [ref=f8e167]:
+                      - generic [ref=f8e170]: 类目
+                    - columnheader "标签" [ref=f8e172]:
+                      - generic [ref=f8e175]: 标签
+                    - columnheader "状态" [ref=f8e177]:
+                      - generic [ref=f8e180]: 状态
+                    - columnheader "期刊/会议  " [ref=f8e182]:
+                      - generic [ref=f8e184]:
+                        - generic [ref=f8e185]: 期刊/会议
+                        - generic [ref=f8e186]:
+                          - generic "升序：最低到最高" [ref=f8e187] [cursor=pointer]: 
+                          - generic "降序：最高到最低" [ref=f8e188] [cursor=pointer]: 
+                    - columnheader "出版年份  " [ref=f8e190]:
+                      - generic [ref=f8e192]:
+                        - generic [ref=f8e193]: 出版年份
+                        - generic [ref=f8e194]:
+                          - generic "升序：最低到最高" [ref=f8e195] [cursor=pointer]: 
+                          - generic "降序：最高到最低" [ref=f8e196] [cursor=pointer]: 
+                    - columnheader "导入年份  " [ref=f8e198]:
+                      - generic [ref=f8e200]:
+                        - generic [ref=f8e201]: 导入年份
+                        - generic [ref=f8e202]:
+                          - generic "升序：最低到最高" [ref=f8e203] [cursor=pointer]: 
+                          - generic "降序：最高到最低" [ref=f8e204] [cursor=pointer]: 
+              - table [ref=f8e214]:
+                - rowgroup [ref=f8e225]:
+                  - row "attention 预印本 点击添加标签 未读 arXiv 2017 2026-07" [ref=f8e426]:
+                    - cell "attention" [ref=f8e232]:
+                      - generic "attention" [ref=f8e235]
+                    - cell "预印本" [ref=f8e236]:
+                      - generic [ref=f8e238]: 预印本
+                    - cell "点击添加标签" [ref=f8e239]:
+                      - generic [ref=f8e243] [cursor=pointer]: 点击添加标签
+                    - cell "未读" [ref=f8e244]:
+                      - button "未读" [ref=f8e248] [cursor=pointer]:
+                        - generic [ref=f8e249]: 未读
+                    - cell "arXiv" [ref=f8e250]:
+                      - generic [ref=f8e253]: arXiv
+                    - cell "2017" [ref=f8e254]:
+                      - generic [ref=f8e257]: "2017"
+                    - cell "2026-07" [ref=f8e258]:
+                      - generic [ref=f8e260]: 2026-07
+                  - row "RSMA适用于高移动性场景 -- 点击添加标签 未读 2025 2026-07" [ref=f8e427]:
+                    - cell "RSMA适用于高移动性场景" [ref=f8e278]:
+                      - generic "RSMA适用于高移动性场景" [ref=f8e281]
+                    - cell "--" [ref=f8e282]:
+                      - generic [ref=f8e284]: "--"
+                    - cell "点击添加标签" [ref=f8e285]:
+                      - generic [ref=f8e289] [cursor=pointer]: 点击添加标签
+                    - cell "未读" [ref=f8e290]:
+                      - button "未读" [ref=f8e294] [cursor=pointer]:
+                        - generic [ref=f8e295]: 未读
+                    - cell [ref=f8e296]
+                    - cell "2025" [ref=f8e300]:
+                      - generic [ref=f8e303]: "2025"
+                    - cell "2026-07" [ref=f8e304]:
+                      - generic [ref=f8e306]: 2026-07
+                  - row "WY 进一步优化短块长CSIT的RSMA和速率 -- 点击添加标签 未读 2025 2026-07" [ref=f8e428]:
+                    - cell "WY 进一步优化短块长CSIT的RSMA和速率" [ref=f8e324]:
+                      - generic "WY 进一步优化短块长CSIT的RSMA和速率" [ref=f8e327]
+                    - cell "--" [ref=f8e328]:
+                      - generic [ref=f8e330]: "--"
+                    - cell "点击添加标签" [ref=f8e331]:
+                      - generic [ref=f8e335] [cursor=pointer]: 点击添加标签
+                    - cell "未读" [ref=f8e336]:
+                      - button "未读" [ref=f8e340] [cursor=pointer]:
+                        - generic [ref=f8e341]: 未读
+                    - cell [ref=f8e342]
+                    - cell "2025" [ref=f8e346]:
+                      - generic [ref=f8e349]: "2025"
+                    - cell "2026-07" [ref=f8e350]:
+                      - generic [ref=f8e352]: 2026-07
+                  - row "ZJP 非完美CSIT有限块长和速率闭式 -- 点击添加标签 未读 2025 2026-07" [ref=f8e429]:
+                    - cell "ZJP 非完美CSIT有限块长和速率闭式" [ref=f8e370]:
+                      - generic "ZJP 非完美CSIT有限块长和速率闭式" [ref=f8e373]
+                    - cell "--" [ref=f8e374]:
+                      - generic [ref=f8e376]: "--"
+                    - cell "点击添加标签" [ref=f8e377]:
+                      - generic [ref=f8e381] [cursor=pointer]: 点击添加标签
+                    - cell "未读" [ref=f8e382]:
+                      - button "未读" [ref=f8e386] [cursor=pointer]:
+                        - generic [ref=f8e387]: 未读
+                    - cell [ref=f8e388]
+                    - cell "2025" [ref=f8e392]:
+                      - generic [ref=f8e395]: "2025"
+                    - cell "2026-07" [ref=f8e396]:
+                      - generic [ref=f8e398]: 2026-07
+            - generic:
+              - generic [ref=f8e430]:
+                - table [ref=f8e433]:
+                  - rowgroup [ref=f8e444]:
+                    - row "" [ref=f8e445]:
+                      - columnheader "" [ref=f8e446]:
+                        - generic "全选/取消" [ref=f8e451] [cursor=pointer]:
+                          - generic [ref=f8e452]: 
+                - table [ref=f8e456]:
+                  - rowgroup [ref=f8e467]:
+                    - row "" [ref=f8e468]:
+                      - cell "" [ref=f8e469]:
+                        - generic [ref=f8e473] [cursor=pointer]: 
+                    - row "" [ref=f8e474]:
+                      - cell "" [ref=f8e475]:
+                        - generic [ref=f8e479] [cursor=pointer]: 
+                    - row "" [ref=f8e480]:
+                      - cell "" [ref=f8e481]:
+                        - generic [ref=f8e485] [cursor=pointer]: 
+                    - row "" [ref=f8e486]:
+                      - cell "" [ref=f8e487]:
+                        - generic [ref=f8e491] [cursor=pointer]: 
+              - generic [ref=f8e492]:
+                - table [ref=f8e495]:
+                  - rowgroup [ref=f8e506]:
+                    - row "操作" [ref=f8e507]:
+                      - columnheader "操作" [ref=f8e508]:
+                        - generic [ref=f8e511]: 操作
+                - table [ref=f8e515]:
+                  - rowgroup [ref=f8e526]:
+                    - row "论文分析 信息 ···" [ref=f8e527]:
+                      - cell "论文分析 信息 ···" [ref=f8e528]:
+                        - generic [ref=f8e531]:
+                          - button "论文分析" [ref=f8e532] [cursor=pointer]:
+                            - generic [ref=f8e533]: 论文分析
+                          - button "信息" [ref=f8e534] [cursor=pointer]:
+                            - generic [ref=f8e535]: 信息
+                          - button "···" [ref=f8e537] [cursor=pointer]:
+                            - generic [ref=f8e538]: ···
+                    - row "论文分析 信息 ···" [ref=f8e539]:
+                      - cell "论文分析 信息 ···" [ref=f8e540]:
+                        - generic [ref=f8e543]:
+                          - button "论文分析" [ref=f8e544] [cursor=pointer]:
+                            - generic [ref=f8e545]: 论文分析
+                          - button "信息" [ref=f8e546] [cursor=pointer]:
+                            - generic [ref=f8e547]: 信息
+                          - button "···" [ref=f8e549] [cursor=pointer]:
+                            - generic [ref=f8e550]: ···
+                    - row "论文分析 信息 ···" [ref=f8e551]:
+                      - cell "论文分析 信息 ···" [ref=f8e552]:
+                        - generic [ref=f8e555]:
+                          - button "论文分析" [ref=f8e556] [cursor=pointer]:
+                            - generic [ref=f8e557]: 论文分析
+                          - button "信息" [ref=f8e558] [cursor=pointer]:
+                            - generic [ref=f8e559]: 信息
+                          - button "···" [ref=f8e561] [cursor=pointer]:
+                            - generic [ref=f8e562]: ···
+                    - row "论文分析 信息 ···" [ref=f8e563]:
+                      - cell "论文分析 信息 ···" [ref=f8e564]:
+                        - generic [ref=f8e567]:
+                          - button "论文分析" [ref=f8e568] [cursor=pointer]:
+                            - generic [ref=f8e569]: 论文分析
+                          - button "信息" [ref=f8e570] [cursor=pointer]:
+                            - generic [ref=f8e571]: 信息
+                          - button "···" [ref=f8e573] [cursor=pointer]:
+                            - generic [ref=f8e574]: ···
+          - generic [ref=f8e412]:
+            - button "" [ref=f8e413]:
+              - generic [ref=f8e414]: 
+            - button "1" [ref=f8e416] [cursor=pointer]
+            - button "" [ref=f8e417]:
+              - generic [ref=f8e418]: 
+            - generic [ref=f8e419]:
+              - text: 前往
+              - textbox "页数" [ref=f8e423]: "1"
+              - text: 页
+            - generic [ref=f8e424]: 共 4 条记录
+      - generic [ref=f8e581]:
+        - generic [ref=f8e582]:
+          - heading "attention" [level=2] [ref=f8e584]
+          - button [ref=f8e585] [cursor=pointer]:
+            - img [ref=f8e587]
+        - generic [ref=f8e590]:
+          - button "AI 分析" [disabled] [ref=f8e591]:
+            - generic [ref=f8e592]: AI 分析
+          - generic [ref=f8e594]: 已完成
+        - generic [ref=f8e596]:
+          - generic [ref=f8e597]: 作者
+          - text: Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, Illia Polosukhin
+        - generic [ref=f8e598]:
+          - generic [ref=f8e599]: 年份
+          - text: "2017"
+        - generic [ref=f8e600]:
+          - generic [ref=f8e601]: 来源
+          - text: arXiv
+        - generic [ref=f8e603]: DOI
+        - generic [ref=f8e604]:
+          - generic [ref=f8e605]: 摘要
+          - text: The dominant sequence transduction models are based on complex recurrent or convolutional neural networks in an encoder-decoder configuration. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train. Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles by over 2 BLEU. On the WMT 2014 English-to-French translation task, our model establishes a new single-model state-of-the-art BLEU score of 41.8 after training for 3.5 days on eight GPUs, a small fraction of the training costs of the best models from the literature. We show that the Transformer generalizes well to other tasks by applying it successfully to English constituency parsing both with large and limited training data.
+        - generic [ref=f8e606]:
+          - generic [ref=f8e607]: PDF 提取文本
+          - paragraph [ref=f8e608]: Provided proper attribution is provided, Google hereby grants permission to reproduce the tables and figures in this paper solely for use in journalistic or scholarly works. Attention Is All You Need Ashish Vaswani∗ Noam Shazeer∗ Niki Parmar∗ Jakob Uszkoreit∗ Google Brain Google Brain Google Research Google Research avaswani@google.com noam@google.com nikip@google.com usz@google.com Llion Jones∗ Aidan N. Gomez∗ † Łukasz Kaiser∗ Google Research University of Toronto Google Brain llion@go…
+        - generic [ref=f8e610]: 关键词
+        - generic [ref=f8e611]:
+          - generic [ref=f8e612]: 获取方式
+          - text: 手动上传
+        - generic [ref=f8e613]:
+          - generic [ref=f8e614]: arXiv ID
+          - text: "1706.03762"
+        - generic [ref=f8e615]:
+          - generic [ref=f8e616]: 来源链接
+          - link "https://arxiv.org/pdf/1706.03762" [ref=f8e617] [cursor=pointer]:
+            - /url: https://arxiv.org/pdf/1706.03762
+        - generic [ref=f8e618]:
+          - generic [ref=f8e619]: PDF
+          - link "打开 PDF" [ref=f8e620] [cursor=pointer]:
+            - /url: "#"
+        - generic [ref=f8e621]:
+          - generic [ref=f8e622]: 阅读进度
+          - text: 未检测
+        - generic [ref=f8e623]:
+          - generic [ref=f8e624]: 阅读状态
+          - generic [ref=f8e626] [cursor=pointer]:
+            - generic:
+              - combobox [ref=f8e628]
+              - generic [ref=f8e629]: 未读
+            - img [ref=f8e632]
+          - button "AI 推荐" [ref=f8e634] [cursor=pointer]:
+            - generic [ref=f8e635]: AI 推荐
+        - generic [ref=f8e636]:
+          - generic [ref=f8e637]: 标签
+          - generic [ref=f8e639]:
+            - generic:
+              - combobox [ref=f8e641]
+              - generic [ref=f8e642]: 选择或输入新标签
+            - img [ref=f8e645] [cursor=pointer]

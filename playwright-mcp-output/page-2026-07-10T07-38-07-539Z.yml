@@ -1,0 +1,116 @@
+- generic [ref=f14e4]:
+  - generic [ref=f14e5]:
+    - generic [ref=f14e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f14e7]:
+      - menuitem "看板" [ref=f14e8] [cursor=pointer]
+      - menuitem "文库管理" [ref=f14e9] [cursor=pointer]
+      - menuitem "文献检索" [ref=f14e10] [cursor=pointer]
+      - menuitem "论文分析" [ref=f14e11] [cursor=pointer]
+      - menuitem "研究空白" [ref=f14e12] [cursor=pointer]
+      - menuitem "任务中心" [ref=f14e13] [cursor=pointer]
+      - menuitem "阅读计划" [ref=f14e14] [cursor=pointer]
+      - menuitem "写作助手" [ref=f14e15] [cursor=pointer]
+    - button "切换亮色" [active] [ref=f14e225] [cursor=pointer]:
+      - img [ref=f14e18]
+    - button "设置" [ref=f14e20] [cursor=pointer]:
+      - img [ref=f14e22]
+    - button "快捷键帮助 (?)" [ref=f14e25] [cursor=pointer]:
+      - img [ref=f14e27]
+  - main [ref=f14e31]:
+    - generic [ref=f14e32]:
+      - generic [ref=f14e33]:
+        - generic [ref=f14e34]:
+          - heading "Research Assistant" [level=2] [ref=f14e35]
+          - paragraph [ref=f14e36]: 科研工作台 · 一眼掌握论文、计划与任务
+        - button "进入文库" [ref=f14e37] [cursor=pointer]:
+          - generic [ref=f14e38]: 进入文库
+      - generic [ref=f14e60]:
+        - generic [ref=f14e63]:
+          - generic [ref=f14e64]: 论文总数
+          - generic [ref=f14e66]: "4"
+        - generic [ref=f14e69]:
+          - generic [ref=f14e70]: 未读
+          - generic [ref=f14e72]: "4"
+        - generic [ref=f14e75]:
+          - generic [ref=f14e76]: 正读
+          - generic [ref=f14e78]: "0"
+        - generic [ref=f14e81]:
+          - generic [ref=f14e82]: 已读
+          - generic [ref=f14e84]: "0"
+        - generic [ref=f14e87]:
+          - generic [ref=f14e88]: 置顶
+          - generic [ref=f14e90]: "0"
+        - generic [ref=f14e93]:
+          - generic [ref=f14e94]: 本月新增
+          - generic [ref=f14e96]: "4"
+      - generic [ref=f14e97]:
+        - generic [ref=f14e99]:
+          - generic [ref=f14e101]:
+            - generic [ref=f14e102]: 阅读计划
+            - button "查看" [ref=f14e103] [cursor=pointer]:
+              - generic [ref=f14e104]: 查看
+          - generic [ref=f14e105]:
+            - generic [ref=f14e106]:
+              - generic [ref=f14e107]:
+                - generic [ref=f14e108]: "1"
+                - generic [ref=f14e109]: 已逾期
+              - generic [ref=f14e110]:
+                - generic [ref=f14e111]: "0"
+                - generic [ref=f14e112]: 3 天内到期
+              - generic [ref=f14e113]:
+                - generic [ref=f14e114]: "1"
+                - generic [ref=f14e115]: 本周待读
+            - generic [ref=f14e116]:
+              - generic [ref=f14e117]:
+                - text: 阅读进度
+                - generic [ref=f14e118]: 0%
+              - progressbar [ref=f14e119]
+        - generic [ref=f14e123]:
+          - generic [ref=f14e125]:
+            - generic [ref=f14e126]: 文件夹堆积 Top 2
+            - button "查看" [ref=f14e127] [cursor=pointer]:
+              - generic [ref=f14e128]: 查看
+          - generic [ref=f14e130]:
+            - generic [ref=f14e131]:
+              - generic [ref=f14e132]:
+                - generic "RSMA" [ref=f14e133]
+                - generic [ref=f14e134]: "3"
+              - progressbar [ref=f14e135]
+            - generic [ref=f14e139]:
+              - generic [ref=f14e140]:
+                - generic "AoI" [ref=f14e141]
+                - generic [ref=f14e142]: "0"
+              - progressbar [ref=f14e143]
+        - generic [ref=f14e147]:
+          - generic [ref=f14e149]:
+            - generic [ref=f14e150]: 任务中心
+            - button "查看" [ref=f14e151] [cursor=pointer]:
+              - generic [ref=f14e152]: 查看
+          - generic [ref=f14e153]:
+            - generic [ref=f14e154]:
+              - generic [ref=f14e155]: 待处理 0
+              - generic [ref=f14e156]: 进行中 0
+              - generic [ref=f14e157]: 已完成 2
+              - generic [ref=f14e158]: 失败 0
+              - generic [ref=f14e159]: 取消 0
+            - generic [ref=f14e160]:
+              - generic [ref=f14e161]: 最近任务
+              - generic [ref=f14e162]:
+                - generic [ref=f14e164]: 已完成
+                - generic [ref=f14e165]: 未命名任务
+                - generic [ref=f14e166]: 2026-07-07
+              - generic [ref=f14e167]:
+                - generic [ref=f14e169]: 已完成
+                - generic [ref=f14e170]: 未命名任务
+                - generic [ref=f14e171]: 2026-07-07
+      - generic [ref=f14e172]:
+        - generic [ref=f14e174]:
+          - generic [ref=f14e177]: 最近笔记
+          - generic [ref=f14e179]:
+            - img [ref=f14e181]
+            - paragraph [ref=f14e198]: 暂无笔记
+        - generic [ref=f14e200]:
+          - generic [ref=f14e203]: 最近批注
+          - generic [ref=f14e205]:
+            - img [ref=f14e207]
+            - paragraph [ref=f14e224]: 暂无批注

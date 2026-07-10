@@ -62,6 +62,19 @@
             <span class="gap-label">外部验证</span>
             <p>{{ gap.externalResult }}</p>
           </div>
+          <div class="gap-section" v-if="gap.evidence?.length">
+            <span class="gap-label">证据</span>
+            <div class="evidence-list">
+              <div v-for="(ev, i) in gap.evidence" :key="i" class="evidence-item">
+                <div class="evidence-header">
+                  <a :href="ev.url" target="_blank" rel="noopener" class="evidence-title">{{ ev.title }}</a>
+                  <el-tag size="small" type="info">{{ ev.source }}</el-tag>
+                  <span v-if="ev.year" class="evidence-year">{{ ev.year }}</span>
+                </div>
+                <p class="evidence-snippet">{{ ev.snippet }}</p>
+              </div>
+            </div>
+          </div>
           <div class="gap-section">
             <span class="gap-label">建议</span>
             <p>{{ gap.suggestion }}</p>
@@ -102,6 +115,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import api from '@/api'
 import { useGlobalTask } from '@/composables/useGlobalTask.js'
+import { waitForTask } from '@/utils/task.js'
 import { ElMessage } from 'element-plus'
 
 const papers = ref([])
@@ -173,23 +187,22 @@ onMounted(async () => {
   } catch (e) { /* 静默 */ }
 })
 
-// ==== Gap 分析：先库内分析，再外部验证 ====
+// ==== Gap 分析：提交异步任务并轮询 ====
 async function startGapAnalysis() {
   await runGap(async ({ signal, setStage }) => {
     gapResults.value = []
     chatHistory.value = []
 
-    // Step 1: 库内 Gap 分析
+    setStage('正在提交空白分析任务…')
+    const submitRes = await api.post('/agent/gap', { paperIds: selectedIds.value }, { signal })
+    const taskId = submitRes.data.taskId
+
     setStage('正在分析研究空白…')
-    const internalRes = await api.post('/agent/gap/internal', { paperIds: selectedIds.value }, { signal })
-    const gapsMarkdown = internalRes.data.gaps || ''
+    const result = await waitForTask(api.get.bind(api), taskId, signal, setStage)
+    const gapsMarkdown = result.gaps || ''
+    const verified = result.verified || []
 
-    // Step 2: 外部验证
-    setStage('正在进行外部验证…')
-    const verifyRes = await api.post('/agent/gap/verify', { gaps: gapsMarkdown }, { signal })
-    const verified = verifyRes.data || []
-
-    // Step 3: 合并渲染
+    // 合并渲染
     gapResults.value = parseGapsFromMarkdown(gapsMarkdown, verified)
   })
 }
@@ -197,7 +210,7 @@ async function startGapAnalysis() {
 /**
  * 从 markdown 报告中解析结构化 Gap，并与外部验证结果合并。
  * @param {string} md - LLM 生成的 Gap 报告（markdown）
- * @param {Array} verified - 外部验证结果 [{gapTitle, level, label, sampleTitle, resultCount}]
+ * @param {Array} verified - 外部验证结果 [{gapTitle, level, reason, evidence, label, resultCount}]
  */
 function parseGapsFromMarkdown(md, verified) {
   const gaps = []
@@ -214,14 +227,22 @@ function parseGapsFromMarkdown(md, verified) {
     const key = gapTitle.slice(0, 10)
     const v = verifiedByTitle.get(key) || verified?.find(v => v.gapTitle?.includes(key))
 
+    const level = v ? v.level : (sec.includes('🔴') ? 'red' : sec.includes('🟡') ? 'yellow' : 'green')
+    const category = v
+      ? (level === 'red' ? '潜在 Gap' : level === 'yellow' ? '待验证 Gap' : '已有研究')
+      : '方法 Gap'
+    const reasonText = v?.reason || v?.label || '未进行外部验证'
+    const countText = v?.resultCount !== undefined ? `检索到 ${v.resultCount} 项证据` : '未计数'
+
     const gap = {
       title: gapTitle,
-      category: v ? (v.level === 'red' ? '潜在 Gap' : v.level === 'yellow' ? '待验证 Gap' : '已有研究') : '方法 Gap',
+      category,
       description: sec.slice(title ? title[0].length : 0).trim().slice(0, 300),
       basis: '库内论文覆盖空白',
-      level: v ? v.level : (sec.includes('🔴') ? 'red' : sec.includes('🟡') ? 'yellow' : 'green'),
+      level,
       suggestion: '建议深入调研后评估可行性',
-      externalResult: v ? `${v.label}（检索到 ${v.resultCount} 篇相关论文）${v.sampleTitle ? '，例如：' + v.sampleTitle : ''}` : null
+      externalResult: v ? `${reasonText}（${countText}）` : null,
+      evidence: v?.evidence || []
     }
     gaps.push(gap)
   }
@@ -231,7 +252,8 @@ function parseGapsFromMarkdown(md, verified) {
     description: md.slice(0, 500),
     basis: '详见原始报告',
     level: 'yellow',
-    suggestion: '请查看完整报告'
+    suggestion: '请查看完整报告',
+    evidence: []
   }]
 }
 
@@ -289,20 +311,20 @@ function downloadGapMd() {
 /* 左栏 */
 .left-panel {
   width: 240px; flex-shrink: 0; padding: 10px 14px;
-  border-right: 1px solid #e4e7ed; overflow-y: auto;
-  background: #fafbfc;
+  border-right: 1px solid var(--ra-border); overflow-y: auto;
+  background: var(--ra-bg);
 }
 .left-header {
   display: flex; align-items: center;
   margin-bottom: 8px;
 }
-.left-header h4 { font-size: 15px; font-weight: 600; color: #303133; margin: 0; }
+.left-header h4 { font-size: 15px; font-weight: 600; color: var(--ra-text); margin: 0; }
 .left-actions { margin-left: auto; display: flex; gap: 4px; }
 .left-actions :deep(.el-button + .el-button) { margin-left: 0 !important; }
 .paper-checklist { max-height: calc(100vh - 180px); overflow-y: auto; }
-.paper-check-item { padding: 4px 0; border-bottom: 1px solid #f5f6f8; }
-.check-title { font-size: 12px; color: #303133; }
-.check-meta { font-size: 11px; color: #c0c4cc; margin-left: 6px; }
+.paper-check-item { padding: 4px 0; border-bottom: 1px solid var(--ra-border-light); }
+.check-title { font-size: 12px; color: var(--ra-text); }
+.check-meta { font-size: 11px; color: var(--ra-text-tertiary); margin-left: 6px; }
 
 /* 右栏 */
 .right-panel {
@@ -310,14 +332,14 @@ function downloadGapMd() {
 }
 .gap-toolbar {
   display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
-  font-size: 14px; color: #606266;
+  font-size: 14px; color: var(--ra-text-secondary);
 }
-.stage-text { font-size: 13px; color: #409eff; }
+.stage-text { font-size: 13px; color: var(--ra-link); }
 .error-text { font-size: 13px; color: #f56c6c; }
 
 /* Gap 卡片 */
 .gap-card {
-  border: 1px solid #e4e7ed; border-radius: 8px; padding: 16px; margin-bottom: 16px;
+  border: 1px solid var(--ra-border); border-radius: 8px; padding: 16px; margin-bottom: 16px;
 }
 .gap-card.level-red { border-left: 4px solid #f56c6c; }
 .gap-card.level-yellow { border-left: 4px solid #e6a23c; }
@@ -330,36 +352,57 @@ function downloadGapMd() {
 .gap-level { font-size: 13px; font-weight: 600; }
 
 .gap-card h4 {
-  font-size: 15px; margin: 0 0 12px; color: #303133;
+  font-size: 15px; margin: 0 0 12px; color: var(--ra-text);
 }
 
 .gap-section {
   margin-bottom: 8px;
 }
 .gap-label {
-  font-size: 11px; color: #909399; display: block; margin-bottom: 2px;
+  font-size: 11px; color: var(--ra-text-tertiary); display: block; margin-bottom: 2px;
 }
 .gap-section p {
-  font-size: 13px; color: #606266; margin: 0; line-height: 1.6;
+  font-size: 13px; color: var(--ra-text-secondary); margin: 0; line-height: 1.6;
 }
 
 .gap-actions {
   display: flex; gap: 8px; margin-top: 16px;
 }
 
+.evidence-list {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.evidence-item {
+  border: 1px solid var(--ra-border-light); border-radius: 6px; padding: 10px 12px;
+  background: var(--ra-bg);
+}
+.evidence-header {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px;
+}
+.evidence-title {
+  font-size: 13px; color: var(--ra-link); text-decoration: none; font-weight: 500;
+}
+.evidence-title:hover { text-decoration: underline; }
+.evidence-year {
+  font-size: 12px; color: var(--ra-text-tertiary);
+}
+.evidence-snippet {
+  font-size: 12px; color: var(--ra-text-secondary); margin: 0; line-height: 1.5;
+}
+
 .empty-hint {
-  text-align: center; color: #c0c4cc; padding: 80px 0; font-size: 14px;
+  text-align: center; color: var(--ra-text-tertiary); padding: 80px 0; font-size: 14px;
 }
 
 /* 追问 */
 .chat-area {
-  margin-top: 32px; border-top: 1px solid #e4e7ed; padding-top: 16px;
+  margin-top: 32px; border-top: 1px solid var(--ra-border); padding-top: 16px;
 }
 .chat-header { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
 .chat-messages { max-height: 200px; overflow-y: auto; margin-bottom: 8px; }
 .chat-msg { margin-bottom: 8px; }
-.chat-msg.user .msg-content { background: #ecf5ff; color: #303133; }
-.chat-msg.assistant .msg-content { background: #f5f7fa; color: #606266; }
+.chat-msg.user .msg-content { background: var(--ra-active-bg); color: var(--ra-text); }
+.chat-msg.assistant .msg-content { background: var(--ra-bg); color: var(--ra-text-secondary); }
 .msg-content {
   display: inline-block; max-width: 80%; padding: 6px 12px; border-radius: 8px;
   font-size: 13px; line-height: 1.5; white-space: pre-wrap;

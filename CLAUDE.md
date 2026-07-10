@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-本地运行的 AI 驱动工科科研 Agent，帮助研究生进行文献检索、论文分析、Gap 识别、创新点推演、辅助建模与代码编写。前端 Vue 3 + Element Plus，后端 Java Spring Boot + MySQL + Redis，全部本地运行。
+本地运行的 AI 驱动工科科研 Agent，帮助研究生进行文献检索、论文分析、Gap 识别、创新点推演、辅助建模与代码编写。前端 Vue 3 + Element Plus，后端 Java Spring Boot + MySQL + Redis，使用Langchain4j框架。
 
 ## 目标用户
 
@@ -25,7 +25,7 @@
 | 缓存/队列 | Redis |
 | LLM API | DeepSeek（用户自配） |
 | PDF 解析 | Apache PDFBox（V2 引入） |
-| 向量检索 | 不做 |
+| 向量检索 | MVP：MySQL 持久化 + 内存向量存储（LangChain4j Embedding），后续可替换 pgvector / Qdrant |
 
 ## 项目结构
 

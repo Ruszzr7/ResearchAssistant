@@ -1,0 +1,234 @@
+- generic [active] [ref=f16e1]:
+  - generic [ref=f16e4]:
+    - generic [ref=f16e5]:
+      - generic [ref=f16e6] [cursor=pointer]: Research Assistant
+      - menubar [ref=f16e7]:
+        - menuitem "看板" [ref=f16e8] [cursor=pointer]
+        - menuitem "文库管理" [ref=f16e9] [cursor=pointer]
+        - menuitem "文献检索" [ref=f16e10] [cursor=pointer]
+        - menuitem "论文分析" [ref=f16e11] [cursor=pointer]
+        - menuitem "研究空白" [ref=f16e12] [cursor=pointer]
+        - menuitem "任务中心" [ref=f16e13] [cursor=pointer]
+        - menuitem "阅读计划" [ref=f16e14] [cursor=pointer]
+        - menuitem "写作助手" [ref=f16e15] [cursor=pointer]
+      - button "切换亮色" [ref=f16e16] [cursor=pointer]:
+        - img [ref=f16e18]
+      - button "设置" [ref=f16e20] [cursor=pointer]:
+        - img [ref=f16e22]
+      - button "快捷键帮助 (?)" [ref=f16e25] [cursor=pointer]:
+        - img [ref=f16e27]
+    - main [ref=f16e42]:
+      - generic [ref=f16e43]:
+        - generic [ref=f16e44]:
+          - generic [ref=f16e45]:
+            - button [ref=f16e46] [cursor=pointer]:
+              - img [ref=f16e48]
+            - button [ref=f16e51] [cursor=pointer]:
+              - img [ref=f16e53]
+            - button [ref=f16e57] [cursor=pointer]:
+              - img [ref=f16e59]
+            - button [ref=f16e63] [cursor=pointer]:
+              - img [ref=f16e65]
+          - generic [ref=f16e68] [cursor=pointer]:
+            - img [ref=f16e69]
+            - generic [ref=f16e71]: 我的文库
+          - generic [ref=f16e72]:
+            - generic [ref=f16e73] [cursor=pointer]:
+              - img [ref=f16e74]
+              - generic [ref=f16e76]: 未分类
+            - generic [ref=f16e77] [cursor=pointer]:
+              - img [ref=f16e78]
+              - generic [ref=f16e81]: 最近新增
+          - tree [ref=f16e82]:
+            - treeitem "RSMA (3)" [ref=f16e83]:
+              - generic [ref=f16e84] [cursor=pointer]:
+                - img [ref=f16e86]
+                - generic [ref=f16e88]:
+                  - generic [ref=f16e89]: RSMA
+                  - generic [ref=f16e90]: (3)
+          - generic [ref=f16e91]:
+            - heading "筛选" [level=4] [ref=f16e92]
+            - generic [ref=f16e93]:
+              - generic [ref=f16e94]: 阅读状态
+              - generic [ref=f16e96] [cursor=pointer]:
+                - generic:
+                  - combobox [ref=f16e98]
+                  - generic [ref=f16e99]: 全部
+                - img [ref=f16e102]
+            - generic [ref=f16e104]:
+              - generic [ref=f16e105]: 标签
+              - generic [ref=f16e107] [cursor=pointer]:
+                - generic:
+                  - combobox [ref=f16e109]
+                  - generic [ref=f16e110]: 全部
+                - img [ref=f16e113]
+        - generic [ref=f16e117]:
+          - generic [ref=f16e118]:
+            - generic [ref=f16e119]:
+              - button [ref=f16e120] [cursor=pointer]:
+                - img [ref=f16e122]
+              - button [ref=f16e126] [cursor=pointer]:
+                - img [ref=f16e128]
+              - button [ref=f16e131] [cursor=pointer]:
+                - img [ref=f16e133]
+            - textbox "搜索论文…" [ref=f16e138]
+          - generic [ref=f16e143]:
+            - generic [ref=f16e150]:
+              - table [ref=f16e154]:
+                - rowgroup [ref=f16e165]:
+                  - row " 标题   类目 标签 状态 期刊/会议   出版年份   导入年份   操作" [ref=f16e166]:
+                    - columnheader "" [ref=f16e167]:
+                      - generic "全选/取消" [ref=f16e172] [cursor=pointer]:
+                        - generic [ref=f16e173]: 
+                    - columnheader "标题  " [ref=f16e175]:
+                      - generic [ref=f16e177]:
+                        - generic [ref=f16e178]: 标题
+                        - generic [ref=f16e179]:
+                          - generic "升序：最低到最高" [ref=f16e180] [cursor=pointer]: 
+                          - generic "降序：最高到最低" [ref=f16e181] [cursor=pointer]: 
+                    - columnheader "类目" [ref=f16e183]:
+                      - generic [ref=f16e186]: 类目
+                    - columnheader "标签" [ref=f16e188]:
+                      - generic [ref=f16e191]: 标签
+                    - columnheader "状态" [ref=f16e193]:
+                      - generic [ref=f16e196]: 状态
+                    - columnheader "期刊/会议  " [ref=f16e198]:
+                      - generic [ref=f16e200]:
+                        - generic [ref=f16e201]: 期刊/会议
+                        - generic [ref=f16e202]:
+                          - generic "升序：最低到最高" [ref=f16e203] [cursor=pointer]: 
+                          - generic "降序：最高到最低" [ref=f16e204] [cursor=pointer]: 
+                    - columnheader "出版年份  " [ref=f16e206]:
+                      - generic [ref=f16e208]:
+                        - generic [ref=f16e209]: 出版年份
+                        - generic [ref=f16e210]:
+                          - generic "升序：最低到最高" [ref=f16e211] [cursor=pointer]: 
+                          - generic "降序：最高到最低" [ref=f16e212] [cursor=pointer]: 
+                    - columnheader "导入年份  " [ref=f16e214]:
+                      - generic [ref=f16e216]:
+                        - generic [ref=f16e217]: 导入年份
+                        - generic [ref=f16e218]:
+                          - generic "升序：最低到最高" [ref=f16e219] [cursor=pointer]: 
+                          - generic "降序：最高到最低" [ref=f16e220] [cursor=pointer]: 
+                    - columnheader "操作" [ref=f16e222]:
+                      - generic [ref=f16e225]: 操作
+              - table [ref=f16e230]:
+                - rowgroup [ref=f16e241]:
+                  - row " attention 预印本 点击添加标签 未读 arXiv 2017 2026-07 论文分析 信息 ···" [ref=f16e242]:
+                    - cell "" [ref=f16e243]:
+                      - generic [ref=f16e247] [cursor=pointer]: 
+                    - cell "attention" [ref=f16e248]:
+                      - generic "attention" [ref=f16e251]
+                    - cell "预印本" [ref=f16e252]:
+                      - generic [ref=f16e254]: 预印本
+                    - cell "点击添加标签" [ref=f16e255]:
+                      - generic [ref=f16e259] [cursor=pointer]: 点击添加标签
+                    - cell "未读" [ref=f16e260]:
+                      - button "未读" [ref=f16e264] [cursor=pointer]:
+                        - generic [ref=f16e265]: 未读
+                    - cell "arXiv" [ref=f16e266]:
+                      - generic [ref=f16e269]: arXiv
+                    - cell "2017" [ref=f16e270]:
+                      - generic [ref=f16e273]: "2017"
+                    - cell "2026-07" [ref=f16e274]:
+                      - generic [ref=f16e276]: 2026-07
+                    - cell "论文分析 信息 ···" [ref=f16e277]:
+                      - generic [ref=f16e280]:
+                        - button "论文分析" [ref=f16e281] [cursor=pointer]:
+                          - generic [ref=f16e282]: 论文分析
+                        - button "信息" [ref=f16e283] [cursor=pointer]:
+                          - generic [ref=f16e284]: 信息
+                        - button "···" [ref=f16e286] [cursor=pointer]:
+                          - generic [ref=f16e287]: ···
+                  - row " RSMA适用于高移动性场景 -- 点击添加标签 未读 2025 2026-07 论文分析 信息 ···" [ref=f16e288]:
+                    - cell "" [ref=f16e289]:
+                      - generic [ref=f16e293] [cursor=pointer]: 
+                    - cell "RSMA适用于高移动性场景" [ref=f16e294]:
+                      - generic "RSMA适用于高移动性场景" [ref=f16e297]
+                    - cell "--" [ref=f16e298]:
+                      - generic [ref=f16e300]: "--"
+                    - cell "点击添加标签" [ref=f16e301]:
+                      - generic [ref=f16e305] [cursor=pointer]: 点击添加标签
+                    - cell "未读" [ref=f16e306]:
+                      - button "未读" [ref=f16e310] [cursor=pointer]:
+                        - generic [ref=f16e311]: 未读
+                    - cell [ref=f16e312]
+                    - cell "2025" [ref=f16e316]:
+                      - generic [ref=f16e319]: "2025"
+                    - cell "2026-07" [ref=f16e320]:
+                      - generic [ref=f16e322]: 2026-07
+                    - cell "论文分析 信息 ···" [ref=f16e323]:
+                      - generic [ref=f16e326]:
+                        - button "论文分析" [ref=f16e327] [cursor=pointer]:
+                          - generic [ref=f16e328]: 论文分析
+                        - button "信息" [ref=f16e329] [cursor=pointer]:
+                          - generic [ref=f16e330]: 信息
+                        - button "···" [ref=f16e332] [cursor=pointer]:
+                          - generic [ref=f16e333]: ···
+                  - row " WY 进一步优化短块长CSIT的RSMA和速率 -- 点击添加标签 未读 2025 2026-07 论文分析 信息 ···" [ref=f16e334]:
+                    - cell "" [ref=f16e335]:
+                      - generic [ref=f16e339] [cursor=pointer]: 
+                    - cell "WY 进一步优化短块长CSIT的RSMA和速率" [ref=f16e340]:
+                      - generic "WY 进一步优化短块长CSIT的RSMA和速率" [ref=f16e343]
+                    - cell "--" [ref=f16e344]:
+                      - generic [ref=f16e346]: "--"
+                    - cell "点击添加标签" [ref=f16e347]:
+                      - generic [ref=f16e351] [cursor=pointer]: 点击添加标签
+                    - cell "未读" [ref=f16e352]:
+                      - button "未读" [ref=f16e356] [cursor=pointer]:
+                        - generic [ref=f16e357]: 未读
+                    - cell [ref=f16e358]
+                    - cell "2025" [ref=f16e362]:
+                      - generic [ref=f16e365]: "2025"
+                    - cell "2026-07" [ref=f16e366]:
+                      - generic [ref=f16e368]: 2026-07
+                    - cell "论文分析 信息 ···" [ref=f16e369]:
+                      - generic [ref=f16e372]:
+                        - button "论文分析" [ref=f16e373] [cursor=pointer]:
+                          - generic [ref=f16e374]: 论文分析
+                        - button "信息" [ref=f16e375] [cursor=pointer]:
+                          - generic [ref=f16e376]: 信息
+                        - button "···" [ref=f16e378] [cursor=pointer]:
+                          - generic [ref=f16e379]: ···
+                  - row " ZJP 非完美CSIT有限块长和速率闭式 -- 点击添加标签 未读 2025 2026-07 论文分析 信息 ···" [ref=f16e380]:
+                    - cell "" [ref=f16e381]:
+                      - generic [ref=f16e385] [cursor=pointer]: 
+                    - cell "ZJP 非完美CSIT有限块长和速率闭式" [ref=f16e386]:
+                      - generic "ZJP 非完美CSIT有限块长和速率闭式" [ref=f16e389]
+                    - cell "--" [ref=f16e390]:
+                      - generic [ref=f16e392]: "--"
+                    - cell "点击添加标签" [ref=f16e393]:
+                      - generic [ref=f16e397] [cursor=pointer]: 点击添加标签
+                    - cell "未读" [ref=f16e398]:
+                      - button "未读" [ref=f16e402] [cursor=pointer]:
+                        - generic [ref=f16e403]: 未读
+                    - cell [ref=f16e404]
+                    - cell "2025" [ref=f16e408]:
+                      - generic [ref=f16e411]: "2025"
+                    - cell "2026-07" [ref=f16e412]:
+                      - generic [ref=f16e414]: 2026-07
+                    - cell "论文分析 信息 ···" [ref=f16e415]:
+                      - generic [ref=f16e418]:
+                        - button "论文分析" [ref=f16e419] [cursor=pointer]:
+                          - generic [ref=f16e420]: 论文分析
+                        - button "信息" [ref=f16e421] [cursor=pointer]:
+                          - generic [ref=f16e422]: 信息
+                        - button "···" [ref=f16e424] [cursor=pointer]:
+                          - generic [ref=f16e425]: ···
+            - generic [ref=f16e428]:
+              - button "" [ref=f16e429]:
+                - generic [ref=f16e430]: 
+              - button "1" [ref=f16e432] [cursor=pointer]
+              - button "" [ref=f16e433]:
+                - generic [ref=f16e434]: 
+              - generic [ref=f16e435]:
+                - text: 前往
+                - textbox "页数" [ref=f16e439]: "1"
+                - text: 页
+              - generic [ref=f16e440]: 共 4 条记录
+  - alert [ref=f16e31]:
+    - img [ref=f16e33]
+    - generic [ref=f16e35]:
+      - heading "阅读提醒" [level=2] [ref=f16e36]
+      - paragraph [ref=f16e38]: 1 项已逾期
+      - img [ref=f16e40] [cursor=pointer]

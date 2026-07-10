@@ -1,5 +1,25 @@
 #!/bin/sh
 # Maven wrapper for Research Assistant
-JAVA_HOME="D:/JAVA/JDK_25"
-MAVEN_HOME="/c/temp/apache-maven-3.9.9"
-exec "$MAVEN_HOME/bin/mvn" "$@"
+# Usage: ./mvnw [maven-args...]
+
+if [ -z "$JAVA_HOME" ]; then
+  echo "Error: JAVA_HOME is not set. Please set JAVA_HOME to your JDK installation." >&2
+  exit 1
+fi
+
+JAVA_EXE="$JAVA_HOME/bin/java"
+if [ ! -x "$JAVA_EXE" ]; then
+  echo "Error: JAVA_HOME is set to '$JAVA_HOME' but '$JAVA_EXE' is not executable." >&2
+  exit 1
+fi
+
+# Resolve script directory so this works regardless of cwd
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WRAPPER_JAR="$SCRIPT_DIR/.mvn/wrapper/maven-wrapper.jar"
+
+if [ ! -f "$WRAPPER_JAR" ]; then
+  echo "Error: wrapper jar not found at $WRAPPER_JAR" >&2
+  exit 1
+fi
+
+exec "$JAVA_EXE" -cp "$WRAPPER_JAR" -Dmaven.multiModuleProjectDirectory="$SCRIPT_DIR" org.apache.maven.wrapper.MavenWrapperMain "$@"

@@ -6,7 +6,7 @@ import java.time.LocalDateTime;
 /**
  * 论文结构化分析结果 —— Agent 深度阅读的产出。
  * <p>
- * 与 Paper 一对一关联，存储章节结构、核心贡献、方法分类、发现/局限等。
+ * 与 Paper 一对一关联，存储章节结构、核心贡献、方法分类、发现/局限、可复现要素、实验设置、Benchmark 结果等。
  *
  * @author ResearchAssistant
  */
@@ -58,6 +58,34 @@ public class PaperAnalysis {
     @TableField("figures_summary_json")
     private String figuresSummaryJson;
 
+    /** 可复现要素 JSON: 公式、伪代码、源码/数据集链接、评测指标等 */
+    @TableField("reproducible_artifacts_json")
+    private String reproducibleArtifactsJson;
+
+    /** 实验设置 JSON: 任务定义、数据集、基线、评测指标、实现细节 */
+    @TableField("experiment_setup_json")
+    private String experimentSetupJson;
+
+    /** Benchmark 结果 JSON */
+    @TableField("benchmark_results_json")
+    private String benchmarkResultsJson;
+
+    /** 与用户研究主题的相关度评分（1-10），无主题时为 null */
+    @TableField("relevance_score")
+    private Integer relevanceScore;
+
+    /** 相关度评分理由 */
+    @TableField("relevance_reason")
+    private String relevanceReason;
+
+    /** 公式识别结果 JSON */
+    @TableField("formulas_json")
+    private String formulasJson;
+
+    /** 图表提取结果 JSON */
+    @TableField("figures_json")
+    private String figuresJson;
+
     /** 原始提取文本（供后续引用，不展示给用户） */
     @TableField("raw_text")
     private String rawText;
@@ -97,6 +125,20 @@ public class PaperAnalysis {
     public void setTablesSummaryJson(String tablesSummaryJson) { this.tablesSummaryJson = tablesSummaryJson; }
     public String getFiguresSummaryJson() { return figuresSummaryJson; }
     public void setFiguresSummaryJson(String figuresSummaryJson) { this.figuresSummaryJson = figuresSummaryJson; }
+    public String getReproducibleArtifactsJson() { return reproducibleArtifactsJson; }
+    public void setReproducibleArtifactsJson(String reproducibleArtifactsJson) { this.reproducibleArtifactsJson = reproducibleArtifactsJson; }
+    public String getExperimentSetupJson() { return experimentSetupJson; }
+    public void setExperimentSetupJson(String experimentSetupJson) { this.experimentSetupJson = experimentSetupJson; }
+    public String getBenchmarkResultsJson() { return benchmarkResultsJson; }
+    public void setBenchmarkResultsJson(String benchmarkResultsJson) { this.benchmarkResultsJson = benchmarkResultsJson; }
+    public Integer getRelevanceScore() { return relevanceScore; }
+    public void setRelevanceScore(Integer relevanceScore) { this.relevanceScore = relevanceScore; }
+    public String getRelevanceReason() { return relevanceReason; }
+    public void setRelevanceReason(String relevanceReason) { this.relevanceReason = relevanceReason; }
+    public String getFormulasJson() { return formulasJson; }
+    public void setFormulasJson(String formulasJson) { this.formulasJson = formulasJson; }
+    public String getFiguresJson() { return figuresJson; }
+    public void setFiguresJson(String figuresJson) { this.figuresJson = figuresJson; }
     public String getRawText() { return rawText; }
     public void setRawText(String rawText) { this.rawText = rawText; }
     public Integer getTokenUsed() { return tokenUsed; }

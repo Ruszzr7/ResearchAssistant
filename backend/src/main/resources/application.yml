@@ -11,9 +11,9 @@ spring:
 
   # MySQL
   datasource:
-    url: jdbc:mysql://localhost:3306/research_assistant?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8
-    username: root
-    password:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/research_assistant?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   servlet:
@@ -30,4 +30,7 @@ mybatis-plus:
 # Application
 app:
   storage:
-    pdf-dir: ./data/papers
+    pdf-dir: ${APP_STORAGE_PDF_DIR:./data/papers}
+  encryption:
+    # 敏感设置（如 api_key）加密主密钥；优先读取环境变量 RA_MASTER_KEY
+    master-key: ${RA_MASTER_KEY:}

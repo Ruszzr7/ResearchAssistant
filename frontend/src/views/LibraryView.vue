@@ -122,6 +122,20 @@
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10v2.5A1.5 1.5 0 003.5 14h9a1.5 1.5 0 001.5-1.5V10M8 2v9M5 8l3 3 3-3"/></svg>
             </el-button>
           </el-tooltip>
+          <el-dropdown trigger="click" @command="handleExport">
+            <el-button size="small" text style="padding:2px 4px;min-width:auto">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h12M8 2v12"/></svg>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="bibtex-single" :disabled="!currentPaper">导出当前 BibTeX</el-dropdown-item>
+                <el-dropdown-item command="bibtex-batch" :disabled="!selectedPaperIds.length">导出选中 BibTeX</el-dropdown-item>
+                <el-dropdown-item command="obsidian" :disabled="!selectedPaperIds.length">同步到 Obsidian</el-dropdown-item>
+                <el-dropdown-item command="zotero" :disabled="!selectedPaperIds.length">同步到 Zotero</el-dropdown-item>
+                <el-dropdown-item divided command="add-to-plan" :disabled="!currentPaper">加入阅读计划</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <!-- 批量操作 -->
           <template v-if="selectedPaperIds.length">
             <span class="toolbar-divider"></span>
@@ -138,119 +152,26 @@
 
       <!-- 表格 -->
       <div class="table-wrapper">
-        <table class="paper-table">
-          <thead>
-            <tr>
-              <th class="col-check" :style="{ width: colWidths.check + 'px' }">
-                <el-checkbox :model-value="isAllSelected" @change="toggleSelectAll" size="small" />
-              </th>
-              <th class="col-title" :style="{ width: colWidths.title + 'px' }" @click="toggleSort('title')">
-                <span class="th-content">标题 <span class="sort-arrow">{{ sortLabel('title') }}</span></span>
-                <span class="col-resizer" @mousedown.stop="startColResize($event, 'title')"></span>
-              </th>
-              <th class="col-category" :style="{ width: colWidths.category + 'px' }">
-                <span class="th-content">类目</span>
-                <span class="col-resizer" @mousedown.stop="startColResize($event, 'category')"></span>
-              </th>
-              <th class="col-tags" :style="{ width: colWidths.tags + 'px' }">
-                <span class="th-content">标签</span>
-                <span class="col-resizer" @mousedown.stop="startColResize($event, 'tags')"></span>
-              </th>
-              <th class="col-status" :style="{ width: colWidths.status + 'px' }">
-                <span class="th-content">状态</span>
-                <span class="col-resizer" @mousedown.stop="startColResize($event, 'status')"></span>
-              </th>
-              <th class="col-source" :style="{ width: colWidths.source + 'px' }" @click="toggleSort('source')">
-                <span class="th-content">期刊/会议 <span class="sort-arrow">{{ sortLabel('source') }}</span></span>
-                <span class="col-resizer" @mousedown.stop="startColResize($event, 'source')"></span>
-              </th>
-              <th class="col-year" :style="{ width: colWidths.year + 'px' }" @click="toggleSort('year')">
-                <span class="th-content">出版年份 <span class="sort-arrow">{{ sortLabel('year') }}</span></span>
-                <span class="col-resizer" @mousedown.stop="startColResize($event, 'year')"></span>
-              </th>
-              <th class="col-created" :style="{ width: colWidths.created + 'px' }" @click="toggleSort('created_at')">
-                <span class="th-content">导入年份 <span class="sort-arrow">{{ sortLabel('created_at') }}</span></span>
-                <span class="col-resizer" @mousedown.stop="startColResize($event, 'created')"></span>
-              </th>
-              <th class="col-actions" :style="{ width: colWidths.actions + 'px' }">
-                <span class="th-content">操作</span>
-                <span class="col-resizer" @mousedown.stop="startColResize($event, 'actions')"></span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(paper, idx) in papers" :key="paper.id"
-                :class="{ 'row-active': currentPaper?.id === paper.id, 'row-stripe': idx % 2 === 1, 'row-pinned': paper.pinned }">
-              <td class="col-check" :style="{ width: colWidths.check + 'px' }" @click.stop>
-                <el-checkbox
-                  :model-value="selectedPaperIds.includes(paper.id)"
-                  @change="checked => togglePaperSelection(paper.id, checked)"
-                  size="small"
-                />
-              </td>
-              <td class="col-title" :style="{ width: colWidths.title + 'px' }">{{ paper.title }}</td>
-              <td class="col-category" :style="{ width: colWidths.category + 'px' }">{{ categoryLabel(paper) }}</td>
-              <td class="col-tags" :style="{ width: colWidths.tags + 'px' }" @click.stop="openTagDialog(paper)">
-                <div class="tags-cell" :class="{ empty: !(paper.tags||[]).length }">
-                  <el-tag v-for="t in (paper.tags||[]).slice(0,2)" :key="t.id" size="small" style="margin-right:4px">{{ t.name }}</el-tag>
-                  <span v-if="(paper.tags||[]).length > 2" style="font-size:11px;color:#909399">+{{ paper.tags.length - 2 }}</span>
-                  <span v-if="!(paper.tags||[]).length" style="color:#c0c4cc;font-size:12px">点击添加标签</span>
-                </div>
-              </td>
-              <td class="col-status" :style="{ width: colWidths.status + 'px' }" @click.stop>
-                <el-dropdown trigger="click" @command="s => setPaperStatus(paper, s)">
-                  <el-tag :type="statusType(paper.readingStatus)" size="small" class="status-tag" style="cursor:pointer">{{ statusLabel(paper.readingStatus) }}</el-tag>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item v-for="s in statusOptions" :key="s.value" :command="s.value">
-                        <span class="status-dot" :class="'status-' + s.value.toLowerCase()"></span>{{ s.label }}
-                      </el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-              </td>
-              <td class="col-source" :style="{ width: colWidths.source + 'px' }">{{ paper.source || '--' }}</td>
-              <td class="col-year" :style="{ width: colWidths.year + 'px' }">{{ paper.year }}</td>
-              <td class="col-created" :style="{ width: colWidths.created + 'px' }">{{ formatDate(paper.createdAt) }}</td>
-              <td class="col-actions" :style="{ width: colWidths.actions + 'px' }" @click.stop>
-                <div class="action-btns">
-                  <el-button size="small" text type="primary" @click="goToAnalysis(paper.id, 'read')">论文分析</el-button>
-                  <el-button size="small" text @click="showPaperInfo(paper.id)">信息</el-button>
-                  <el-dropdown trigger="click" @command="cmd => handlePaperAction(cmd, paper)">
-                    <el-button size="small" text class="action-more">···</el-button>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item command="edit">编辑</el-dropdown-item>
-                        <el-dropdown-item command="top">{{ paper.pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
-                        <el-dropdown-item command="delete" style="color:#f56c6c">删除</el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="papers.length === 0 && folders.length > 0">
-              <td colspan="9" class="empty-row">暂无论文 — 点击左上角「+ 导入」添加第一篇论文</td>
-            </tr>
-            <tr v-if="papers.length === 0 && folders.length === 0">
-              <td colspan="9" class="empty-row onboarding">
-                <div class="onboard-box">
-                  <h3>📚 你的文库是空的</h3>
-                  <p>导入第一篇论文，或开始一次 AI 检索来发现文献。</p>
-                  <div class="onboard-actions">
-                    <el-button type="primary" @click="$router.push('/search')">🔍 开始 AI 检索</el-button>
-                    <el-button @click="openImportDialog">📄 导入论文</el-button>
-                  </div>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="pagination-bar" v-if="pagination.total > 0">
-        <el-pagination v-model:current-page="pagination.page" :page-size="pagination.size"
-          :total="pagination.total" layout="prev, pager, next" size="small" @current-change="loadPapers" />
+        <PaperTable
+          :papers="papers"
+          :loading="tableLoading"
+          :total="pagination.total"
+          :page="pagination.page"
+          :size="pagination.size"
+          :selected-ids="selectedPaperIds"
+          :current-paper-id="currentPaper?.id"
+          :sort-by="sortBy"
+          :sort-dir="sortDir"
+          @page-change="onTablePageChange"
+          @sort-change="onTableSortChange"
+          @selection-change="selectedPaperIds = $event"
+          @tag-click="openTagDialog"
+          @status-change="(paper, status) => setPaperStatus(paper, status)"
+          @analyze="paperId => goToAnalysis(paperId, 'read')"
+          @info="showPaperInfo"
+          @action="(cmd, paper) => handlePaperAction(cmd, paper)"
+          @row-click="showPaperInfo"
+        />
       </div>
     </div>
 
@@ -321,6 +242,14 @@
         <a v-if="currentPaper.pdfPath" @click.prevent="showPdfOverlay = true" href="#">打开 PDF</a>
         <span v-else>暂无</span>
       </div>
+      <div class="detail-item" v-if="currentPaper.pdfPath">
+        <span class="label">阅读进度</span>
+        <span v-if="currentPaper.pageCount">
+          {{ currentPaper.currentPage > 0 ? currentPaper.currentPage : 0 }} / {{ currentPaper.pageCount }} 页
+          <span v-if="currentPaper.readSeconds"> · 已读 {{ formatReadDuration(currentPaper.readSeconds) }}</span>
+        </span>
+        <span v-else class="text-muted">未检测</span>
+      </div>
       <div class="detail-item">
         <span class="label">阅读状态</span>
         <el-select v-model="currentPaper.readingStatus" size="small" @change="savePaper(currentPaper)" style="flex:1">
@@ -344,6 +273,33 @@
         >
           <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
         </el-select>
+      </div>
+
+      <!-- AI 入库推荐 -->
+      <div class="detail-item" v-if="currentImportRec">
+        <span class="label">AI · 入库推荐</span>
+        <div class="rec-block" style="flex:1">
+          <div v-if="currentImportRec.loading" class="stage-text">{{ currentImportRec.status || '排队中…' }}</div>
+          <div v-else-if="currentImportRec.error" class="error-text">{{ currentImportRec.error }}</div>
+          <template v-else-if="currentImportRec.result">
+            <div v-if="currentImportRec.result.metadata?.found" class="rec-row">
+              <span>补全元数据</span>
+              <el-button size="small" text type="primary" @click="applyRecommendedMetadata(currentPaper.id, currentImportRec.result.metadata)">应用</el-button>
+            </div>
+            <div v-if="currentImportRec.result.tags?.length" class="rec-row">
+              <span>标签：{{ currentImportRec.result.tags.join(', ') }}</span>
+              <el-button size="small" text type="primary" @click="applyRecommendedTags(currentPaper.id, currentImportRec.result.tags)">应用</el-button>
+            </div>
+            <div v-if="currentImportRec.result.folder?.recommended != null" class="rec-row">
+              <span>文件夹：{{ folderName(currentImportRec.result.folder.recommended) }}</span>
+              <el-button size="small" text type="primary" @click="applyRecommendedFolder(currentPaper.id, currentImportRec.result.folder.recommended)">应用</el-button>
+            </div>
+            <div v-if="currentImportRec.result.readingStatus?.status" class="rec-row">
+              <span>阅读状态：{{ statusLabel(currentImportRec.result.readingStatus.status) }}</span>
+              <el-button size="small" text type="primary" @click="applyRecommendedStatus(currentPaper.id, currentImportRec.result.readingStatus.status)">应用</el-button>
+            </div>
+          </template>
+        </div>
       </div>
     </div>
 
@@ -378,8 +334,8 @@
 
     <!-- ==================== 批量移动对话框 ==================== -->
     <el-dialog v-model="batchMoveDialogVisible" title="批量移动论文" width="420px">
-      <p style="font-size:13px;color:#606266;margin:0 0 12px">已选 {{ selectedPaperIds.length }} 篇论文</p>
-      <el-form label-width="80px">
+      <p style="font-size:13px;color:var(--ra-text-secondary);margin:0 0 12px">已选 {{ selectedPaperIds.length }} 篇论文</p>
+      <el-form label-width="96px">
         <el-form-item label="目标文件夹">
           <el-tree-select v-model="batchMoveFolderId" :data="folders" :props="treeProps"
             check-strictly node-key="id" placeholder="暂不分类（根目录）" clearable class="w-full" />
@@ -490,16 +446,48 @@
       </template>
     </el-dialog>
 
-    <!-- ==================== PDF 预览 overlay ==================== -->
+    <!-- ==================== PDF 全屏预览 ==================== -->
     <div v-if="showPdfOverlay && currentPaper" class="pdf-overlay" @keydown.esc="showPdfOverlay = false">
-      <div class="pdf-toolbar">
-        <span class="pdf-toolbar-title">{{ currentPaper.title }}</span>
-        <el-button size="small" text @click="showPdfOverlay = false" style="padding:2px 4px;min-width:auto">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-        </el-button>
-      </div>
-      <iframe :src="`/api/papers/${currentPaper.id}/pdf`" class="pdf-frame" />
+      <PdfViewer
+        v-if="pdfJsViewerEnabled"
+        :paper="currentPaper"
+        @close="showPdfOverlay = false"
+      >
+        <template #toolbar-extra>
+          <ReadingProgressPanel :paper="currentPaper" @updated="refreshCurrentPaper" />
+        </template>
+      </PdfViewer>
+      <template v-else>
+        <div class="pdf-toolbar">
+          <span class="pdf-toolbar-title">{{ currentPaper.title }}</span>
+          <ReadingProgressPanel :paper="currentPaper" @updated="refreshCurrentPaper" />
+          <el-button size="small" text @click="showPdfOverlay = false" style="padding:2px 4px;min-width:auto">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </el-button>
+        </div>
+        <iframe :src="`/api/papers/${currentPaper.id}/pdf`" class="pdf-frame" />
+      </template>
     </div>
+    <!-- ==================== 加入阅读计划弹窗 ==================== -->
+    <el-dialog v-model="addToPlanDialogVisible" title="加入阅读计划" width="420px">
+      <el-form label-width="80px">
+        <el-form-item label="计划">
+          <el-select v-model="addToPlanId" placeholder="选择阅读计划" style="width:100%">
+            <el-option v-for="p in readingPlans" :key="p.id" :label="p.name" :value="p.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="截止日期">
+          <el-date-picker v-model="addToPlanDeadline" type="date" placeholder="选择截止日期" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-rate v-model="addToPlanPriority" :max="3" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addToPlanDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmAddToPlan">加入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -509,6 +497,12 @@ import { useRouter } from 'vue-router'
 import api from '@/api'
 import { waitForAnalysis } from '@/utils/analysis.js'
 import { useGlobalTask } from '@/composables/useGlobalTask.js'
+import { usePaperImportRecommendations } from '@/composables/usePaperImportRecommendations.js'
+import PdfViewer from '@/components/pdf/PdfViewer.vue'
+import ReadingProgressPanel from '@/components/ReadingProgressPanel.vue'
+import PaperTable from '@/components/PaperTable.vue'
+import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
+import { listReadingPlans, addPlanItem } from '@/api/readingPlan'
 
 const router = useRouter()
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -527,6 +521,7 @@ const filterTag = ref('')
 const allTags = ref([])
 const paperSearchKeyword = ref('')
 const showFolderSearch = ref(false)
+const tableLoading = ref(false)
 const folderSearchRef = ref(null)
 const folderSearchWrapRef = ref(null)
 const newFolderBtnRef = ref(null)
@@ -546,29 +541,21 @@ const folderSortMode = ref('custom')
 const folderSortDir = ref('ASC')
 const leftWidth = ref(240)
 const rightWidth = ref(300)
-const colWidths = ref({
-  check: 32,
-  title: 260,
-  category: 75,
-  tags: 110,
-  status: 70,
-  source: 140,
-  year: 80,
-  created: 85,
-  actions: 130
-})
-const resizingCol = ref(null)
-const resizeStartX = ref(0)
-const resizeStartWidth = ref(0)
 const editingTitle = ref(false)
 const editTitleText = ref('')
 const titleInputRef = ref(null)
 const resizing = ref(null)
 const uploadFile = ref(null)
+const addToPlanDialogVisible = ref(false)
+const readingPlans = ref([])
+const addToPlanId = ref(null)
+const addToPlanDeadline = ref(null)
+const addToPlanPriority = ref(1)
 const doiInput = ref('')
 const fetchingDoi = ref(false)
 const enriching = ref(false)
 const showPdfOverlay = ref(false)
+const pdfJsViewerEnabled = ref(true)
 
 // ===== 全局后台任务：论文库 AI 分析切换页面不取消 =====
 const {
@@ -581,6 +568,14 @@ const {
 } = useGlobalTask('library-ai-analysis')
 
 const recommending = ref(false)
+const {
+  recs: importRecs,
+  watchImport,
+  applyTags: applyRecTags,
+  applyFolder: applyRecFolder,
+  applyReadingStatus: applyRecStatus,
+  applyMetadata: applyRecMetadata
+} = usePaperImportRecommendations()
 const paperAnalysis = ref(null)
 const currentPaperTagIds = ref([])
 const selectedPaperIds = ref([])
@@ -595,18 +590,16 @@ const tagDialogSelectedIds = ref([])
 const suggestingTags = ref(false)
 const recommendingStatus = ref(false)
 
-const isAllSelected = computed(() => {
-  if (papers.value.length === 0) return false
-  const selected = new Set(selectedPaperIds.value)
-  return papers.value.every(p => selected.has(p.id))
-})
-
 const statusTagType = computed(() => {
   const s = currentPaper.value?.processingStatus
   if (s === 'COMPLETED') return 'success'
   if (s === 'PROCESSING') return 'warning'
   if (s === 'FAILED') return 'danger'
   return 'info'
+})
+
+const currentImportRec = computed(() => {
+  return currentPaper.value ? importRecs.get(currentPaper.value.id) : null
 })
 
 const DEFAULT_YEAR = 2025
@@ -623,6 +616,11 @@ const folderTreeWithRoot = computed(() => [{
   name: '我的文库',
   children: folders.value
 }])
+
+function folderName(id) {
+  const all = flattenTree(folders.value)
+  return all.find(f => f.id === id)?.name || id
+}
 
 function makeEmptyForm() {
   return { title: '', authors: '', year: DEFAULT_YEAR, source: '', doi: '',
@@ -680,14 +678,33 @@ function handleFolderSort(cmd) {
 async function loadFolders() { const r=await api.get('/folders'); folders.value=r.data }
 async function loadAllTags() { const r=await api.get('/tags'); allTags.value=r.data || [] }
 async function loadPapers() {
-  const r=await api.get('/papers',{params:{folder:currentFolder.value,keyword:paperSearchKeyword.value||null,tag:filterTag.value||null,status:filterStatus.value||null,sortBy:sortBy.value,sortDir:sortDir.value,page:pagination.value.page,size:pagination.value.size}})
-  const d=r.data; papers.value=d.records; pagination.value.total=d.total; pagination.value.page=d.current
+  tableLoading.value = true
+  try {
+    const r = await api.get('/papers', { params: { folder: currentFolder.value, keyword: paperSearchKeyword.value || null, tag: filterTag.value || null, status: filterStatus.value || null, sortBy: sortBy.value, sortDir: sortDir.value, page: pagination.value.page, size: pagination.value.size } })
+    const d = r.data; papers.value = d.records; pagination.value.total = d.total; pagination.value.page = d.current
+  } finally {
+    tableLoading.value = false
+  }
 }
+function onTablePageChange(page) { pagination.value.page = page; loadPapers() }
+function onTableSortChange(by, dir) { sortBy.value = by; sortDir.value = dir; pagination.value.page = 1; loadPapers() }
 async function selectPaper(id) {
   const r=await api.get(`/papers/${id}`)
   currentPaper.value=r.data
   currentPaperTagIds.value=(currentPaper.value.tags||[]).map(t=>t.id)
   loadAnalysis(id)
+}
+async function refreshCurrentPaper() {
+  if (!currentPaper.value) return
+  await selectPaper(currentPaper.value.id)
+}
+function formatReadDuration(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600)
+  const m = Math.floor((totalSeconds % 3600) / 60)
+  const s = totalSeconds % 60
+  if (h > 0) return `${h}小时${m}分`
+  if (m > 0) return `${m}分${s}秒`
+  return `${s}秒`
 }
 async function savePaperTags() {
   if (!currentPaper.value) return
@@ -1012,26 +1029,12 @@ async function createFolder() {
 }
 
 function startResize(e,side){resizing.value=side;e.preventDefault()}
-function startColResize(e, key) {
-  resizingCol.value = key
-  resizeStartX.value = e.clientX
-  resizeStartWidth.value = colWidths.value[key]
-  e.preventDefault()
-  e.stopPropagation()
-}
 function onResize(e){
   if(resizing.value==='left')leftWidth.value=Math.max(160,Math.min(400,e.clientX-6))
   else if(resizing.value==='right')rightWidth.value=Math.max(240,Math.min(500,window.innerWidth-e.clientX-6))
-  else if (resizingCol.value) {
-    const delta = e.clientX - resizeStartX.value
-    colWidths.value[resizingCol.value] = Math.max(40, resizeStartWidth.value + delta)
-  }
 }
 function stopResize(){
   resizing.value=null
-  resizingCol.value=null
-  resizeStartX.value=0
-  resizeStartWidth.value=0
 }
 
 function openImportDialog(){isEditing.value=false;editPaperId.value=null;uploadFile.value=null;doiInput.value='';form.value={...makeEmptyForm(),folderId:selectedFolderId.value};dialogVisible.value=true}
@@ -1108,10 +1111,15 @@ async function submitPaper() {
       const fd=new FormData()
       if(uploadFile.value) fd.append('file',uploadFile.value)
       Object.entries(form.value).forEach(([k,v])=>{if(v!=null&&v!=='')fd.append(k,v)})
-      await api.post('/papers/upload', fd)
+      const res = await api.post('/papers/upload', fd)
       ElMessage.success('论文导入成功')
+      const paper = res.data.paper
+      const taskId = res.data.taskId
+      if (paper?.id && taskId) {
+        watchImport(paper.id, taskId)
+      }
     }
-    dialogVisible.value=false;uploadFile.value=null;loadPapers()
+    dialogVisible.value=false;uploadFile.value=null;await loadPapers()
   }catch(e){
     console.error('导入/保存失败', e)
     alert('操作失败：'+(e.response?.data?.message||e.message))
@@ -1144,6 +1152,27 @@ async function loadAnalysis(paperId) {
 }
 
 async function savePaper(p){await api.put(`/papers/${p.id}`,p)}
+
+async function applyRecommendedMetadata(paperId, metadata) {
+  await applyRecMetadata(paperId, metadata)
+  await selectPaper(paperId)
+  await loadPapers()
+}
+async function applyRecommendedTags(paperId, tags) {
+  await applyRecTags(paperId, tags)
+  await selectPaper(paperId)
+  await loadPapers()
+}
+async function applyRecommendedFolder(paperId, folderId) {
+  await applyRecFolder(paperId, folderId)
+  await selectPaper(paperId)
+  await loadPapers()
+}
+async function applyRecommendedStatus(paperId, status) {
+  await applyRecStatus(paperId, status)
+  await selectPaper(paperId)
+  await loadPapers()
+}
 function toggleFolderSearch(){showFolderSearch.value=!showFolderSearch.value;if(showFolderSearch.value)setTimeout(()=>folderSearchRef.value?.focus(),100)}
 function startEditTitle(){editTitleText.value=currentPaper.value.title;editingTitle.value=true;setTimeout(()=>titleInputRef.value?.focus(),100)}
 async function saveTitle(){editingTitle.value=false;if(editTitleText.value.trim()&&editTitleText.value!==currentPaper.value.title){currentPaper.value.title=editTitleText.value.trim();await savePaper(currentPaper.value)}}
@@ -1154,24 +1183,6 @@ async function confirmDelete(paper){
 async function deletePaper(paper){await api.delete(`/papers/${paper.id}`);if(currentPaper.value?.id===paper.id)currentPaper.value=null;loadPapers();selectedPaperIds.value=selectedPaperIds.value.filter(id=>id!==paper.id)}
 
 // ===== 批量操作 =====
-function toggleSelectAll() {
-  if (isAllSelected.value) {
-    selectedPaperIds.value = []
-  } else {
-    selectedPaperIds.value = papers.value.map(p => p.id)
-  }
-}
-
-function togglePaperSelection(paperId, checked) {
-  if (checked) {
-    if (!selectedPaperIds.value.includes(paperId)) {
-      selectedPaperIds.value.push(paperId)
-    }
-  } else {
-    selectedPaperIds.value = selectedPaperIds.value.filter(id => id !== paperId)
-  }
-}
-
 function openBatchMoveDialog() {
   if (!selectedPaperIds.value.length) return
   batchMoveFolderId.value = null
@@ -1208,6 +1219,56 @@ async function confirmBatchDelete() {
     if (e !== 'cancel') {
       ElMessage.error('批量删除失败：' + (e.response?.data?.message || e.message))
     }
+  }
+}
+
+async function openAddToPlanDialog() {
+  if (!currentPaper.value) return
+  const res = await listReadingPlans()
+  readingPlans.value = res.data
+  addToPlanId.value = readingPlans.value[0]?.id || null
+  addToPlanDeadline.value = null
+  addToPlanPriority.value = 1
+  addToPlanDialogVisible.value = true
+}
+
+async function confirmAddToPlan() {
+  if (!addToPlanId.value) {
+    ElMessage.warning('请选择阅读计划')
+    return
+  }
+  const dateStr = addToPlanDeadline.value
+    ? (addToPlanDeadline.value.substring ? addToPlanDeadline.value.substring(0, 10) : new Date(addToPlanDeadline.value).toISOString().split('T')[0])
+    : null
+  await addPlanItem(addToPlanId.value, {
+    paperId: currentPaper.value.id,
+    deadline: dateStr,
+    priority: addToPlanPriority.value || 0,
+  })
+  addToPlanDialogVisible.value = false
+  ElMessage.success('已加入阅读计划')
+}
+
+async function handleExport(cmd) {
+  try {
+    if (cmd === 'bibtex-single') {
+      if (!currentPaper.value) return
+      const res = await exportSingleBibTeX(currentPaper.value.id)
+      downloadBlob(res.data, `${currentPaper.value.title || 'paper'}.bib`)
+    } else if (cmd === 'bibtex-batch') {
+      const res = await exportBatchBibTeX(selectedPaperIds.value)
+      downloadBlob(res.data, 'papers.bib')
+    } else if (cmd === 'obsidian') {
+      const data = await syncObsidian(selectedPaperIds.value)
+      ElMessage[data.success ? 'success' : 'error'](data.message || `已同步 ${data.count} 篇`)
+    } else if (cmd === 'zotero') {
+      const data = await syncZotero(selectedPaperIds.value)
+      ElMessage[data.success ? 'success' : 'error'](data.message || `已同步 ${data.count} 篇`)
+    } else if (cmd === 'add-to-plan') {
+      openAddToPlanDialog()
+    }
+  } catch (e) {
+    ElMessage.error('导出失败：' + (e.response?.data?.message || e.message))
   }
 }
 
@@ -1261,7 +1322,16 @@ async function recommendFolder() {
 }
 
 async function initLibrary() {
-  await Promise.all([loadFolders(), loadAllTags(), loadPapers()])
+  await Promise.all([loadFolders(), loadAllTags(), loadPapers(), loadViewerSetting()])
+}
+async function loadViewerSetting() {
+  try {
+    const res = await api.get('/settings')
+    const item = res.data.find(i => i.keyName === 'pdf_js_viewer_enabled')
+    pdfJsViewerEnabled.value = item ? item.value === 'true' : true
+  } catch (e) {
+    pdfJsViewerEnabled.value = true
+  }
 }
 function onKeyDown(e){if(e.key==='Escape')showPdfOverlay.value=false}
 function handleDocClick(e) {
@@ -1283,14 +1353,14 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .library.is-resizing { user-select:none; }
 
 /* ===== 三栏配色 ===== */
-.left-panel { flex-shrink:0; overflow-y:auto; padding:10px 14px; transition:width 0.2s; background:#f5f6f8; display:flex; flex-direction:column; }
+.left-panel { flex-shrink:0; overflow-y:auto; padding:10px 14px; transition:width 0.2s; background:var(--ra-bg); display:flex; flex-direction:column; }
 .left-panel.collapsed { padding:0; overflow:hidden; }
-.filter-section { margin-top:auto; padding:6px 0 12px; border-top:1px solid #e4e7ed; }
-.filter-section h4 { margin:4px 0 6px; font-size:14px; font-weight:600; color:#303133; }
+.filter-section { margin-top:auto; padding:6px 0 12px; border-top:1px solid var(--ra-border-light); }
+.filter-section h4 { margin:4px 0 6px; font-size:14px; font-weight:600; color:var(--ra-text); }
 .filter-group { margin-bottom:6px; }
-.filter-label { display:block; font-size:11px; color:#909399; margin-bottom:2px; }
-.center-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; padding:0 12px; background:#fff; }
-.right-panel { flex-shrink:0; overflow-y:auto; padding:8px 0 0 12px; transition:width 0.2s; background:#f5f6f8; }
+.filter-label { display:block; font-size:11px; color:var(--ra-text-tertiary); margin-bottom:2px; }
+.center-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; padding:0 12px; background:var(--ra-panel-bg); }
+.right-panel { flex-shrink:0; overflow-y:auto; padding:8px 0 0 12px; transition:width 0.2s; background:var(--ra-bg); }
 
 /* 顶栏 */
 .panel-header { display:flex; align-items:center; gap:4px; padding:6px 0; }
@@ -1298,18 +1368,18 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .search-input { width:130px; }
 
 /* 树 */
-.folder-all { display:flex; align-items:center; gap:4px; padding:5px 8px; cursor:pointer; font-size:13px; border-radius:4px; margin-bottom:2px; color:#303133; }
-.folder-all:hover { background:#e8eaed; }
-.folder-all.active { color:#1677d2; font-weight:600; background:#d9ecff; }
+.folder-all { display:flex; align-items:center; gap:4px; padding:5px 8px; cursor:pointer; font-size:13px; border-radius:4px; margin-bottom:2px; color:var(--ra-text); }
+.folder-all:hover { background:var(--ra-hover-bg); }
+.folder-all.active { color:var(--ra-active-text); font-weight:600; background:var(--ra-active-bg); }
 .folder-all.sub { padding-left:20px; }
 .folder-tree { background:transparent; padding-left:8px; }
 .tree-node-label { font-size:13px; display:flex; justify-content:space-between; width:100%; }
-.tree-node-label.path-0 { color:#1677d2; font-weight:600; }
-.tree-node-label.path-1 { color:#0958a3; font-weight:600; }
-.tree-node-label.path-2 { color:#05427a; font-weight:600; }
-.folder-count { color:#909399; font-size:11px; margin-right:8px; }
+.tree-node-label.path-0 { color:var(--ra-active-text); font-weight:600; }
+.tree-node-label.path-1 { color:#79bbff; font-weight:600; }
+.tree-node-label.path-2 { color:#a0cfff; font-weight:600; }
+.folder-count { color:var(--ra-text-tertiary); font-size:11px; margin-right:8px; }
 .el-tree-node.is-current>.el-tree-node__content,
-.el-tree-node.is-current>.el-tree-node__content:hover { background-color:#d9ecff !important; }
+.el-tree-node.is-current>.el-tree-node__content:hover { background-color:var(--ra-active-bg) !important; }
 
 .inline-form { display:flex; gap:12px; margin-bottom:8px; align-items:center; }
 .inline-form-fields { display:flex; gap:3px; flex:1; min-width:0; }
@@ -1318,10 +1388,10 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .w-full { width:100%; }
 
 /* 分割线 */
-.divider { width:1px; flex-shrink:0; cursor:col-resize; position:relative; background:#dcdfe6; transition:width 0.15s,background 0.15s; }
-.divider:hover { background:#c8cacd; }
-.divider.active { width:4px; background:#a0c4e8; }
-.divider-handle { position:absolute; top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:28px;border-radius:2px;background:#999;opacity:0;transition:opacity 0.15s; }
+.divider { width:1px; flex-shrink:0; cursor:col-resize; position:relative; background:var(--ra-border); transition:width 0.15s,background 0.15s; }
+.divider:hover { background:var(--ra-text-tertiary); }
+.divider.active { width:4px; background:var(--ra-link); }
+.divider-handle { position:absolute; top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:28px;border-radius:2px;background:var(--ra-text-tertiary);opacity:0;transition:opacity 0.15s; }
 .divider:hover .divider-handle { opacity:1; }
 .divider.active .divider-handle { opacity:0; }
 
@@ -1329,22 +1399,22 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .toolbar { display:flex; align-items:center; justify-content:space-between; padding:4px 0 6px; gap:4px; }
 .toolbar-left, .toolbar-right { display:flex; align-items:center; gap:2px; }
 .toolbar-search { width:150px; }
-.toolbar-divider { display:inline-block; width:1px; height:16px; background:#dcdfe6; margin:0 3px; vertical-align:middle; }
+.toolbar-divider { display:inline-block; width:1px; height:16px; background:var(--ra-border); margin:0 3px; vertical-align:middle; }
 
 /* 表格 */
 .table-wrapper { flex:1; overflow:auto; }
 .paper-table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
-.paper-table th { position:sticky; top:0; background:#fafbfc; padding:6px 10px; text-align:left; border-bottom:2px solid #e4e7ed; cursor:pointer; user-select:none; white-space:nowrap; font-weight:500; color:#606266; overflow:hidden; }
-.paper-table th:hover { background:#f0f2f5; }
+.paper-table th { position:sticky; top:0; background:var(--ra-bg); padding:6px 10px; text-align:left; border-bottom:2px solid var(--ra-border-light); cursor:pointer; user-select:none; white-space:nowrap; font-weight:500; color:var(--ra-text-secondary); overflow:hidden; }
+.paper-table th:hover { background:var(--ra-hover-bg); }
 .paper-table th .th-content { display:inline-block; max-width:calc(100% - 10px); overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
 .paper-table th .col-resizer { position:absolute; right:0; top:0; bottom:0; width:6px; cursor:col-resize; z-index:1; }
-.paper-table th .col-resizer:hover { background:#a0c4e8; }
-.paper-table td { padding:5px 10px; border-bottom:1px solid #f0f1f3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.paper-table tr:hover td { background:#f5f6f8; }
-.paper-table .row-active td { background:#ecf5ff !important; }
-.paper-table .row-pinned td:first-child { box-shadow: inset 3px 0 0 0 #409eff; }
-.paper-table .row-stripe td { background:#fafbfc; }
-.paper-table .row-active.row-stripe td { background:#ecf5ff !important; }
+.paper-table th .col-resizer:hover { background:var(--ra-link); }
+.paper-table td { padding:5px 10px; border-bottom:1px solid var(--ra-border-light); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.paper-table tr:hover td { background:var(--ra-hover-bg); }
+.paper-table .row-active td { background:var(--ra-active-bg) !important; }
+.paper-table .row-pinned td:first-child { box-shadow: inset 3px 0 0 0 var(--ra-link); }
+.paper-table .row-stripe td { background:var(--ra-bg); }
+.paper-table .row-active.row-stripe td { background:var(--ra-active-bg) !important; }
 .col-check { width: 32px; text-align: center; }
 .col-category { width: 75px; }
 .col-tags { width: 110px; }
@@ -1352,26 +1422,27 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .col-source { min-width: 120px; }
 .col-year { width:80px; }
 .col-created { width:85px; }
-.col-actions { width: 160px; }
-.col-actions .action-btns { display:flex; align-items:center; gap:2px; }
-.col-actions .action-more { color:#606266; font-weight:600; font-size:14px; padding:2px 6px !important; }
-.col-actions .action-more:hover { color:#303133; background:#e4e7ed; }
+.paper-table th.col-actions, .paper-table td.col-actions { text-align: center; }
+.col-actions { width: 130px; }
+.col-actions .action-btns { display:flex; align-items:center; justify-content:center; gap:2px; }
+.col-actions .action-more { color:var(--ra-text-secondary); font-weight:600; font-size:14px; padding:2px 6px !important; }
+.col-actions .action-more:hover { color:var(--ra-text); background:var(--ra-hover-bg); }
 .col-source, .col-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.sort-arrow { font-size:11px; color:#909399; }
-.empty-row { text-align:center; color:#c0c4cc; padding:40px 10px !important; cursor:default !important; }
+.sort-arrow { font-size:11px; color:var(--ra-text-tertiary); }
+.empty-row { text-align:center; color:var(--ra-text-tertiary); padding:40px 10px !important; cursor:default !important; }
 .empty-row.onboarding { padding:60px 20px !important; }
-.onboard-box h3 { font-size:18px; color:#303133; margin:0 0 8px; }
-.onboard-box p { font-size:14px; color:#909399; margin:0 0 20px; }
+.onboard-box h3 { font-size:18px; color:var(--ra-text); margin:0 0 8px; }
+.onboard-box p { font-size:14px; color:var(--ra-text-tertiary); margin:0 0 20px; }
 .onboard-actions { display:flex; gap:12px; justify-content:center; }
 
 .pagination-bar { display:flex; justify-content:center; padding:8px 0; }
 
 .col-tags { cursor:pointer; }
 .col-tags .tags-cell { display:flex; align-items:center; flex-wrap:wrap; min-height:22px; }
-.col-tags .tags-cell.empty:hover span { color:#409eff; }
+.col-tags .tags-cell.empty:hover span { color:var(--ra-link); }
 .col-status .status-tag { cursor:pointer; }
 .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
-.status-dot.status-unread { background:#909399; }
+.status-dot.status-unread { background:var(--ra-text-tertiary); }
 .status-dot.status-reading { background:#f56c6c; }
 .status-dot.status-read { background:#67c23a; }
 
@@ -1379,39 +1450,39 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .detail-header { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:6px; }
 .detail-title-row { display:flex; flex-direction:column; align-items:flex-start; gap:8px; flex:1; min-width:0; }
 .detail-title { font-size:18px; font-weight:600; margin:0; cursor:text; line-height:1.4; width:100%; }
-.detail-title:hover { background:#e8eaed; border-radius:3px; }
+.detail-title:hover { background:var(--ra-hover-bg); border-radius:3px; }
 .detail-ai-status { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; font-size:12px; }
-.detail-ai-status .stage-text { color:#409eff; }
+.detail-ai-status .stage-text { color:var(--ra-link); }
 .detail-ai-status .error-text { color:#f56c6c; }
-.stage-text { font-size:12px; color:#409eff; margin-left:4px; }
+.stage-text { font-size:12px; color:var(--ra-link); margin-left:4px; }
 .error-text { font-size:12px; color:#f56c6c; margin-left:4px; }
 .title-input { font-size:18px; font-weight:600; width:100%; }
-.title-input :deep(.el-textarea__inner) { border:1px solid #409eff; border-radius:3px; padding:2px 6px; font-size:18px; font-weight:600; line-height:1.4; resize:none; min-height:32px; }
-.detail-divider { height:1px; background:#e4e7ed; margin:10px 4px 14px; }
+.title-input :deep(.el-textarea__inner) { border:1px solid var(--ra-link); border-radius:3px; padding:2px 6px; font-size:18px; font-weight:600; line-height:1.4; resize:none; min-height:32px; }
+.detail-divider { height:1px; background:var(--ra-border-light); margin:10px 4px 14px; }
 .detail-item { margin-bottom:12px; font-size:13px; line-height:1.6; }
-.detail-item .label { font-size:12px; color:#909399; display:block; margin-bottom:2px; }
-.extracted-text { margin:0; font-size:12px; color:#606266; line-height:1.5; max-height:120px; overflow-y:auto; white-space:pre-wrap; }
+.detail-item .label { font-size:12px; color:var(--ra-text-tertiary); display:block; margin-bottom:2px; }
+.extracted-text { margin:0; font-size:12px; color:var(--ra-text-secondary); line-height:1.5; max-height:120px; overflow-y:auto; white-space:pre-wrap; }
 /** 上传区域 */
-.upload-zone { border:2px dashed #dcdfe6; border-radius:6px; padding:20px; text-align:center; cursor:pointer; transition:border-color 0.2s; margin-bottom:12px; }
-.upload-zone:hover { border-color:#409eff; }
-.upload-text { font-size:14px; color:#909399; margin-top:6px; }
-.upload-text em { color:#409eff; font-style:normal; }
-.upload-file { font-size:14px; color:#303133; margin-top:6px; }
+.upload-zone { border:2px dashed var(--ra-border); border-radius:6px; padding:20px; text-align:center; cursor:pointer; transition:border-color 0.2s; margin-bottom:12px; }
+.upload-zone:hover { border-color:var(--ra-link); }
+.upload-text { font-size:14px; color:var(--ra-text-tertiary); margin-top:6px; }
+.upload-text em { color:var(--ra-link); font-style:normal; }
+.upload-file { font-size:14px; color:var(--ra-text); margin-top:6px; }
 .upload-remove { color:#f56c6c; cursor:pointer; margin-left:8px; font-weight:bold; }
 
 /** DOI 行 */
 .doi-row { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
-.doi-or { font-size:12px; color:#c0c4cc; white-space:nowrap; flex-shrink:0; }
+.doi-or { font-size:12px; color:var(--ra-text-tertiary); white-space:nowrap; flex-shrink:0; }
 .doi-input-wrap { display:flex; gap:6px; flex:1; flex-wrap:wrap; }
 
 /** 识别结果 */
-.import-preview { border-top:1px solid #e4e7ed; padding-top:10px; }
-.preview-title { font-size:13px; font-weight:600; color:#303133; margin-bottom:8px; }
+.import-preview { border-top:1px solid var(--ra-border-light); padding-top:10px; }
+.preview-title { font-size:13px; font-weight:600; color:var(--ra-text); margin-bottom:8px; }
 
 /** PDF 全屏预览 */
-.pdf-overlay { position:fixed; top:61px; left:0; right:0; bottom:0; z-index:9999; background:#f0f2f5; display:flex; flex-direction:column; }
-.pdf-toolbar { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:#e4e7ed; flex-shrink:0; border-bottom:1px solid #dcdfe6; }
-.pdf-toolbar-title { color:#303133; font-size:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.pdf-overlay { position:fixed; top:61px; left:0; right:0; bottom:0; z-index:9999; background:var(--ra-bg); display:flex; flex-direction:column; }
+.pdf-toolbar { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:var(--ra-hover-bg); flex-shrink:0; border-bottom:1px solid var(--ra-border); }
+.pdf-toolbar-title { color:var(--ra-text); font-size:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .pdf-frame { flex:1; border:none; width:100%; }
 
 /* 标签下拉框：每个选项显示删除按钮 */
@@ -1425,6 +1496,9 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
   border-radius:3px;
 }
 .tag-option-row .tag-delete-btn:hover { background:#fde2e2; }
+.rec-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--ra-border-light); font-size:13px; }
+.rec-row:last-child { border-bottom:none; }
+.rec-row span { flex:1; word-break:break-all; }
 </style>
 
 <!-- 非 scoped：强制覆盖 Element Plus 组件内部样式 -->
@@ -1436,4 +1510,15 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .library .toolbar .el-button { padding: 2px 4px !important; min-width: auto !important; }
 .library .toolbar .el-button + .el-button { margin-left: 0 !important; }
 .el-select-dropdown__item:has(.tag-option-row) { padding-right: 8px !important; }
+
+/* 暗色模式：标签下拉与详情区域 */
+html.dark .tag-option-row .tag-delete-btn:hover { background: #5c2f2f; }
+html.dark .library .folder-tree .el-tree-node__content { color: var(--ra-text); }
+html.dark .library .folder-tree .el-tree-node__content:hover { background-color: var(--ra-hover-bg); }
+html.dark .library .el-tree-node.is-current>.el-tree-node__content,
+html.dark .library .el-tree-node.is-current>.el-tree-node__content:hover { background-color: var(--ra-active-bg) !important; }
+html.dark .library .el-input__wrapper,
+html.dark .library .el-textarea__inner { background-color: var(--ra-panel-bg); }
+html.dark .library .el-select .el-input.is-focus .el-input__wrapper,
+html.dark .library .el-input__wrapper.is-focus { box-shadow: 0 0 0 1px var(--ra-link) inset; }
 </style>

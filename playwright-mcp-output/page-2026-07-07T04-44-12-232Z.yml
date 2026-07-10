@@ -1,0 +1,31 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=e7]:
+      - menuitem "文库管理" [ref=e8] [cursor=pointer]
+      - menuitem "文献检索" [ref=e9] [cursor=pointer]
+      - menuitem "论文分析" [ref=e10] [cursor=pointer]
+      - menuitem "研究空白" [ref=e11] [cursor=pointer]
+    - button [ref=e12] [cursor=pointer]:
+      - img [ref=e14]
+  - main [ref=e18]:
+    - generic [ref=e254]:
+      - generic [ref=e255]:
+        - heading "论文选择" [level=4] [ref=e256]
+        - generic [ref=e258]:
+          - generic [ref=e259]:
+            - combobox [ref=e261]
+            - generic [ref=e262]: RSMA适用于高移动性场景
+          - img [ref=e265] [cursor=pointer]
+        - heading "对比论文" [level=4] [ref=e276]
+        - generic [ref=e278]:
+          - generic [ref=e279]:
+            - combobox [ref=e281]
+            - generic [ref=e282]: + 添加对比论文
+          - img [ref=e285] [cursor=pointer]
+      - generic [ref=e267]:
+        - generic [ref=e268]:
+          - button "精读" [ref=e269] [cursor=pointer]
+          - button "对比" [active] [ref=e270] [cursor=pointer]
+          - button "推荐" [ref=e271] [cursor=pointer]
+        - generic [ref=e288]: 请添加至少 1 篇对比论文

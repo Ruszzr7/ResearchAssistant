@@ -1,19 +1,23 @@
 package com.research.assistant.service;
 
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
+import com.research.assistant.service.pdf.ExternalCommandPdfParser;
+import com.research.assistant.service.pdf.FigureRegion;
+import com.research.assistant.service.pdf.PdfParseResult;
+import com.research.assistant.service.pdf.figure.FigureExtractor;
+import com.research.assistant.service.pdf.formula.FormulaExtractor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
- * PDF 文本提取器 —— 从 PDF 文件中提取纯文本。
+ * PDF 文本提取器 —— 统一入口。
  * <p>
- * 使用 Apache PDFBox 3.x。提取结果暂存于 Paper.aiSummary 字段，
- * 待阶段三接入 LLM 后自动结构化为标题/作者/年份等。
+ * 底层委托给 {@link com.research.assistant.service.pdf.PdfParser} 实现；
+ * 默认使用 PDFBox，用户可在设置中启用外部解析器（Marker / MinerU / Grobid）。
  */
 @Component
 public class PdfExtractor {
@@ -21,96 +25,93 @@ public class PdfExtractor {
     @Value("${app.storage.pdf-dir:./data/papers}")
     private String pdfStorageDir;
 
-    /** 单个 PDF 提取文本的最大长度（约 15MB，低于 MEDIUMTEXT 上限） */
-    private static final int MAX_TEXT_LENGTH = 15 * 1024 * 1024;
+    private final ExternalCommandPdfParser pdfParser;
+    private final FormulaExtractor formulaExtractor;
+    private final FigureExtractor figureExtractor;
 
-    /** 元数据识别时默认扫描前 N 页，避免大文件浪费 I/O */
-    private static final int DEFAULT_ENRICHMENT_PAGES = 5;
+    public PdfExtractor(ExternalCommandPdfParser pdfParser,
+                        FormulaExtractor formulaExtractor,
+                        FigureExtractor figureExtractor) {
+        this.pdfParser = pdfParser;
+        this.formulaExtractor = formulaExtractor;
+        this.figureExtractor = figureExtractor;
+    }
 
     /**
-     * 提取 PDF 全部文本，长度受 MAX_TEXT_LENGTH 限制，避免超出数据库存储上限。
-     *
-     * @param pdfPath 相对于 pdfStorageDir 的文件名
-     * @return 提取的文本，失败返回空字符串
+     * 提取 PDF 全部文本。
      */
     public String extract(String pdfPath) {
         File file = resolveFile(pdfPath);
-        if (file == null || !file.exists()) {
+        if (file == null) {
             return "";
         }
-        try (PDDocument doc = Loader.loadPDF(file)) {
-            return extractFromDocument(doc, null);
-        } catch (Exception e) {
-            return "";
-        }
+        PdfParseResult result = pdfParser.parse(file);
+        return result.success() ? result.text() : "";
     }
 
     /**
-     * 仅提取 PDF 前 N 页文本，用于快速扫描 DOI / arXiv ID 等标识符。
-     *
-     * @param pdfPath  相对于 pdfStorageDir 的文件名
-     * @param maxPages 最大页数，小于等于 0 表示全部页
-     * @return 提取的文本，失败返回空字符串
+     * 仅提取 PDF 前 N 页文本。
      */
     public String extractFirstPages(String pdfPath, int maxPages) {
         File file = resolveFile(pdfPath);
-        if (file == null || !file.exists()) {
+        if (file == null) {
             return "";
         }
-        try (PDDocument doc = Loader.loadPDF(file)) {
-            return extractFromDocument(doc, maxPages);
-        } catch (Exception e) {
-            return "";
-        }
+        PdfParseResult result = pdfParser.parseFirstPages(file, maxPages);
+        return result.success() ? result.text() : "";
     }
 
     /**
-     * 直接从上传的 MultipartFile 中提取前 N 页文本，用于导入预览阶段的元数据识别。
-     * <p>
-     * 该方法不落盘，避免 enrichment 预览阶段产生临时文件。
-     *
-     * @param file     PDF 文件
-     * @param maxPages 最大页数，小于等于 0 表示全部页
-     * @return 提取的文本，失败或文件为空返回空字符串
+     * 直接从上传的 MultipartFile 中提取前 N 页文本。
      */
     public String extractFromMultipartFile(MultipartFile file, int maxPages) {
         if (file == null || file.isEmpty()) {
             return "";
         }
         try {
-            byte[] bytes = file.getBytes();
-            try (PDDocument doc = Loader.loadPDF(bytes)) {
-                return extractFromDocument(doc, maxPages);
-            }
+            Path temp = Files.createTempFile("upload-", ".pdf");
+            file.transferTo(temp.toFile());
+            PdfParseResult result = maxPages <= 0
+                    ? pdfParser.parse(temp.toFile())
+                    : pdfParser.parseFirstPages(temp.toFile(), maxPages);
+            Files.deleteIfExists(temp);
+            return result.success() ? result.text() : "";
         } catch (Exception e) {
             return "";
         }
     }
 
     /**
-     * 统一提取逻辑。maxPages 为 null 或小于等于 0 时提取全部页。
+     * 获取 PDF 总页数。
      */
-    private String extractFromDocument(PDDocument doc, Integer maxPages) {
-        try {
-            PDFTextStripper stripper = new PDFTextStripper();
-            stripper.setSortByPosition(true);
-            if (maxPages != null && maxPages > 0) {
-                int pageCount = doc.getNumberOfPages();
-                stripper.setStartPage(1);
-                stripper.setEndPage(Math.min(maxPages, pageCount));
-            }
-            String text = stripper.getText(doc);
-            if (text == null) {
-                return "";
-            }
-            text = text.trim();
-            if (text.length() > MAX_TEXT_LENGTH) {
-                text = text.substring(0, MAX_TEXT_LENGTH);
-            }
-            return text;
-        } catch (Exception e) {
-            return "";
+    public int countPages(String pdfPath) {
+        File file = resolveFile(pdfPath);
+        if (file == null) {
+            return 0;
         }
+        return pdfParser.countPages(file);
+    }
+
+    /**
+     * 提取 PDF 中的公式（LaTeX 列表）。
+     */
+    public java.util.List<String> extractFormulas(String pdfPath) {
+        File file = resolveFile(pdfPath);
+        if (file == null) {
+            return java.util.List.of();
+        }
+        return formulaExtractor.extract(file);
+    }
+
+    /**
+     * 提取 PDF 中的图表区域。
+     */
+    public java.util.List<FigureRegion> extractFigures(String pdfPath) {
+        File file = resolveFile(pdfPath);
+        if (file == null) {
+            return java.util.List.of();
+        }
+        return figureExtractor.extract(file);
     }
 
     private File resolveFile(String pdfPath) {
@@ -121,6 +122,7 @@ public class PdfExtractor {
         if (!dir.isAbsolute()) {
             dir = new File(System.getProperty("user.dir"), pdfStorageDir);
         }
-        return new File(dir, pdfPath);
+        File file = new File(dir, pdfPath);
+        return file.exists() ? file : null;
     }
 }

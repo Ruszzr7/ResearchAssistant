@@ -10,6 +10,7 @@ import com.research.assistant.service.AgentOrchestrator;
 import com.research.assistant.service.ArxivFetcher;
 import com.research.assistant.service.AsyncTaskService;
 import com.research.assistant.service.LLMService;
+import com.research.assistant.service.async.AsyncTaskResult;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
@@ -140,12 +141,26 @@ public class AgentController {
     }
 
     /**
-     * POST /api/agent/compare — 横向对比多篇论文。
+     * POST /api/agent/plan — 自然语言任务规划：LLM 自动选择 Skill 并执行。
+     */
+    @PostMapping("/plan")
+    public Result<Map<String, String>> plan(@RequestBody Map<String, String> body) {
+        String goal = body.get("goal");
+        if (goal == null || goal.isBlank()) {
+            return Result.error(400, "请提供 goal");
+        }
+        String taskId = asyncTaskService.submitPlan(goal);
+        return Result.ok(Map.of("taskId", taskId));
+    }
+
+    /**
+     * POST /api/agent/compare — 提交横向对比异步任务。
      */
     @PostMapping("/compare")
-    public Result<String> compare(@RequestBody @Valid CompareRequest request) {
-        String result = agentOrchestrator.comparePapers(request.getPaperIds(), request.getCustomDimensions());
-        return Result.ok(result);
+    public Result<Map<String, String>> compare(@RequestBody @Valid CompareRequest request) {
+        String taskId = asyncTaskService.submitComparePapers(
+                request.getPaperIds(), request.getCustomDimensions());
+        return Result.ok(Map.of("taskId", taskId));
     }
 
     /** POST /api/agent/chat — 分析追问对话（支持多轮记忆） */
@@ -157,32 +172,50 @@ public class AgentController {
     }
 
     /**
-     * POST /api/agent/gap/folder/{folderId} — 基于文件夹的 Gap 分析（库内 + 外部验证）。
+     * POST /api/agent/gap/folder/{folderId} — 提交基于文件夹的 Gap 分析异步任务。
      */
     @PostMapping("/gap/folder/{folderId}")
-    public Result<Map<String, Object>> gapByFolder(@PathVariable Long folderId) {
-        String gapReport = agentOrchestrator.analyzeGaps(folderId);
-        List<Map<String, Object>> verified = agentOrchestrator.verifyGaps(gapReport);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("gaps", gapReport);
-        result.put("verified", verified);
+    public Result<Map<String, String>> gapByFolder(@PathVariable Long folderId) {
+        String taskId = asyncTaskService.submitGapAnalysisByFolder(folderId);
+        return Result.ok(Map.of("taskId", taskId));
+    }
+
+    /**
+     * POST /api/agent/gap — 提交 Gap 分析异步任务（库内分析 + 外部验证）。
+     */
+    @PostMapping("/gap")
+    public Result<Map<String, String>> gap(@RequestBody @Valid GapRequest request) {
+        String taskId = asyncTaskService.submitGapAnalysis(request.getPaperIds());
+        return Result.ok(Map.of("taskId", taskId));
+    }
+
+    /**
+     * GET /api/agent/tasks — 查询最近的异步任务列表。
+     */
+    @GetMapping("/tasks")
+    public Result<List<AsyncTaskResult<?>>> listTasks(@RequestParam(required = false) Integer limit) {
+        return Result.ok(asyncTaskService.listRecent(limit));
+    }
+
+    /**
+     * GET /api/agent/task/{taskId} — 查询异步任务状态与结果。
+     */
+    @GetMapping("/task/{taskId}")
+    public Result<AsyncTaskResult<?>> getTask(@PathVariable String taskId) {
+        AsyncTaskResult<?> result = asyncTaskService.getTask(taskId);
+        if (result == null) {
+            return Result.error(404, "任务不存在");
+        }
         return Result.ok(result);
     }
 
     /**
-     * POST /api/agent/gap — Gap 分析（一站式：库内分析 + 外部验证）。
+     * POST /api/agent/task/{taskId}/cancel — 取消异步任务。
      */
-    @PostMapping("/gap")
-    public Result<Map<String, Object>> gap(@RequestBody @Valid GapRequest request) {
-        List<Long> paperIds = request.getPaperIds();
-        // Step 1: 库内分析
-        String gapReport = agentOrchestrator.analyzeGapsByPaperIds(paperIds);
-        // Step 2: 外部验证（对提取的 gap 逐一检索）
-        List<Map<String, Object>> verified = agentOrchestrator.verifyGaps(gapReport);
-        Map<String, Object> result = new java.util.LinkedHashMap<>();
-        result.put("gaps", gapReport);
-        result.put("verified", verified);
-        return Result.ok(result);
+    @PostMapping("/task/{taskId}/cancel")
+    public Result<Map<String, Object>> cancelTask(@PathVariable String taskId) {
+        boolean cancelled = asyncTaskService.cancelTask(taskId);
+        return Result.ok(Map.of("cancelled", cancelled));
     }
 
     /** POST /api/agent/gap/internal — Step 1: 库内 Gap 分析 */

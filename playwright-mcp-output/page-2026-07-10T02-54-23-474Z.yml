@@ -1,0 +1,114 @@
+- generic [ref=f2e4]:
+  - generic [ref=f2e5]:
+    - generic [ref=f2e6] [cursor=pointer]: Research Assistant
+    - menubar [ref=f2e7]:
+      - menuitem "看板" [ref=f2e8] [cursor=pointer]
+      - menuitem "文库管理" [ref=f2e9] [cursor=pointer]
+      - menuitem "文献检索" [ref=f2e10] [cursor=pointer]
+      - menuitem "论文分析" [ref=f2e11] [cursor=pointer]
+      - menuitem "研究空白" [ref=f2e12] [cursor=pointer]
+      - menuitem "任务中心" [ref=f2e13] [cursor=pointer]
+      - menuitem "阅读计划" [ref=f2e14] [cursor=pointer]
+      - menuitem "写作助手" [ref=f2e15] [cursor=pointer]
+    - button "切换暗色" [ref=f2e16] [cursor=pointer]:
+      - img [ref=f2e18]
+    - button [ref=f2e20] [cursor=pointer]:
+      - img [ref=f2e22]
+  - main [ref=f2e26]:
+    - generic [ref=f2e449]:
+      - generic [ref=f2e450]:
+        - generic [ref=f2e451]:
+          - heading "Research Assistant" [level=2] [ref=f2e452]
+          - paragraph [ref=f2e453]: 科研工作台 · 一眼掌握论文、计划与任务
+        - button "进入文库" [ref=f2e454] [cursor=pointer]:
+          - generic [ref=f2e455]: 进入文库
+      - generic [ref=f2e456]:
+        - generic [ref=f2e459]:
+          - generic [ref=f2e460]: 论文总数
+          - generic [ref=f2e462]: "4"
+        - generic [ref=f2e465]:
+          - generic [ref=f2e466]: 未读
+          - generic [ref=f2e468]: "4"
+        - generic [ref=f2e471]:
+          - generic [ref=f2e472]: 正读
+          - generic [ref=f2e474]: "0"
+        - generic [ref=f2e477]:
+          - generic [ref=f2e478]: 已读
+          - generic [ref=f2e480]: "0"
+        - generic [ref=f2e483]:
+          - generic [ref=f2e484]: 置顶
+          - generic [ref=f2e486]: "0"
+        - generic [ref=f2e489]:
+          - generic [ref=f2e490]: 本月新增
+          - generic [ref=f2e492]: "4"
+      - generic [ref=f2e493]:
+        - generic [ref=f2e495]:
+          - generic [ref=f2e497]:
+            - generic [ref=f2e498]: 阅读计划
+            - button "查看" [ref=f2e499] [cursor=pointer]:
+              - generic [ref=f2e500]: 查看
+          - generic [ref=f2e501]:
+            - generic [ref=f2e502]:
+              - generic [ref=f2e503]:
+                - generic [ref=f2e504]: "0"
+                - generic [ref=f2e505]: 已逾期
+              - generic [ref=f2e506]:
+                - generic [ref=f2e507]: "0"
+                - generic [ref=f2e508]: 3 天内到期
+              - generic [ref=f2e509]:
+                - generic [ref=f2e510]: "0"
+                - generic [ref=f2e511]: 本周待读
+            - generic [ref=f2e512]:
+              - generic [ref=f2e513]:
+                - text: 阅读进度
+                - generic [ref=f2e514]: 0%
+              - progressbar [ref=f2e515]
+        - generic [ref=f2e519]:
+          - generic [ref=f2e521]:
+            - generic [ref=f2e522]: 文件夹堆积 Top 2
+            - button "查看" [ref=f2e523] [cursor=pointer]:
+              - generic [ref=f2e524]: 查看
+          - generic [ref=f2e526]:
+            - generic [ref=f2e527]:
+              - generic [ref=f2e528]:
+                - generic "RSMA" [ref=f2e529]
+                - generic [ref=f2e530]: "3"
+              - progressbar [ref=f2e531]
+            - generic [ref=f2e535]:
+              - generic [ref=f2e536]:
+                - generic "AoI" [ref=f2e537]
+                - generic [ref=f2e538]: "0"
+              - progressbar [ref=f2e539]
+        - generic [ref=f2e543]:
+          - generic [ref=f2e545]:
+            - generic [ref=f2e546]: 任务中心
+            - button "查看" [ref=f2e547] [cursor=pointer]:
+              - generic [ref=f2e548]: 查看
+          - generic [ref=f2e549]:
+            - generic [ref=f2e550]:
+              - generic [ref=f2e551]: 待处理 0
+              - generic [ref=f2e552]: 进行中 0
+              - generic [ref=f2e553]: 已完成 2
+              - generic [ref=f2e554]: 失败 0
+              - generic [ref=f2e555]: 取消 0
+            - generic [ref=f2e556]:
+              - generic [ref=f2e557]: 最近任务
+              - generic [ref=f2e558]:
+                - generic [ref=f2e560]: 已完成
+                - generic [ref=f2e561]: 未命名任务
+                - generic [ref=f2e562]: 2026-07-07
+              - generic [ref=f2e563]:
+                - generic [ref=f2e565]: 已完成
+                - generic [ref=f2e566]: 未命名任务
+                - generic [ref=f2e567]: 2026-07-07
+      - generic [ref=f2e568]:
+        - generic [ref=f2e570]:
+          - generic [ref=f2e573]: 最近笔记
+          - generic [ref=f2e575]:
+            - img [ref=f2e577]
+            - paragraph [ref=f2e594]: 暂无笔记
+        - generic [ref=f2e596]:
+          - generic [ref=f2e599]: 最近批注
+          - generic [ref=f2e601]:
+            - img [ref=f2e603]
+            - paragraph [ref=f2e620]: 暂无批注
