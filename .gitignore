@@ -15,6 +15,9 @@ data/
 *.log
 *.pid
 
+# Claude session artifacts
+.claude/tmp/
+
 # MCP test artifacts
 .playwright-mcp/
 

@@ -12,6 +12,7 @@ import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.ReadingPlanItemMapper;
 import com.research.assistant.mapper.ReadingPlanMapper;
 import com.research.assistant.mapper.TagMapper;
+import com.research.assistant.service.TagService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -38,12 +39,15 @@ public class ReadingPlanService {
     private final ReadingPlanItemMapper itemMapper;
     private final PaperMapper paperMapper;
     private final TagMapper tagMapper;
+    private final TagService tagService;
 
-    public ReadingPlanService(ReadingPlanMapper planMapper, ReadingPlanItemMapper itemMapper, PaperMapper paperMapper, TagMapper tagMapper) {
+    public ReadingPlanService(ReadingPlanMapper planMapper, ReadingPlanItemMapper itemMapper, PaperMapper paperMapper,
+                              TagMapper tagMapper, TagService tagService) {
         this.planMapper = planMapper;
         this.itemMapper = itemMapper;
         this.paperMapper = paperMapper;
         this.tagMapper = tagMapper;
+        this.tagService = tagService;
     }
 
     /**
@@ -62,9 +66,18 @@ public class ReadingPlanService {
         return plans.stream().map(plan -> {
             ReadingPlanDto dto = toDto(plan);
             List<ReadingPlanItem> items = itemsByPlan.getOrDefault(plan.getId(), Collections.emptyList());
+            int done = 0;
+            int inProgress = 0;
+            for (ReadingPlanItem item : items) {
+                if ("DONE".equals(item.getStatus())) {
+                    done++;
+                } else if ("IN_PROGRESS".equals(item.getStatus())) {
+                    inProgress++;
+                }
+            }
             dto.setTotalItems(items.size());
-            dto.setDoneItems((int) items.stream().filter(i -> "DONE".equals(i.getStatus())).count());
-            dto.setInProgressItems((int) items.stream().filter(i -> "IN_PROGRESS".equals(i.getStatus())).count());
+            dto.setDoneItems(done);
+            dto.setInProgressItems(inProgress);
             return dto;
         }).toList();
     }
@@ -242,7 +255,7 @@ public class ReadingPlanService {
     }
 
     private List<String> paperTags(Long paperId) {
-        return tagMapper.selectByPaperId(paperId).stream()
+        return tagService.getTagsByPaperId(paperId).stream()
                 .map(com.research.assistant.entity.Tag::getName)
                 .toList();
     }

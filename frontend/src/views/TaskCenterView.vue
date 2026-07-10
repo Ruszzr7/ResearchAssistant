@@ -9,7 +9,7 @@
     </div>
 
     <el-alert
-      v-model="showIntro"
+      v-if="showIntro"
       title="任务中心说明"
       type="info"
       :closable="true"

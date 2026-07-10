@@ -66,8 +66,10 @@
           <el-table-column prop="paperTitle" label="论文" min-width="180" show-overflow-tooltip />
           <el-table-column label="标签" min-width="140">
             <template #default="{ row }">
-              <el-tag v-for="tag in (row.paperTags || [])" :key="tag" size="small" style="margin-right:4px">{{ tag }}</el-tag>
-              <span v-if="!(row.paperTags || []).length" style="color:var(--ra-text-tertiary);font-size:12px">—</span>
+              <template v-if="row.paperTags?.length">
+                <el-tag v-for="tag in row.paperTags" :key="tag" size="small" style="margin-right:4px">{{ tag }}</el-tag>
+              </template>
+              <span v-else style="color:var(--ra-text-tertiary);font-size:12px">—</span>
             </template>
           </el-table-column>
           <el-table-column label="截止日期" width="120">
