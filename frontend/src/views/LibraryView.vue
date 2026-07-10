@@ -170,6 +170,7 @@
           @analyze="paperId => goToAnalysis(paperId, 'read')"
           @info="showPaperInfo"
           @action="(cmd, paper) => handlePaperAction(cmd, paper)"
+          @open-pdf="openPaperPdf"
         />
       </div>
     </div>
@@ -1278,6 +1279,14 @@ function goToAnalysis(paperId, mode) {
 
 function showPaperInfo(paperId) {
   selectPaper(paperId)
+}
+
+async function openPaperPdf(row) {
+  if (!row.pdfPath) return
+  if (currentPaper.value?.id !== row.id) {
+    await selectPaper(row.id)
+  }
+  showPdfOverlay.value = true
 }
 
 async function handlePaperAction(cmd, paper) {

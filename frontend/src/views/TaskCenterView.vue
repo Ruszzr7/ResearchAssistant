@@ -19,7 +19,7 @@
       style="margin-bottom: 16px"
     />
 
-    <el-table :data="tasks" v-loading="loading" style="width: 100%" row-key="taskId">
+    <el-table :data="tasks" v-loading="loading" style="width: 100%" row-key="taskId" empty-text="暂无后台任务">
       <el-table-column prop="title" label="任务" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">
           <span class="task-title">{{ row.title || '未命名任务' }}</span>

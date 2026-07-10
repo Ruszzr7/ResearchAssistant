@@ -20,6 +20,7 @@ data/
 
 # MCP test artifacts
 .playwright-mcp/
+playwright-mcp-output/
 
 # OS
 .DS_Store

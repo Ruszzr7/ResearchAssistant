@@ -11,7 +11,7 @@
       </div>
       <div v-if="step >= 1" class="step-body">
         <div class="input-row">
-          <el-input v-model="userInput" placeholder="用自然语言描述你想研究的方向…例如：我想研究大规模MIMO系统中的资源分配优化问题"
+          <el-input v-model="userInput" placeholder="用自然语言描述你想研究的方向…"
             size="large" :disabled="step > 1 || extractLoading" @keyup.enter="startExtract" />
           <div class="action-col">
             <el-button type="primary" size="large" @click="extractLoading ? cancelExtractWithHint() : startExtract()"

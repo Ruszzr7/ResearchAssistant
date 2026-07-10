@@ -62,7 +62,7 @@
         </div>
 
         <div v-if="items.length === 0" class="empty-hint-large">计划为空，点击右上角添加论文</div>
-        <el-table v-else :data="items" style="width: 100%">
+        <el-table v-else :data="items" style="width: 100%" empty-text="暂无论文">
           <el-table-column prop="paperTitle" label="论文" min-width="180" show-overflow-tooltip />
           <el-table-column label="标签" min-width="140">
             <template #default="{ row }">
@@ -153,7 +153,7 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import {
   listReadingPlans,
   getReadingPlan,
@@ -164,6 +164,7 @@ import {
   updatePlanItem,
   deletePlanItem,
   getWeeklyReading,
+  getReminders,
 } from '@/api/readingPlan'
 import { listPapers } from '@/api/paper'
 
@@ -317,6 +318,26 @@ function statusText(s) {
   return '待读'
 }
 
+async function loadReminders() {
+  try {
+    const res = await getReminders()
+    const list = res.data || []
+    if (!list.length) return
+    const todayStr = new Date().toISOString().split('T')[0]
+    const overdue = list.filter(i => i.deadline && i.deadline < todayStr)
+    const soon = list.filter(i => !overdue.includes(i))
+    const parts = []
+    if (overdue.length) parts.push(`${overdue.length} 项已逾期`)
+    if (soon.length) parts.push(`${soon.length} 项将在 3 天内到期`)
+    ElNotification({
+      title: '阅读提醒',
+      message: parts.join('，'),
+      type: overdue.length ? 'warning' : 'info',
+      duration: 8000,
+    })
+  } catch (e) { /* ignore */ }
+}
+
 function planStatusClass(plan) {
   const total = plan.totalItems || 0
   if (!total) return 'status-empty'
@@ -329,6 +350,7 @@ onMounted(() => {
   loadPlans()
   loadWeekly()
   loadPapers()
+  loadReminders()
 })
 </script>
 

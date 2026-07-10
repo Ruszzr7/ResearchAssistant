@@ -6,7 +6,7 @@
     :columns="columns"
     :sort-config="sortConfig"
     :column-config="{ resizable: true }"
-    :row-config="{ isCurrent: true, isHover: true, keyField: 'id' }"
+    :row-config="{ isCurrent: false, isHover: true, keyField: 'id' }"
     :checkbox-config="checkboxConfig"
     :pager-config="pagerConfig"
     :empty-text="emptyText"
@@ -16,6 +16,8 @@
     @page-change="onPageChange"
     @checkbox-change="onCheckboxChange"
     @checkbox-all="onCheckboxAll"
+    @cell-dblclick="onCellDblclick"
+    @column-resizable-change="onColumnResizableChange"
   >
     <template #title_default="{ row }">
       <span class="cell-title" :title="row.title">{{ row.title }}</span>
@@ -73,7 +75,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 
 const props = defineProps({
   papers: { type: Array, default: () => [] },
@@ -95,7 +97,8 @@ const emit = defineEmits([
   'status-change',
   'analyze',
   'info',
-  'action'
+  'action',
+  'open-pdf'
 ])
 
 const statusOptions = [
@@ -128,17 +131,44 @@ const pagerConfig = computed(() => ({
 
 const emptyText = '暂无论文 — 点击左上角「+ 导入」添加第一篇论文'
 
-const columns = [
-  { type: 'checkbox', width: 40, fixed: 'left', align: 'center' },
-  { field: 'title', title: '标题', minWidth: 160, sortable: true, headerAlign: 'center', align: 'left', slots: { default: 'title_default' } },
-  { field: 'category', title: '类目', width: 80, headerAlign: 'center', align: 'left', slots: { default: 'category_default' } },
-  { field: 'tags', title: '标签', width: 130, headerAlign: 'center', align: 'left', slots: { default: 'tags_default' } },
-  { field: 'readingStatus', title: '状态', width: 80, headerAlign: 'center', align: 'left', slots: { default: 'status_default' } },
-  { field: 'source', title: '期刊/会议', width: 140, sortable: true, headerAlign: 'center', align: 'left', showOverflow: true },
-  { field: 'year', title: '出版年份', width: 90, sortable: true, headerAlign: 'center', align: 'left' },
-  { field: 'createdAt', title: '导入年份', width: 100, sortable: true, headerAlign: 'center', align: 'left', slots: { default: 'createdAt_default' } },
-  { field: 'actions', title: '操作', width: 150, fixed: 'right', headerAlign: 'center', align: 'left', slots: { default: 'actions_default' } }
-]
+const COLUMN_WIDTHS_KEY = 'paper-table-column-widths'
+
+const columns = ref([
+  { type: 'checkbox', width: 40, fixed: 'left', align: 'center', resizable: false },
+  { field: 'title', title: '标题', minWidth: 160, sortable: true, headerAlign: 'left', align: 'left', slots: { default: 'title_default' } },
+  { field: 'category', title: '类目', width: 80, headerAlign: 'left', align: 'left', slots: { default: 'category_default' } },
+  { field: 'tags', title: '标签', width: 130, headerAlign: 'left', align: 'left', slots: { default: 'tags_default' } },
+  { field: 'readingStatus', title: '状态', width: 80, headerAlign: 'left', align: 'left', slots: { default: 'status_default' } },
+  { field: 'source', title: '期刊/会议', width: 140, sortable: true, headerAlign: 'left', align: 'left', showOverflow: true },
+  { field: 'year', title: '出版年份', width: 90, sortable: true, headerAlign: 'left', align: 'left' },
+  { field: 'createdAt', title: '导入年份', width: 100, sortable: true, headerAlign: 'left', align: 'left', resizable: false, slots: { default: 'createdAt_default' } },
+  { field: 'actions', title: '操作', width: 150, headerAlign: 'center', align: 'center', resizable: false, slots: { default: 'actions_default' } }
+])
+
+function restoreColumnWidths() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLUMN_WIDTHS_KEY) || '{}')
+    columns.value = columns.value.map(col => {
+      if (col.field && saved[col.field] != null) {
+        return { ...col, width: saved[col.field] }
+      }
+      return col
+    })
+  } catch (e) { /* ignore */ }
+}
+
+function onColumnResizableChange({ resizeColumn, resizeWidth }) {
+  if (!resizeColumn?.field || resizeWidth == null) return
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLUMN_WIDTHS_KEY) || '{}')
+    saved[resizeColumn.field] = resizeWidth
+    localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(saved))
+  } catch (e) { /* ignore */ }
+}
+
+onMounted(() => {
+  restoreColumnWidths()
+})
 
 function rowClassName({ row }) {
   const classes = []
@@ -173,6 +203,12 @@ function onCheckboxAll({ checked, records }) {
     else set.delete(row.id)
   }
   emit('selection-change', [...set])
+}
+
+function onCellDblclick({ row }) {
+  if (row.pdfPath) {
+    emit('open-pdf', row)
+  }
 }
 
 function formatDate(d) {
@@ -229,11 +265,12 @@ function categoryLabel(paper) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 4px;
 }
-.action-more {
+.action-btns .el-button {
   padding: 0 4px !important;
   min-width: auto !important;
+  margin-left: 0 !important;
 }
 .status-dot {
   display: inline-block;
@@ -246,12 +283,11 @@ function categoryLabel(paper) {
 .status-reading { background: #f56c6c; }
 .status-read { background: #67c23a; }
 
-/* 斑马纹：白 / 浅灰交替 */
-:deep(.vxe-body--row.row--stripe .vxe-body--column) { background-color: #fafbfc; }
-html.dark :deep(.vxe-body--row.row--stripe .vxe-body--column) { background-color: var(--ra-hover-bg); }
+/* 斑马纹：浅灰交替，暗色模式下用不同深度的黑灰 */
+:deep(.vxe-body--row.row--stripe .vxe-body--column) { background-color: #f0f2f5 !important; }
 
 /* 当前查看行高亮 */
-:deep(.vxe-body--row.row-active .vxe-body--column) { background-color: var(--ra-active-bg) !important; }
+:deep(.vxe-body--row.row-active .vxe-body--column) { background-color: #ecf5ff !important; }
 
 html.dark .paper-table-vxe .vxe-body--column,
 html.dark .paper-table-vxe .vxe-header--column { border-color: var(--ra-border); }
@@ -262,4 +298,10 @@ html.dark .paper-table-vxe .vxe-table--body-wrapper { background-color: var(--ra
 /* 非 scoped：vxe-table 渲染的行不在组件作用域内，需要全局选择器 */
 .paper-table-vxe .vxe-body--row.row-pinned .vxe-body--column:first-child { border-left: 3px solid #0958a3 !important; }
 html.dark .paper-table-vxe .vxe-body--row.row-pinned .vxe-body--column:first-child { border-left-color: #79bbff !important; }
+
+/* 暗色模式：非斑马行用面板底色，斑马行用略深的颜色，高亮行用中性灰（避免深蓝） */
+html.dark .paper-table-vxe .vxe-body--row .vxe-body--column { background-color: #232428 !important; }
+html.dark .paper-table-vxe .vxe-body--row.row--stripe .vxe-body--column { background-color: #1e1f23 !important; }
+html.dark .paper-table-vxe .vxe-body--row.row-active .vxe-body--column { background-color: #2f3136 !important; }
+html.dark .paper-table-vxe .vxe-body--row.row--hover:not(.row-active) .vxe-body--column { background-color: #2a2c31 !important; }
 </style>

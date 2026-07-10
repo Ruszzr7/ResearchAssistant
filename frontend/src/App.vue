@@ -18,16 +18,18 @@
           <el-menu-item index="/reading-plans" title="阅读计划 (Ctrl+7)">阅读计划</el-menu-item>
           <el-menu-item index="/writing" title="写作助手 (Ctrl+8)">写作助手</el-menu-item>
         </el-menu>
-        <el-button text class="theme-btn" @click="toggleTheme" :title="dark.dark ? '切换亮色' : '切换暗色'">
-          <svg v-if="dark.dark.value" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.414 1.414M11.536 11.536l1.414 1.414M3.05 12.95l1.414-1.414M11.536 4.464l1.414-1.414"/></svg>
-          <svg v-else width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 1.278a5.93 5.93 0 0 0 0 13.444 6 6 0 1 1 0-13.444z"/></svg>
+        <div class="header-actions">
+          <el-button text class="theme-btn" @click="toggleTheme" :title="dark.dark ? '切换亮色' : '切换暗色'">
+          <el-icon v-if="dark.dark" :size="18"><Moon /></el-icon>
+          <el-icon v-else :size="18"><Sunny /></el-icon>
         </el-button>
         <el-button text class="settings-btn" @click="showSettings = true" title="设置">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z"/><path d="M14.46 6.54l-1.08-.42a5.1 5.1 0 00-.56-1.36l.42-1.08a.5.5 0 00-.12-.62l-.92-.92a.5.5 0 00-.62-.12l-1.08.42a5.1 5.1 0 00-1.36-.56L8.72 1.54a.5.5 0 00-.46-.34h-1.3a.5.5 0 00-.46.34l-.42 1.08a5.1 5.1 0 00-1.36.56l-1.08-.42a.5.5 0 00-.62.12l-.92.92a.5.5 0 00-.12.62l.42 1.08a5.1 5.1 0 00-.56 1.36l-1.08.42a.5.5 0 00-.34.46v1.3a.5.5 0 00.34.46l1.08.42c.1.48.3.94.56 1.36l-.42 1.08a.5.5 0 00.12.62l.92.92a.5.5 0 00.62.12l1.08-.42c.42.26.88.46 1.36.56l.42 1.08a.5.5 0 00.46.34h1.3a.5.5 0 00.46-.34l.42-1.08c.48-.1.94-.3 1.36-.56l1.08.42a.5.5 0 00.62-.12l.92-.92a.5.5 0 00.12-.62l-.42-1.08c.26-.42.46-.88.56-1.36l1.08-.42a.5.5 0 00.34-.46v-1.3a.5.5 0 00-.34-.46z"/></svg>
         </el-button>
         <el-button text class="help-btn" @click="showShortcuts = true" title="快捷键帮助 (?)">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M6 6a2 2 0 0 1 2-2 2 2 0 0 1 2 2c0 1.5-2 2-2 3.5"/><path d="M8 12h.01"/></svg>
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M6 6a2 2 0 0 1 2-2 2 2 0 0 1 2 2c0 1.5-2 2-2 3.5"/><circle cx="8" cy="11.5" r="0.8" fill="currentColor" stroke="none"/></svg>
         </el-button>
+        </div>
       </el-header>
       <div class="app-divider"></div>
       <el-main>
@@ -83,8 +85,8 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api'
-import { ElMessage, ElNotification } from 'element-plus'
-import { getReminders } from '@/api/readingPlan'
+import { ElMessage } from 'element-plus'
+import { Moon, Sunny } from '@element-plus/icons-vue'
 import { useTheme } from '@/stores/themeStore'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import CommandPalette from '@/components/CommandPalette.vue'
@@ -171,27 +173,6 @@ async function saveAndClose() {
   }
 }
 
-async function loadReminders() {
-  try {
-    const res = await getReminders()
-    const list = res.data || []
-    if (!list.length) return
-    const todayStr = new Date().toISOString().split('T')[0]
-    const overdue = list.filter(i => i.deadline && i.deadline < todayStr)
-    const soon = list.filter(i => !overdue.includes(i))
-    const parts = []
-    if (overdue.length) parts.push(`${overdue.length} 项已逾期`)
-    if (soon.length) parts.push(`${soon.length} 项将在 3 天内到期`)
-    ElNotification({
-      title: '阅读提醒',
-      message: parts.join('，'),
-      type: overdue.length ? 'warning' : 'info',
-      duration: 8000,
-      onClick: () => { window.location.hash = '#/reading-plans' }
-    })
-  } catch (e) { /* ignore */ }
-}
-
 const routeCommands = [
   { id: 'dashboard', title: '打开看板', subtitle: '首页数据面板', route: '/', shortcut: 'Ctrl+1', keywords: ['看板', 'dashboard', '首页'] },
   { id: 'library', title: '打开文库管理', subtitle: '论文库与文件夹', route: '/library', shortcut: 'Ctrl+2', keywords: ['文库', 'library', '论文'] },
@@ -241,7 +222,6 @@ useKeyboardShortcuts([
 
 onMounted(() => {
   loadSettings()
-  loadReminders()
 })
 </script>
 
@@ -290,8 +270,15 @@ html.dark .el-tag--primary { --el-tag-bg-color: #1e3348; --el-tag-text-color: #7
 
 /* vxe-table 暗色模式适配 */
 html.dark .vxe-table { color: var(--ra-text); }
-html.dark .vxe-table .vxe-header--column { background-color: var(--ra-header-bg); border-color: var(--ra-border); }
+html.dark .vxe-table .vxe-header--column { background-color: var(--ra-header-bg); border-color: var(--ra-border); color: var(--ra-text) !important; }
+html.dark .vxe-table .vxe-sort--asc-btn,
+html.dark .vxe-table .vxe-sort--desc-btn { color: var(--ra-text-tertiary) !important; }
+html.dark .vxe-table .vxe-sort--asc-btn.sort--active,
+html.dark .vxe-table .vxe-sort--desc-btn.sort--active { color: var(--ra-text-tertiary) !important; }
 html.dark .vxe-table .vxe-body--column { background-color: var(--ra-panel-bg); border-color: var(--ra-border-light); }
+html.dark .vxe-table .vxe-table--layout-wrapper,
+html.dark .vxe-table .vxe-table--header-wrapper,
+html.dark .vxe-table .vxe-table--body-wrapper { background-color: var(--ra-panel-bg) !important; }
 html.dark .vxe-table .vxe-body--row.row--hover .vxe-body--column { background-color: var(--ra-hover-bg); }
 html.dark .vxe-table .vxe-body--row.row--current .vxe-body--column { background-color: var(--ra-active-bg); }
 html.dark .vxe-pager { background-color: transparent; color: var(--ra-text-secondary); }
@@ -322,9 +309,9 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
 .app-title {
   font-size: 18px;
   font-weight: 600;
-  margin-right: 30px;
+  margin-right: 20px;
   white-space: nowrap;
-  width: 240px;
+  width: 200px;
   flex-shrink: 0;
   cursor: pointer;
   user-select: none;
@@ -336,10 +323,20 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
   border-bottom: none !important;
   min-width: 0;
 }
+html.dark .app-nav.el-menu,
+html.dark .app-nav.el-menu--horizontal {
+  background-color: var(--ra-header-bg) !important;
+}
+html.dark .app-nav .el-menu-item {
+  background-color: transparent !important;
+}
+html.dark .app-nav .el-menu-item.is-active {
+  background-color: var(--ra-active-bg) !important;
+}
 .app-nav .el-menu-item {
   font-size: 14px;
   font-weight: 600;
-  padding: 0 12px;
+  padding: 0 10px;
 }
 .app-divider {
   height: 1px;
@@ -353,24 +350,37 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
   background: var(--ra-bg);
 }
 .theme-btn {
-  margin-left: auto;
   padding: 6px 8px !important;
   min-width: auto !important;
   color: var(--ra-text-secondary);
+  overflow: visible !important;
 }
 .theme-btn:hover { color: var(--ra-link); }
 .settings-btn {
   padding: 6px 8px !important;
   min-width: auto !important;
   color: var(--ra-text-secondary);
+  overflow: visible !important;
 }
 .settings-btn:hover { color: var(--ra-link); }
 .help-btn {
   padding: 6px 8px !important;
   min-width: auto !important;
   color: var(--ra-text-secondary);
+  overflow: visible !important;
 }
 .help-btn:hover { color: var(--ra-link); }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 12px;
+}
+.header-actions .el-button > svg {
+  display: block;
+}
 .test-result {
   padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-top: 8px;
 }
