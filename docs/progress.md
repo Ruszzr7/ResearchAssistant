@@ -330,17 +330,6 @@
 - 所有 AI 操作取消后弹出 `ElMessage.info('已取消')`。
 - 前端 `npm run build` 通过，Console 无新增 error/warning。
 
-**本轮 /simplify 已应用项**：
-- `LibraryView.vue`：`saveTagsForPaper` 改用 `filter/map`；`initLibrary` 三个加载并行；`triggerAiAnalysis` 完成后刷新并行。
-- `AnalysisView.vue`：SSE 每 part 只判断一次 event 类型；内联 markdown 转 HTML 抽离到 `frontend/src/utils/markdown.js`。
-- `GapView.vue`：`parseGapsFromMarkdown` 用 `Map` 替代循环内线性查找；`buildGapReportText` 复用 `levelMeta`。
-
-**本轮 /simplify 跳过项**（涉及较大重构或行为变更）：
-- 用 Pinia 替换 `globalTaskStore`：项目已移除 Pinia，该建议不适用。
-- `useGlobalTask` 与 `useCancellableTask` 提取共享核心 runner、跨页面任务闭包泄漏：需要改动任务抽象和 retry 机制，建议单独迭代。
-- 各视图 `restoreSession/saveSession` 抽取 `useSession` composable、SSE 抽取通用 composable、`categoryLabel` / `truncate` 等通用化：可在后续统一封装。
-- `SettingsView` 与 `App.vue` 设置逻辑、`SearchView` 与 `LibraryView` 文件夹推荐逻辑重复：可提取共享 composable，后续处理。
-
 **文件清单**：
 
 - 修改：`frontend/src/views/LibraryView.vue`、`frontend/src/views/AnalysisView.vue`、`frontend/src/views/GapView.vue`、`frontend/src/views/SearchView.vue`
@@ -2608,19 +2597,6 @@ ALTER TABLE reading_plan_item ADD COLUMN notes TEXT COMMENT '阅读备注';
   - 阅读计划页：计划卡片左侧出现灰色状态灯条；打开计划后条目表格包含「标签」「备注」列；添加论文弹窗包含「备注」输入框。
   - 任务中心页：顶部说明可见；终态任务显示「删除」按钮；点击删除并确认后该行消失，列表进入空状态。
   - 文库表格：斑马纹正常、置顶行左侧深蓝竖条可见、点击行不展开详情、点击「信息」按钮展开详情。
-
-**/simplify 应用项**：
-- `TaskCenterView.vue`：`el-alert` 改用 `v-if` 控制显示，避免无意义的 `v-model` 双向绑定。
-- `ReadingPlanView.vue`：标签列模板用 `v-if="row.paperTags?.length"` 消除重复的空数组回退。
-- `ReadingPlanService.java`：
-  - `listPlans()` 计数改为单次循环，避免对同一列表两次 `stream().filter()`。
-  - 单篇论文标签查询改用注入的 `TagService.getTagsByPaperId()`，不再在 `ReadingPlanService` 内直接调用 `TagMapper`。
-- 清理仓库中误跟踪的 `.claude/tmp/simplify-diff.patch`（112KB 无用产物）。
-
-**/simplify 跳过项**：
-- 任务删除时 `workflow_step` 清理：当前用 try/catch 兼容旧库未建表场景；改为外键级联或独立服务需要 schema 变更，保持现状。
-- 阅读计划列表聚合：当前在 Java 端批量统计；推到数据库 `GROUP BY` 可进一步优化，但会增加 Mapper 复杂度，MVP 保持现状。
-- `ReadingPlanService.enrichAndMap()` 中标题与标签的批量查询：改为并行或 JOIN 收益有限，保持顺序执行。
 
 **文件清单**：
 
