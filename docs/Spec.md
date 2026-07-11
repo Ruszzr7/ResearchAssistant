@@ -1,213 +1,103 @@
-# 项目规格说明（Spec）
+# Research Assistant 项目规格
 
-本文件记录 Research Assistant 的产品需求、技术决策、接口规范与未来规划。
+## 1. 定位
 
-## 一、产品定位
+Research Assistant 是一个本地运行的 AI 科研助手，面向 CS / AI / EE 研究生。目标不是替代 Zotero，而是把文献管理、论文理解、研究空白验证、阅读和写作串成一条可追踪的工作流。
 
-本地运行的 AI 驱动工科科研 Agent，面向工科研究生（CS / AI / EE），帮助进行：
+设计原则：AI 先解释计划，关键动作由用户确认；长任务可查看阶段、取消、重试；外部服务失败时尽量降级，不阻断基础文库功能。
 
-- 文献智能检索与发现
-- 论文理解、对比与分析
-- 研究领域 Gap 识别
-- 创新点推演与辅助建模
+## 2. 系统边界
 
-**不仅仅是**文献管理工具（如 Zotero），而是基于 AI 的智能化科研助手，文献检索与管理只是基础。
-
-**设计原则**：每一步执行前，先让用户确认 Agent 的理解是否正确。Agent 不做黑箱操作，用户始终可控可修正。
-
----
-
-## 二、目标用户与领域
-
-| 维度 | 决策 |
-|------|------|
-| **主用户** | 工科研究生（博士、硕士） |
-| **次用户** | 科研人员（博后、青年教师） |
-| **聚焦领域** | CS、AI、EE 等工科 |
-
-> CS/AI 领域以 CCF 会议为主，EE 领域以中科院分区期刊为主。
-
----
-
-## 三、技术栈
-
-| 层 | 选型 | 说明 |
-|------|------|------|
-| **前端框架** | Vue 3 | JavaScript 渐进式框架 |
-| **UI 组件库** | Element Plus | Vue 3 生态组件库 |
-| **状态管理** | Pinia | Vue 3 官方推荐 |
-| **前端构建** | Vite | 替代 Webpack，更快更轻 |
-| **后端框架** | Spring Boot 3.x | Java 生态主流后端框架 |
-| **Java 版本** | Java 17 | LTS，Spring Boot 3.x 最低要求 |
-| **构建工具** | Maven | 管理依赖和打包 |
-| **数据库操作** | MyBatis Plus | 对象与 MySQL 映射层 |
-| **数据库** | MySQL 8.0 | 结构化数据存储 |
-| **缓存** | Redis | 加速高频查询、存储用户会话 |
-| **大模型 API** | DeepSeek（用户自配） | 提供对话、分析等 AI 能力 |
-| **PDF 文本提取** | Apache PDFBox | Java 原生 PDF 解析 |
-
-> **设计原则**：MVP 阶段尽量不引入额外中间件，降低学习成本。
-
----
-
-## 四、核心功能模块
-
-### 1. 论文库
-
-论文库是所有上层功能的数据基础。
-
-**每篇论文存储：**
-- 基础元数据：标题、作者（标记一作/通信）、年份、来源、DOI、摘要、关键词
-- 文件信息：本地 PDF 路径、获取方式（OA 下载 / 浏览器下载 / 手动上传）
-- 用户组织：所属文件夹、自定义标签、阅读状态（未读 / 略读 / 精读 / 已归档）、置顶
-- Agent 生成：建议标签、内容概要、处理状态
-
-**文件夹**：用户创建管理，支持嵌套，允许暂不分类。
-
-**入库方式**：
-
-| 方式 | 触发场景 | 元数据提取 | 文件夹选择 |
-|------|---------|-----------|-----------|
-| 检索入库 | 搜索结果 → 勾选 → 下载 | 自动，来自搜索结果 | 用户选择 / Agent 推荐 |
-| 手动上传 | 输入 DOI / 拖入 PDF | 自动，DOI 查询 Crossref + LLM 提取 | 用户选择 / Agent 推荐 |
-
-**Agent 异步处理**（入库后自动执行，不阻塞用户）：
-1. PDF 文本提取
-2. 元数据补全
-3. 建议标签生成
-
-入库后论文立即可见，处理中显示状态，处理完成后自动刷新。
-
-### 2. 文献检索
-
-- 用户用自然语言描述研究方向
-- Agent 提炼检索要素并让用户确认
-- 执行精选搜索，返回 Top 10–15 篇最相关论文
-- 用户勾选相关论文入库
-- Agent 提出扩展策略（Cited by / Related / 作者追踪）并执行
-
-### 3. 论文分析
-
-- **精读**：Agent 自适应领域，流式输出结构化分析报告，可追问
-- **对比**：勾选 2–5 篇，Agent 生成对比表，支持自定义维度
-- **推荐**：纯本地匹配（同作者 / 同关键词 / 同文件夹），标注匹配原因
-
-### 4. 研究空白（Gap）
-
-- 用户勾选一组论文代表方向现状
-- 库内分析找出未被覆盖的组合/方向
-- 针对每个潜在 Gap 做外部验证（arXiv 搜索）
-- 输出 Gap 报告，标注 🔴🟡🟢 验证等级
-
-### 5. 系统设置
-
-- API Key / 模型 / Base URL 配置
-
----
-
-## 五、用户界面设计
-
-### 全局布局
-
-顶部导航，四个一级页面 + 设置入口。默认首页为论文库。
-
-```
-┌─────────────────────────────────────────────────────┐
-│  Research Assistant       论文库 │ 检索 │ 分析 │ Gap │ ⚙ │
-├─────────────────────────────────────────────────────┤
-│                    主内容区（路由切换）                  │
-└─────────────────────────────────────────────────────┘
+```text
+Vue 3 + Vite
+        │ REST / SSE
+Spring Boot
+  ├─ 论文、文件夹、标签、阅读、笔记、写作业务
+  ├─ Skill Registry / Planner / Workflow Engine
+  ├─ LangChain4j（OpenAI 兼容模型）
+  ├─ 多源检索（arXiv、Crossref、Semantic Scholar、OpenAlex、IEEE、ACM）
+  └─ RAG（MySQL 分片 + 内存向量，或 Qdrant）
+        │
+MySQL / 本地 PDF / 可选 Qdrant
 ```
 
-**通用交互规范**：
+后端负责编排与持久化，不训练模型。需要复杂并行、条件分支、补偿或分布式调度时，再评估 Temporal / Camunda 等工作流引擎。
 
-- 所有 Agent 生成内容流式输出
-- Agent 关键决策步展示确认界面
-- 请求进行中显示加载状态
-- 首次启动论文库为空时显示引导
+## 3. 技术栈
 
-### 页面 1：论文库
+| 层 | 当前实现 |
+|---|---|
+| 前端 | Vue 3、Vite、Element Plus、vxe-table、PDF.js |
+| 后端 | Java 17、Spring Boot 3.2.6、Maven、MyBatis Plus |
+| 数据 | MySQL 8；手写 `schema.sql` 和版本升级脚本 |
+| AI | LangChain4j 1.0；OpenAI 兼容 Chat / Embedding API |
+| PDF | PDFBox；可选 Marker / MinerU / Grobid 外部命令 |
+| 向量 | 默认内存存储，可切换 Qdrant；MySQL 保存分片元数据 |
 
-三栏布局：文件夹树 | 论文列表 | 详情面板。
+当前没有 Redis 和 Pinia 运行依赖。异步任务使用 Spring 线程池，状态、步骤和结果写入 MySQL。
 
-- 点击文件夹 / 标签 / 状态 → 过滤论文列表
-- 点击论文行 → 右侧展开详情面板
-- 表格列宽可拖动
-- 论文可置顶，置顶行置灰并排在最前
-- 点击 [精读]/[对比]/[推荐] → 携带当前论文跳转分析页
+## 4. 已实现模块
 
-### 页面 2：文献检索
+### 4.1 文库与阅读
 
-对话式逐步展开：用户输入 → Agent 提炼确认 → 搜索结果 → 扩展策略 → 扩展结果。
+- 文件夹树、标签、多条件分页筛选、排序、置顶、批量移动/删除。
+- PDF 上传、浏览器预览、DOI / arXiv 元数据补全、文本/公式/图表提取。
+- PDF.js 阅读器支持高亮、下划线、便签、手写圈注、AI 批注和笔记双向链接。
+- 阅读状态、页码、阅读时长、阅读计划、本周清单和逾期提醒。
 
-### 页面 3：论文分析
+### 4.2 AI 与检索
 
-左侧论文选择区，右侧分析主区域，底部追问区。
+- 论文结构化精读、对比、追问和研究主题相关度评分。
+- 库内 Gap 分析、外部来源验证、引用网络扩展和时间加权。
+- 多源检索、去重、排序、引用网络扩展和用户确认后批量入库。
+- 论文分析、摘要、方法、数据集、实验和 PDF 分片可生成 embedding；问答、推荐和 Gap 验证优先走 RAG，可选 LLM 重排序。
 
-### 页面 4：Gap 分析
+### 4.3 Agent 编排
 
-左侧论文勾选区，右侧 Gap 报告区，底部追问区。
+- Skill Registry：原子能力统一注册、描述和测试。
+- Planner + PlanExecutor：将自然语言目标转换为顺序 Skill 计划。
+- Workflow Engine：`paper-import`、`literature-survey`、`gap-research`。
+- 支持异步任务、阶段提示、持久化步骤、失败点重试、取消和 `PENDING_USER` 人机确认。
 
----
+### 4.4 写作与交互
 
-## 六、API 接口规范
+- 写作项目、论文关联、阅读笔记引用。
+- 大纲生成、Related Work 生成、引用位置建议与段落冲突检查。
+- 数据看板、暗色模式、全局快捷键和 Command Palette。
 
-### RESTful 命名
+## 5. 主要接口分组
 
-| HTTP 方法 | 含义 | 示例 |
-|:---:|------|------|
-| `GET` | 读取 | `GET /papers` |
-| `POST` | 创建 / 执行动作 | `POST /papers` |
-| `PUT` | 更新 | `PUT /papers/5` |
-| `DELETE` | 删除 | `DELETE /papers/5` |
+| 分组 | 代表接口 |
+|---|---|
+| 文库 | `/api/papers`、`/api/folders`、`/api/tags` |
+| 阅读 | `/api/papers/{id}/reading-progress`、`/api/reading-plans` |
+| Agent | `/api/agent/process`、`/api/agent/compare`、`/api/agent/gap`、`/api/agent/chat` |
+| 工作流 | `/api/agent/workflow/{key}`、`/api/agent/workflow/{taskId}/confirm` |
+| 任务 | `/api/agent/tasks`、`/api/agent/task/{taskId}/cancel` |
+| 阅读批注 | `/api/papers/{paperId}/annotations`、`/api/papers/{paperId}/notes` |
+| 写作 | `/api/writing/projects`、`/api/writing/outline`、`/api/writing/related-work` |
+| 设置 | `/api/settings`、`/api/settings/test` |
 
-### 主要接口
+统一响应格式为 `{ code, message, data }`；长耗时 AI 操作优先返回任务 ID，再由前端轮询任务状态或使用 SSE。
 
-| 资源 | 接口 | 说明 |
-|------|------|------|
-| 文件夹 | `GET /folders` | 获取文件夹树 |
-| | `POST /folders` | 新建文件夹 |
-| | `PUT /folders/:id` | 重命名/移动 |
-| | `DELETE /folders/:id` | 删除 |
-| 论文 | `GET /papers` | 分页筛选查询 |
-| | `GET /papers/:id` | 单篇详情 |
-| | `POST /papers/upload` | 上传 PDF 并创建 |
-| | `PUT /papers/:id` | 编辑论文 |
-| | `POST /papers/:id/pin` | 切换置顶 |
-| | `POST /papers/batch/move` | 批量移动 |
-| | `POST /papers/batch/delete` | 批量删除 |
-| Agent | `POST /agent/process/:id` | 触发 AI 分析 |
-| | `GET /agent/process/:id/stream` | 精读 SSE 流 |
-| | `POST /agent/compare` | 对比分析 |
-| | `POST /agent/gap` | Gap 分析 |
-| | `POST /agent/search` | arXiv 检索 |
-| 设置 | `GET /settings/:key` | 读取配置 |
-| | `PUT /settings/:key` | 更新配置 |
+## 6. 数据与安全约定
 
----
+- `schema.sql` 是新环境的完整建库脚本；`schema-upgrade-*.sql` 用于已有库升级。
+- PDF 存放在 `app.storage.pdf-dir`，默认 `./data/papers`。
+- API Key 支持 `RA_API_KEY` 等环境变量覆盖；配置 `RA_MASTER_KEY` 后使用 AES-GCM 加密保存。
+- 测试使用 `test` profile 的 H2 内存库，不得依赖开发库中的论文、任务或阅读计划数据。
 
-## 七、未来需求
+## 7. 当前待办
 
-1. **PDF 批注与 AI 辅助批注**
-   - 在 PDF 预览器中支持用户手动批注（高亮、下划线、便签、手写圈注等）。
-   - 支持调用 LLM 对 PDF 内容进行自动批注，例如标记核心方法、创新点、实验结论、潜在问题等。
-   - 批注数据持久化到数据库，支持按论文查看与导出。
+1. 多模型 fallback、prompt 版本化、结构化输出校验和 20–50 篇论文 eval 集。
+2. 统一数据库迁移工具，替代逐步累积的手写升级脚本。
+3. 将异步执行从进程内线程池演进为可重试、可限流、可观测的任务队列。
+4. 拆分超大前端页面，优化首屏包体积和公共 composable。
+5. 增加 Docker 一键部署、接口契约测试和 Micrometer 指标。
 
-2. **项目打包与分发部署**
-   - 当前已提供 `scripts/start-all.sh` 与 `scripts/start-all.bat`，自动探测本机 JDK、MySQL 位置并一键启动，降低本地开发启动成本。
-   - 长期目标：将前端构建产物嵌入后端，由 Spring Boot 统一提供静态资源；使用 Docker Compose 编排 MySQL 与后端服务，实现一键部署。
-   - 目标：他人拉取项目后，仅需安装 Docker Desktop 并执行容器编排命令即可运行。
+## 8. 文档维护
 
-3. **向量检索与语义搜索**
-   - 对论文摘要、核心贡献、方法概述生成向量嵌入。
-   - 支持自然语言语义搜索库内论文。
-
-4. **引用关系图谱**
-   - 基于 DOI / arXiv 元数据构建论文引用网络。
-   - 可视化展示研究领域演进与核心工作。
-
-## 八、文档维护规范
-
-- `docs/Spec.md`：记录产品需求、技术决策、接口规范与未来规划。技术细节与功能设计优先写在此处，不在 `CLAUDE.md` 中重复。
-- `docs/progress.md`：**只记录实质性功能构建与架构演进**，例如新增模块、核心功能完成、重要 Bug 修复、数据模型变更等。日常代码清理、`/simplify` 优化、纯重构、文档格式调整等不必单独记入进度；如这些工作伴随功能阶段发生，可在该阶段下简要提及，但不应占用独立阶段。
-- `docs/knowledge.md`：记录从实践中总结的知识点、踩坑经验与最佳实践，用于后续系统复习。
+- `Spec.md`：只保留当前产品边界、架构和接口约定。
+- `progress.md`：只记录阶段、日期、关键交付和验证结果。
+- `knowledge.md`：只保留可复用的设计决策、踩坑和排查方法。
+- 详细历史 diff 以 Git 为准，不在文档中重复保存。

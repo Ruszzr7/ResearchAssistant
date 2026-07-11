@@ -5,6 +5,9 @@ import com.research.assistant.mapper.SettingsMapper;
 import com.research.assistant.service.Encryptor;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.SettingsService;
+import com.research.assistant.service.SettingsChangedEvent;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
@@ -12,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Settings 服务实现。
@@ -36,14 +40,25 @@ public class SettingsServiceImpl implements SettingsService {
     private final LLMService llmService;
     private final Encryptor encryptor;
     private final Environment environment;
+    private final ApplicationEventPublisher eventPublisher;
+    private final Map<String, String> valueCache = new ConcurrentHashMap<>();
 
     /** @Lazy 打破与 LLMServiceImpl 之间的循环依赖 */
+    @Autowired
     public SettingsServiceImpl(SettingsMapper settingsMapper, @Lazy LLMService llmService,
-                               Encryptor encryptor, Environment environment) {
+                               Encryptor encryptor, Environment environment,
+                               ApplicationEventPublisher eventPublisher) {
         this.settingsMapper = settingsMapper;
         this.llmService = llmService;
         this.encryptor = encryptor;
         this.environment = environment;
+        this.eventPublisher = eventPublisher;
+    }
+
+    /** 保留纯单元测试使用的旧构造器。 */
+    public SettingsServiceImpl(SettingsMapper settingsMapper, LLMService llmService,
+                               Encryptor encryptor, Environment environment) {
+        this(settingsMapper, llmService, encryptor, environment, event -> { });
     }
 
     @Override
@@ -60,9 +75,14 @@ public class SettingsServiceImpl implements SettingsService {
         String env = environmentOverride(keyName);
         if (env != null) return env;
 
+        String cached = valueCache.get(keyName);
+        if (cached != null) return cached;
+
         Settings s = settingsMapper.selectByKey(keyName);
         if (s == null) return null;
-        return decryptForDisplay(keyName, s.getValue());
+        String value = decryptForDisplay(keyName, s.getValue());
+        if (value != null) valueCache.put(keyName, value);
+        return value;
     }
 
     @Override
@@ -78,7 +98,9 @@ public class SettingsServiceImpl implements SettingsService {
             } else {
                 settingsMapper.insert(s);
             }
+            valueCache.remove(s.getKeyName());
         }
+        eventPublisher.publishEvent(new SettingsChangedEvent(this));
     }
 
     @Override

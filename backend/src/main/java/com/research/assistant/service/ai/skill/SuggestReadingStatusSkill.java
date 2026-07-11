@@ -8,6 +8,7 @@ import com.research.assistant.service.rag.RagRetrievalService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.Map;
 
@@ -29,7 +30,7 @@ public class SuggestReadingStatusSkill implements Skill<Long, Map<String, Object
     private final RagRetrievalService ragRetrievalService;
 
     public SuggestReadingStatusSkill(PaperMapper paperMapper,
-                                     ResearchToolAgent researchToolAgent,
+                                     @Lazy ResearchToolAgent researchToolAgent,
                                      RecommendationCache recommendationCache,
                                      RagRetrievalService ragRetrievalService) {
         this.paperMapper = paperMapper;

@@ -6,9 +6,7 @@ import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
-import VXETable from 'vxe-table'
 import VxeUI from 'vxe-pc-ui'
-import 'vxe-table/lib/style.css'
 import 'vxe-pc-ui/lib/style.css'
 import App from './App.vue'
 import router from './router'
@@ -18,5 +16,4 @@ const app = createApp(App)
 app.use(router)           // 页面路由
 app.use(ElementPlus, { locale: zhCn })  // UI 组件库（中文默认文案）
 app.use(VxeUI)            // vxe-table UI 依赖
-app.use(VXETable)         // 表格组件
 app.mount('#app')

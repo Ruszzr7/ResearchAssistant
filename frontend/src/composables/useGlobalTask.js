@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { ensureGlobalTask } from '@/stores/globalTaskStore.js'
-import { isCancelError } from '@/utils/cancel.js'
+import { runTask } from '@/composables/taskRunner.js'
 
 /**
  * 全局后台任务 composable。
@@ -13,39 +13,8 @@ import { isCancelError } from '@/utils/cancel.js'
 export function useGlobalTask(taskId) {
   const task = ensureGlobalTask(taskId)
 
-  function setStage(text) {
-    task.statusText = text
-  }
-
   async function run(taskFn) {
-    // 新任务启动前 abort 旧任务，防止竞态
-    if (task.controller) {
-      task.controller.abort()
-    }
-
-    task.lastTaskFn = taskFn
-    task.error = null
-    task.isLoading = true
-    task.statusText = ''
-
-    const controller = new AbortController()
-    task.controller = controller
-
-    try {
-      return await taskFn({ signal: controller.signal, setStage, data: task.data })
-    } catch (e) {
-      if (isCancelError(e) || controller.signal.aborted) {
-        return undefined
-      }
-      task.error = e
-      return undefined
-    } finally {
-      if (task.controller === controller) {
-        task.controller = null
-        task.isLoading = false
-        task.statusText = ''
-      }
-    }
+    return runTask(task, taskFn, task.data)
   }
 
   function cancel() {

@@ -492,20 +492,22 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import { waitForAnalysis } from '@/utils/analysis.js'
 import { useGlobalTask } from '@/composables/useGlobalTask.js'
 import { usePaperImportRecommendations } from '@/composables/usePaperImportRecommendations.js'
-import PdfViewer from '@/components/pdf/PdfViewer.vue'
 import ReadingProgressPanel from '@/components/ReadingProgressPanel.vue'
-import PaperTable from '@/components/PaperTable.vue'
 import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
 import { listReadingPlans, addPlanItem } from '@/api/readingPlan'
 
 const router = useRouter()
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+// PDF 与大型表格只在资料库页面真正使用时加载，避免进入首页就下载大体积依赖。
+const PdfViewer = defineAsyncComponent(() => import('@/components/pdf/PdfViewer.vue'))
+const PaperTable = defineAsyncComponent(() => import('@/components/PaperTable.vue'))
 
 const treeRef = ref(null)
 const pathKeys = ref(new Map())

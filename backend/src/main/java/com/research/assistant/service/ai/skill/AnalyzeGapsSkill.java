@@ -12,6 +12,7 @@ import dev.langchain4j.service.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.List;
 import java.util.function.Supplier;
@@ -31,7 +32,7 @@ public class AnalyzeGapsSkill implements Skill<AnalyzeGapsInput, String> {
     private final RagRetrievalService ragRetrievalService;
 
     public AnalyzeGapsSkill(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
-                            LLMService llmService, ResearchToolAgent researchToolAgent,
+                            LLMService llmService, @Lazy ResearchToolAgent researchToolAgent,
                             RagRetrievalService ragRetrievalService) {
         this.paperMapper = paperMapper;
         this.analysisMapper = analysisMapper;

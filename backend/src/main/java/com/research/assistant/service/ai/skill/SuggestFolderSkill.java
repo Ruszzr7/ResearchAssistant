@@ -14,6 +14,7 @@ import com.research.assistant.service.rag.RagRetrievalService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,7 +37,7 @@ public class SuggestFolderSkill implements Skill<SuggestFolderInput, Map<String,
     private final RagRetrievalService ragRetrievalService;
 
     public SuggestFolderSkill(PaperMapper paperMapper, FolderMapper folderMapper,
-                              ResearchToolAgent researchToolAgent, LLMService llmService,
+                              @Lazy ResearchToolAgent researchToolAgent, LLMService llmService,
                               RecommendationCache recommendationCache, ObjectMapper objectMapper,
                               RagRetrievalService ragRetrievalService) {
         this.paperMapper = paperMapper;

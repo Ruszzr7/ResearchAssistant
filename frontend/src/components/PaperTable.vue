@@ -75,6 +75,9 @@
 </template>
 
 <script setup>
+import { VxeGrid } from 'vxe-table'
+import 'vxe-table/lib/style.css'
+
 import { computed, ref, onMounted } from 'vue'
 
 const props = defineProps({

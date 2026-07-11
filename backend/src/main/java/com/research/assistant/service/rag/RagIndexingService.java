@@ -50,17 +50,14 @@ public class RagIndexingService {
             return;
         }
 
-        // 1. 删除旧索引
-        vectorStore.removeByPaperId(paperId);
-
-        // 2. 分块
+        // 1. 分块
         List<DocumentChunk> chunks = chunker.chunk(analysis);
         if (chunks.isEmpty()) {
             log.warn("论文 {} 没有可用分片", paperId);
             return;
         }
 
-        // 3. 生成 embedding
+        // 2. 生成 embedding。先完成远程调用，避免服务暂时不可用时误删旧索引。
         List<String> contents = chunks.stream().map(DocumentChunk::content).toList();
         List<List<Float>> embeddings;
         try {
@@ -75,7 +72,8 @@ public class RagIndexingService {
             return;
         }
 
-        // 4. 写入向量存储
+        // 3. 替换旧索引
+        vectorStore.removeByPaperId(paperId);
         List<EmbeddedChunk> embeddedChunks = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             DocumentChunk c = chunks.get(i);

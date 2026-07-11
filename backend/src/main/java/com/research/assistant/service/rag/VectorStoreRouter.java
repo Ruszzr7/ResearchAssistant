@@ -30,6 +30,13 @@ public class VectorStoreRouter implements VectorStore {
                 return;
             } catch (VectorStoreException e) {
                 log.warn("Qdrant add 失败，降级到内存向量存储: {}", e.getMessage());
+                // Qdrant.add 已先写入 MySQL，加载持久化结果即可，不能再次追加同一批 chunk。
+                boolean wasLoaded = memory.isLoaded();
+                memory.load();
+                if (wasLoaded || !memory.isLoaded()) {
+                    memory.addInMemory(chunks);
+                }
+                return;
             }
         }
         memory.add(chunks);
@@ -44,6 +51,7 @@ public class VectorStoreRouter implements VectorStore {
                 log.warn("Qdrant findRelevant 失败，降级到内存向量存储: {}", e.getMessage());
             }
         }
+        memory.load();
         return memory.findRelevant(query, maxResults, minScore);
     }
 
@@ -56,6 +64,7 @@ public class VectorStoreRouter implements VectorStore {
                 log.warn("Qdrant removeByPaperId 失败，仍执行内存清理: {}", e.getMessage());
             }
         }
+        memory.load();
         memory.removeByPaperId(paperId);
     }
 }

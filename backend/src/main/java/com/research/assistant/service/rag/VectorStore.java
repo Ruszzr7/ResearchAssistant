@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 向量存储抽象。
  * <p>
- * 第一阶段默认使用内存实现并持久化到 MySQL；后续可替换为 pgvector / Qdrant。
+ * 默认使用内存实现并将分片持久化到 MySQL；也可通过配置切换为 Qdrant。
  */
 public interface VectorStore {
 

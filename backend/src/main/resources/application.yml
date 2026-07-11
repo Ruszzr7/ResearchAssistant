@@ -29,8 +29,13 @@ mybatis-plus:
 
 # Application
 app:
+  async:
+    # 生产环境启动时将上次未完成任务标记为 FAILED；测试环境关闭，避免触碰测试数据。
+    mark-orphaned-on-startup: true
+    schema-init-enabled: true
   storage:
     pdf-dir: ${APP_STORAGE_PDF_DIR:./data/papers}
   encryption:
-    # 敏感设置（如 api_key）加密主密钥；优先读取环境变量 RA_MASTER_KEY
+    # 敏感设置（如 api_key）加密主密钥；优先读取环境变量 RA_MASTER_KEY。
+    # 未配置时 API Key 会明文保存，仅适合本地临时开发。
     master-key: ${RA_MASTER_KEY:}

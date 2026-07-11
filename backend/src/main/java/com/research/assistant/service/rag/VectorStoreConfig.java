@@ -21,17 +21,20 @@ public class VectorStoreConfig {
     @Bean
     @Primary
     public VectorStore vectorStore(SettingsService settingsService,
-                                   PaperChunkMapper paperChunkMapper,
-                                   ObjectMapper objectMapper) {
+                                    PaperChunkMapper paperChunkMapper,
+                                    ObjectMapper objectMapper,
+                                    PaperChunkPersistence persistence) {
         String provider = settingsService.getValue("vector_store_provider");
         boolean qdrantEnabled = PROVIDER_QDRANT.equalsIgnoreCase(provider);
 
-        InMemoryVectorStore memory = new InMemoryVectorStore(paperChunkMapper, objectMapper);
+        InMemoryVectorStore memory = new InMemoryVectorStore(persistence, paperChunkMapper, objectMapper);
 
         if (qdrantEnabled) {
-            QdrantVectorStore qdrant = new QdrantVectorStore(settingsService, paperChunkMapper, objectMapper);
+            QdrantVectorStore qdrant = new QdrantVectorStore(settingsService, paperChunkMapper, objectMapper, persistence);
             return new VectorStoreRouter(memory, qdrant, true);
         }
+        // 该对象由配置类手动创建，Spring 不会自动调用生命周期回调。
+        memory.load();
         return memory;
     }
 }

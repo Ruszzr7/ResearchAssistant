@@ -81,8 +81,10 @@ public class PaperController {
                     .collect(Collectors.toList());
             }
         }
+        int safePage = Math.max(1, page);
+        int safeSize = Math.min(100, Math.max(1, size));
         return Result.ok(paperService.listWithFilters(
-            folderIds, uncategorized, tag, status, keyword, sortBy, sortDir, page, size));
+            folderIds, uncategorized, tag, status, keyword, sortBy, sortDir, safePage, safeSize));
     }
 
     /** GET /api/papers/:id */

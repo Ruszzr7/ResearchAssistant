@@ -15,7 +15,9 @@ import java.util.List;
 @Mapper
 public interface WorkflowStepMapper extends BaseMapper<WorkflowStepRecord> {
 
-    @Select("SELECT * FROM workflow_step WHERE task_id = #{taskId} ORDER BY step_index")
+    @Select("SELECT id, task_id, step_index, step_name, skill_name, input_json, output_json, " +
+            "status, error, started_at, completed_at, created_at, updated_at " +
+            "FROM workflow_step WHERE task_id = #{taskId} ORDER BY step_index")
     List<WorkflowStepRecord> findByTaskId(@Param("taskId") String taskId);
 
     @Delete("DELETE FROM workflow_step WHERE task_id = #{taskId}")

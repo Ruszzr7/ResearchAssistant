@@ -1,7 +1,6 @@
 package com.research.assistant.service.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.research.assistant.entity.PaperChunk;
 import com.research.assistant.mapper.PaperChunkMapper;
 import com.research.assistant.service.SettingsService;
 import io.qdrant.client.QdrantClient;
@@ -38,16 +37,22 @@ public class QdrantVectorStore implements VectorStore {
     private static final Duration OPERATION_TIMEOUT = Duration.ofSeconds(15);
 
     private final QdrantClient client;
-    private final PaperChunkMapper paperChunkMapper;
-    private final ObjectMapper objectMapper;
+    private final PaperChunkPersistence persistence;
     private final SettingsService settingsService;
 
     public QdrantVectorStore(SettingsService settingsService,
                              PaperChunkMapper paperChunkMapper,
                              ObjectMapper objectMapper) {
+        this(settingsService, paperChunkMapper, objectMapper,
+                new PaperChunkPersistence(paperChunkMapper, objectMapper));
+    }
+
+    public QdrantVectorStore(SettingsService settingsService,
+                             PaperChunkMapper paperChunkMapper,
+                             ObjectMapper objectMapper,
+                             PaperChunkPersistence persistence) {
         this.settingsService = settingsService;
-        this.paperChunkMapper = paperChunkMapper;
-        this.objectMapper = objectMapper;
+        this.persistence = persistence;
         this.client = createClient();
     }
 
@@ -57,7 +62,7 @@ public class QdrantVectorStore implements VectorStore {
             return;
         }
         // 1. 先写 MySQL，保证内存降级能读到最新数据（即使 Qdrant 不可用）
-        persistToMySql(chunks);
+        persistence.saveAll(chunks);
 
         // 2. 批量 upsert 到 Qdrant
         String collection = collectionName();
@@ -115,7 +120,7 @@ public class QdrantVectorStore implements VectorStore {
         }
         String collection = collectionName();
         // 1. 先删 MySQL，保证内存降级不读到已删除数据
-        paperChunkMapper.deleteByPaperId(paperId);
+        persistence.deleteByPaperId(paperId);
         if (!collectionExists(collection)) {
             return;
         }
@@ -223,18 +228,6 @@ public class QdrantVectorStore implements VectorStore {
         return points;
     }
 
-    private void persistToMySql(List<EmbeddedChunk> chunks) {
-        for (EmbeddedChunk c : chunks) {
-            PaperChunk record = new PaperChunk();
-            record.setPaperId(c.paperId());
-            record.setChunkType(c.chunkType());
-            record.setContent(c.content());
-            record.setSource(c.source());
-            record.setEmbeddingJson(toJson(c.embedding()));
-            paperChunkMapper.insert(record);
-        }
-    }
-
     private ScoredChunk toScoredChunk(Points.ScoredPoint point) {
         Map<String, JsonWithInt.Value> payload = point.getPayloadMap();
         Long paperId = null;
@@ -253,15 +246,6 @@ public class QdrantVectorStore implements VectorStore {
     private String payloadValue(Map<String, JsonWithInt.Value> payload, String key) {
         JsonWithInt.Value value = payload.get(key);
         return value != null && value.hasStringValue() ? value.getStringValue() : "";
-    }
-
-    private String toJson(List<Float> embedding) {
-        try {
-            return objectMapper.writeValueAsString(embedding);
-        } catch (Exception e) {
-            log.warn("embedding 序列化失败: {}", e.getMessage());
-            return "[]";
-        }
     }
 
     private UUID deterministicUuid(Long paperId, String chunkType, int index) {

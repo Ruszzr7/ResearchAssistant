@@ -14,12 +14,13 @@ import java.util.Map;
 public interface TagMapper extends BaseMapper<Tag> {
 
     /** 查询某篇论文的所有标签 */
-    @Select("SELECT t.* FROM tag t INNER JOIN paper_tag pt ON t.id = pt.tag_id WHERE pt.paper_id = #{paperId}")
+    @Select("SELECT t.id, t.name FROM tag t INNER JOIN paper_tag pt ON t.id = pt.tag_id " +
+            "WHERE pt.paper_id = #{paperId}")
     List<Tag> selectByPaperId(@Param("paperId") Long paperId);
 
     /** 批量查询多篇论文的标签，用于优化 N+1 */
     @Select("<script>" +
-            "SELECT t.*, pt.paper_id AS paper_id FROM tag t " +
+            "SELECT t.id, t.name, pt.paper_id AS paper_id FROM tag t " +
             "INNER JOIN paper_tag pt ON t.id = pt.tag_id " +
             "WHERE pt.paper_id IN " +
             "<foreach item='id' collection='paperIds' open='(' separator=',' close=')'>#{id}</foreach>" +
@@ -32,7 +33,7 @@ public interface TagMapper extends BaseMapper<Tag> {
     List<TagWithPaperId> selectByPaperIds(@Param("paperIds") List<Long> paperIds);
 
     /** 按名称精确查询标签 */
-    @Select("SELECT * FROM tag WHERE name = #{name} LIMIT 1")
+    @Select("SELECT id, name FROM tag WHERE name = #{name} LIMIT 1")
     Tag selectByName(@Param("name") String name);
 
     /** 删除某篇论文的所有标签关联 */

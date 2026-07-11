@@ -4,6 +4,7 @@ import com.research.assistant.service.ai.LangChain4jModelFactory;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.output.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -45,7 +46,7 @@ public class EmbeddingService {
     }
 
     /**
-     * 批量生成 embedding（当前版本通过单条调用循环实现，后续可升级并行或模型原生批量接口）。
+     * 批量生成 embedding，使用 Provider 支持的原生批量接口减少网络往返。
      */
     public List<List<Float>> embedBatch(List<String> texts) {
         if (texts == null || texts.isEmpty()) {
@@ -59,12 +60,14 @@ public class EmbeddingService {
         }
         try {
             EmbeddingModel model = modelFactory.createEmbeddingModel();
-            List<List<Float>> result = new ArrayList<>();
-            for (String text : nonBlank) {
-                Embedding embedding = model.embed(TextSegment.from(text)).content();
-                result.add(toList(embedding.vector()));
+            List<TextSegment> segments = nonBlank.stream().map(TextSegment::from).toList();
+            Response<List<Embedding>> response = model.embedAll(segments);
+            List<Embedding> embeddings = response != null ? response.content() : null;
+            if (embeddings == null || embeddings.size() != nonBlank.size()) {
+                throw new EmbeddingUnavailableException("Embedding 返回数量不一致",
+                        new IllegalStateException("provider returned an unexpected number of embeddings"));
             }
-            return result;
+            return embeddings.stream().map(embedding -> toList(embedding.vector())).toList();
         } catch (Exception e) {
             log.warn("批量 Embedding 生成失败: {}", e.getMessage());
             throw new EmbeddingUnavailableException("Embedding 服务不可用: " + e.getMessage(), e);

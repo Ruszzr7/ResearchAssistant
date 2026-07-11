@@ -5,6 +5,7 @@ import com.research.assistant.dto.ReadingPlanDto;
 import com.research.assistant.dto.ReadingPlanItemDto;
 import com.research.assistant.dto.ReadingPlanItemRequest;
 import com.research.assistant.dto.ReadingPlanRequest;
+import com.research.assistant.constant.ReadingPlanItemStatus;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.ReadingPlan;
 import com.research.assistant.entity.ReadingPlanItem;
@@ -69,9 +70,9 @@ public class ReadingPlanService {
             int done = 0;
             int inProgress = 0;
             for (ReadingPlanItem item : items) {
-                if ("DONE".equals(item.getStatus())) {
+                if (ReadingPlanItemStatus.DONE.equals(item.getStatus())) {
                     done++;
-                } else if ("IN_PROGRESS".equals(item.getStatus())) {
+                } else if (ReadingPlanItemStatus.IN_PROGRESS.equals(item.getStatus())) {
                     inProgress++;
                 }
             }
@@ -123,7 +124,6 @@ public class ReadingPlanService {
      */
     @Transactional
     public void deletePlan(Long id) {
-        itemMapper.delete(new LambdaQueryWrapper<ReadingPlanItem>().eq(ReadingPlanItem::getPlanId, id));
         planMapper.deleteById(id);
     }
 
@@ -164,7 +164,7 @@ public class ReadingPlanService {
         item.setPaperId(paperId);
         item.setDeadline(request.getDeadline());
         item.setPriority(request.getPriority() != null ? request.getPriority() : 0);
-        item.setStatus(request.getStatus() != null ? request.getStatus() : "TODO");
+        item.setStatus(request.getStatus() != null ? request.getStatus() : ReadingPlanItemStatus.TODO);
         item.setNotes(request.getNotes());
         itemMapper.insert(item);
         return toDto(item, paperTitle(paperId), paperTags(paperId));
@@ -207,7 +207,7 @@ public class ReadingPlanService {
 
         List<ReadingPlanItem> items = itemMapper.selectList(
                 new LambdaQueryWrapper<ReadingPlanItem>()
-                        .ne(ReadingPlanItem::getStatus, "DONE")
+                        .ne(ReadingPlanItem::getStatus, ReadingPlanItemStatus.DONE)
                         .and(w -> w.between(ReadingPlanItem::getDeadline, weekStart, weekEnd)
                                 .or()
                                 .isNull(ReadingPlanItem::getDeadline))
@@ -225,7 +225,7 @@ public class ReadingPlanService {
 
         List<ReadingPlanItem> items = itemMapper.selectList(
                 new LambdaQueryWrapper<ReadingPlanItem>()
-                        .ne(ReadingPlanItem::getStatus, "DONE")
+                        .ne(ReadingPlanItem::getStatus, ReadingPlanItemStatus.DONE)
                         .le(ReadingPlanItem::getDeadline, threshold)
                         .orderByAsc(ReadingPlanItem::getDeadline));
         return enrichAndMap(items);

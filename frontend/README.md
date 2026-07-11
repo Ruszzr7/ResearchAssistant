@@ -1,5 +1,11 @@
-# Vue 3 + Vite
+# Research Assistant 前端
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Vue 3 + Vite 前端，包含文库、检索、分析、Gap、任务中心、阅读计划和写作助手页面。
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+```text
+npm.cmd install
+npm.cmd run dev       # http://localhost:5173
+npm.cmd run build
+```
+
+开发服务器将 `/api` 请求代理到 `http://localhost:8080`。前端状态主要由 Vue composables 和轻量 reactive store 管理，长任务通过后端任务接口和 SSE 获取进度。

@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:research_assistant_test;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=VALUE,YEAR
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:test-schema.sql
+
+app:
+  async:
+    mark-orphaned-on-startup: false
+    schema-init-enabled: false

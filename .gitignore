@@ -18,6 +18,9 @@ data/
 # Claude session artifacts
 .claude/tmp/
 
+# Codex local configuration
+.codex/
+
 # MCP test artifacts
 .playwright-mcp/
 playwright-mcp-output/

@@ -1,0 +1,44 @@
+# Research Assistant
+
+本地运行的 AI 科研助手，帮助研究生管理论文、分析方法、验证研究空白、记录阅读过程并辅助写作。
+
+## 快速启动
+
+1. 安装 JDK 17+、Node.js 和 MySQL 8。
+2. 执行 `backend/src/main/resources/schema.sql` 初始化数据库。
+3. 在 `backend` 目录运行 `mvnw.cmd spring-boot:run`。
+4. 在 `frontend` 目录运行 `npm.cmd install` 和 `npm.cmd run dev`。
+5. 打开 `http://localhost:5173`，在设置页填写 OpenAI 兼容 API 的 Base URL、模型和 API Key。
+
+Windows 用户也可以运行 `scripts/start-dev.bat`；Bash 环境可使用对应的 `.sh` 脚本。
+
+## 功能概览
+
+- 文库：文件夹、标签、PDF 上传、DOI / arXiv 元数据补全、批量操作。
+- AI：论文精读、对比、追问、Gap 分析与多源验证。
+- Agent：Skill Registry、自然语言 Planner、可暂停 Workflow、任务中心。
+- RAG：论文分析结果和 PDF 分片生成 embedding，默认内存检索，可选 Qdrant。
+- 阅读与写作：PDF 批注、笔记双向链接、阅读计划、Related Work、大纲和引用检查。
+
+## 重要配置
+
+| 环境变量 | 用途 |
+|---|---|
+| `SPRING_DATASOURCE_URL` | MySQL 连接地址 |
+| `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | 数据库账号 |
+| `RA_API_KEY` / `RA_BASE_URL` / `RA_MODEL` | 覆盖数据库中的模型设置 |
+| `RA_MASTER_KEY` | API Key AES-GCM 加密主密钥 |
+| `APP_STORAGE_PDF_DIR` | PDF 存储目录 |
+
+没有配置 `RA_MASTER_KEY` 时，API Key 仅适合本地临时开发，可能以明文保存。
+
+## 开发与验证
+
+```text
+前端构建：cd frontend && npm.cmd run build
+后端测试：cd backend && mvnw.cmd test
+```
+
+后端测试使用独立 H2 内存数据库，不读取开发库数据。
+
+更多架构和接口说明见 [docs/Spec.md](docs/Spec.md)，阶段记录见 [docs/progress.md](docs/progress.md)。

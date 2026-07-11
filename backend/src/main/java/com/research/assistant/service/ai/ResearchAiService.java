@@ -9,8 +9,7 @@ import dev.langchain4j.service.V;
 /**
  * 统一科研 Agent 接口 —— 基于 LangChain4j AiServices。
  * <p>
- * 目前暴露论文精读、追问对话、Gap 验证等方法，后续阶段逐步扩展：
- * 对比、标签/文件夹/阅读状态推荐等。
+ * 暴露论文精读和带 ChatMemory 的追问接口；对比、推荐等无记忆任务由独立 Skill 负责。
  */
 public interface ResearchAiService {
 

@@ -3,6 +3,7 @@ package com.research.assistant.service.source;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -26,7 +27,8 @@ public class LiteratureSearchService {
     private final List<LiteratureSource> sources;
     private final TaskExecutor taskExecutor;
 
-    public LiteratureSearchService(List<LiteratureSource> sources, TaskExecutor taskExecutor) {
+    public LiteratureSearchService(List<LiteratureSource> sources,
+                                   @Qualifier("literatureSearchExecutor") TaskExecutor taskExecutor) {
         this.sources = sources != null ? sources : List.of();
         this.taskExecutor = taskExecutor;
     }

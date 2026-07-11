@@ -15,7 +15,8 @@ import java.util.List;
 @Mapper
 public interface ConversationMapper extends BaseMapper<Conversation> {
 
-    @Select("SELECT * FROM conversation WHERE memory_id = #{memoryId} ORDER BY created_at ASC, id ASC")
+    @Select("SELECT id, memory_id, role, content, created_at FROM conversation " +
+            "WHERE memory_id = #{memoryId} ORDER BY created_at ASC, id ASC")
     List<Conversation> selectByMemoryId(@Param("memoryId") String memoryId);
 
     @Delete("DELETE FROM conversation WHERE memory_id = #{memoryId}")

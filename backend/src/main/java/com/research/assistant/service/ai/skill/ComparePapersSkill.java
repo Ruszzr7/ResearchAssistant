@@ -13,6 +13,7 @@ import dev.langchain4j.service.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -35,7 +36,7 @@ public class ComparePapersSkill implements Skill<ComparePapersInput, String> {
 
     public ComparePapersSkill(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
                               ComparisonMapper comparisonMapper, LLMService llmService,
-                              ResearchToolAgent researchToolAgent) {
+                              @Lazy ResearchToolAgent researchToolAgent) {
         this.paperMapper = paperMapper;
         this.analysisMapper = analysisMapper;
         this.comparisonMapper = comparisonMapper;

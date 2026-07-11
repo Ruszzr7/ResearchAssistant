@@ -13,6 +13,6 @@ import org.apache.ibatis.annotations.Select;
 public interface SettingsMapper extends BaseMapper<Settings> {
 
     /** 按 key 查询单条设置 */
-    @Select("SELECT * FROM settings WHERE key_name = #{keyName}")
+    @Select("SELECT id, key_name, value, updated_at FROM settings WHERE key_name = #{keyName}")
     Settings selectByKey(@Param("keyName") String keyName);
 }

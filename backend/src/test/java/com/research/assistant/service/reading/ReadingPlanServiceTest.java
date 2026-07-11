@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
+@ActiveProfiles("test")
 @Transactional
 @Rollback
 class ReadingPlanServiceTest {
@@ -100,7 +102,10 @@ class ReadingPlanServiceTest {
         update.setStatus("DONE");
         service.updateItem(plan.getId(), item.getId(), update);
 
-        assertThat(service.reminders()).isEmpty();
+        assertThat(service.reminders().stream()
+                .map(ReadingPlanItemDto::getId)
+                .toList())
+                .doesNotContain(item.getId());
     }
 
     @Test

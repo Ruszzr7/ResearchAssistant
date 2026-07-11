@@ -1,6 +1,7 @@
 package com.research.assistant.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.common.JsonUtils;
 import com.research.assistant.entity.Paper;
@@ -14,6 +15,7 @@ import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -45,7 +47,7 @@ public class PaperProcessingService {
 
     public PaperProcessingService(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
                                    PdfExtractor pdfExtractor, TextPreprocessor textPreprocessor,
-                                   LLMService llmService, ResearchAiService researchAiService,
+                                   LLMService llmService, @Lazy ResearchAiService researchAiService,
                                    SettingsService settingsService, ObjectMapper objectMapper,
                                    AsyncTaskService asyncTaskService) {
         this.paperMapper = paperMapper;
@@ -228,87 +230,64 @@ public class PaperProcessingService {
     /**
      * 将 LLM 返回的 JSON 解析填充到 PaperAnalysis 实体。
      * <p>
-     * 作为 POJO 路径的 fallback 保留。使用简单的字符串解析而非 Jackson 反序列化——
-     * LLM 返回的 JSON 可能含 markdown 代码块标记，需要先清洗。
+     * 作为 POJO 路径的 fallback 保留。先清洗 markdown 代码块，再由 Jackson 解析，
+     * 避免手写字符串扫描在转义字符或嵌套 JSON 下失效。
      */
     private void parseAndFillAnalysis(PaperAnalysis analysis, String llmOutput) {
         String json = JsonUtils.extractJson(llmOutput);
-
-        // domain 字段暂存到 methodType 前缀，如 "AI|THEORETICAL"
-        String domain = extractField(json, "domain");
-        String methodType = extractField(json, "method_type");
-        analysis.setCoreContribution(extractField(json, "core_contribution"));
-        if (domain != null && !domain.isBlank()) {
-            analysis.setMethodType((domain + "|" + (methodType != null ? methodType : "")).trim());
-        } else {
-            analysis.setMethodType(methodType);
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("LLM 返回的 JSON 不是对象");
+            }
+            String domain = textField(root, "domain");
+            String methodType = textField(root, "method_type");
+            analysis.setCoreContribution(textField(root, "core_contribution"));
+            analysis.setMethodType(domain == null || domain.isBlank()
+                    ? methodType : (domain + "|" + (methodType == null ? "" : methodType)).trim());
+            analysis.setMethodSummary(textField(root, "method_summary"));
+            analysis.setSectionsJson(jsonField(root, "sections"));
+            analysis.setDatasetsJson(jsonField(root, "datasets"));
+            analysis.setModelsJson(jsonField(root, "models"));
+            analysis.setKeyFindingsJson(jsonField(root, "key_findings"));
+            analysis.setLimitationsJson(jsonField(root, "limitations"));
+            analysis.setTablesSummaryJson(jsonField(root, "tables_summary"));
+            analysis.setFiguresSummaryJson(jsonField(root, "figures_summary"));
+            analysis.setReproducibleArtifactsJson(jsonField(root, "reproducible_artifacts"));
+            analysis.setExperimentSetupJson(jsonField(root, "experiment_setup"));
+            analysis.setBenchmarkResultsJson(jsonField(root, "benchmark_results"));
+            analysis.setRelevanceScore(nullableIntField(root, "relevance_score"));
+            analysis.setRelevanceReason(textField(root, "relevance_reason"));
+        } catch (Exception e) {
+            log.warn("论文 {} fallback JSON 解析失败: {}", analysis.getPaperId(), e.getMessage());
+            analysis.setSectionsJson("[]");
+            analysis.setDatasetsJson("[]");
+            analysis.setModelsJson("[]");
+            analysis.setKeyFindingsJson("[]");
+            analysis.setLimitationsJson("[]");
+            analysis.setTablesSummaryJson("[]");
+            analysis.setFiguresSummaryJson("[]");
+            analysis.setReproducibleArtifactsJson("[]");
+            analysis.setExperimentSetupJson("{}");
+            analysis.setBenchmarkResultsJson("[]");
         }
-        analysis.setMethodSummary(extractField(json, "method_summary"));
-        analysis.setSectionsJson(extractField(json, "sections"));
-        analysis.setDatasetsJson(extractField(json, "datasets"));
-        analysis.setModelsJson(extractField(json, "models"));
-        analysis.setKeyFindingsJson(extractField(json, "key_findings"));
-        analysis.setLimitationsJson(extractField(json, "limitations"));
-        analysis.setTablesSummaryJson(extractField(json, "tables_summary"));
-        analysis.setFiguresSummaryJson(extractField(json, "figures_summary"));
-        analysis.setReproducibleArtifactsJson(extractField(json, "reproducible_artifacts"));
-        analysis.setExperimentSetupJson(extractField(json, "experiment_setup"));
-        analysis.setBenchmarkResultsJson(extractField(json, "benchmark_results"));
-        analysis.setRelevanceScore(parseNullableInt(extractField(json, "relevance_score")));
-        analysis.setRelevanceReason(extractField(json, "relevance_reason"));
     }
 
-    /** 从 JSON 字符串中提取指定字段的值（简单版，够用） */
-    private String extractField(String json, String fieldName) {
-        // 匹配 "field_name": "value" 或 "field_name": [...] 或 "field_name": {...}
-        String searchKey = "\"" + fieldName + "\"";
-        int keyIdx = json.indexOf(searchKey);
-        if (keyIdx < 0) return null;
+    private String textField(JsonNode root, String fieldName) {
+        JsonNode node = root.get(fieldName);
+        return node == null || node.isNull() ? null : node.asText("");
+    }
 
-        int colonIdx = json.indexOf(':', keyIdx);
-        if (colonIdx < 0) return null;
+    private String jsonField(JsonNode root, String fieldName) {
+        JsonNode node = root.get(fieldName);
+        return node == null || node.isNull() ? "[]" : node.toString();
+    }
 
-        // 跳过冒号后的空白
-        int start = colonIdx + 1;
-        while (start < json.length() && Character.isWhitespace(json.charAt(start))) {
-            start++;
-        }
-        if (start >= json.length()) return null;
-
-        char firstChar = json.charAt(start);
-
-        if (firstChar == '"') {
-            // 字符串值
-            int end = json.indexOf('"', start + 1);
-            // 处理转义引号
-            while (end > 0 && json.charAt(end - 1) == '\\') {
-                end = json.indexOf('"', end + 1);
-            }
-            if (end < 0) return null;
-            return json.substring(start + 1, end);
-        } else if (firstChar == '[') {
-            // 数组值：找到匹配的 ]
-            int depth = 0;
-            int end = start;
-            for (; end < json.length(); end++) {
-                if (json.charAt(end) == '[') depth++;
-                if (json.charAt(end) == ']') depth--;
-                if (depth == 0) break;
-            }
-            return json.substring(start, end + 1);
-        } else if (firstChar == '{') {
-            // 对象值：找到匹配的 }
-            int depth = 0;
-            int end = start;
-            for (; end < json.length(); end++) {
-                if (json.charAt(end) == '{') depth++;
-                if (json.charAt(end) == '}') depth--;
-                if (depth == 0) break;
-            }
-            return json.substring(start, end + 1);
-        }
-
-        return null;
+    private Integer nullableIntField(JsonNode root, String fieldName) {
+        JsonNode node = root.get(fieldName);
+        if (node == null || node.isNull()) return null;
+        if (node.isInt() || node.isLong()) return node.intValue();
+        return parseNullableInt(node.asText());
     }
 
     private Integer parseNullableInt(String value) {

@@ -9,6 +9,7 @@ import com.research.assistant.service.rag.RagRetrievalService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -29,7 +30,7 @@ public class SuggestTagsSkill implements Skill<Long, List<String>> {
     private final RecommendationCache recommendationCache;
     private final RagRetrievalService ragRetrievalService;
 
-    public SuggestTagsSkill(PaperMapper paperMapper, ResearchToolAgent researchToolAgent,
+    public SuggestTagsSkill(PaperMapper paperMapper, @Lazy ResearchToolAgent researchToolAgent,
                             LLMService llmService, RecommendationCache recommendationCache,
                             RagRetrievalService ragRetrievalService) {
         this.paperMapper = paperMapper;

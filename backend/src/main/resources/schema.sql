@@ -55,6 +55,9 @@ CREATE TABLE paper (
     processing_status   VARCHAR(20)   DEFAULT 'PENDING',    -- PENDING / PROCESSING / COMPLETED / FAILED
     created_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_paper_folder_status (folder_id, reading_status),
+    INDEX idx_paper_processing_status (processing_status),
+    INDEX idx_paper_created_at (created_at),
     FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

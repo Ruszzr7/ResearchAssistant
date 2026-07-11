@@ -130,10 +130,6 @@ public class ExternalCommandPdfParser implements PdfParser {
         return command != null && !command.isBlank();
     }
 
-    private boolean isEnabled() {
-        return useExternal();
-    }
-
     private boolean isSafePdfFile(File file) {
         if (file == null) return false;
         try {

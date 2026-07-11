@@ -16,6 +16,7 @@ import dev.langchain4j.service.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -44,7 +45,7 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
     private final CitationNetworkExpansionService citationNetworkExpansionService;
     private final LiteratureSearchService literatureSearchService;
 
-    public VerifyGapsSkill(ResearchToolAgent researchToolAgent,
+    public VerifyGapsSkill(@Lazy ResearchToolAgent researchToolAgent,
                            ArxivFetcher arxivFetcher,
                            SemanticScholarFetcher semanticScholarFetcher,
                            LLMService llmService,
@@ -338,15 +339,6 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
             log.warn("LLM 证据评估失败: {}", e.getMessage());
             return List.of();
         }
-    }
-
-    private String determineLevel(List<Map<String, Object>> evidence) {
-        return GapEvidenceScorer.determineLevel(GapEvidenceScorer.score(evidence));
-    }
-
-    private String buildReason(List<Map<String, Object>> evidence, String level) {
-        double score = GapEvidenceScorer.score(evidence);
-        return buildReason(evidence, level, score);
     }
 
     private String buildReason(List<Map<String, Object>> evidence, String level, double weightedScore) {

@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -71,13 +72,20 @@ public class AsyncTaskSchemaInitializer implements InitializingBean {
             """;
 
     private final DataSource dataSource;
+    private final boolean schemaInitEnabled;
 
-    public AsyncTaskSchemaInitializer(DataSource dataSource) {
+    public AsyncTaskSchemaInitializer(DataSource dataSource,
+                                      @Value("${app.async.schema-init-enabled:true}") boolean schemaInitEnabled) {
         this.dataSource = dataSource;
+        this.schemaInitEnabled = schemaInitEnabled;
     }
 
     @Override
     public void afterPropertiesSet() {
+        if (!schemaInitEnabled) {
+            log.info("已跳过异步任务表启动初始化（配置 app.async.schema-init-enabled=false）");
+            return;
+        }
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
             statement.execute(CREATE_TABLE_SQL);

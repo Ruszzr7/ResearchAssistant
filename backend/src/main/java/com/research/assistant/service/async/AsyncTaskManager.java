@@ -13,6 +13,9 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -50,16 +53,31 @@ public class AsyncTaskManager {
     private final AsyncTaskRecordMapper taskRecordMapper;
     private final WorkflowStepMapper workflowStepMapper;
     private final ObjectMapper objectMapper;
+    private final boolean markOrphanedOnStartup;
     private final Map<String, TaskHolder> tasks = new ConcurrentHashMap<>();
 
-    public AsyncTaskManager(AsyncTaskExecutor taskExecutor,
+    @Autowired
+    public AsyncTaskManager(@Qualifier("taskExecutor") AsyncTaskExecutor taskExecutor,
                             AsyncTaskRecordMapper taskRecordMapper,
                             WorkflowStepMapper workflowStepMapper,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper,
+                            @Value("${app.async.mark-orphaned-on-startup:true}") boolean markOrphanedOnStartup) {
         this.taskExecutor = taskExecutor;
         this.taskRecordMapper = taskRecordMapper;
         this.workflowStepMapper = workflowStepMapper;
         this.objectMapper = objectMapper;
+        this.markOrphanedOnStartup = markOrphanedOnStartup;
+    }
+
+    /**
+     * 保留无配置参数的构造器，便于纯单元测试和已有调用方直接实例化。
+     * 生产环境由 Spring 注入带配置的构造器。
+     */
+    public AsyncTaskManager(AsyncTaskExecutor taskExecutor,
+                            AsyncTaskRecordMapper taskRecordMapper,
+                            WorkflowStepMapper workflowStepMapper,
+                            ObjectMapper objectMapper) {
+        this(taskExecutor, taskRecordMapper, workflowStepMapper, objectMapper, true);
     }
 
     /**
@@ -67,6 +85,10 @@ public class AsyncTaskManager {
      */
     @PostConstruct
     public void markOrphanedTasksAsFailed() {
+        if (!markOrphanedOnStartup) {
+            log.info("已跳过启动时孤儿任务恢复（配置 app.async.mark-orphaned-on-startup=false）");
+            return;
+        }
         try {
             UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
             wrapper.in("status",
@@ -257,6 +279,10 @@ public class AsyncTaskManager {
     public void updateStage(String taskId, String stageText) {
         TaskHolder holder = tasks.get(taskId);
         if (holder == null) {
+            return;
+        }
+        if (java.util.Objects.equals(holder.result.getStageText(), stageText)
+                && holder.result.getStatus() == AsyncTaskStatus.PROCESSING) {
             return;
         }
         AsyncTaskResult<?> updated = holder.result.processing(stageText);
