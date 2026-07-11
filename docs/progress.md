@@ -53,3 +53,4 @@
 - 设计决策和可复用经验写入 `docs/knowledge.md`。
 - 已完成事项不要在 `docs/improvements.md` 重复维护。
 - Mission 9（2026-07-11）：建立论文精读 AI 输出质量门禁，统一覆盖 POJO/fallback 的字段归一化、关键字段校验、评分范围修复；加入 prompt 版本/耗时/token/质量日志和 Golden Eval 三类样例。后续继续扩展自动重试和评测指标。
+- Mission 9.2-A（2026-07-11）：增加单次论文分析 repair 调用、repair 结果二次门禁校验，以及输入字符/输出 token/最大尝试次数预算策略；暂不引入质量事件表。

@@ -9,6 +9,7 @@ import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.ai.PaperAnalysisQualityGate;
+import com.research.assistant.service.ai.PaperAnalysisRepairService;
 import com.research.assistant.service.ai.PaperAnalysisResult;
 import com.research.assistant.service.ai.ResearchAiService;
 import dev.langchain4j.service.Result;
@@ -42,6 +43,7 @@ public class PaperProcessingService {
     private final ObjectMapper objectMapper;
     private final AsyncTaskService asyncTaskService;
     private final PaperAnalysisQualityGate qualityGate = new PaperAnalysisQualityGate();
+    private final PaperAnalysisRepairService repairService;
 
     /** LLM 输入的最大字符数（防止 token 超限） */
     private static final int MAX_INPUT_CHARS = 12000;
@@ -63,6 +65,7 @@ public class PaperProcessingService {
         this.settingsService = settingsService;
         this.objectMapper = objectMapper;
         this.asyncTaskService = asyncTaskService;
+        this.repairService = new PaperAnalysisRepairService(llmService, objectMapper, qualityGate);
     }
 
     /**
@@ -158,6 +161,29 @@ public class PaperProcessingService {
             }
             PaperAnalysisResult pojo = result.content();
             PaperAnalysisQualityGate.QualityReport quality = qualityGate.validateAndRepair(pojo, researchTopic);
+            TokenUsage initialUsage = result.tokenUsage();
+            int initialTokens = initialUsage != null && initialUsage.totalTokenCount() != null
+                    ? initialUsage.totalTokenCount() : 0;
+            if (!quality.valid()) {
+                PaperAnalysisRepairService.RepairAttempt repair =
+                        repairService.repair(pojo, quality, researchTopic);
+                if (repair.succeeded()) {
+                    fillFromPojo(analysis, repair.result());
+                    int repairTokens = repair.response() != null && repair.response().getTotalTokens() != null
+                            ? repair.response().getTotalTokens() : 0;
+                    analysis.setTokenUsed(initialTokens + repairTokens);
+                    log.info("Paper {} POJO repair completed: promptVersion={}, repairPromptVersion={}, "
+                                    + "elapsedMs={}, token={}, repairToken={}, issues={}",
+                            paperId, PaperAnalysisQualityGate.PROMPT_VERSION,
+                            PaperAnalysisQualityGate.REPAIR_PROMPT_VERSION, elapsedMillis(startedAt),
+                            initialTokens, repairTokens, repair.quality().issues());
+                    return true;
+                }
+                log.warn("Paper {} POJO repair not accepted: promptVersion={}, repairPromptVersion={}, "
+                                + "attempts={}, reason={}",
+                        paperId, PaperAnalysisQualityGate.PROMPT_VERSION,
+                        PaperAnalysisQualityGate.REPAIR_PROMPT_VERSION, repair.attempts(), repair.error());
+            }
             if (!quality.valid()) {
                 log.warn("Paper {} POJO 质量门禁未通过: promptVersion={}, elapsedMs={}, issues={}",
                         paperId, PaperAnalysisQualityGate.PROMPT_VERSION,

@@ -21,6 +21,7 @@ public final class PaperAnalysisQualityGate {
 
     public static final String PROMPT_VERSION = "paper-analysis-v1";
     public static final String FALLBACK_PROMPT_VERSION = "paper-analysis-fallback-v1";
+    public static final String REPAIR_PROMPT_VERSION = "paper-analysis-repair-v1";
 
     private static final int MAX_LIST_ITEMS = 100;
     private static final Set<String> METHOD_TYPES = Set.of(

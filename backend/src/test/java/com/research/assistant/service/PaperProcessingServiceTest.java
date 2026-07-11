@@ -201,7 +201,43 @@ class PaperProcessingServiceTest {
         assertThat(analysis.getCoreContribution()).isEqualTo("repaired by fallback");
         assertThat(analysis.getMethodType()).isEqualTo("AI|SYSTEM");
         assertThat(analysis.getMethodSummary()).isEqualTo("fallback summary");
-        verify(llmService).chatWithUsage(any(), any());
+        verify(llmService, times(2)).chatWithUsage(any(), any());
+        verify(analysisMapper).insert(analysis);
+    }
+
+    @Test
+    void processShouldPersistOnceRepairedPojoPassesQualityGate() {
+        givenPaperWithPdf(4L, "paper.pdf");
+        when(pdfExtractor.extract("paper.pdf")).thenReturn("raw text");
+        when(textPreprocessor.clean("raw text")).thenReturn("cleaned text");
+        when(textPreprocessor.truncate("cleaned text", 12000)).thenReturn("input text");
+        when(analysisMapper.selectOne(any())).thenReturn(null);
+        when(settingsService.getValue("research_topic")).thenReturn("vision");
+
+        PaperAnalysisResult invalid = new PaperAnalysisResult();
+        invalid.setDomain("AI");
+        invalid.setCoreContribution("");
+        invalid.setMethodType("UNKNOWN");
+        invalid.setMethodSummary("");
+        when(researchAiService.analyzePaper("input text", "vision"))
+                .thenReturn(Result.<PaperAnalysisResult>builder()
+                        .content(invalid)
+                        .tokenUsage(new TokenUsage(4, 5, 9))
+                        .build());
+
+        String repairedJson = """
+                {"domain":"AI","coreContribution":"repaired contribution","methodType":"SYSTEM","methodSummary":"repaired summary"}
+                """;
+        when(llmService.chatWithUsage(any(), org.mockito.ArgumentMatchers.contains("Input JSON:")))
+                .thenReturn(new LlmResponse(repairedJson, 10, 20, 30));
+
+        PaperAnalysis analysis = service.process(4L);
+
+        assertThat(analysis.getCoreContribution()).isEqualTo("repaired contribution");
+        assertThat(analysis.getMethodType()).isEqualTo("AI|SYSTEM");
+        assertThat(analysis.getMethodSummary()).isEqualTo("repaired summary");
+        assertThat(analysis.getTokenUsed()).isEqualTo(39);
+        verify(llmService, times(1)).chatWithUsage(any(), any());
         verify(analysisMapper).insert(analysis);
     }
 
