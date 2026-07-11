@@ -20,7 +20,7 @@ public class AsyncTaskRecord {
     @TableField("task_id")
     private String taskId;
 
-    /** PENDING / PROCESSING / COMPLETED / FAILED / CANCELLED */
+    /** PENDING / PROCESSING / COMPLETED / FAILED / CANCELLED / PENDING_USER / EXPIRED */
     private String status;
 
     /** 工作流模板 key，普通任务为空 */

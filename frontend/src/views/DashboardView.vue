@@ -94,6 +94,8 @@
               <div class="task-chip completed">已完成 {{ data.taskStats.completed }}</div>
               <div class="task-chip failed">失败 {{ data.taskStats.failed }}</div>
               <div class="task-chip cancelled">取消 {{ data.taskStats.cancelled }}</div>
+              <div class="task-chip pending">待确认 {{ data.taskStats.pendingUser || 0 }}</div>
+              <div class="task-chip cancelled">过期 {{ data.taskStats.expired || 0 }}</div>
             </div>
             <div class="recent-tasks">
               <div class="recent-title">最近任务</div>
@@ -205,6 +207,8 @@ function taskStatusText(status) {
     COMPLETED: '已完成',
     FAILED: '失败',
     CANCELLED: '取消',
+    PENDING_USER: '待确认',
+    EXPIRED: '已过期',
   }
   return map[status] || status
 }
@@ -214,7 +218,8 @@ function taskTagType(status) {
     case 'COMPLETED': return 'success'
     case 'FAILED': return 'danger'
     case 'PROCESSING': return 'warning'
-    case 'CANCELLED': return 'info'
+    case 'CANCELLED':
+    case 'EXPIRED': return 'info'
     default: return ''
   }
 }

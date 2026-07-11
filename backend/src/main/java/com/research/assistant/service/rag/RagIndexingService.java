@@ -4,6 +4,7 @@ import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.service.embedding.EmbeddingService;
 import com.research.assistant.service.embedding.EmbeddingUnavailableException;
+import com.research.assistant.service.observability.ResearchMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,38 +24,58 @@ public class RagIndexingService {
     private final DocumentChunker chunker;
     private final EmbeddingService embeddingService;
     private final VectorStore vectorStore;
+    private final ResearchMetrics metrics;
 
     public RagIndexingService(PaperAnalysisMapper analysisMapper,
                               DocumentChunker chunker,
                               EmbeddingService embeddingService,
-                              VectorStore vectorStore) {
+                              VectorStore vectorStore,
+                              ResearchMetrics metrics) {
         this.analysisMapper = analysisMapper;
         this.chunker = chunker;
         this.embeddingService = embeddingService;
         this.vectorStore = vectorStore;
+        this.metrics = metrics;
     }
 
     /**
      * 对指定论文重建 RAG 索引。
      */
-    public void indexPaper(Long paperId) {
-        if (paperId == null) {
-            return;
+    public RagIndexingResult indexPaper(Long paperId) {
+        long startedAt = metrics.startTimer();
+        String outcome = "failed";
+        int chunkCount = 0;
+        try {
+            RagIndexingResult result = doIndexPaper(paperId);
+            outcome = "success";
+            chunkCount = result.chunkCount();
+            return result;
+        } catch (RagIndexingException e) {
+            outcome = e.getReason().name().toLowerCase(java.util.Locale.ROOT);
+            throw e;
+        } finally {
+            metrics.ragIndexFinished(outcome, chunkCount, startedAt);
         }
-        log.info("开始为论文 {} 建立 RAG 索引", paperId);
+    }
+
+    private RagIndexingResult doIndexPaper(Long paperId) {
+        if (paperId == null) {
+            throw new RagIndexingException(RagIndexingException.Reason.INVALID_PAPER, "论文 ID 不能为空");
+        }
+        log.info("event=rag_index_started paperId={}", paperId);
         PaperAnalysis analysis = analysisMapper.selectOne(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PaperAnalysis>()
                         .eq(PaperAnalysis::getPaperId, paperId));
         if (analysis == null) {
-            log.warn("论文 {} 无分析结果，跳过索引", paperId);
-            return;
+            throw new RagIndexingException(RagIndexingException.Reason.ANALYSIS_MISSING,
+                    "论文 " + paperId + " 尚无分析结果，无法建立索引");
         }
 
         // 1. 分块
         List<DocumentChunk> chunks = chunker.chunk(analysis);
         if (chunks.isEmpty()) {
-            log.warn("论文 {} 没有可用分片", paperId);
-            return;
+            throw new RagIndexingException(RagIndexingException.Reason.NO_CHUNKS,
+                    "论文 " + paperId + " 没有可用分片");
         }
 
         // 2. 生成 embedding。先完成远程调用，避免服务暂时不可用时误删旧索引。
@@ -63,23 +84,29 @@ public class RagIndexingService {
         try {
             embeddings = embeddingService.embedBatch(contents);
         } catch (EmbeddingUnavailableException e) {
-            log.warn("论文 {} 索引失败，Embedding 不可用: {}", paperId, e.getMessage());
-            return;
+            throw new RagIndexingException(RagIndexingException.Reason.EMBEDDING_UNAVAILABLE,
+                    "Embedding 服务不可用，论文 " + paperId + " 索引失败", e);
         }
 
         if (embeddings.size() != chunks.size()) {
-            log.warn("论文 {} embedding 数量与 chunk 数量不一致: {} vs {}", paperId, embeddings.size(), chunks.size());
-            return;
+            throw new RagIndexingException(RagIndexingException.Reason.EMBEDDING_MISMATCH,
+                    "Embedding 数量与论文分片数量不一致");
         }
 
         // 3. 替换旧索引
-        vectorStore.removeByPaperId(paperId);
         List<EmbeddedChunk> embeddedChunks = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             DocumentChunk c = chunks.get(i);
             embeddedChunks.add(new EmbeddedChunk(c.paperId(), c.chunkType(), c.content(), c.source(), embeddings.get(i)));
         }
-        vectorStore.add(embeddedChunks);
-        log.info("论文 {} RAG 索引完成，共 {} 个分片", paperId, embeddedChunks.size());
+        try {
+            vectorStore.removeByPaperId(paperId);
+            vectorStore.add(embeddedChunks);
+        } catch (RuntimeException e) {
+            throw new RagIndexingException(RagIndexingException.Reason.VECTOR_STORE_FAILED,
+                    "向量存储写入失败，论文 " + paperId + " 索引未完成", e);
+        }
+        log.info("event=rag_index_completed paperId={} chunkCount={}", paperId, embeddedChunks.size());
+        return new RagIndexingResult(paperId, true, embeddedChunks.size());
     }
 }

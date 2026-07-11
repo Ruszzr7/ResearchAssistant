@@ -69,7 +69,7 @@
             @click="cancelTask(row.taskId)"
           >取消</el-button>
           <el-button
-            v-if="row.workflowType && (row.status === 'FAILED' || row.status === 'CANCELLED')"
+            v-if="row.workflowType && ['FAILED', 'CANCELLED', 'EXPIRED'].includes(row.status)"
             size="small"
             link
             type="success"
@@ -200,7 +200,8 @@ const statusMeta = {
   COMPLETED: { label: '已完成', type: 'success' },
   FAILED: { label: '失败', type: 'danger' },
   CANCELLED: { label: '已取消', type: 'warning' },
-  PENDING_USER: { label: '待确认', type: 'warning' }
+  PENDING_USER: { label: '待确认', type: 'warning' },
+  EXPIRED: { label: '已过期', type: 'info' }
 }
 
 const typeMeta = {
@@ -225,7 +226,7 @@ function candidateKey(c) {
 }
 
 function isTerminal(status) {
-  return ['COMPLETED', 'FAILED', 'CANCELLED'].includes(status)
+  return ['COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED'].includes(status)
 }
 
 function onIntroClose() {

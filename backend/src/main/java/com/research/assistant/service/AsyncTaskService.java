@@ -9,6 +9,7 @@ import com.research.assistant.service.ai.skill.SkillContext;
 import com.research.assistant.service.async.AsyncTaskManager;
 import com.research.assistant.service.async.AsyncTaskResult;
 import com.research.assistant.service.rag.RagIndexingService;
+import com.research.assistant.service.rag.RagIndexingResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -172,8 +173,11 @@ public class AsyncTaskService {
         String title = "RAG 索引 (paperId=" + paperId + ")";
         return asyncTaskManager.submit(title, setStage -> {
             setStage.accept("正在生成向量索引…");
-            ragIndexingService.indexPaper(paperId);
-            return Map.of("paperId", paperId, "indexed", true);
+            RagIndexingResult result = ragIndexingService.indexPaper(paperId);
+            return Map.of(
+                    "paperId", result.paperId(),
+                    "indexed", result.indexed(),
+                    "chunkCount", result.chunkCount());
         });
     }
 
@@ -211,4 +215,3 @@ public class AsyncTaskService {
         return asyncTaskManager.delete(taskId);
     }
 }
-

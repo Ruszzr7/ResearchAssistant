@@ -1,6 +1,7 @@
 package com.research.assistant.service.embedding;
 
 import com.research.assistant.service.ai.LangChain4jModelFactory;
+import com.research.assistant.service.observability.ResearchMetrics;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
@@ -8,6 +9,8 @@ import dev.langchain4j.model.output.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,9 +26,16 @@ public class EmbeddingService {
     private static final Logger log = LoggerFactory.getLogger(EmbeddingService.class);
 
     private final LangChain4jModelFactory modelFactory;
+    private final ResearchMetrics metrics;
+
+    @Autowired
+    public EmbeddingService(LangChain4jModelFactory modelFactory, ResearchMetrics metrics) {
+        this.modelFactory = modelFactory;
+        this.metrics = metrics;
+    }
 
     public EmbeddingService(LangChain4jModelFactory modelFactory) {
-        this.modelFactory = modelFactory;
+        this(modelFactory, new ResearchMetrics(new SimpleMeterRegistry()));
     }
 
     /**
@@ -35,13 +45,18 @@ public class EmbeddingService {
         if (text == null || text.isBlank()) {
             return List.of();
         }
+        long startedAt = metrics.startTimer();
+        String outcome = "success";
         try {
             EmbeddingModel model = modelFactory.createEmbeddingModel();
             Embedding embedding = model.embed(TextSegment.from(text)).content();
             return toList(embedding.vector());
         } catch (Exception e) {
-            log.warn("Embedding 生成失败: {}", e.getMessage());
+            outcome = "failure";
+            log.warn("event=embedding_failed operation=single errorType={}", e.getClass().getSimpleName());
             throw new EmbeddingUnavailableException("Embedding 服务不可用: " + e.getMessage(), e);
+        } finally {
+            metrics.aiFinished("embedding_single", outcome, startedAt);
         }
     }
 
@@ -58,6 +73,8 @@ public class EmbeddingService {
         if (nonBlank.isEmpty()) {
             return List.of();
         }
+        long startedAt = metrics.startTimer();
+        String outcome = "success";
         try {
             EmbeddingModel model = modelFactory.createEmbeddingModel();
             List<TextSegment> segments = nonBlank.stream().map(TextSegment::from).toList();
@@ -69,8 +86,11 @@ public class EmbeddingService {
             }
             return embeddings.stream().map(embedding -> toList(embedding.vector())).toList();
         } catch (Exception e) {
-            log.warn("批量 Embedding 生成失败: {}", e.getMessage());
+            outcome = "failure";
+            log.warn("event=embedding_failed operation=batch errorType={}", e.getClass().getSimpleName());
             throw new EmbeddingUnavailableException("Embedding 服务不可用: " + e.getMessage(), e);
+        } finally {
+            metrics.aiFinished("embedding_batch", outcome, startedAt);
         }
     }
 

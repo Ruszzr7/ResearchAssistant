@@ -7,15 +7,17 @@ import com.research.assistant.entity.WorkflowStepRecord;
 import com.research.assistant.mapper.AsyncTaskRecordMapper;
 import com.research.assistant.mapper.WorkflowStepMapper;
 import com.research.assistant.service.ai.workflow.WorkflowStepView;
+import com.research.assistant.service.observability.ResearchMetrics;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.task.AsyncTaskExecutor;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -54,6 +56,9 @@ public class AsyncTaskManager {
     private final WorkflowStepMapper workflowStepMapper;
     private final ObjectMapper objectMapper;
     private final boolean markOrphanedOnStartup;
+    private final Duration pendingUserTtl;
+    private final Duration executionTimeout;
+    private final ResearchMetrics metrics;
     private final Map<String, TaskHolder> tasks = new ConcurrentHashMap<>();
 
     @Autowired
@@ -61,12 +66,18 @@ public class AsyncTaskManager {
                             AsyncTaskRecordMapper taskRecordMapper,
                             WorkflowStepMapper workflowStepMapper,
                             ObjectMapper objectMapper,
-                            @Value("${app.async.mark-orphaned-on-startup:true}") boolean markOrphanedOnStartup) {
+                            @Value("${app.async.mark-orphaned-on-startup:true}") boolean markOrphanedOnStartup,
+                            @Value("${app.async.pending-user-ttl:24h}") Duration pendingUserTtl,
+                            @Value("${app.async.execution-timeout:30m}") Duration executionTimeout,
+                            ResearchMetrics metrics) {
         this.taskExecutor = taskExecutor;
         this.taskRecordMapper = taskRecordMapper;
         this.workflowStepMapper = workflowStepMapper;
         this.objectMapper = objectMapper;
         this.markOrphanedOnStartup = markOrphanedOnStartup;
+        this.pendingUserTtl = pendingUserTtl;
+        this.executionTimeout = executionTimeout;
+        this.metrics = metrics;
     }
 
     /**
@@ -77,7 +88,8 @@ public class AsyncTaskManager {
                             AsyncTaskRecordMapper taskRecordMapper,
                             WorkflowStepMapper workflowStepMapper,
                             ObjectMapper objectMapper) {
-        this(taskExecutor, taskRecordMapper, workflowStepMapper, objectMapper, true);
+        this(taskExecutor, taskRecordMapper, workflowStepMapper, objectMapper, true,
+                Duration.ofHours(24), Duration.ofMinutes(30), new ResearchMetrics(new SimpleMeterRegistry()));
     }
 
     /**
@@ -94,6 +106,8 @@ public class AsyncTaskManager {
             wrapper.in("status",
                             java.util.Arrays.asList(AsyncTaskStatus.PENDING.name(), AsyncTaskStatus.PROCESSING.name()))
                     .set("status", AsyncTaskStatus.FAILED.name())
+                    .set("stage_text", "失败")
+                    .set("result_json", null)
                     .set("error", "服务重启，任务中断，请重新提交")
                     .set("updated_at", LocalDateTime.now());
             int updated = taskRecordMapper.update(null, wrapper);
@@ -144,35 +158,64 @@ public class AsyncTaskManager {
     public <T> String submit(String taskId, String workflowType, String contextJson, String title,
                              BiFunction<String, Consumer<String>, T> task) {
         AsyncTaskResult<T> initial = AsyncTaskResult.pending(taskId, "排队中…", workflowType, null, title);
-        Long recordId = insertRecord(initial, contextJson);
-        tasks.put(taskId, new TaskHolder(initial, null, recordId));
-
-        Consumer<String> setStage = stage -> updateStage(taskId, stage);
-        Future<?> future = taskExecutor.submit(() -> {
-            try {
-                updateStage(taskId, "正在处理…");
-                T result = task.apply(taskId, setStage);
-                TaskHolder current = tasks.get(taskId);
-                if (current != null && current.result.getStatus() == AsyncTaskStatus.PENDING_USER) {
-                    // 工作流已设置为人机确认状态，不再覆盖
-                    log.info("异步任务进入等待用户确认状态: taskId={}", taskId);
-                } else {
-                    updateResult(taskId, initial.completed(result));
-                    log.info("异步任务完成: taskId={}", taskId);
-                }
-            } catch (Exception e) {
-                if (Thread.currentThread().isInterrupted() || e instanceof InterruptedException) {
-                    Thread.currentThread().interrupt();
-                    updateResult(taskId, initial.cancelled());
-                    log.info("异步任务被取消/中断: taskId={}", taskId);
-                } else {
-                    updateResult(taskId, initial.failed(e.getMessage()));
-                    log.error("异步任务失败: taskId={}", taskId, e);
+        TaskHolder holder;
+        synchronized (tasks) {
+            TaskHolder existing = tasks.get(taskId);
+            if (existing != null) {
+                synchronized (existing) {
+                    if (!existing.result.getStatus().canRestart()) {
+                        throw new IllegalStateException("任务正在执行或已完成，不能重复提交: " + taskId);
+                    }
+                    finishMetrics(existing, "resumed");
                 }
             }
-        });
+            Long recordId = insertRecord(initial, contextJson);
+            holder = new TaskHolder(initial, null, recordId, metrics.startTimer(), workflowType);
+            tasks.put(taskId, holder);
+        }
+        metrics.taskSubmitted(workflowType);
 
-        tasks.get(taskId).future = future;
+        Consumer<String> setStage = stage -> updateStage(taskId, stage);
+        try {
+            Future<?> future = taskExecutor.submit(() -> {
+                try {
+                    if (!updateStage(taskId, "正在处理…")) {
+                        return;
+                    }
+                    T result = task.apply(taskId, setStage);
+                    TaskHolder current = tasks.get(taskId);
+                    if (current != null && current.result.getStatus() == AsyncTaskStatus.PENDING_USER) {
+                        log.info("event=async_task_pending_user taskId={} type={}", taskId, taskType(workflowType));
+                    } else if (updateResult(taskId, initial.completed(result))) {
+                        log.info("event=async_task_completed taskId={} type={}", taskId, taskType(workflowType));
+                    }
+                } catch (Exception e) {
+                    if (Thread.currentThread().isInterrupted() || e instanceof InterruptedException) {
+                        Thread.currentThread().interrupt();
+                        if (updateResult(taskId, initial.cancelled())) {
+                            log.info("event=async_task_cancelled taskId={} type={}", taskId, taskType(workflowType));
+                        }
+                    } else {
+                        String error = safeError(e);
+                        if (updateResult(taskId, initial.failed(error))) {
+                            log.error("event=async_task_failed taskId={} type={} errorType={} message={}",
+                                    taskId, taskType(workflowType), e.getClass().getSimpleName(), error);
+                        }
+                    }
+                }
+            });
+            synchronized (holder) {
+                if (holder.result.getStatus() == AsyncTaskStatus.PENDING
+                        || holder.result.getStatus() == AsyncTaskStatus.PROCESSING) {
+                    holder.future = future;
+                }
+            }
+        } catch (RuntimeException e) {
+            String error = "任务执行器拒绝提交: " + safeError(e);
+            updateResult(taskId, initial.failed(error));
+            log.error("event=async_task_rejected taskId={} type={} errorType={} message={}",
+                    taskId, taskType(workflowType), e.getClass().getSimpleName(), safeError(e));
+        }
         return taskId;
     }
 
@@ -184,10 +227,16 @@ public class AsyncTaskManager {
         if (holder == null) {
             return;
         }
-        @SuppressWarnings("unchecked")
-        AsyncTaskResult<Object> updated = ((AsyncTaskResult<Object>) holder.result).pendingUser(partialResult);
-        holder.result = updated;
-        updateRecord(holder.recordId, updated);
+        synchronized (holder) {
+            if (!holder.result.getStatus().canTransitionTo(AsyncTaskStatus.PENDING_USER)) {
+                return;
+            }
+            @SuppressWarnings("unchecked")
+            AsyncTaskResult<Object> updated = ((AsyncTaskResult<Object>) holder.result).pendingUser(partialResult);
+            holder.result = updated;
+            holder.future = null;
+            updateRecord(holder.recordId, updated);
+        }
     }
 
     /**
@@ -205,7 +254,7 @@ public class AsyncTaskManager {
         }
         AsyncTaskResult<?> result = toResult(record);
         // 缓存到内存，减少后续轮询查 DB
-        tasks.put(taskId, new TaskHolder(result, null, record.getId()));
+        tasks.put(taskId, new TaskHolder(result, null, record.getId(), metrics.startTimer(), record.getWorkflowType()));
         return (AsyncTaskResult<T>) result;
     }
 
@@ -226,26 +275,38 @@ public class AsyncTaskManager {
      */
     public boolean cancel(String taskId) {
         TaskHolder holder = tasks.get(taskId);
-        if (holder != null && !holder.result.getStatus().isTerminal()) {
-            if (holder.future != null) {
-                holder.future.cancel(true);
+        if (holder != null) {
+            Future<?> future;
+            synchronized (holder) {
+                if (!holder.result.getStatus().canTransitionTo(AsyncTaskStatus.CANCELLED)) {
+                    return false;
+                }
+                AsyncTaskResult<?> cancelled = holder.result.cancelled();
+                holder.result = cancelled;
+                future = holder.future;
+                holder.future = null;
+                updateRecord(holder.recordId, cancelled);
+                finishMetrics(holder, "cancelled");
             }
-            AsyncTaskResult<?> cancelled = holder.result.cancelled();
-            holder.result = cancelled;
-            holder.future = null;
-            updateRecord(holder.recordId, cancelled);
+            if (future != null) {
+                future.cancel(true);
+            }
+            log.info("event=async_task_cancelled taskId={} type={}", taskId, taskType(holder.taskType));
             return true;
         }
 
         // 内存未命中：尝试在数据库中取消非终态任务
-        AsyncTaskRecord record = taskRecordMapper.selectByTaskId(taskId);
-        if (record != null && !isTerminal(record.getStatus())) {
-            record.setStatus(AsyncTaskStatus.CANCELLED.name());
-            record.setUpdatedAt(LocalDateTime.now());
-            taskRecordMapper.updateById(record);
-            return true;
-        }
-        return false;
+        UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
+        wrapper.eq("task_id", taskId)
+                .in("status", java.util.Arrays.asList(
+                        AsyncTaskStatus.PENDING.name(), AsyncTaskStatus.PROCESSING.name(),
+                        AsyncTaskStatus.PENDING_USER.name()))
+                .set("status", AsyncTaskStatus.CANCELLED.name())
+                .set("stage_text", "已取消")
+                .set("result_json", null)
+                .set("error", null)
+                .set("updated_at", LocalDateTime.now());
+        return taskRecordMapper.update(null, wrapper) > 0;
     }
 
     /**
@@ -276,32 +337,51 @@ public class AsyncTaskManager {
         taskRecordMapper.deleteById(record.getId());
         return true;
     }
-    public void updateStage(String taskId, String stageText) {
+    public boolean updateStage(String taskId, String stageText) {
         TaskHolder holder = tasks.get(taskId);
         if (holder == null) {
-            return;
+            return false;
         }
-        if (java.util.Objects.equals(holder.result.getStageText(), stageText)
-                && holder.result.getStatus() == AsyncTaskStatus.PROCESSING) {
-            return;
+        synchronized (holder) {
+            AsyncTaskStatus status = holder.result.getStatus();
+            if (status != AsyncTaskStatus.PENDING && status != AsyncTaskStatus.PROCESSING) {
+                return false;
+            }
+            if (java.util.Objects.equals(holder.result.getStageText(), stageText)
+                    && status == AsyncTaskStatus.PROCESSING) {
+                return true;
+            }
+            AsyncTaskResult<?> updated = holder.result.processing(stageText);
+            holder.result = updated;
+            updateRecord(holder.recordId, updated);
+            return true;
         }
-        AsyncTaskResult<?> updated = holder.result.processing(stageText);
-        holder.result = updated;
-        updateRecord(holder.recordId, updated);
     }
 
-    private void updateResult(String taskId, AsyncTaskResult<?> result) {
+    private boolean updateResult(String taskId, AsyncTaskResult<?> result) {
         TaskHolder holder = tasks.get(taskId);
-        if (holder != null) {
+        if (holder == null) {
+            return false;
+        }
+        synchronized (holder) {
+            if (!holder.result.getStatus().canTransitionTo(result.getStatus())) {
+                return false;
+            }
             holder.result = result;
             holder.future = null; // 释放 Future 及其闭包引用
             updateRecord(holder.recordId, result);
+            finishMetrics(holder, result.getStatus().name().toLowerCase(java.util.Locale.ROOT));
+            return true;
         }
     }
 
     private Long insertRecord(AsyncTaskResult<?> result, String contextJson) {
         AsyncTaskRecord existing = taskRecordMapper.selectByTaskId(result.getTaskId());
         if (existing != null) {
+            AsyncTaskStatus existingStatus = parseStatus(existing.getStatus());
+            if (!existingStatus.canRestart()) {
+                throw new IllegalStateException("任务当前状态不允许重新提交: " + existing.getStatus());
+            }
             // 工作流重试等场景：复用已有记录，重置为 PENDING
             existing.setStatus(result.getStatus().name());
             existing.setStageText(result.getStageText());
@@ -309,6 +389,7 @@ public class AsyncTaskManager {
             existing.setError(null);
             existing.setWorkflowType(result.getWorkflowType());
             existing.setContextJson(contextJson);
+            existing.setTitle(result.getTitle());
             existing.setUpdatedAt(LocalDateTime.now());
             taskRecordMapper.updateById(existing);
             return existing.getId();
@@ -343,12 +424,7 @@ public class AsyncTaskManager {
     }
 
     private AsyncTaskResult<?> toResult(AsyncTaskRecord record) {
-        AsyncTaskStatus status;
-        try {
-            status = AsyncTaskStatus.valueOf(record.getStatus());
-        } catch (IllegalArgumentException e) {
-            status = AsyncTaskStatus.FAILED;
-        }
+        AsyncTaskStatus status = parseStatus(record.getStatus());
         List<WorkflowStepView> steps = null;
         if (record.getWorkflowType() != null && workflowStepMapper != null) {
             steps = loadSteps(record.getTaskId());
@@ -411,10 +487,38 @@ public class AsyncTaskManager {
     }
 
     private boolean isTerminal(String status) {
+        return parseStatus(status).isTerminal();
+    }
+
+    private AsyncTaskStatus parseStatus(String status) {
         try {
-            return AsyncTaskStatus.valueOf(status).isTerminal();
-        } catch (IllegalArgumentException e) {
-            return false;
+            return AsyncTaskStatus.valueOf(status);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return AsyncTaskStatus.FAILED;
+        }
+    }
+
+    private String safeError(Exception error) {
+        String message = error.getMessage();
+        if (message == null || message.isBlank()) {
+            return error.getClass().getSimpleName();
+        }
+        String sanitized = message
+                .replaceAll("(?i)(api[_-]?key|authorization|bearer)\\s*[:=]?\\s*[^\\s,;]+", "$1=[REDACTED]")
+                .replaceAll("(?i)sk-[a-z0-9_-]{8,}", "[REDACTED]")
+                .replaceAll("[\\r\\n\\t]+", " ")
+                .trim();
+        return sanitized.length() > 1000 ? sanitized.substring(0, 1000) : sanitized;
+    }
+
+    private String taskType(String workflowType) {
+        return workflowType == null || workflowType.isBlank() ? "general" : workflowType;
+    }
+
+    private void finishMetrics(TaskHolder holder, String outcome) {
+        if (!holder.metricsFinished) {
+            holder.metricsFinished = true;
+            metrics.taskFinished(holder.taskType, outcome, holder.startedAtNanos);
         }
     }
 
@@ -430,6 +534,96 @@ public class AsyncTaskManager {
         });
     }
 
+    /** 将超过确认期限的 PENDING_USER 任务结算为 EXPIRED。 */
+    @Scheduled(
+            fixedDelayString = "${app.async.pending-user-expiry-scan-ms:60000}",
+            initialDelayString = "${app.async.pending-user-expiry-scan-ms:60000}")
+    public void expirePendingUserTasks() {
+        if (pendingUserTtl == null || pendingUserTtl.isZero() || pendingUserTtl.isNegative()) {
+            return;
+        }
+        LocalDateTime cutoff = LocalDateTime.now().minus(pendingUserTtl);
+        int inMemoryExpired = 0;
+        for (Map.Entry<String, TaskHolder> entry : tasks.entrySet()) {
+            TaskHolder holder = entry.getValue();
+            synchronized (holder) {
+                if (holder.result.getStatus() != AsyncTaskStatus.PENDING_USER
+                        || !holder.result.getUpdatedAt().isBefore(cutoff)) {
+                    continue;
+                }
+                AsyncTaskResult<?> expired = holder.result.expired("等待用户确认超时，请重新提交任务");
+                holder.result = expired;
+                holder.future = null;
+                updateRecord(holder.recordId, expired);
+                finishMetrics(holder, "expired");
+                inMemoryExpired++;
+            }
+        }
+
+        UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
+        wrapper.eq("status", AsyncTaskStatus.PENDING_USER.name())
+                .lt("updated_at", cutoff)
+                .set("status", AsyncTaskStatus.EXPIRED.name())
+                .set("stage_text", "已过期")
+                .set("result_json", null)
+                .set("error", "等待用户确认超时，请重新提交任务")
+                .set("updated_at", LocalDateTime.now());
+        int databaseExpired = taskRecordMapper.update(null, wrapper);
+        int total = inMemoryExpired + databaseExpired;
+        if (total > 0) {
+            log.info("event=async_task_expired count={} ttlSeconds={}", total, pendingUserTtl.toSeconds());
+        }
+    }
+
+    /** 将超过执行时限的排队/运行任务结算为 FAILED，并尝试中断工作线程。 */
+    @Scheduled(
+            fixedDelayString = "${app.async.execution-timeout-scan-ms:60000}",
+            initialDelayString = "${app.async.execution-timeout-scan-ms:60000}")
+    public void timeoutActiveTasks() {
+        if (executionTimeout == null || executionTimeout.isZero() || executionTimeout.isNegative()) {
+            return;
+        }
+        LocalDateTime cutoff = LocalDateTime.now().minus(executionTimeout);
+        int inMemoryTimedOut = 0;
+        for (Map.Entry<String, TaskHolder> entry : tasks.entrySet()) {
+            TaskHolder holder = entry.getValue();
+            Future<?> future;
+            synchronized (holder) {
+                AsyncTaskStatus status = holder.result.getStatus();
+                LocalDateTime createdAt = holder.result.getCreatedAt();
+                if ((status != AsyncTaskStatus.PENDING && status != AsyncTaskStatus.PROCESSING)
+                        || createdAt == null || !createdAt.isBefore(cutoff)) {
+                    continue;
+                }
+                AsyncTaskResult<?> failed = holder.result.failed("任务执行超时，请重试");
+                holder.result = failed;
+                future = holder.future;
+                holder.future = null;
+                updateRecord(holder.recordId, failed);
+                finishMetrics(holder, "timeout");
+                inMemoryTimedOut++;
+            }
+            if (future != null) {
+                future.cancel(true);
+            }
+        }
+
+        UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
+        wrapper.in("status", java.util.Arrays.asList(
+                        AsyncTaskStatus.PENDING.name(), AsyncTaskStatus.PROCESSING.name()))
+                .lt("created_at", cutoff)
+                .set("status", AsyncTaskStatus.FAILED.name())
+                .set("stage_text", "失败")
+                .set("result_json", null)
+                .set("error", "任务执行超时，请重试")
+                .set("updated_at", LocalDateTime.now());
+        int databaseTimedOut = taskRecordMapper.update(null, wrapper);
+        int total = inMemoryTimedOut + databaseTimedOut;
+        if (total > 0) {
+            log.warn("event=async_task_timeout count={} timeoutSeconds={}", total, executionTimeout.toSeconds());
+        }
+    }
+
     /**
      * 定时清理 DB 中 7 天前的终态任务。
      */
@@ -442,7 +636,8 @@ public class AsyncTaskManager {
                             java.util.Arrays.asList(
                                     AsyncTaskStatus.COMPLETED.name(),
                                     AsyncTaskStatus.FAILED.name(),
-                                    AsyncTaskStatus.CANCELLED.name()))
+                                    AsyncTaskStatus.CANCELLED.name(),
+                                    AsyncTaskStatus.EXPIRED.name()))
                     .lt("updated_at", cutoff);
             int deleted = taskRecordMapper.delete(wrapper);
             if (deleted > 0) {
@@ -457,11 +652,17 @@ public class AsyncTaskManager {
         AsyncTaskResult<?> result;
         Future<?> future;
         Long recordId;
+        long startedAtNanos;
+        String taskType;
+        boolean metricsFinished;
 
-        TaskHolder(AsyncTaskResult<?> result, Future<?> future, Long recordId) {
+        TaskHolder(AsyncTaskResult<?> result, Future<?> future, Long recordId,
+                   long startedAtNanos, String taskType) {
             this.result = result;
             this.future = future;
             this.recordId = recordId;
+            this.startedAtNanos = startedAtNanos;
+            this.taskType = taskType;
         }
     }
 }

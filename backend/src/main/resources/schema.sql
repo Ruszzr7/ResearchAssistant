@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS async_task (
     workflow_type  VARCHAR(64)  NULL     COMMENT '工作流模板 key，普通任务为空',
     context_json   MEDIUMTEXT   NULL     COMMENT '工作流启动上下文 JSON',
     title          VARCHAR(255) NULL     COMMENT '任务展示标题',
-    status         VARCHAR(20)  NOT NULL COMMENT 'PENDING / PROCESSING / COMPLETED / FAILED / CANCELLED',
+    status         VARCHAR(20)  NOT NULL COMMENT 'PENDING / PROCESSING / COMPLETED / FAILED / CANCELLED / PENDING_USER / EXPIRED',
     stage_text     VARCHAR(255),
     result_json    MEDIUMTEXT,
     error          TEXT,

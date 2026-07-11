@@ -57,7 +57,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 - Skill Registry：原子能力统一注册、描述和测试。
 - Planner + PlanExecutor：将自然语言目标转换为顺序 Skill 计划。
 - Workflow Engine：`paper-import`、`literature-survey`、`gap-research`。
-- 支持异步任务、阶段提示、持久化步骤、失败点重试、取消和 `PENDING_USER` 人机确认。
+- 支持异步任务、阶段提示、持久化步骤、失败点重试、取消、执行超时和带过期状态的 `PENDING_USER` 人机确认。
 
 ### 4.4 写作与交互
 
@@ -89,9 +89,9 @@ MySQL / 本地 PDF / 可选 Qdrant
 
 ## 7. 当前待办
 
-1. 多模型 fallback、prompt 版本化、结构化输出校验和 20–50 篇论文 eval 集。
+1. 将现有论文精读质量门禁扩展到对比/Gap，并评估多模型 fallback。
 2. 统一数据库迁移工具，替代逐步累积的手写升级脚本。
-3. 将异步执行从进程内线程池演进为可重试、可限流、可观测的任务队列。
+3. 在当前可观测、可取消/超时的进程内任务基础上，按部署需求演进为可靠任务队列。
 4. 拆分超大前端页面，优化首屏包体积和公共 composable。
 5. 增加 Docker 一键部署、接口契约测试和 Micrometer 指标。
 

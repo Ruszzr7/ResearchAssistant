@@ -25,7 +25,16 @@ spring:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
 
 # Application
 app:
@@ -33,6 +42,8 @@ app:
     # 生产环境启动时将上次未完成任务标记为 FAILED；测试环境关闭，避免触碰测试数据。
     mark-orphaned-on-startup: true
     schema-init-enabled: true
+    pending-user-ttl: ${ASYNC_PENDING_USER_TTL:24h}
+    execution-timeout: ${ASYNC_TASK_TIMEOUT:30m}
   storage:
     pdf-dir: ${APP_STORAGE_PDF_DIR:./data/papers}
   encryption:

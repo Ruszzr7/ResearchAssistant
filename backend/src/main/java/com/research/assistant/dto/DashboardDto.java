@@ -111,6 +111,8 @@ public class DashboardDto {
         private long completed;
         private long failed;
         private long cancelled;
+        private long pendingUser;
+        private long expired;
         private long total;
         private List<RecentTask> recent;
 
@@ -124,6 +126,10 @@ public class DashboardDto {
         public void setFailed(long failed) { this.failed = failed; }
         public long getCancelled() { return cancelled; }
         public void setCancelled(long cancelled) { this.cancelled = cancelled; }
+        public long getPendingUser() { return pendingUser; }
+        public void setPendingUser(long pendingUser) { this.pendingUser = pendingUser; }
+        public long getExpired() { return expired; }
+        public void setExpired(long expired) { this.expired = expired; }
         public long getTotal() { return total; }
         public void setTotal(long total) { this.total = total; }
         public List<RecentTask> getRecent() { return recent; }

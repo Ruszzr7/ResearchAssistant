@@ -80,6 +80,11 @@ public class AsyncTaskResult<T> {
                 workflowType, steps, title);
     }
 
+    public AsyncTaskResult<T> expired(String error) {
+        return new AsyncTaskResult<>(taskId, AsyncTaskStatus.EXPIRED, null, null, error, createdAt, LocalDateTime.now(),
+                workflowType, steps, title);
+    }
+
     public String getTaskId() { return taskId; }
     public AsyncTaskStatus getStatus() { return status; }
 
@@ -91,6 +96,7 @@ public class AsyncTaskResult<T> {
             case COMPLETED -> "完成";
             case FAILED -> "失败";
             case CANCELLED -> "已取消";
+            case EXPIRED -> "已过期";
             default -> "";
         };
     }

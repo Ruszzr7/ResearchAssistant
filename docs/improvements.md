@@ -14,17 +14,14 @@
 
 ## P0：可靠性与质量保证
 
-- [ ] 结构化输出增加 schema 校验、字段补全和自动修复。
-- [ ] 为 `analyze-paper`、`compare-papers`、`analyze-gaps` 建立 20–50 篇 golden eval 集。
-- [ ] 增加 prompt 版本管理、token 预算、调用耗时和失败率记录。
+- [ ] 将论文精读已有质量门禁扩展到 `compare-papers`、`analyze-gaps`，补齐对应 golden eval。
 - [ ] 为外部来源和 Embedding 增加统一超时、限流、重试和降级指标。
 
 ## P1：工程化
 
 - [ ] 用 Flyway 或 Liquibase 统一替代手写数据库升级脚本。
 - [ ] 将异步任务从进程内线程池演进为可重试、可限流、有死信记录的任务队列。
-- [ ] 为 `PENDING_USER` 任务增加 TTL、过期状态和恢复策略。
-- [ ] 增加接口契约测试、启动健康检查和 Micrometer metrics。
+- [ ] 增加接口契约测试，并为现有 Actuator/Micrometer 指标配置生产告警与导出方案。
 - [ ] 提供 Dockerfile、MySQL 初始化和前后端一键部署方案。
 
 ## P2：产品体验

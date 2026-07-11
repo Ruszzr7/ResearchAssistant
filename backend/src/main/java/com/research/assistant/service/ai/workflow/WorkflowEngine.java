@@ -85,8 +85,10 @@ public class WorkflowEngine {
         if (result == null) {
             throw new WorkflowException("任务不存在: " + taskId);
         }
-        if (result.getStatus() == AsyncTaskStatus.COMPLETED) {
-            throw new WorkflowException("任务已完成，无需重试: " + taskId);
+        if (result.getStatus() != AsyncTaskStatus.FAILED
+                && result.getStatus() != AsyncTaskStatus.CANCELLED
+                && result.getStatus() != AsyncTaskStatus.EXPIRED) {
+            throw new WorkflowException("只有失败、取消或过期的任务可以重试: " + taskId);
         }
 
         WorkflowDefinition def = workflowRegistry.get(result.getWorkflowType());

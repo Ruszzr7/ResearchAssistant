@@ -67,7 +67,8 @@ class ReadingPlanServiceTest {
 
         ReadingPlanItemRequest itemReq = new ReadingPlanItemRequest();
         itemReq.setPaperId(paper.getId());
-        itemReq.setDeadline(LocalDate.now().plusDays(1));
+        // 使用今天，避免周日运行时“明天”落入下一周导致用例随日期波动。
+        itemReq.setDeadline(LocalDate.now());
         itemReq.setPriority(2);
         service.addItem(plan.getId(), itemReq);
 

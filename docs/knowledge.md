@@ -49,6 +49,9 @@
 - 服务重启后未完成任务默认标记为 FAILED，用户可重试；这不是可恢复的分布式任务队列。
 - 测试环境关闭孤儿任务恢复，避免测试启动修改任务状态。
 - 外部文献检索使用独立线程池，避免网络限速和等待占满 AI 任务线程；阶段文案相同则不重复写任务记录。
+- 对外继续使用 `PROCESSING/COMPLETED`（分别表示 RUNNING/SUCCESS）以保持 API 兼容；所有转换由状态机校验，取消、超时等终态不能被迟到的阶段或完成回调覆盖。
+- `PENDING_USER` 按 TTL 转为 `EXPIRED`，排队/运行任务按执行时限转为 `FAILED` 并中断 Future；同一 taskId 只有失败、取消、过期或待确认状态允许重新提交。
+- Actuator 暴露 health/info/metrics；Micrometer 只记录低基数任务类型、结果、耗时、token 和分片数，日志不写提示词、论文正文或凭据，错误文本入库前需脱敏和限长。
 
 ## 7. RAG
 
@@ -81,7 +84,7 @@
 - 后端至少执行 `mvnw.cmd test`；集成测试必须使用独立 profile / 数据库。
 - 外部 AI、Embedding、Qdrant、学术 API 都应有 mock 单测和失败降级测试。
 - 排查顺序：浏览器 Network → Controller 日志 → Service 阶段日志 → Mapper SQL → 外部服务响应。
-- 质量缺口仍包括 eval 集、schema 校验、prompt 版本化、metrics、契约测试和 Docker 验证。
+- 质量缺口仍包括 compare/gap eval、统一 schema 校验、多模型 fallback、契约测试和 Docker 验证。
 - 论文精读质量门禁：`PaperAnalysisQualityGate` 对 POJO 和 fallback JSON 做确定性归一化（空值列表、空白文本、方法类型白名单、评分 1-10、嵌套摘要裁剪），不编造内容；关键字段缺失时保留回退并记录质量失败。`PaperAnalysisQualityGate.PROMPT_VERSION` 与耗时/token/修复状态一起记录，Golden Eval 资源放在 `backend/src/main/resources/eval/`。
 - 论文分析自动修复采用单独的 `PaperAnalysisRepairService`，最多调用一次 LLM，修复结果必须再次通过 `PaperAnalysisQualityGate`；`LlmCallPolicy` 先在业务层限制输入字符、输出 token 和尝试次数，避免无限重试与成本失控。
 - AI 质量事件写入 `ai_quality_event`，按 POJO/REPAIR/FALLBACK 阶段记录状态、Prompt 版本、token、延迟和校验问题；观测写入失败只告警，不回滚论文分析。Golden Eval 运行器只执行本地门禁，不调用真实模型，避免评测产生外部 API 成本。

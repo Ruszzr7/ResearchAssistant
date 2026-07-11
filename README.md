@@ -29,8 +29,12 @@ Windows 用户也可以运行 `scripts/start-dev.bat`；Bash 环境可使用对�
 | `RA_API_KEY` / `RA_BASE_URL` / `RA_MODEL` | 覆盖数据库中的模型设置 |
 | `RA_MASTER_KEY` | API Key AES-GCM 加密主密钥 |
 | `APP_STORAGE_PDF_DIR` | PDF 存储目录 |
+| `ASYNC_TASK_TIMEOUT` | 异步任务执行上限，默认 `30m` |
+| `ASYNC_PENDING_USER_TTL` | 人机确认等待期限，默认 `24h` |
 
 没有配置 `RA_MASTER_KEY` 时，API Key 仅适合本地临时开发，可能以明文保存。
+
+运行状态可通过 `/actuator/health` 查看；低基数任务、AI 调用与 RAG 指标可从 `/actuator/metrics` 查询。
 
 ## 开发与验证
 

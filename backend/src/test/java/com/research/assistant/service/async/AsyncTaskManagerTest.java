@@ -4,15 +4,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.entity.AsyncTaskRecord;
 import com.research.assistant.mapper.AsyncTaskRecordMapper;
 import com.research.assistant.mapper.WorkflowStepMapper;
+import com.research.assistant.service.observability.ResearchMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 
+import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -151,5 +159,98 @@ class AsyncTaskManagerTest {
         manager.markOrphanedTasksAsFailed();
 
         verify(taskRecordMapper).update(any(), any());
+    }
+
+    @Test
+    void cancelledTaskShouldIgnoreLateWorkerCompletion() {
+        AtomicReference<Runnable> runnable = new AtomicReference<>();
+        AtomicBoolean executed = new AtomicBoolean();
+        doAnswer(invocation -> {
+            runnable.set(invocation.getArgument(0));
+            return mockFuture;
+        }).when(taskExecutor).submit(any(Runnable.class));
+        stubInsertWithId(1L);
+
+        AsyncTaskManager manager = manager();
+        String taskId = manager.submit(setStage -> {
+            executed.set(true);
+            return "late result";
+        });
+
+        assertThat(manager.cancel(taskId)).isTrue();
+        runnable.get().run();
+
+        assertThat(executed).isFalse();
+        assertThat(manager.get(taskId).getStatus()).isEqualTo(AsyncTaskStatus.CANCELLED);
+        assertThat(manager.get(taskId).getResult()).isNull();
+    }
+
+    @Test
+    void rejectedSubmissionShouldBecomeTraceableFailure() {
+        stubInsertWithId(1L);
+        doAnswer(invocation -> { throw new TaskRejectedException("queue full"); })
+                .when(taskExecutor).submit(any(Runnable.class));
+
+        AsyncTaskManager manager = manager();
+        String taskId = manager.submit(setStage -> "never");
+
+        assertThat(manager.get(taskId).getStatus()).isEqualTo(AsyncTaskStatus.FAILED);
+        assertThat(manager.get(taskId).getError()).contains("拒绝提交").contains("queue full");
+    }
+
+    @Test
+    void shouldRejectDuplicateActiveTaskId() {
+        doReturn(mockFuture).when(taskExecutor).submit(any(Runnable.class));
+        stubInsertWithId(1L);
+        AsyncTaskManager manager = manager();
+
+        manager.submit("fixed-id", null, null, "test", (taskId, stage) -> "first");
+
+        assertThatThrownBy(() -> manager.submit(
+                "fixed-id", null, null, "test", (taskId, stage) -> "duplicate"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("不能重复提交");
+        verify(taskExecutor, times(1)).submit(any(Runnable.class));
+    }
+
+    @Test
+    void shouldExpirePendingUserTaskAfterTtl() throws InterruptedException {
+        stubSyncExecution();
+        stubInsertWithId(1L);
+        AsyncTaskManager manager = new AsyncTaskManager(
+                taskExecutor, taskRecordMapper, workflowStepMapper, objectMapper, false,
+                Duration.ofMillis(1), Duration.ofMinutes(30),
+                new ResearchMetrics(new SimpleMeterRegistry()));
+
+        String taskId = manager.submit("workflow", "{}", "confirm", (id, stage) -> {
+            manager.setPendingUser(id, Map.of("awaiting", true));
+            return null;
+        });
+        assertThat(manager.get(taskId).getStatus()).isEqualTo(AsyncTaskStatus.PENDING_USER);
+
+        Thread.sleep(5);
+        manager.expirePendingUserTasks();
+
+        assertThat(manager.get(taskId).getStatus()).isEqualTo(AsyncTaskStatus.EXPIRED);
+        assertThat(manager.get(taskId).getError()).contains("确认超时");
+    }
+
+    @Test
+    void shouldFailAndInterruptTaskAfterExecutionTimeout() throws InterruptedException {
+        doReturn(mockFuture).when(taskExecutor).submit(any(Runnable.class));
+        stubInsertWithId(1L);
+        AsyncTaskManager manager = new AsyncTaskManager(
+                taskExecutor, taskRecordMapper, workflowStepMapper, objectMapper, false,
+                Duration.ofHours(24), Duration.ofMillis(1),
+                new ResearchMetrics(new SimpleMeterRegistry()));
+
+        String taskId = manager.submit(stage -> "never");
+        Thread.sleep(5);
+
+        manager.timeoutActiveTasks();
+
+        assertThat(manager.get(taskId).getStatus()).isEqualTo(AsyncTaskStatus.FAILED);
+        assertThat(manager.get(taskId).getError()).contains("执行超时");
+        verify(mockFuture).cancel(true);
     }
 }
