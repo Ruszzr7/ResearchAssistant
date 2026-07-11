@@ -33,10 +33,12 @@ class PaperProcessingServiceTest {
     private final SettingsService settingsService = mock(SettingsService.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AsyncTaskService asyncTaskService = mock(AsyncTaskService.class);
+    private final AiQualityEventService qualityEventService = mock(AiQualityEventService.class);
 
     private final PaperProcessingService service = new PaperProcessingService(
             paperMapper, analysisMapper, pdfExtractor, textPreprocessor,
-            llmService, researchAiService, settingsService, objectMapper, asyncTaskService);
+            llmService, researchAiService, settingsService, objectMapper, asyncTaskService,
+            qualityEventService);
 
     @Test
     void processShouldUsePojoPathAndMapToEntity() {

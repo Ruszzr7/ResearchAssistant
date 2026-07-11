@@ -1,56 +1,7 @@
 [
-  {
-    "name": "complete_experimental_result",
-    "topic": "vision model compression",
-    "input": {
-      "domain": "AI",
-      "coreContribution": "A compact summary of the problem, method and result.",
-      "methodType": "EXPERIMENTAL",
-      "methodSummary": "Knowledge distillation with a lightweight student model.",
-      "sections": [],
-      "datasets": ["CIFAR-10"],
-      "models": ["ResNet"],
-      "keyFindings": ["Accuracy is retained."],
-      "limitations": ["Only one dataset is evaluated."],
-      "tablesSummary": [],
-      "figuresSummary": [],
-      "reproducibleArtifacts": [],
-      "experimentSetup": {
-        "taskDefinition": "Image classification",
-        "datasets": ["CIFAR-10"],
-        "baselines": ["ResNet-18"],
-        "metrics": ["Accuracy"],
-        "implementationDetails": "PyTorch"
-      },
-      "benchmarkResults": [],
-      "relevanceScore": 8,
-      "relevanceReason": "The method directly addresses the topic."
-    },
-    "expected": {"valid": true, "repaired": false}
-  },
-  {
-    "name": "normalizes_optional_fields_and_score",
-    "topic": "robot learning",
-    "input": {
-      "domain": " AI ",
-      "coreContribution": " contribution ",
-      "methodType": "experimental",
-      "methodSummary": " summary ",
-      "relevanceScore": 12,
-      "relevanceReason": " score is outside the allowed range "
-    },
-    "expected": {"valid": true, "repaired": true, "normalizedMethodType": "EXPERIMENTAL", "normalizedScore": 10}
-  },
-  {
-    "name": "rejects_missing_critical_fields",
-    "input": {
-      "domain": "NLP",
-      "coreContribution": "",
-      "methodType": "UNKNOWN",
-      "methodSummary": ""
-    },
-    "expected": {"valid": false, "repaired": true}
-  },
+  {"name":"complete_experimental_result","topic":"vision model compression","input":{"domain":"AI","coreContribution":"A compact summary of the problem, method and result.","methodType":"EXPERIMENTAL","methodSummary":"Knowledge distillation with a lightweight student model.","sections":[],"datasets":["CIFAR-10"],"models":["ResNet"],"keyFindings":["Accuracy is retained."],"limitations":["Only one dataset is evaluated."],"tablesSummary":[],"figuresSummary":[],"reproducibleArtifacts":[],"experimentSetup":{"taskDefinition":"Image classification","datasets":["CIFAR-10"],"baselines":["ResNet-18"],"metrics":["Accuracy"],"implementationDetails":"PyTorch"},"benchmarkResults":[],"relevanceScore":8,"relevanceReason":"The method directly addresses the topic."},"expected":{"valid":true,"repaired":false}},
+  {"name":"normalizes_optional_fields_and_score","topic":"robot learning","input":{"domain":" AI ","coreContribution":" contribution ","methodType":"experimental","methodSummary":" summary ","relevanceScore":12,"relevanceReason":" score is outside the allowed range "},"expected":{"valid":true,"repaired":true}},
+  {"name":"rejects_missing_critical_fields","input":{"domain":"NLP","coreContribution":"","methodType":"UNKNOWN","methodSummary":""},"expected":{"valid":false,"repaired":true}},
   {"name":"theoretical_signal_model","topic":"signal processing","input":{"domain":"通信","coreContribution":"A theoretical bound.","methodType":"THEORETICAL","methodSummary":"Derives a convergence bound."},"expected":{"valid":true,"repaired":true}},
   {"name":"system_robot_stack","topic":"robot learning","input":{"domain":"Control","coreContribution":"A reusable robot stack.","methodType":"SYSTEM","methodSummary":"Combines planning and control."},"expected":{"valid":true,"repaired":true}},
   {"name":"survey_llm_alignment","topic":"LLM alignment","input":{"domain":"NLP","coreContribution":"A structured survey.","methodType":"SURVEY","methodSummary":"Reviews alignment benchmarks."},"expected":{"valid":true,"repaired":true}},

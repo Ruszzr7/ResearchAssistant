@@ -120,3 +120,22 @@ CREATE TABLE writing_project_paper (
     paper_id BIGINT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE ai_quality_event (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id BIGINT,
+    task_type VARCHAR(64) NOT NULL,
+    stage VARCHAR(32) NOT NULL,
+    prompt_version VARCHAR(64) NOT NULL,
+    model_name VARCHAR(128),
+    status VARCHAR(20) NOT NULL,
+    repaired BOOLEAN NOT NULL DEFAULT FALSE,
+    retry_count INT NOT NULL DEFAULT 0,
+    validation_errors_json TEXT,
+    error_message TEXT,
+    prompt_tokens INT NOT NULL DEFAULT 0,
+    completion_tokens INT NOT NULL DEFAULT 0,
+    total_tokens INT NOT NULL DEFAULT 0,
+    latency_ms BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

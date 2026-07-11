@@ -6,6 +6,7 @@ import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.common.JsonUtils;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnalysis;
+import com.research.assistant.entity.AiQualityEvent;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.ai.PaperAnalysisQualityGate;
@@ -44,6 +45,7 @@ public class PaperProcessingService {
     private final AsyncTaskService asyncTaskService;
     private final PaperAnalysisQualityGate qualityGate = new PaperAnalysisQualityGate();
     private final PaperAnalysisRepairService repairService;
+    private final AiQualityEventService qualityEventService;
 
     /** LLM 输入的最大字符数（防止 token 超限） */
     private static final int MAX_INPUT_CHARS = 12000;
@@ -55,7 +57,8 @@ public class PaperProcessingService {
                                    PdfExtractor pdfExtractor, TextPreprocessor textPreprocessor,
                                    LLMService llmService, @Lazy ResearchAiService researchAiService,
                                    SettingsService settingsService, ObjectMapper objectMapper,
-                                   AsyncTaskService asyncTaskService) {
+                                   AsyncTaskService asyncTaskService,
+                                   AiQualityEventService qualityEventService) {
         this.paperMapper = paperMapper;
         this.analysisMapper = analysisMapper;
         this.pdfExtractor = pdfExtractor;
@@ -66,6 +69,7 @@ public class PaperProcessingService {
         this.objectMapper = objectMapper;
         this.asyncTaskService = asyncTaskService;
         this.repairService = new PaperAnalysisRepairService(llmService, objectMapper, qualityGate);
+        this.qualityEventService = qualityEventService;
     }
 
     /**
@@ -156,6 +160,9 @@ public class PaperProcessingService {
         try {
             Result<PaperAnalysisResult> result = researchAiService.analyzePaper(inputText, researchTopic);
             if (result == null || result.content() == null) {
+                recordQualityEvent(paperId, "POJO", PaperAnalysisQualityGate.PROMPT_VERSION,
+                        "FAILED", false, 0, 0, 0, elapsedMillis(startedAt),
+                        java.util.List.of("result is null"), "structured result is null");
                 log.warn("Paper {} POJO 分析返回 null，准备回退", paperId);
                 return false;
             }
@@ -164,6 +171,11 @@ public class PaperProcessingService {
             TokenUsage initialUsage = result.tokenUsage();
             int initialTokens = initialUsage != null && initialUsage.totalTokenCount() != null
                     ? initialUsage.totalTokenCount() : 0;
+            recordQualityEvent(paperId, "POJO", PaperAnalysisQualityGate.PROMPT_VERSION,
+                    quality.valid() ? "PASS" : "FAILED", quality.repaired(), 0,
+                    initialUsage == null ? 0 : safeTokenCount(initialUsage.inputTokenCount()),
+                    initialUsage == null ? 0 : safeTokenCount(initialUsage.outputTokenCount()),
+                    elapsedMillis(startedAt), quality.issues(), null);
             if (!quality.valid()) {
                 PaperAnalysisRepairService.RepairAttempt repair =
                         repairService.repair(pojo, quality, researchTopic);
@@ -172,6 +184,11 @@ public class PaperProcessingService {
                     int repairTokens = repair.response() != null && repair.response().getTotalTokens() != null
                             ? repair.response().getTotalTokens() : 0;
                     analysis.setTokenUsed(initialTokens + repairTokens);
+                    recordQualityEvent(paperId, "REPAIR", PaperAnalysisQualityGate.REPAIR_PROMPT_VERSION,
+                            "REPAIRED", true, repair.attempts(),
+                            repair.response() == null ? 0 : nullSafe(repair.response().getPromptTokens()),
+                            repair.response() == null ? 0 : nullSafe(repair.response().getCompletionTokens()),
+                            elapsedMillis(startedAt), repair.quality().issues(), null);
                     log.info("Paper {} POJO repair completed: promptVersion={}, repairPromptVersion={}, "
                                     + "elapsedMs={}, token={}, repairToken={}, issues={}",
                             paperId, PaperAnalysisQualityGate.PROMPT_VERSION,
@@ -183,6 +200,12 @@ public class PaperProcessingService {
                                 + "attempts={}, reason={}",
                         paperId, PaperAnalysisQualityGate.PROMPT_VERSION,
                         PaperAnalysisQualityGate.REPAIR_PROMPT_VERSION, repair.attempts(), repair.error());
+                recordQualityEvent(paperId, "REPAIR", PaperAnalysisQualityGate.REPAIR_PROMPT_VERSION,
+                        "FAILED", false, repair.attempts(),
+                        repair.response() == null ? 0 : nullSafe(repair.response().getPromptTokens()),
+                        repair.response() == null ? 0 : nullSafe(repair.response().getCompletionTokens()),
+                        elapsedMillis(startedAt), repair.quality() == null ? java.util.List.of() : repair.quality().issues(),
+                        repair.error());
             }
             if (!quality.valid()) {
                 log.warn("Paper {} POJO 质量门禁未通过: promptVersion={}, elapsedMs={}, issues={}",
@@ -224,6 +247,10 @@ public class PaperProcessingService {
                 paperId, resultJson.length(), llmResponse.getTotalTokens());
 
         PaperAnalysisQualityGate.QualityReport quality = parseAndFillAnalysis(analysis, resultJson, researchTopic);
+        recordQualityEvent(paperId, "FALLBACK", PaperAnalysisQualityGate.FALLBACK_PROMPT_VERSION,
+                quality.valid() ? "FALLBACK" : "FAILED", false, 0,
+                nullSafe(llmResponse.getPromptTokens()), nullSafe(llmResponse.getCompletionTokens()),
+                elapsedMillis(startedAt), quality.issues(), quality.valid() ? null : "fallback quality gate failed");
         analysis.setTokenUsed(llmResponse.getTotalTokens());
         log.info("Paper {} fallback quality metadata: promptVersion={}, elapsedMs={}, outputChars={}, token={}, qualityValid={}",
                 paperId, PaperAnalysisQualityGate.FALLBACK_PROMPT_VERSION, elapsedMillis(startedAt),
@@ -231,6 +258,35 @@ public class PaperProcessingService {
         if (!quality.valid()) {
             log.warn("Paper {} fallback 质量门禁未通过: issues={}", paperId, quality.issues());
         }
+    }
+
+    private void recordQualityEvent(Long paperId, String stage, String promptVersion, String status,
+                                    boolean repaired, int retryCount, int promptTokens, int completionTokens,
+                                    long latencyMs, java.util.List<String> issues, String errorMessage) {
+        AiQualityEvent event = new AiQualityEvent();
+        event.setPaperId(paperId);
+        event.setTaskType("PAPER_ANALYSIS");
+        event.setStage(stage);
+        event.setPromptVersion(promptVersion);
+        event.setModelName(settingsService.getValue("model"));
+        event.setStatus(status);
+        event.setRepaired(repaired);
+        event.setRetryCount(retryCount);
+        event.setValidationErrorsJson(toJson(issues));
+        event.setErrorMessage(errorMessage);
+        event.setPromptTokens(promptTokens);
+        event.setCompletionTokens(completionTokens);
+        event.setTotalTokens(promptTokens + completionTokens);
+        event.setLatencyMs(latencyMs);
+        qualityEventService.record(event);
+    }
+
+    private int safeTokenCount(Integer count) {
+        return count == null ? 0 : count;
+    }
+
+    private int nullSafe(Integer count) {
+        return count == null ? 0 : count;
     }
 
     private long elapsedMillis(long startedAt) {
