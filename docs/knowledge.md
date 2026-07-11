@@ -82,3 +82,4 @@
 - 外部 AI、Embedding、Qdrant、学术 API 都应有 mock 单测和失败降级测试。
 - 排查顺序：浏览器 Network → Controller 日志 → Service 阶段日志 → Mapper SQL → 外部服务响应。
 - 质量缺口仍包括 eval 集、schema 校验、prompt 版本化、metrics、契约测试和 Docker 验证。
+- 论文精读质量门禁：`PaperAnalysisQualityGate` 对 POJO 和 fallback JSON 做确定性归一化（空值列表、空白文本、方法类型白名单、评分 1-10、嵌套摘要裁剪），不编造内容；关键字段缺失时保留回退并记录质量失败。`PaperAnalysisQualityGate.PROMPT_VERSION` 与耗时/token/修复状态一起记录，Golden Eval 资源放在 `backend/src/test/resources/eval/`。

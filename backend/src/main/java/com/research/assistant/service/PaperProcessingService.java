@@ -8,6 +8,7 @@ import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
+import com.research.assistant.service.ai.PaperAnalysisQualityGate;
 import com.research.assistant.service.ai.PaperAnalysisResult;
 import com.research.assistant.service.ai.ResearchAiService;
 import dev.langchain4j.service.Result;
@@ -17,6 +18,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 /**
  * 论文处理服务 —— 编排完整的 PDF → 文本 → LLM 理解 → 持久化流水线。
@@ -38,6 +41,7 @@ public class PaperProcessingService {
     private final SettingsService settingsService;
     private final ObjectMapper objectMapper;
     private final AsyncTaskService asyncTaskService;
+    private final PaperAnalysisQualityGate qualityGate = new PaperAnalysisQualityGate();
 
     /** LLM 输入的最大字符数（防止 token 超限） */
     private static final int MAX_INPUT_CHARS = 12000;
@@ -145,6 +149,7 @@ public class PaperProcessingService {
      * @return true 表示成功，false 表示需要回退
      */
     private boolean analyzeWithPojo(Long paperId, String inputText, String researchTopic, PaperAnalysis analysis) {
+        long startedAt = System.nanoTime();
         try {
             Result<PaperAnalysisResult> result = researchAiService.analyzePaper(inputText, researchTopic);
             if (result == null || result.content() == null) {
@@ -152,12 +157,23 @@ public class PaperProcessingService {
                 return false;
             }
             PaperAnalysisResult pojo = result.content();
+            PaperAnalysisQualityGate.QualityReport quality = qualityGate.validateAndRepair(pojo, researchTopic);
+            if (!quality.valid()) {
+                log.warn("Paper {} POJO 质量门禁未通过: promptVersion={}, elapsedMs={}, issues={}",
+                        paperId, PaperAnalysisQualityGate.PROMPT_VERSION,
+                        elapsedMillis(startedAt), quality.issues());
+                return false;
+            }
             fillFromPojo(analysis, pojo);
 
             TokenUsage usage = result.tokenUsage();
             int totalTokens = usage != null && usage.totalTokenCount() != null
                     ? usage.totalTokenCount() : 0;
             analysis.setTokenUsed(totalTokens);
+
+            log.info("Paper {} POJO quality metadata: promptVersion={}, elapsedMs={}, token={}, repaired={}, issues={}",
+                    paperId, PaperAnalysisQualityGate.PROMPT_VERSION, elapsedMillis(startedAt),
+                    totalTokens, quality.repaired(), quality.issues());
 
             log.info("Paper {} 使用 LangChain4j POJO 分析完成，token: {}", paperId, totalTokens);
             return true;
@@ -171,14 +187,28 @@ public class PaperProcessingService {
      * 降级路径：使用旧的手写 Prompt + 手动 JSON 字段提取。
      */
     private void analyzeWithFallback(Long paperId, String inputText, String researchTopic, PaperAnalysis analysis) {
+        long startedAt = System.nanoTime();
         String userMessage = buildFallbackUserMessage(inputText, researchTopic);
         LlmResponse llmResponse = llmService.chatWithUsage(ANALYSIS_SYSTEM_PROMPT, userMessage);
-        String resultJson = llmResponse.getContent();
+        if (llmResponse == null) {
+            llmResponse = LlmResponse.of("");
+        }
+        String resultJson = llmResponse.getContent() == null ? "" : llmResponse.getContent();
         log.info("Paper {} LLM 分析完成（旧解析路径）, 结果长度: {}, token 消耗: {}",
                 paperId, resultJson.length(), llmResponse.getTotalTokens());
 
-        parseAndFillAnalysis(analysis, resultJson);
+        PaperAnalysisQualityGate.QualityReport quality = parseAndFillAnalysis(analysis, resultJson, researchTopic);
         analysis.setTokenUsed(llmResponse.getTotalTokens());
+        log.info("Paper {} fallback quality metadata: promptVersion={}, elapsedMs={}, outputChars={}, token={}, qualityValid={}",
+                paperId, PaperAnalysisQualityGate.FALLBACK_PROMPT_VERSION, elapsedMillis(startedAt),
+                resultJson.length(), llmResponse.getTotalTokens(), quality.valid());
+        if (!quality.valid()) {
+            log.warn("Paper {} fallback 质量门禁未通过: issues={}", paperId, quality.issues());
+        }
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000;
     }
 
     private String buildFallbackUserMessage(String inputText, String researchTopic) {
@@ -233,13 +263,16 @@ public class PaperProcessingService {
      * 作为 POJO 路径的 fallback 保留。先清洗 markdown 代码块，再由 Jackson 解析，
      * 避免手写字符串扫描在转义字符或嵌套 JSON 下失效。
      */
-    private void parseAndFillAnalysis(PaperAnalysis analysis, String llmOutput) {
+    private PaperAnalysisQualityGate.QualityReport parseAndFillAnalysis(
+            PaperAnalysis analysis, String llmOutput, String researchTopic) {
         String json = JsonUtils.extractJson(llmOutput);
         try {
             JsonNode root = objectMapper.readTree(json);
             if (root == null || !root.isObject()) {
                 throw new IllegalArgumentException("LLM 返回的 JSON 不是对象");
             }
+            PaperAnalysisQualityGate.QualityReport quality =
+                    qualityGate.validateAndRepairFallback(root, researchTopic);
             String domain = textField(root, "domain");
             String methodType = textField(root, "method_type");
             analysis.setCoreContribution(textField(root, "core_contribution"));
@@ -258,6 +291,7 @@ public class PaperProcessingService {
             analysis.setBenchmarkResultsJson(jsonField(root, "benchmark_results"));
             analysis.setRelevanceScore(nullableIntField(root, "relevance_score"));
             analysis.setRelevanceReason(textField(root, "relevance_reason"));
+            return quality;
         } catch (Exception e) {
             log.warn("论文 {} fallback JSON 解析失败: {}", analysis.getPaperId(), e.getMessage());
             analysis.setSectionsJson("[]");
@@ -270,6 +304,7 @@ public class PaperProcessingService {
             analysis.setReproducibleArtifactsJson("[]");
             analysis.setExperimentSetupJson("{}");
             analysis.setBenchmarkResultsJson("[]");
+            return PaperAnalysisQualityGate.QualityReport.invalid(List.of("fallback JSON parse failed"));
         }
     }
 

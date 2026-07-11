@@ -173,6 +173,38 @@ class PaperProcessingServiceTest {
         verify(analysisMapper).insert(analysis);
     }
 
+    @Test
+    void processShouldFallbackWhenPojoQualityGateRejectsResult() {
+        givenPaperWithPdf(3L, "paper.pdf");
+        when(pdfExtractor.extract("paper.pdf")).thenReturn("raw text");
+        when(textPreprocessor.clean("raw text")).thenReturn("cleaned text");
+        when(textPreprocessor.truncate("cleaned text", 12000)).thenReturn("input text");
+        when(analysisMapper.selectOne(any())).thenReturn(null);
+        when(settingsService.getValue("research_topic")).thenReturn("");
+
+        PaperAnalysisResult invalid = new PaperAnalysisResult();
+        invalid.setDomain("AI");
+        invalid.setCoreContribution("");
+        invalid.setMethodType("UNKNOWN");
+        invalid.setMethodSummary("");
+        when(researchAiService.analyzePaper("input text", ""))
+                .thenReturn(Result.<PaperAnalysisResult>builder().content(invalid).build());
+
+        String json = """
+                {"domain":"AI","core_contribution":"repaired by fallback","method_type":"SYSTEM","method_summary":"fallback summary"}
+                """;
+        when(llmService.chatWithUsage(any(), eq("用户当前研究主题：\n\n请对以下论文文本进行结构化分析：\n\ninput text")))
+                .thenReturn(new LlmResponse(json, 1, 2, 3));
+
+        PaperAnalysis analysis = service.process(3L);
+
+        assertThat(analysis.getCoreContribution()).isEqualTo("repaired by fallback");
+        assertThat(analysis.getMethodType()).isEqualTo("AI|SYSTEM");
+        assertThat(analysis.getMethodSummary()).isEqualTo("fallback summary");
+        verify(llmService).chatWithUsage(any(), any());
+        verify(analysisMapper).insert(analysis);
+    }
+
     private void givenPaperWithPdf(Long id, String pdfPath) {
         Paper paper = new Paper();
         paper.setId(id);

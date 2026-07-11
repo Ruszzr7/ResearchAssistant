@@ -1,0 +1,54 @@
+[
+  {
+    "name": "complete_experimental_result",
+    "topic": "vision model compression",
+    "input": {
+      "domain": "AI",
+      "coreContribution": "A compact summary of the problem, method and result.",
+      "methodType": "EXPERIMENTAL",
+      "methodSummary": "Knowledge distillation with a lightweight student model.",
+      "sections": [],
+      "datasets": ["CIFAR-10"],
+      "models": ["ResNet"],
+      "keyFindings": ["Accuracy is retained."],
+      "limitations": ["Only one dataset is evaluated."],
+      "tablesSummary": [],
+      "figuresSummary": [],
+      "reproducibleArtifacts": [],
+      "experimentSetup": {
+        "taskDefinition": "Image classification",
+        "datasets": ["CIFAR-10"],
+        "baselines": ["ResNet-18"],
+        "metrics": ["Accuracy"],
+        "implementationDetails": "PyTorch"
+      },
+      "benchmarkResults": [],
+      "relevanceScore": 8,
+      "relevanceReason": "The method directly addresses the topic."
+    },
+    "expected": {"valid": true, "repaired": false}
+  },
+  {
+    "name": "normalizes_optional_fields_and_score",
+    "topic": "robot learning",
+    "input": {
+      "domain": " AI ",
+      "coreContribution": " contribution ",
+      "methodType": "experimental",
+      "methodSummary": " summary ",
+      "relevanceScore": 12,
+      "relevanceReason": " score is outside the allowed range "
+    },
+    "expected": {"valid": true, "repaired": true, "normalizedMethodType": "EXPERIMENTAL", "normalizedScore": 10}
+  },
+  {
+    "name": "rejects_missing_critical_fields",
+    "input": {
+      "domain": "NLP",
+      "coreContribution": "",
+      "methodType": "UNKNOWN",
+      "methodSummary": ""
+    },
+    "expected": {"valid": false, "repaired": true}
+  }
+]
