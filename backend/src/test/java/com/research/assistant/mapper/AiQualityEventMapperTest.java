@@ -24,10 +24,12 @@ class AiQualityEventMapperTest {
     @Test
     void shouldPersistAndSummarizeQualityEvent() {
         AiQualityEvent event = new AiQualityEvent();
+        event.setRunId("run-1");
         event.setTaskType("PAPER_ANALYSIS");
         event.setStage("POJO");
         event.setPromptVersion("paper-analysis-v1");
         event.setStatus("PASS");
+        event.setFinalStatus("PASS");
         event.setRepaired(false);
         event.setRetryCount(0);
         event.setValidationErrorsJson("[]");

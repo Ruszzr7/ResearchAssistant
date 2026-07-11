@@ -25,7 +25,7 @@ class PaperAnalysisRepairServiceTest {
         invalid.setMethodSummary("");
         PaperAnalysisQualityGate.QualityReport initial = qualityGate.validateAndRepair(invalid, "vision");
 
-        when(llmService.chatWithUsage(any(), any())).thenReturn(new LlmResponse("""
+        when(llmService.chatWithUsage(any(), any(), any())).thenReturn(new LlmResponse("""
                 {"domain":"AI","coreContribution":"contribution","methodType":"SYSTEM","methodSummary":"summary"}
                 """, 10, 20, 30));
 
@@ -35,21 +35,21 @@ class PaperAnalysisRepairServiceTest {
         assertThat(attempt.attempts()).isEqualTo(1);
         assertThat(attempt.result().getMethodType()).isEqualTo("SYSTEM");
         assertThat(attempt.response().getTotalTokens()).isEqualTo(30);
-        verify(llmService, times(1)).chatWithUsage(any(), any());
+        verify(llmService, times(1)).chatWithUsage(any(), any(), any());
     }
 
     @Test
     void shouldRejectRepairOutputOverBudget() {
         PaperAnalysisResult invalid = new PaperAnalysisResult();
         PaperAnalysisQualityGate.QualityReport initial = qualityGate.validateAndRepair(invalid, "topic");
-        when(llmService.chatWithUsage(any(), any()))
+        when(llmService.chatWithUsage(any(), any(), any()))
                 .thenReturn(new LlmResponse("{}", 10, 2049, 2059));
 
         PaperAnalysisRepairService.RepairAttempt attempt = service.repair(invalid, initial, "topic");
 
         assertThat(attempt.succeeded()).isFalse();
         assertThat(attempt.error()).contains("budget");
-        verify(llmService, times(1)).chatWithUsage(any(), any());
+        verify(llmService, times(1)).chatWithUsage(any(), any(), any());
     }
 
     @Test

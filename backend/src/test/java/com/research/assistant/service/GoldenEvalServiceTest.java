@@ -19,5 +19,7 @@ class GoldenEvalServiceTest {
         assertThat(metrics.getRepairedCases()).isEqualTo(20);
         assertThat(metrics.getExpectationMismatches()).isZero();
         assertThat(metrics.getValidRate()).isEqualTo(20.0 / 21.0);
+        assertThat(metrics.getManualScoredCases()).isEqualTo(1);
+        assertThat(metrics.getAverageManualScore()).isEqualTo(5.0);
     }
 }

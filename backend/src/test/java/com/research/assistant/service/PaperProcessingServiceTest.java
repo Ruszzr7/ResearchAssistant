@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -203,7 +204,8 @@ class PaperProcessingServiceTest {
         assertThat(analysis.getCoreContribution()).isEqualTo("repaired by fallback");
         assertThat(analysis.getMethodType()).isEqualTo("AI|SYSTEM");
         assertThat(analysis.getMethodSummary()).isEqualTo("fallback summary");
-        verify(llmService, times(2)).chatWithUsage(any(), any());
+        verify(llmService, times(1)).chatWithUsage(any(), any());
+        verify(llmService, times(1)).chatWithUsage(any(), any(), any());
         verify(analysisMapper).insert(analysis);
     }
 
@@ -230,7 +232,7 @@ class PaperProcessingServiceTest {
         String repairedJson = """
                 {"domain":"AI","coreContribution":"repaired contribution","methodType":"SYSTEM","methodSummary":"repaired summary"}
                 """;
-        when(llmService.chatWithUsage(any(), org.mockito.ArgumentMatchers.contains("Input JSON:")))
+        when(llmService.chatWithUsage(any(), org.mockito.ArgumentMatchers.contains("Input JSON:"), any()))
                 .thenReturn(new LlmResponse(repairedJson, 10, 20, 30));
 
         PaperAnalysis analysis = service.process(4L);
@@ -239,8 +241,27 @@ class PaperProcessingServiceTest {
         assertThat(analysis.getMethodType()).isEqualTo("AI|SYSTEM");
         assertThat(analysis.getMethodSummary()).isEqualTo("repaired summary");
         assertThat(analysis.getTokenUsed()).isEqualTo(39);
-        verify(llmService, times(1)).chatWithUsage(any(), any());
+        verify(llmService, times(1)).chatWithUsage(any(), any(), any());
         verify(analysisMapper).insert(analysis);
+    }
+
+    @Test
+    void processShouldRejectInvalidFallbackInsteadOfPersisting() {
+        givenPaperWithPdf(5L, "paper.pdf");
+        when(pdfExtractor.extract("paper.pdf")).thenReturn("raw text");
+        when(textPreprocessor.clean("raw text")).thenReturn("cleaned text");
+        when(textPreprocessor.truncate("cleaned text", 12000)).thenReturn("input text");
+        when(analysisMapper.selectOne(any())).thenReturn(null);
+        when(settingsService.getValue("research_topic")).thenReturn("");
+        when(researchAiService.analyzePaper("input text", ""))
+                .thenThrow(new RuntimeException("structured output unavailable"));
+        when(llmService.chatWithUsage(any(), eq("用户当前研究主题：\n\n请对以下论文文本进行结构化分析：\n\ninput text")))
+                .thenReturn(new LlmResponse("{\"domain\":\"AI\"}", 1, 1, 2));
+
+        assertThatThrownBy(() -> service.process(5L))
+                .isInstanceOf(AnalysisQualityException.class)
+                .hasMessageContaining("quality gate rejected");
+        verify(analysisMapper, never()).insert(any(PaperAnalysis.class));
     }
 
     private void givenPaperWithPdf(Long id, String pdfPath) {

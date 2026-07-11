@@ -1,6 +1,7 @@
 package com.research.assistant.service;
 
 import com.research.assistant.dto.LlmResponse;
+import com.research.assistant.service.ai.LlmCallPolicy;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 /**
@@ -19,6 +20,11 @@ public interface LLMService {
      * 发送一次对话请求，返回内容与 token 消耗。
      */
     LlmResponse chatWithUsage(String systemPrompt, String userMessage);
+
+    /** 按任务预算发起一次非流式调用；默认实现保持旧调用方兼容。 */
+    default LlmResponse chatWithUsage(String systemPrompt, String userMessage, LlmCallPolicy policy) {
+        return chatWithUsage(systemPrompt, userMessage);
+    }
 
     /**
      * 流式对话 —— 通过 SSE 逐 token 返回。

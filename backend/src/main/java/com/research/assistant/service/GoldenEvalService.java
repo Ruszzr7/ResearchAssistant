@@ -28,10 +28,11 @@ public class GoldenEvalService {
 
     public GoldenEvalMetrics evaluate() {
         GoldenEvalMetrics metrics = new GoldenEvalMetrics();
+        double manualScoreSum = 0;
         try (InputStream input = new ClassPathResource(RESOURCE).getInputStream()) {
             for (JsonNode fixture : objectMapper.readTree(input)) {
                 metrics.setTotalCases(metrics.getTotalCases() + 1);
-                evaluateFixture(fixture, metrics);
+                manualScoreSum += evaluateFixture(fixture, metrics);
             }
         } catch (Exception e) {
             metrics.getIssueCounts().merge("resource_load_error", 1, Integer::sum);
@@ -40,10 +41,13 @@ public class GoldenEvalService {
             metrics.setValidRate((double) metrics.getValidCases() / metrics.getTotalCases());
             metrics.setRepairRate((double) metrics.getRepairedCases() / metrics.getTotalCases());
         }
+        if (metrics.getManualScoredCases() > 0) {
+            metrics.setAverageManualScore(manualScoreSum / metrics.getManualScoredCases());
+        }
         return metrics;
     }
 
-    private void evaluateFixture(JsonNode fixture, GoldenEvalMetrics metrics) {
+    private double evaluateFixture(JsonNode fixture, GoldenEvalMetrics metrics) {
         try {
             PaperAnalysisResult result = objectMapper.treeToValue(
                     fixture.path("input"), PaperAnalysisResult.class);
@@ -68,9 +72,15 @@ public class GoldenEvalService {
             if (expected.has("repaired") && expected.path("repaired").asBoolean() != report.repaired()) {
                 metrics.setExpectationMismatches(metrics.getExpectationMismatches() + 1);
             }
+            if (fixture.has("manualScore") && fixture.path("manualScore").isNumber()) {
+                metrics.setManualScoredCases(metrics.getManualScoredCases() + 1);
+                return fixture.path("manualScore").asDouble();
+            }
+            return 0;
         } catch (Exception e) {
             metrics.setInvalidCases(metrics.getInvalidCases() + 1);
             metrics.getIssueCounts().merge("fixture_parse_error", 1, Integer::sum);
+            return 0;
         }
     }
 }

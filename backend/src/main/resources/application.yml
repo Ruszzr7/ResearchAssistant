@@ -39,3 +39,6 @@ app:
     # 敏感设置（如 api_key）加密主密钥；优先读取环境变量 RA_MASTER_KEY。
     # 未配置时 API Key 会明文保存，仅适合本地临时开发。
     master-key: ${RA_MASTER_KEY:}
+  ai-quality:
+    retention-days: ${AI_QUALITY_RETENTION_DAYS:180}
+    retention-cron: ${AI_QUALITY_RETENTION_CRON:0 30 3 * * *}

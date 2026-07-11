@@ -3,6 +3,7 @@ package com.research.assistant.service.impl;
 import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.service.LLMStreamService;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
+import com.research.assistant.service.ai.LlmCallPolicy;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -55,6 +56,26 @@ class LLMServiceImplTest {
 
         assertThat(response.getContent()).isEqualTo("OK");
         assertThat(response.getTotalTokens()).isEqualTo(0);
+    }
+
+    @Test
+    void policyShouldSetRequestOutputTokenLimit() {
+        ChatModel chatModel = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                assertThat(request.maxOutputTokens()).isEqualTo(123);
+                return ChatResponse.builder()
+                        .aiMessage(dev.langchain4j.data.message.AiMessage.from("OK"))
+                        .tokenUsage(new TokenUsage(1, 2))
+                        .build();
+            }
+        };
+        when(modelFactory.createChatModel()).thenReturn(chatModel);
+
+        LlmResponse response = llmService.chatWithUsage(
+                "system", "user", new LlmCallPolicy("test", 100, 100, 123, 1));
+
+        assertThat(response.getTotalTokens()).isEqualTo(3);
     }
 
     private void givenChatModelReturns(String content, Integer inputTokens, Integer outputTokens) {

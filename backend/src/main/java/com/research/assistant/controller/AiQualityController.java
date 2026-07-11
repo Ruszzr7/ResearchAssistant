@@ -2,6 +2,8 @@ package com.research.assistant.controller;
 
 import com.research.assistant.common.Result;
 import com.research.assistant.dto.AiQualitySummary;
+import com.research.assistant.dto.AiQualityEventPage;
+import com.research.assistant.dto.AiQualityEventQuery;
 import com.research.assistant.dto.GoldenEvalMetrics;
 import com.research.assistant.entity.AiQualityEvent;
 import com.research.assistant.service.AiQualityEventService;
@@ -37,6 +39,11 @@ public class AiQualityController {
     public Result<List<AiQualityEvent>> recent(
             @RequestParam(defaultValue = "50") int limit) {
         return Result.ok(qualityEventService.recent(limit));
+    }
+
+    @GetMapping("/events")
+    public Result<AiQualityEventPage> events(AiQualityEventQuery query) {
+        return Result.ok(qualityEventService.search(query));
     }
 
     @GetMapping("/golden")

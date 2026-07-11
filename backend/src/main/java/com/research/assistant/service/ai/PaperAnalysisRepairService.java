@@ -61,7 +61,7 @@ public final class PaperAnalysisRepairService {
         }
         LlmResponse response;
         try {
-            response = llmService.chatWithUsage(REPAIR_SYSTEM_PROMPT, userMessage);
+            response = llmService.chatWithUsage(REPAIR_SYSTEM_PROMPT, userMessage, policy);
         } catch (Exception e) {
             return RepairAttempt.failed("repair call failed: " + e.getMessage());
         }

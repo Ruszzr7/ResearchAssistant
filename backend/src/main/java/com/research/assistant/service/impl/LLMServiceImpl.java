@@ -4,9 +4,11 @@ import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.LLMStreamService;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
+import com.research.assistant.service.ai.LlmCallPolicy;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
@@ -41,12 +43,20 @@ public class LLMServiceImpl implements LLMService {
 
     @Override
     public LlmResponse chatWithUsage(String systemPrompt, String userMessage) {
+        return chatWithUsage(systemPrompt, userMessage, null);
+    }
+
+    @Override
+    public LlmResponse chatWithUsage(String systemPrompt, String userMessage, LlmCallPolicy policy) {
         ChatModel model = modelFactory.createChatModel();
 
-        ChatResponse response = model.chat(
-                SystemMessage.from(systemPrompt),
-                UserMessage.from(userMessage)
-        );
+        ChatRequest.Builder requestBuilder = ChatRequest.builder()
+                .messages(SystemMessage.from(systemPrompt), UserMessage.from(userMessage));
+        if (policy != null) {
+            requestBuilder.maxOutputTokens(policy.maxOutputTokens());
+        }
+        ChatRequest request = requestBuilder.build();
+        ChatResponse response = model.chat(request);
 
         String content = response.aiMessage() != null ? response.aiMessage().text() : "";
         TokenUsage usage = response.tokenUsage();

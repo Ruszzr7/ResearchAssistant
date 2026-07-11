@@ -15,5 +15,7 @@ public class GoldenEvalMetrics {
     private int expectationMismatches;
     private double validRate;
     private double repairRate;
+    private int manualScoredCases;
+    private double averageManualScore;
     private Map<String, Integer> issueCounts = new LinkedHashMap<>();
 }

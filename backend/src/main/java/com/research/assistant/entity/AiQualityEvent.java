@@ -20,6 +20,12 @@ public class AiQualityEvent {
     @TableField("paper_id")
     private Long paperId;
 
+    @TableField("run_id")
+    private String runId;
+
+    @TableField("parent_event_id")
+    private Long parentEventId;
+
     @TableField("task_type")
     private String taskType;
 
@@ -33,6 +39,9 @@ public class AiQualityEvent {
 
     /** PASS / REPAIRED / FALLBACK / FAILED */
     private String status;
+
+    @TableField("final_status")
+    private String finalStatus;
 
     private Boolean repaired;
 

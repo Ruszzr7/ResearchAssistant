@@ -82,6 +82,9 @@
 - 外部 AI、Embedding、Qdrant、学术 API 都应有 mock 单测和失败降级测试。
 - 排查顺序：浏览器 Network → Controller 日志 → Service 阶段日志 → Mapper SQL → 外部服务响应。
 - 质量缺口仍包括 eval 集、schema 校验、prompt 版本化、metrics、契约测试和 Docker 验证。
-- 论文精读质量门禁：`PaperAnalysisQualityGate` 对 POJO 和 fallback JSON 做确定性归一化（空值列表、空白文本、方法类型白名单、评分 1-10、嵌套摘要裁剪），不编造内容；关键字段缺失时保留回退并记录质量失败。`PaperAnalysisQualityGate.PROMPT_VERSION` 与耗时/token/修复状态一起记录，Golden Eval 资源放在 `backend/src/test/resources/eval/`。
+- 论文精读质量门禁：`PaperAnalysisQualityGate` 对 POJO 和 fallback JSON 做确定性归一化（空值列表、空白文本、方法类型白名单、评分 1-10、嵌套摘要裁剪），不编造内容；关键字段缺失时保留回退并记录质量失败。`PaperAnalysisQualityGate.PROMPT_VERSION` 与耗时/token/修复状态一起记录，Golden Eval 资源放在 `backend/src/main/resources/eval/`。
 - 论文分析自动修复采用单独的 `PaperAnalysisRepairService`，最多调用一次 LLM，修复结果必须再次通过 `PaperAnalysisQualityGate`；`LlmCallPolicy` 先在业务层限制输入字符、输出 token 和尝试次数，避免无限重试与成本失控。
 - AI 质量事件写入 `ai_quality_event`，按 POJO/REPAIR/FALLBACK 阶段记录状态、Prompt 版本、token、延迟和校验问题；观测写入失败只告警，不回滚论文分析。Golden Eval 运行器只执行本地门禁，不调用真实模型，避免评测产生外部 API 成本。
+- Mission 9.3 的质量事件以 `run_id` 关联一次分析链路，`final_status` 只在终态统计，避免 POJO、REPAIR、FALLBACK 多阶段重复计数；成功事件在事务提交后异步写入，质量拒绝事件立即异步落库以保留回滚前证据。
+- LLM repair 调用通过 `ChatRequest.maxOutputTokens` 设置请求级上限，并保留响应后的 token/字符二次校验；质量事件支持按论文、终态、阶段、时间范围分页查询，保留策略由 `AI_QUALITY_RETENTION_DAYS` 与定时批量删除任务控制。
+- Golden Eval 只保留 `backend/src/main/resources/eval/paper-analysis-golden.json` 这一份 fixture，除自动门禁指标外可选记录人工评分，避免测试资源与运行资源漂移。
