@@ -80,3 +80,12 @@
 - Golden Eval：新增 compare/gap 本地 fixture、通过率与失败原因统计，并暴露 `/api/ai-quality/synthesis-golden`。
 - 外部调用可靠性：统一超时、最多重试、并发许可、失败降级和 Micrometer 指标；LiteratureSearchService 与 VerifyGapsSkill 的外部检索、Embedding 单段/批量调用共用策略，不依赖 Redis。
 - 验证：后端 `mvnw.cmd -DforkCount=0 test` 通过（282 项）；前端 `npm.cmd run build` 通过（保留既有 chunk 体积警告）。
+
+## Mission 13：Frontend Productization & Deployment/Data Safety（已完成本轮交付）
+
+- 数据库迁移：接入 Flyway；`V12.1__baseline_current_schema.sql` 提供无损基线，`V13__mission13_data_safety.sql` 增加 RAG 一致性审计表；测试 profile 显式关闭 Flyway，避免污染 H2 测试 schema。
+- 部署与安全：新增后端/前端 Dockerfile、Nginx API/SSE 代理、MySQL + Spring Boot + Vue Compose、环境模板、启动/备份/恢复脚本；生产 profile 启动时校验主密钥、MySQL、PDF 目录和 CORS。
+- 可运维性：新增 `/api/rag/consistency`，对比 active 指针、active version 和 MySQL 分片数量并保留审计；延续 Actuator health/metrics、结构化日志、任务和外部 API 指标链路。
+- 前端产品化：统一任务 API 与轮询 composable，修复跨页批量选择，提取文库批量操作组件；PDF 阅读器改为带上下占位高度的可见页窗口；看板增加引用网络和研究主题概览。
+- 前端质量：新增 Vitest + Vue Test Utils + Playwright 配置和 smoke E2E；分页选择/任务轮询单测通过（5/5）。已安装 `@playwright/test@1.49.1` 及匹配 Chromium 1148/headless shell 1148，并用真实浏览器 smoke 校验通过；当前 Node 26 桌面环境下 Playwright Test CLI 仍在 runner 启动阶段无输出，标准 `npm run test:e2e` 需在正常 CI/Node LTS 环境复核。
+- 验证：后端 `mvnw.cmd -DforkCount=0 test` 通过（286 项，含双管理器 claim 竞争测试）；前端 `npm.cmd run test:unit` 通过（5 项）；前端 `npm.cmd run build` 通过。当前环境未安装 Docker CLI，Compose 仅完成静态审计，未执行容器启动。

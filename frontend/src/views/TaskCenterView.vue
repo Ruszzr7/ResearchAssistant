@@ -172,18 +172,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import api from '@/api'
+import { listTasks, cancelTask as cancelTaskApi, retryWorkflowTask, deleteTask as deleteTaskApi, confirmWorkflowTask } from '@/api/tasks.js'
+import { useTaskPolling, isTerminal } from '@/composables/useTaskPolling.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
 
 const tasks = ref([])
 const loading = ref(false)
-const polling = ref(false)
-let pollTimer = null
+const { polling, update: updatePolling } = useTaskPolling()
 const showIntro = ref(localStorage.getItem('hideTaskCenterIntro') !== 'true')
 
 const detailVisible = ref(false)
@@ -227,10 +228,6 @@ function candidateKey(c) {
   return (c.arxivId || c.doi || c.title || '') + '|' + (c.year || '')
 }
 
-function isTerminal(status) {
-  return ['COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED', 'DEAD_LETTER'].includes(status)
-}
-
 function onIntroClose() {
   localStorage.setItem('hideTaskCenterIntro', 'true')
 }
@@ -252,9 +249,9 @@ function activeStepIndex(task) {
 async function loadTasks() {
   loading.value = true
   try {
-    const r = await api.get('/agent/tasks', { params: { limit: 100 } })
+    const r = await listTasks(100)
     tasks.value = r.data || []
-    schedulePoll()
+    updatePolling(tasks.value, loadTasks)
   } catch (e) {
     ElMessage.error('加载任务列表失败')
   } finally {
@@ -262,22 +259,10 @@ async function loadTasks() {
   }
 }
 
-function schedulePoll() {
-  if (pollTimer) {
-    clearTimeout(pollTimer)
-    pollTimer = null
-  }
-  const hasRunning = tasks.value.some(t => !isTerminal(t.status))
-  polling.value = hasRunning
-  if (hasRunning) {
-    pollTimer = setTimeout(loadTasks, 3000)
-  }
-}
-
 async function cancelTask(taskId) {
   try {
     await ElMessageBox.confirm('确定取消该任务吗？', '提示', { type: 'warning' })
-    await api.post(`/agent/task/${taskId}/cancel`)
+    await cancelTaskApi(taskId)
     ElMessage.success('已取消')
     loadTasks()
   } catch (e) {
@@ -289,7 +274,7 @@ async function cancelTask(taskId) {
 
 async function retryTask(taskId) {
   try {
-    const r = await api.post(`/agent/workflow/${taskId}/retry`)
+    const r = await retryWorkflowTask(taskId)
     ElMessage.success('已重新提交，新任务 ID: ' + r.data.taskId)
     loadTasks()
   } catch (e) {
@@ -300,7 +285,7 @@ async function retryTask(taskId) {
 async function deleteTask(taskId) {
   try {
     await ElMessageBox.confirm('删除后不可恢复，确定删除该任务记录？', '确认删除', { type: 'warning' })
-    await api.delete(`/agent/task/${taskId}`)
+    await deleteTaskApi(taskId)
     ElMessage.success('已删除')
     loadTasks()
   } catch (e) {
@@ -326,7 +311,7 @@ async function confirmTask() {
   if (!selected.value) return
   confirming.value = true
   try {
-    await api.post(`/agent/workflow/${selected.value.taskId}/confirm`, {
+    await confirmWorkflowTask(selected.value.taskId, {
       selected: confirmCandidates.value,
       folderId: confirmFolderId.value || null
     })
@@ -361,9 +346,6 @@ onMounted(async () => {
     const row = tasks.value.find(t => t.taskId === highlight)
     if (row) openDetail(row)
   }
-})
-onUnmounted(() => {
-  if (pollTimer) clearTimeout(pollTimer)
 })
 </script>
 

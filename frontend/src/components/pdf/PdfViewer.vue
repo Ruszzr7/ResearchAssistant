@@ -28,8 +28,9 @@
 
     <div class="viewer-body">
       <div ref="containerRef" class="pdf-pages" @scroll="onScroll">
+        <div class="virtual-spacer" :style="{ height: topSpacerHeight + 'px' }" aria-hidden="true"></div>
         <div
-          v-for="page in renderedPages"
+          v-for="page in visiblePages"
           :key="page.pageNum"
           :data-page="page.pageNum"
           class="pdf-page"
@@ -101,9 +102,10 @@
               >📝</text>
             </g>
           </g>
-        </svg>
+          </svg>
+        </div>
+        <div class="virtual-spacer" :style="{ height: bottomSpacerHeight + 'px' }" aria-hidden="true"></div>
       </div>
-    </div>
 
     <NoteLinkPanel
       v-if="showNotePanel"
@@ -174,6 +176,9 @@ const textLayerRefs = ref({})
 const overlayRefs = ref({})
 const pdfDoc = ref(null)
 const renderedPages = ref([])
+const visiblePageStart = ref(1)
+const visiblePageEnd = ref(1)
+const estimatedPageHeight = 900
 const annotations = ref([])
 const selectedAnnotation = ref(null)
 const currentTool = ref('select')
@@ -199,10 +204,39 @@ let freehandPointsTemp = []
 let isDrawing = false
 
 const pageAnnotations = computed(() => (pageNum) => annotations.value.filter(a => a.page === pageNum))
+const visiblePages = computed(() => renderedPages.value.slice(
+  Math.max(0, visiblePageStart.value - 1), visiblePageEnd.value
+))
 
-onMounted(() => loadDocument())
+function pageHeight(page) {
+  return page?.height || estimatedPageHeight
+}
+
+function pageOffset(pageNum) {
+  let offset = 0
+  const end = Math.max(0, Math.min(pageNum - 1, renderedPages.value.length))
+  for (let i = 0; i < end; i++) {
+    offset += pageHeight(renderedPages.value[i])
+    if (i < renderedPages.value.length - 1) offset += 16
+  }
+  return offset
+}
+
+const totalPageHeight = computed(() => pageOffset(renderedPages.value.length + 1))
+const topSpacerHeight = computed(() => pageOffset(visiblePageStart.value))
+const bottomSpacerHeight = computed(() => Math.max(
+  0,
+  totalPageHeight.value - pageOffset(visiblePageEnd.value + 1)
+))
+
+onMounted(() => {
+  window.addEventListener('click', onWindowClick)
+  loadDocument()
+})
 onUnmounted(() => {
   pdfDoc.value?.destroy()
+  clearTimeout(scrollTimer)
+  window.removeEventListener('click', onWindowClick)
 })
 
 async function loadDocument() {
@@ -217,7 +251,10 @@ async function loadDocument() {
       width: 0,
       height: 0
     }))
+    visiblePageStart.value = 1
+    visiblePageEnd.value = Math.min(count, 3)
     await nextTick()
+    updateVisiblePageRange()
     await renderVisiblePages()
     await Promise.all([loadAnnotations(), loadNotes()])
   } catch (e) {
@@ -227,20 +264,40 @@ async function loadDocument() {
 
 async function renderVisiblePages() {
   if (!containerRef.value || !pdfDoc.value) return
-  const container = containerRef.value
-  const top = container.scrollTop
-  const bottom = top + container.clientHeight
-  for (const page of renderedPages.value) {
+  updateVisiblePageRange()
+  await nextTick()
+  for (const page of visiblePages.value) {
     if (page.rendered) continue
-    const el = container.querySelector(`[data-page="${page.pageNum}"]`)
-    if (!el) continue
-    const rect = el.getBoundingClientRect()
-    const elTop = rect.top - container.getBoundingClientRect().top + top
-    const elBottom = elTop + rect.height
-    if (elBottom > top - 200 && elTop < bottom + 200) {
-      await renderPage(page)
-    }
+    await renderPage(page)
   }
+}
+
+function updateVisiblePageRange() {
+  const container = containerRef.value
+  const count = renderedPages.value.length
+  if (!container || !count) return
+  const top = Math.max(0, container.scrollTop - estimatedPageHeight * 2)
+  const bottom = container.scrollTop + container.clientHeight + estimatedPageHeight * 2
+  let cursor = 0
+  let first = 1
+  let last = count
+  for (let i = 0; i < count; i++) {
+    const next = cursor + pageHeight(renderedPages.value[i])
+    if (next >= top) {
+      first = i + 1
+      break
+    }
+    cursor = next + 16
+  }
+  cursor = 0
+  for (let i = 0; i < count; i++) {
+    const next = cursor + pageHeight(renderedPages.value[i])
+    if (cursor <= bottom) last = i + 1
+    cursor = next + 16
+    if (cursor > bottom) break
+  }
+  visiblePageStart.value = Math.max(1, first)
+  visiblePageEnd.value = Math.min(count, Math.max(visiblePageStart.value, last))
 }
 
 async function renderPage(pageState) {
@@ -282,8 +339,9 @@ async function renderPage(pageState) {
 
 function pageWrapStyle(page) {
   return {
-    width: page.width ? page.width + 'px' : '100%',
-    height: page.height ? page.height + 'px' : '800px'
+    width: page.width ? page.width + 'px' : 'min(100%, 900px)',
+    height: page.height ? page.height + 'px' : estimatedPageHeight + 'px',
+    marginBottom: page.pageNum < renderedPages.value.length ? '16px' : '0'
   }
 }
 
@@ -300,6 +358,7 @@ function setOverlayRef(el, pageNum) { if (el) overlayRefs.value[pageNum] = el }
 
 let scrollTimer = null
 function onScroll() {
+  updateVisiblePageRange()
   clearTimeout(scrollTimer)
   scrollTimer = setTimeout(renderVisiblePages, 100)
 }
@@ -642,18 +701,20 @@ async function deleteNoteLocal(note) {
   }
 }
 
-function jumpToNote(note) {
+async function jumpToNote(note) {
   selectedNote.value = note
   if (note.page > 0 && containerRef.value) {
+    visiblePageStart.value = Math.max(1, note.page - 1)
+    visiblePageEnd.value = Math.min(renderedPages.value.length, note.page + 1)
+    await nextTick()
     const el = containerRef.value.querySelector(`[data-page="${note.page}"]`)
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 }
 
-// 点击空白处关闭右键菜单
-window.addEventListener('click', () => {
+function onWindowClick() {
   if (contextMenu.value.visible) contextMenu.value.visible = false
-})
+}
 </script>
 
 <style scoped>
@@ -706,7 +767,11 @@ window.addEventListener('click', () => {
   flex-direction: column;
   align-items: center;
   padding: 16px 0;
-  gap: 16px;
+  gap: 0;
+}
+.virtual-spacer {
+  width: 1px;
+  flex: 0 0 auto;
 }
 .pdf-page {
   position: relative;

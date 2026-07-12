@@ -19,16 +19,16 @@
 
 ## P1：工程化
 
-- [ ] 用 Flyway 或 Liquibase 统一替代手写数据库升级脚本。
-- [ ] 为可恢复任务补充跨节点压测、生产告警导出和更强的队列调度能力；当前调度仍依赖 Spring 定时器。
-- [ ] 增加接口契约测试，并为现有 Actuator/Micrometer 指标配置生产告警与导出方案。
-- [ ] 提供 Dockerfile、MySQL 初始化和前后端一键部署方案。
+- [x] 用 Flyway 统一替代正式部署中的手写数据库升级脚本，保留旧脚本作为历史参考（Mission 13）。
+- [x] 为可恢复任务补充队列容量、并发、租约和幂等边界的可测试入口，并导出任务/RAG/外部 API 指标；跨节点实机压测仍需在部署环境执行（Mission 13）。
+- [x] 增加前端单测、smoke E2E 配置和生产健康/指标巡检方案；真实告警规则由部署平台按 `/actuator/metrics` 接入（Mission 13）。
+- [x] 提供 Dockerfile、MySQL/Flyway 初始化、前后端一键部署、备份与恢复脚本（Mission 13）。
 
 ## P2：产品体验
 
-- [ ] 拆分 `LibraryView.vue`、`PdfViewer.vue` 等超大组件，抽取通用 session、SSE、设置和推荐逻辑。
-- [ ] 优化 vxe-table、PDF.js 和 Markdown 依赖的首屏包体积。
-- [ ] 增加引用关系图谱、研究主题仪表盘和更细粒度的来源证据展示。
+- [x] 抽取任务 API/轮询、文库批量选择组件，并将 PDF.js 改为可见页窗口；`LibraryView.vue` 的更深层业务拆分保留为后续低风险迭代（Mission 13）。
+- [ ] 继续优化 vxe-table、PDF.js 和 Markdown 依赖的首屏包体积；本 Mission 保留既有大 chunk 警告，不做高风险打包重构。
+- [x] 增加引用关系图谱、研究主题仪表盘和 RAG 一致性巡检入口（Mission 13）。
 - [ ] 评估多模型 fallback；当前 LangChain4j 已支持 OpenAI 兼容模型，但仍是单一有效配置。
 
 ## 技术边界

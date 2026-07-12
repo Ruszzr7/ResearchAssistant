@@ -79,6 +79,7 @@ import { VxeGrid } from 'vxe-table'
 import 'vxe-table/lib/style.css'
 
 import { computed, ref, onMounted } from 'vue'
+import { mergePageSelection } from '@/utils/selection.js'
 
 const props = defineProps({
   papers: { type: Array, default: () => [] },
@@ -193,19 +194,11 @@ function onPageChange({ currentPage }) {
 }
 
 function onCheckboxChange({ row, checked }) {
-  const set = new Set(props.selectedIds)
-  if (checked) set.add(row.id)
-  else set.delete(row.id)
-  emit('selection-change', [...set])
+  emit('selection-change', mergePageSelection(props.selectedIds, [row], checked))
 }
 
 function onCheckboxAll({ checked, records }) {
-  const set = new Set(props.selectedIds)
-  for (const row of records) {
-    if (checked) set.add(row.id)
-    else set.delete(row.id)
-  }
-  emit('selection-change', [...set])
+  emit('selection-change', mergePageSelection(props.selectedIds, records, checked))
 }
 
 function onCellDblclick({ row }) {

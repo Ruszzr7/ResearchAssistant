@@ -10,6 +10,9 @@ import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.concurrent.Future;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -21,6 +24,8 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RecoverableTaskManagerTest {
@@ -139,5 +144,51 @@ class RecoverableTaskManagerTest {
                 "same-key", null, "Same", java.util.Map.of("value", 2), "key-2"))
                 .isInstanceOf(AsyncTaskIdempotencyConflictException.class);
         assertThat(manager.get(taskId).getStatus()).isEqualTo(AsyncTaskStatus.COMPLETED);
+    }
+
+    @Test
+    void shouldAllowOnlyOneNodeToClaimTheSameRecoverableTask() throws Exception {
+        registry.register("shared", context -> "ok");
+        AsyncTaskRecord pending = new AsyncTaskRecord();
+        pending.setId(11L);
+        pending.setTaskId("shared-task");
+        pending.setTaskType("shared");
+        pending.setStatus(AsyncTaskStatus.PENDING.name());
+        pending.setAttemptCount(0);
+        pending.setMaxAttempts(3);
+        stored.set(pending);
+
+        doReturn(future).when(executor).submit(any(Runnable.class));
+        when(taskMapper.selectDispatchable(anyInt())).thenReturn(java.util.List.of(pending));
+        when(taskMapper.countRecoverableProcessing()).thenReturn(0L);
+        doAnswer(invocation -> {
+            synchronized (pending) {
+                if (!AsyncTaskStatus.PENDING.name().equals(pending.getStatus())
+                        && !AsyncTaskStatus.RETRY_WAIT.name().equals(pending.getStatus())) {
+                    return 0;
+                }
+                pending.setStatus(AsyncTaskStatus.PROCESSING.name());
+                pending.setLeaseOwner(invocation.getArgument(1));
+                pending.setAttemptCount(pending.getAttemptCount() + 1);
+                return 1;
+            }
+        }).when(taskMapper).claimForExecution(any(), any(), any());
+
+        AsyncTaskManager secondNode = new AsyncTaskManager(executor, taskMapper, stepMapper,
+                new ObjectMapper(), registry);
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        try {
+            var first = callers.submit(manager::dispatchRecoverableTasks);
+            var second = callers.submit(secondNode::dispatchRecoverableTasks);
+            first.get(2, TimeUnit.SECONDS);
+            second.get(2, TimeUnit.SECONDS);
+        } finally {
+            callers.shutdownNow();
+        }
+
+        assertThat(pending.getStatus()).isEqualTo(AsyncTaskStatus.PROCESSING.name());
+        assertThat(pending.getAttemptCount()).isEqualTo(1);
+        verify(taskMapper, times(2)).claimForExecution(any(), any(), any());
+        verify(executor, times(1)).submit(any(Runnable.class));
     }
 }

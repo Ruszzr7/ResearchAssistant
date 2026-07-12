@@ -137,13 +137,12 @@
             </template>
           </el-dropdown>
           <!-- 批量操作 -->
-          <template v-if="selectedPaperIds.length">
-            <span class="toolbar-divider"></span>
-            <span style="font-size:12px;color:#606266">已选 {{ selectedPaperIds.length }}</span>
-            <el-button size="small" text @click="openBatchMoveDialog">移动</el-button>
-            <el-button size="small" text type="danger" @click="confirmBatchDelete">删除</el-button>
-            <el-button size="small" text @click="selectedPaperIds = []">取消</el-button>
-          </template>
+          <LibraryBatchSelectionBar
+            :count="selectedPaperIds.length"
+            @move="openBatchMoveDialog"
+            @delete="confirmBatchDelete"
+            @clear="selectedPaperIds = []"
+          />
         </div>
         <div class="toolbar-right">
           <el-input v-model="paperSearchKeyword" placeholder="搜索论文…" size="small" clearable class="toolbar-search" @input="onPaperSearch" />
@@ -499,6 +498,7 @@ import { waitForAnalysis } from '@/utils/analysis.js'
 import { useGlobalTask } from '@/composables/useGlobalTask.js'
 import { usePaperImportRecommendations } from '@/composables/usePaperImportRecommendations.js'
 import ReadingProgressPanel from '@/components/ReadingProgressPanel.vue'
+import LibraryBatchSelectionBar from '@/components/library/LibraryBatchSelectionBar.vue'
 import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
 import { listReadingPlans, addPlanItem } from '@/api/readingPlan'
 

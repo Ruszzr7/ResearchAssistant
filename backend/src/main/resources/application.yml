@@ -17,6 +17,13 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    baseline-on-migrate: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:false}
+    baseline-version: ${SPRING_FLYWAY_BASELINE_VERSION:12.1}
+
   servlet:
     multipart:
       max-file-size: 50MB
@@ -37,6 +44,8 @@ management:
   endpoint:
     health:
       show-details: never
+      probes:
+        enabled: true
 
 # Application
 app:

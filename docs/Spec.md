@@ -29,7 +29,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 |---|---|
 | 前端 | Vue 3、Vite、Element Plus、vxe-table、PDF.js |
 | 后端 | Java 17、Spring Boot 3.2.6、Maven、MyBatis Plus |
-| 数据 | MySQL 8；手写 `schema.sql` 和版本升级脚本 |
+| 数据 | MySQL 8；Flyway 版本化迁移，MySQL 保存任务/RAG/证据元数据 |
 | AI | LangChain4j 1.0；OpenAI 兼容 Chat / Embedding API |
 | PDF | PDFBox；可选 Marker / MinerU / Grobid 外部命令 |
 | 向量 | 默认内存存储，可切换 Qdrant；MySQL 保存分片元数据 |
@@ -82,19 +82,25 @@ MySQL / 本地 PDF / 可选 Qdrant
 
 ## 6. 数据与安全约定
 
-- `schema.sql` 是新环境的完整建库脚本；`schema-upgrade-*.sql` 用于已有库升级。
-- RAG 索引版本化升级使用 `schema-upgrade-10.3.sql`；已有 `paper_chunk` 会迁移为版本 1 并建立 ACTIVE 指针。
+- 正式运行由 `backend/src/main/resources/db/migration` 下的 Flyway 迁移负责初始化和升级；`V12.1` 是 Mission 12.1 完成后的无损基线，`V13` 增加 RAG 一致性审计表。`schema.sql` 与 `schema-upgrade-*.sql` 仅作历史参考。
+- 已有数据库切换到 Flyway 前必须备份并核验 schema；只允许在确认数据库对应基线后临时使用 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true`，禁止对未知版本数据库盲目 baseline。
+- RAG 一致性巡检通过 `/api/rag/consistency` 比对 MySQL active 指针、active version 元数据和 active chunk 数量，审计写入 `rag_consistency_audit` 不影响只读巡检结果。
 - PDF 存放在 `app.storage.pdf-dir`，默认 `./data/papers`。
 - API Key 支持 `RA_API_KEY` 等环境变量覆盖；配置 `RA_MASTER_KEY` 后使用 AES-GCM 加密保存。
 - 测试使用 `test` profile 的 H2 内存库，不得依赖开发库中的论文、任务或阅读计划数据。
 
+## 6.1 部署与可运维性
+
+- 默认交付拓扑是 MySQL + Spring Boot + Nginx/Vue；Qdrant 通过 Compose profile 可选启用，不引入 Redis。
+- `/actuator/health` 用于 liveness/readiness，`/actuator/metrics` 用于低基数任务、AI、外部 API 和 RAG 指标采集；生产日志默认关闭 SQL stdout。
+- 生产 profile 启动时校验 `RA_MASTER_KEY`、MySQL JDBC URL、PDF 目录和明确 CORS 白名单，校验失败即停止启动。
+- MySQL、PDF 数据卷和可选 Qdrant 数据必须分别纳入备份策略；恢复后先检查健康状态，再执行 RAG 一致性巡检。
+
 ## 7. 当前待办
 
-1. 将现有论文精读质量门禁扩展到对比/Gap，并评估多模型 fallback。
-2. 统一数据库迁移工具，替代逐步累积的手写升级脚本。
-3. 在当前 MySQL 可恢复调度基础上补充跨节点压测、生产告警导出和更强的任务队列能力。
-4. 拆分超大前端页面，优化首屏包体积和公共 composable。
-5. 增加 Docker 一键部署、接口契约测试和 Micrometer 指标。
+1. 在真实多节点环境执行压力测试并接入组织现有告警平台；本 Mission 提供指标、队列边界和测试入口，不引入新的基础设施。
+2. 继续按真实使用数据优化前端大包体积和复杂页面拆分。
+3. 工作流出现并行、条件分支或补偿需求后，再评估专用工作流引擎。
 
 ## 8. 文档维护
 

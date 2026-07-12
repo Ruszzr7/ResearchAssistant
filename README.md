@@ -5,12 +5,14 @@
 ## 快速启动
 
 1. 安装 JDK 17+、Node.js 和 MySQL 8。
-2. 执行 `backend/src/main/resources/schema.sql` 初始化数据库。
+2. 正式部署使用 Flyway 自动初始化/升级数据库；旧库切换前先阅读 [docs/migrations.md](docs/migrations.md)。`schema.sql` 仅保留为历史参考。
 3. 在 `backend` 目录运行 `mvnw.cmd spring-boot:run`。
 4. 在 `frontend` 目录运行 `npm.cmd install` 和 `npm.cmd run dev`。
 5. 打开 `http://localhost:5173`，在设置页填写 OpenAI 兼容 API 的 Base URL、模型和 API Key。
 
 Windows 用户也可以运行 `scripts/start-dev.bat`；Bash 环境可使用对应的 `.sh` 脚本。
+
+生产或本地交付环境可复制 `.env.example` 为 `.env`，再运行 `scripts/deploy-up.bat`（或 `scripts/deploy-up.sh`）通过 Docker Compose 一键启动 MySQL、后端和前端。完整流程见 [docs/deployment.md](docs/deployment.md)。
 
 ## 功能概览
 
@@ -38,6 +40,8 @@ Windows 用户也可以运行 `scripts/start-dev.bat`；Bash 环境可使用对�
 | `ASYNC_MAX_QUEUE_DEPTH` | 可恢复任务队列容量，默认 `500` |
 | `RAG_INDEX_RETENTION` | RAG 旧版本保留时间，默认 `7d` |
 | `RAG_INDEX_CLEANUP_CRON` | RAG 旧版本清理计划，默认每天 03:45 |
+| `SPRING_FLYWAY_BASELINE_ON_MIGRATE` | 仅在已核验旧库切换时临时开启，默认 `false` |
+| `RA_CORS_ALLOWED_ORIGINS` | 生产前端来源白名单，禁止使用 `*` |
 
 没有配置 `RA_MASTER_KEY` 时，API Key 仅适合本地临时开发，可能以明文保存。
 
@@ -48,8 +52,17 @@ Windows 用户也可以运行 `scripts/start-dev.bat`；Bash 环境可使用对�
 ```text
 前端构建：cd frontend && npm.cmd run build
 后端测试：cd backend && mvnw.cmd test
+前端单测：cd frontend && npm.cmd run test:unit
+前端 E2E：cd frontend && npm.cmd run test:e2e
 ```
 
 后端测试使用独立 H2 内存数据库，不读取开发库数据。
 
 更多架构和接口说明见 [docs/Spec.md](docs/Spec.md)，阶段记录见 [docs/progress.md](docs/progress.md)。
+
+## Mission 13 交付边界
+
+- 数据库升级统一由 `backend/src/main/resources/db/migration` 下的 Flyway 迁移管理；正式部署不再手工执行旧升级脚本。
+- Docker Compose 默认保持 MySQL + Spring Boot + Nginx 前端单机部署，Qdrant 仅通过 `--profile qdrant` 启用，不引入 Redis。
+- `/actuator/health`、`/actuator/metrics` 和 `/api/rag/consistency` 可用于健康检查、指标采集和 RAG 数据一致性巡检。
+- MySQL 备份脚本只覆盖数据库；PDF 与可选 Qdrant 数据还需按 [docs/deployment.md](docs/deployment.md) 对应卷一起备份。

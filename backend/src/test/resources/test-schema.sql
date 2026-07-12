@@ -213,3 +213,15 @@ CREATE TABLE workflow_step (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(task_id, step_index)
 );
+
+CREATE TABLE rag_consistency_audit (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id BIGINT,
+    provider VARCHAR(32) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    active_version INT,
+    metadata_chunk_count INT NOT NULL DEFAULT 0,
+    expected_chunk_count INT,
+    details_json TEXT,
+    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

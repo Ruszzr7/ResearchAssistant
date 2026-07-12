@@ -14,7 +14,7 @@
 - 嵌套文件夹使用 `parent_id` 自引用，多对多标签使用 `paper_tag` 桥接表。
 - MySQL `abstract` 是保留字，SQL 中使用反引号，Java 字段通过别名映射为 `abstractText`。
 - `updateById` 默认跳过 null；需要清空字段时使用 UpdateWrapper 显式写入 NULL。
-- 新环境使用 `schema.sql`，旧环境使用版本升级脚本；长期应迁移到 Flyway / Liquibase。
+- 正式环境使用 Flyway；`V12.1` 是当前 schema 的无损基线，旧 `schema.sql` 与 `schema-upgrade-*.sql` 仅作历史参考。测试环境关闭 Flyway 并使用独立 H2 schema。
 - 测试不能依赖开发库。SpringBootTest 使用 `test` profile 和 H2 内存 schema。
 
 ## 3. 文件与 PDF
@@ -119,3 +119,13 @@
 - `ExternalCallPolicy` 是单机共享策略：信号量限制并发，Future 超时中断等待，失败最多按配置重试，最终返回显式降级状态；默认配置通过 `RA_EXTERNAL_*` 环境变量覆盖，不需要 Redis。
 - LiteratureSearchService、VerifyGapsSkill 和 EmbeddingService 统一记录外部调用 operation/outcome/attempts/duration；调用失败返回空候选或 EmbeddingUnavailableException，由上层继续走既有降级路径。
 - 外部来源适配器仍可能把 HTTP 错误转换为空列表，因此“无结果”和“调用失败”的区分依赖策略状态与指标；后续若需要更细粒度 HTTP 分类，应让来源适配器返回结构化 source result。
+
+## Mission 13：交付与可运维性
+
+- Flyway 采用 `V12.1` 无损基线 + 后续增量迁移。基线脚本只使用 `CREATE TABLE IF NOT EXISTS`，不包含 `DROP DATABASE`、`DROP TABLE`、`USE` 或数据清理；未知版本数据库不能直接 baseline。
+- 测试 profile 必须关闭 Flyway，因为测试使用独立 H2 schema；生产/本地 MySQL 则由 Spring Boot 启动时自动 migrate。数据库切换前先做 mysqldump，并把 PDF 数据卷作为独立数据资产备份。
+- 单机优先的部署拓扑是 MySQL、Spring Boot、Nginx/Vue；Qdrant 是可选 Compose profile，Redis 不在当前架构中。Nginx 对 `/api/` 统一反代并关闭 SSE buffering，前端无需感知后端容器地址。
+- 生产启动校验只检查无法安全推断的配置：主密钥长度、fail-closed、MySQL JDBC URL、PDF 路径和非通配 CORS。校验失败应快速停止，而不是启动后以不安全默认值运行。
+- RAG 一致性巡检是只读业务检查：比对 `rag_index_state`、active `rag_index_version` 和 active `paper_chunk` 数量；审计写入失败不能遮蔽实际巡检结果。未来接入 Qdrant 后，再扩展 provider 级检查，不改变当前 API。
+- 任务轮询归入 composable 并在卸载时清理 timer；API transport 归入 `api/tasks.js`。跨页批量选择必须按字符串 ID 去重，但保留首次出现的原始 ID 类型，以兼容 vxe-table 和后端 Long 参数。
+- PDF.js 虚拟化采用可见页窗口 + 上下占位高度。页码定位前先把目标页加入窗口，再滚动到 DOM 节点；估算高度与真实 viewport 高度变化时必须保持滚动容器总高度稳定。
