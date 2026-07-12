@@ -3,6 +3,7 @@ package com.research.assistant.controller;
 import com.research.assistant.dto.NoteDto;
 import com.research.assistant.dto.NoteRequest;
 import com.research.assistant.service.note.NoteService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,12 +28,12 @@ public class NoteController {
     }
 
     @PostMapping("/papers/{paperId}/notes")
-    public ResponseEntity<NoteDto> create(@PathVariable Long paperId, @RequestBody NoteRequest request) {
+    public ResponseEntity<NoteDto> create(@PathVariable Long paperId, @RequestBody @Valid NoteRequest request) {
         return ResponseEntity.ok(noteService.create(paperId, request));
     }
 
     @PutMapping("/notes/{noteId}")
-    public ResponseEntity<NoteDto> update(@PathVariable Long noteId, @RequestBody NoteRequest request) {
+    public ResponseEntity<NoteDto> update(@PathVariable Long noteId, @RequestBody @Valid NoteRequest request) {
         return ResponseEntity.ok(noteService.update(noteId, request));
     }
 

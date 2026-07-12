@@ -93,7 +93,7 @@ public class ExternalCommandPdfParser implements PdfParser {
             int exitCode = process.exitValue();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             if (exitCode != 0) {
-                return PdfParseResult.failure("外部解析命令退出码 " + exitCode + ": " + output);
+                return PdfParseResult.failure("外部解析命令退出码 " + exitCode);
             }
             String text = output.trim();
             if (text.length() > 15 * 1024 * 1024) {
@@ -101,7 +101,7 @@ public class ExternalCommandPdfParser implements PdfParser {
             }
             return PdfParseResult.success(text, -1);
         } catch (Exception e) {
-            return PdfParseResult.failure("外部解析命令执行异常: " + e.getMessage());
+            return PdfParseResult.failure("外部解析命令执行失败");
         }
     }
 

@@ -10,6 +10,8 @@ spring:
       schema-locations: classpath:test-schema.sql
 
 app:
+  encryption:
+    fail-closed: false
   rag:
     index-retention: 7d
   async:

@@ -1,67 +1,104 @@
 package com.research.assistant.common;
 
+import com.research.assistant.service.async.AsyncTaskCapacityException;
+import com.research.assistant.service.async.AsyncTaskIdempotencyConflictException;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import com.research.assistant.service.async.AsyncTaskCapacityException;
-import com.research.assistant.service.async.AsyncTaskIdempotencyConflictException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 
-/**
- * 全局异常处理器 —— 将所有未捕获异常统一包装为 {@link Result} 返回。
- * <p>
- * 避免 Controller 抛出的 RuntimeException 直接返回 Tomcat 默认 500 页面，
- * 让前端始终能解析统一响应结构。
- */
+/** Converts failures to safe, stable JSON without echoing provider or SQL details. */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public Result<Void> handleIllegalArgument(IllegalArgumentException e) {
-        log.warn("参数错误: {}", e.getMessage());
-        return Result.error(400, e.getMessage());
+    public ResponseEntity<Result<Void>> handleIllegalArgument(IllegalArgumentException e) {
+        log.warn("request_validation_failed type={}", typeOf(e));
+        return response(HttpStatus.BAD_REQUEST, "请求参数不合法");
     }
 
     @ExceptionHandler(AsyncTaskCapacityException.class)
-    public Result<Void> handleTaskCapacity(AsyncTaskCapacityException e) {
-        log.warn("异步任务容量达到上限: {}", e.getMessage());
-        return Result.error(429, e.getMessage());
+    public ResponseEntity<Result<Void>> handleTaskCapacity(AsyncTaskCapacityException e) {
+        log.warn("async_capacity_rejected type={}", typeOf(e));
+        return response(HttpStatus.TOO_MANY_REQUESTS, "任务容量已达上限，请稍后重试");
     }
 
     @ExceptionHandler(AsyncTaskIdempotencyConflictException.class)
-    public Result<Void> handleIdempotencyConflict(AsyncTaskIdempotencyConflictException e) {
-        log.warn("异步任务幂等键冲突: {}", e.getMessage());
-        return Result.error(409, e.getMessage());
+    public ResponseEntity<Result<Void>> handleIdempotencyConflict(AsyncTaskIdempotencyConflictException e) {
+        log.warn("async_idempotency_conflict type={}", typeOf(e));
+        return response(HttpStatus.CONFLICT, "幂等键与请求参数不匹配");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public Result<Void> handleValidation(MethodArgumentNotValidException e) {
-        String message = e.getBindingResult().getFieldErrors().stream()
-                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+    public ResponseEntity<Result<Void>> handleValidation(MethodArgumentNotValidException e) {
+        String field = e.getBindingResult().getFieldErrors().stream()
+                .map(error -> error.getField())
                 .findFirst()
-                .orElse("请求参数校验失败");
-        log.warn("参数校验失败: {}", message);
-        return Result.error(400, message);
+                .orElse("request");
+        log.warn("request_validation_failed field={}", field);
+        return response(HttpStatus.BAD_REQUEST, "请求参数校验失败: " + field);
     }
 
-    @ExceptionHandler(HttpMessageNotReadableException.class)
-    public Result<Void> handleMessageNotReadable(HttpMessageNotReadableException e) {
-        log.warn("请求体解析失败: {}", e.getMessage());
-        return Result.error(400, "请求体格式错误");
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<Result<Void>> handleConstraintViolation(ConstraintViolationException e) {
+        log.warn("constraint_validation_failed count={}", e.getConstraintViolations().size());
+        return response(HttpStatus.BAD_REQUEST, "请求参数校验失败");
+    }
+
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class,
+            MissingServletRequestParameterException.class
+    })
+    public ResponseEntity<Result<Void>> handleMalformedRequest(Exception e) {
+        log.warn("malformed_request type={}", typeOf(e));
+        return response(HttpStatus.BAD_REQUEST, "请求格式或参数类型错误");
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Result<Void>> handleUploadTooLarge(MaxUploadSizeExceededException e) {
+        log.warn("request_upload_too_large");
+        return response(HttpStatus.PAYLOAD_TOO_LARGE, "上传文件超过大小限制");
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Result<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
+        log.warn("http_method_not_supported method={}", e.getMethod());
+        return response(HttpStatus.METHOD_NOT_ALLOWED, "不支持的请求方法");
     }
 
     @ExceptionHandler(DataAccessException.class)
-    public Result<Void> handleDataAccess(DataAccessException e) {
-        log.error("数据库访问异常", e);
-        return Result.error(500, "数据库操作失败，请稍后重试");
+    public ResponseEntity<Result<Void>> handleDataAccess(DataAccessException e) {
+        log.error("database_operation_failed type={} requestId={}", typeOf(e), requestId());
+        return response(HttpStatus.INTERNAL_SERVER_ERROR, "数据库操作失败，请稍后重试");
     }
 
     @ExceptionHandler(Exception.class)
-    public Result<Void> handleException(Exception e) {
-        log.error("服务器内部错误", e);
-        return Result.error(500, "服务器内部错误: " + e.getMessage());
+    public ResponseEntity<Result<Void>> handleException(Exception e) {
+        log.error("internal_server_error type={} requestId={}", typeOf(e), requestId());
+        return response(HttpStatus.INTERNAL_SERVER_ERROR, "服务器内部错误，请稍后重试");
+    }
+
+    private ResponseEntity<Result<Void>> response(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(Result.error(status.value(), message));
+    }
+
+    private String typeOf(Exception e) {
+        return e == null ? "unknown" : e.getClass().getSimpleName();
+    }
+
+    private String requestId() {
+        return MDC.get("requestId");
     }
 }

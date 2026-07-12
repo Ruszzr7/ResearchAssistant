@@ -56,3 +56,7 @@
 - 新功能只在此处追加一行阶段记录，不复制完整文件清单。
 - 设计决策和可复用经验写入 `docs/knowledge.md`。
 - 已完成事项不要在 `docs/improvements.md` 重复维护。
+## Mission 11（已实施 11.1）
+- 安全/API 基线：统一设置脱敏、生产加密 fail-closed、请求 ID、异常安全响应、主要 DTO 校验、单机 AI 并发保护和 PDF 路径 containment。
+- 验证：后端 255 项测试通过；前端生产构建通过。
+- 未纳入：Flyway/Liquibase、完整 Docker、备份恢复和 Spring Security，保留至后续 Mission。

@@ -202,9 +202,11 @@ const testResult = ref(null)
 const openalexEnabled = ref(false)
 const ieeeXploreEnabled = ref(false)
 const ieeeXploreApiKey = ref('')
+const savedIeeeXploreApiKey = ref('')
 const acmDlEnabled = ref(false)
 const acmDlApiUrl = ref('')
 const acmDlApiKey = ref('')
+const savedAcmDlApiKey = ref('')
 
 const pdfParserProvider = ref('PDFBOX')
 const pdfParserExternalCommand = ref('')
@@ -218,6 +220,7 @@ const figureExtractorCommand = ref('')
 const obsidianVaultPath = ref('')
 const zoteroUserId = ref('')
 const zoteroApiKey = ref('')
+const savedZoteroApiKey = ref('')
 const zoteroCollectionKey = ref('')
 
 async function loadSettings() {
@@ -235,10 +238,16 @@ async function loadSettings() {
       if (item.keyName === 'research_topic') researchTopic.value = item.value || ''
       if (item.keyName === 'openalex_enabled') openalexEnabled.value = item.value === 'true'
       if (item.keyName === 'ieee_xplore_enabled') ieeeXploreEnabled.value = item.value === 'true'
-      if (item.keyName === 'ieee_xplore_api_key') ieeeXploreApiKey.value = item.value || ''
+      if (item.keyName === 'ieee_xplore_api_key') {
+        ieeeXploreApiKey.value = item.value || ''
+        savedIeeeXploreApiKey.value = item.value || ''
+      }
       if (item.keyName === 'acm_dl_enabled') acmDlEnabled.value = item.value === 'true'
       if (item.keyName === 'acm_dl_api_url') acmDlApiUrl.value = item.value || ''
-      if (item.keyName === 'acm_dl_api_key') acmDlApiKey.value = item.value || ''
+      if (item.keyName === 'acm_dl_api_key') {
+        acmDlApiKey.value = item.value || ''
+        savedAcmDlApiKey.value = item.value || ''
+      }
       if (item.keyName === 'pdf_parser_provider') pdfParserProvider.value = item.value || 'PDFBOX'
       if (item.keyName === 'pdf_parser_external_command') pdfParserExternalCommand.value = item.value || ''
       if (item.keyName === 'pdf_js_viewer_enabled') pdfJsViewerEnabled.value = item.value === 'true'
@@ -248,7 +257,10 @@ async function loadSettings() {
       if (item.keyName === 'figure_extractor_command') figureExtractorCommand.value = item.value || ''
       if (item.keyName === 'obsidian_vault_path') obsidianVaultPath.value = item.value || ''
       if (item.keyName === 'zotero_user_id') zoteroUserId.value = item.value || ''
-      if (item.keyName === 'zotero_api_key') zoteroApiKey.value = item.value || ''
+      if (item.keyName === 'zotero_api_key') {
+        zoteroApiKey.value = item.value || ''
+        savedZoteroApiKey.value = item.value || ''
+      }
       if (item.keyName === 'zotero_collection_key') zoteroCollectionKey.value = item.value || ''
     }
   } catch (e) { /* 首次使用 */ }
@@ -285,24 +297,27 @@ async function saveSettings() {
 async function doSave() {
   const payload = []
   const keyValue = apiKey.value.trim()
+  const changedApiKey = Boolean(keyValue && keyValue !== savedApiKey.value)
+  const changedIeeeKey = Boolean(ieeeXploreApiKey.value.trim() && ieeeXploreApiKey.value !== savedIeeeXploreApiKey.value)
+  const changedAcmKey = Boolean(acmDlApiKey.value.trim() && acmDlApiKey.value !== savedAcmDlApiKey.value)
+  const changedZoteroKey = Boolean(zoteroApiKey.value.trim() && zoteroApiKey.value !== savedZoteroApiKey.value)
   // 只有在用户真正修改了 API Key（与加载回来的脱敏值不同）时才提交
-  if (keyValue && keyValue !== savedApiKey.value) {
+  if (changedApiKey) {
     payload.push({ keyName: 'api_key', value: keyValue })
-    savedApiKey.value = keyValue
   }
   payload.push({ keyName: 'model', value: model.value })
   payload.push({ keyName: 'base_url', value: baseUrl.value })
   payload.push({ keyName: 'research_topic', value: researchTopic.value })
   payload.push({ keyName: 'openalex_enabled', value: String(openalexEnabled.value) })
   payload.push({ keyName: 'ieee_xplore_enabled', value: String(ieeeXploreEnabled.value) })
-  if (ieeeXploreApiKey.value.trim()) {
+  if (changedIeeeKey) {
     payload.push({ keyName: 'ieee_xplore_api_key', value: ieeeXploreApiKey.value.trim() })
   }
   payload.push({ keyName: 'acm_dl_enabled', value: String(acmDlEnabled.value) })
   if (acmDlApiUrl.value.trim()) {
     payload.push({ keyName: 'acm_dl_api_url', value: acmDlApiUrl.value.trim() })
   }
-  if (acmDlApiKey.value.trim()) {
+  if (changedAcmKey) {
     payload.push({ keyName: 'acm_dl_api_key', value: acmDlApiKey.value.trim() })
   }
   payload.push({ keyName: 'pdf_parser_provider', value: pdfParserProvider.value })
@@ -324,7 +339,7 @@ async function doSave() {
   if (zoteroUserId.value.trim()) {
     payload.push({ keyName: 'zotero_user_id', value: zoteroUserId.value.trim() })
   }
-  if (zoteroApiKey.value.trim()) {
+  if (changedZoteroKey) {
     payload.push({ keyName: 'zotero_api_key', value: zoteroApiKey.value.trim() })
   }
   if (zoteroCollectionKey.value.trim()) {
@@ -332,6 +347,10 @@ async function doSave() {
   }
   if (payload.length) {
     await api.put('/settings', payload)
+    if (changedApiKey) savedApiKey.value = keyValue
+    if (changedIeeeKey) savedIeeeXploreApiKey.value = ieeeXploreApiKey.value.trim()
+    if (changedAcmKey) savedAcmDlApiKey.value = acmDlApiKey.value.trim()
+    if (changedZoteroKey) savedZoteroApiKey.value = zoteroApiKey.value.trim()
   }
 }
 

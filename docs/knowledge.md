@@ -95,3 +95,6 @@
 - Mission 9.3 的质量事件以 `run_id` 关联一次分析链路，`final_status` 只在终态统计，避免 POJO、REPAIR、FALLBACK 多阶段重复计数；成功事件在事务提交后异步写入，质量拒绝事件立即异步落库以保留回滚前证据。
 - LLM repair 调用通过 `ChatRequest.maxOutputTokens` 设置请求级上限，并保留响应后的 token/字符二次校验；质量事件支持按论文、终态、阶段、时间范围分页查询，保留策略由 `AI_QUALITY_RETENTION_DAYS` 与定时批量删除任务控制。
 - Golden Eval 只保留 `backend/src/main/resources/eval/paper-analysis-golden.json` 这一份 fixture，除自动门禁指标外可选记录人工评分，避免测试资源与运行资源漂移。
+- Mission 11 安全基线：设置读取端只返回脱敏值和 `configured`，保存端使用白名单、长度和类型校验；生产 profile 缺少 `RA_MASTER_KEY` 时 fail-closed，本地开发保留显式兼容模式。
+- API 错误响应通过 HTTP 状态和 `{code,message,data}` 传递，异常日志只记录类型、请求 ID 等低敏信息，不记录 provider 响应体、密钥或论文正文。
+- 默认监听 `127.0.0.1`，CORS 通过 `RA_CORS_ALLOWED_ORIGINS` 配置；MyBatis 默认关闭 SQL 日志，调试时显式设置 `MYBATIS_LOG_IMPL`。

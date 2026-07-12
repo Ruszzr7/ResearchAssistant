@@ -129,7 +129,7 @@ public class SearchController {
                 }
             } catch (Exception e) {
                 String title = (String) raw.getOrDefault("title", "未知");
-                log.warn("导入论文失败: {} — {}", title, e.getMessage());
+                log.warn("导入论文失败 type={}", e.getClass().getSimpleName());
                 errors.add(title);
                 skipped++;
             }

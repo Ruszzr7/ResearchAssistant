@@ -1,19 +1,18 @@
 package com.research.assistant.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-/**
- * 分析追问请求体。
- */
 @Data
 public class ChatRequest {
-
-    /** 会话标识，用于多轮记忆；为空则每次独立调用 */
+    @Size(max = 100, message = "会话 ID 长度不能超过 100")
     private String conversationId;
 
+    @Size(max = 12000, message = "上下文长度不能超过 12000")
     private String context;
 
     @NotBlank(message = "问题不能为空")
+    @Size(max = 8000, message = "问题长度不能超过 8000")
     private String question;
 }

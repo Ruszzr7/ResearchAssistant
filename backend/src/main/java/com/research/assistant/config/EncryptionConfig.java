@@ -14,9 +14,10 @@ public class EncryptionConfig {
 
     @Bean
     public Encryptor encryptor(Environment environment,
-                               @Value("${app.encryption.master-key:}") String configMasterKey) {
+                               @Value("${app.encryption.master-key:}") String configMasterKey,
+                               @Value("${app.encryption.fail-closed:false}") boolean failClosed) {
         String envMasterKey = environment.getProperty("RA_MASTER_KEY");
         String masterKey = (envMasterKey != null && !envMasterKey.isBlank()) ? envMasterKey : configMasterKey;
-        return new Encryptor(masterKey);
+        return new Encryptor(masterKey, failClosed);
     }
 }

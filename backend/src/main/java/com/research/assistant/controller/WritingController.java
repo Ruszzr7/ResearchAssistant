@@ -4,6 +4,7 @@ import com.research.assistant.common.Result;
 import com.research.assistant.dto.*;
 import com.research.assistant.service.writing.WritingAssistantService;
 import com.research.assistant.service.writing.WritingProjectService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -33,7 +34,7 @@ public class WritingController {
     }
 
     @PostMapping("/projects")
-    public Result<WritingProjectDto> createProject(@RequestBody WritingProjectRequest request) {
+    public Result<WritingProjectDto> createProject(@RequestBody @Valid WritingProjectRequest request) {
         return Result.ok(writingProjectService.createProject(request));
     }
 
@@ -46,7 +47,7 @@ public class WritingController {
 
     @PutMapping("/projects/{id}")
     public Result<WritingProjectDto> updateProject(@PathVariable Long id,
-                                                    @RequestBody WritingProjectRequest request) {
+                                                    @RequestBody @Valid WritingProjectRequest request) {
         return Result.ok(writingProjectService.updateProject(id, request));
     }
 
@@ -82,19 +83,19 @@ public class WritingController {
     // ===== AI 生成/检查 =====
 
     @PostMapping("/outline")
-    public Result<OutlineDto> generateOutline(@RequestBody OutlineRequest request) {
+    public Result<OutlineDto> generateOutline(@RequestBody @Valid OutlineRequest request) {
         return Result.ok(writingAssistantService.generateOutline(
                 request.getTopic(), request.getStyle(), request.getLanguage()));
     }
 
     @PostMapping("/related-work")
-    public Result<RelatedWorkDto> generateRelatedWork(@RequestBody RelatedWorkRequest request) {
+    public Result<RelatedWorkDto> generateRelatedWork(@RequestBody @Valid RelatedWorkRequest request) {
         return Result.ok(writingAssistantService.generateRelatedWork(
                 request.getPaperIds(), request.getTopic(), request.getStyle()));
     }
 
     @PostMapping("/citation-check")
-    public Result<CitationCheckDto> checkCitations(@RequestBody CitationCheckRequest request) {
+    public Result<CitationCheckDto> checkCitations(@RequestBody @Valid CitationCheckRequest request) {
         return Result.ok(writingAssistantService.checkCitations(
                 request.getParagraph(), request.getPaperIds()));
     }

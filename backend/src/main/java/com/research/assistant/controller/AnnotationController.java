@@ -4,6 +4,7 @@ import com.research.assistant.dto.AnnotationDto;
 import com.research.assistant.dto.AnnotationRequest;
 import com.research.assistant.service.annotation.AiAnnotationService;
 import com.research.assistant.service.annotation.AnnotationService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,14 +34,14 @@ public class AnnotationController {
     @PostMapping
     public ResponseEntity<AnnotationDto> create(
             @PathVariable Long paperId,
-            @RequestBody AnnotationRequest request) {
+            @RequestBody @Valid AnnotationRequest request) {
         return ResponseEntity.ok(annotationService.create(paperId, request));
     }
 
     @PutMapping("/{annotationId}")
     public ResponseEntity<AnnotationDto> update(
             @PathVariable Long annotationId,
-            @RequestBody AnnotationRequest request) {
+            @RequestBody @Valid AnnotationRequest request) {
         return ResponseEntity.ok(annotationService.update(annotationId, request));
     }
 

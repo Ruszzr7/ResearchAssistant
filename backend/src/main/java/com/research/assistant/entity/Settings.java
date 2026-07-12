@@ -1,6 +1,8 @@
 package com.research.assistant.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 
 /**
@@ -17,9 +19,16 @@ public class Settings {
     private Long id;
 
     @TableField("key_name")
+    @NotBlank(message = "keyName 不能为空")
+    @Size(max = 100, message = "keyName 长度不能超过 100")
     private String keyName;
 
+    @Size(max = 2000, message = "设置值长度不能超过 2000")
     private String value;
+
+    /** True when a value exists; used by the safe settings view without exposing it. */
+    @TableField(exist = false)
+    private Boolean configured;
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
@@ -39,6 +48,8 @@ public class Settings {
     public void setKeyName(String keyName) { this.keyName = keyName; }
     public String getValue() { return value; }
     public void setValue(String value) { this.value = value; }
+    public Boolean getConfigured() { return configured; }
+    public void setConfigured(Boolean configured) { this.configured = configured; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

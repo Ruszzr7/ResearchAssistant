@@ -99,3 +99,12 @@ echo $! > "$BACKEND_DIR/backend.pid"
 echo -e "${GREEN}后端正在后台启动，PID: $(cat "$BACKEND_DIR/backend.pid")${NC}"
 echo "日志文件: $BACKEND_DIR/backend.log"
 echo "约 20-40 秒后可访问 http://localhost:8080"
+echo "[INFO] Waiting for backend health endpoint..."
+for i in $(seq 1 30); do
+  if curl -fsS --max-time 2 http://127.0.0.1:8080/actuator/health >/dev/null 2>&1; then
+    echo "[OK] Backend health is ready."
+    exit 0
+  fi
+  sleep 2
+done
+echo "[WARN] Backend process started but health endpoint is not ready yet. Check backend.log." >&2

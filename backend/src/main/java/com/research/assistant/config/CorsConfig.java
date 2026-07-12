@@ -1,16 +1,20 @@
 package com.research.assistant.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-/**
- * CORS 跨域配置 —— 允许前端 dev server (:5173) 访问后端接口。
- * 开发阶段 Vite 代理已处理跨域，此配置用于生产部署时的保险。
- */
+/** Configurable, localhost-first CORS policy for the single-user application. */
 @Configuration
 public class CorsConfig {
+
+    @Value("${app.http.cors.allowed-origins:http://localhost:5173,http://localhost:5174}")
+    private String[] allowedOrigins;
+
+    @Value("${app.http.cors.allow-credentials:false}")
+    private boolean allowCredentials;
 
     @Bean
     public WebMvcConfigurer corsConfigurer() {
@@ -18,10 +22,12 @@ public class CorsConfig {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/api/**")
-                        .allowedOriginPatterns("http://localhost:517*")
+                        .allowedOriginPatterns(allowedOrigins)
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                        .allowedHeaders("*")
-                        .allowCredentials(true);
+                        .allowedHeaders("Content-Type", "Accept", "Idempotency-Key", "X-Request-Id")
+                        .exposedHeaders("X-Request-Id")
+                        .allowCredentials(allowCredentials)
+                        .maxAge(3600);
             }
         };
     }

@@ -6,6 +6,7 @@ import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.export.BibTeXExporter;
 import com.research.assistant.service.export.ObsidianSyncService;
 import com.research.assistant.service.export.ZoteroSyncService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -49,7 +50,7 @@ public class ExportController {
     }
 
     @PostMapping("/papers/export/bibtex")
-    public ResponseEntity<String> exportBatchBibTeX(@RequestBody BibTeXExportRequest request) {
+    public ResponseEntity<String> exportBatchBibTeX(@RequestBody @Valid BibTeXExportRequest request) {
         List<Paper> papers = paperMapper.selectBatchIds(request.getIds());
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"papers.bib\"")
@@ -58,24 +59,24 @@ public class ExportController {
     }
 
     @PostMapping("/export/obsidian")
-    public ResponseEntity<Map<String, Object>> syncObsidian(@RequestBody BibTeXExportRequest request) {
+    public ResponseEntity<Map<String, Object>> syncObsidian(@RequestBody @Valid BibTeXExportRequest request) {
         List<Paper> papers = paperMapper.selectBatchIds(request.getIds());
         try {
             int count = obsidianSyncService.sync(papers);
             return ResponseEntity.ok(Map.of("success", true, "count", count));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Obsidian 同步失败，请检查配置"));
         }
     }
 
     @PostMapping("/export/zotero")
-    public ResponseEntity<Map<String, Object>> syncZotero(@RequestBody BibTeXExportRequest request) {
+    public ResponseEntity<Map<String, Object>> syncZotero(@RequestBody @Valid BibTeXExportRequest request) {
         List<Paper> papers = paperMapper.selectBatchIds(request.getIds());
         try {
             int count = zoteroSyncService.sync(papers);
             return ResponseEntity.ok(Map.of("success", true, "count", count));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Zotero 同步失败，请检查配置"));
         }
     }
 }

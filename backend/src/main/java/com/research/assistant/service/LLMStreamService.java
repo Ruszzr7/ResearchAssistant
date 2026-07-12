@@ -75,7 +75,7 @@ public class LLMStreamService {
             streamWithLangChain4j(out, systemPrompt, userMessage);
         } catch (Exception e) {
             // 某些 Provider 返回的流式 JSON 片段 LangChain4j 无法解析，回退到手动 SSE 解析。
-            log.warn("LangChain4j 流式调用失败，回退到手动 SSE 解析: {}", e.getMessage());
+            log.warn("LangChain4j streaming fallback failed type={}", e.getClass().getSimpleName());
             streamManually(out, systemPrompt, userMessage);
         }
     }
@@ -109,7 +109,7 @@ public class LLMStreamService {
                             }
                         } catch (Exception e) {
                             outputClosed[0] = true;
-                            log.warn("SSE token 写入失败，停止推送: {}", e.getMessage());
+                            log.warn("SSE token write failed type={}", e.getClass().getSimpleName());
                         }
                     }
 
@@ -134,7 +134,7 @@ public class LLMStreamService {
                             sendEvent(writer, "done", "");
                             writer.flush();
                         } catch (Exception e) {
-                            log.warn("SSE done 写入失败: {}", e.getMessage());
+                            log.warn("SSE done write failed type={}", e.getClass().getSimpleName());
                         } finally {
                             latch.countDown();
                         }
@@ -193,8 +193,8 @@ public class LLMStreamService {
                     HttpResponse.BodyHandlers.ofInputStream());
 
             if (response.statusCode() != 200) {
-                String body = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-                sendEvent(writer, "error", "HTTP " + response.statusCode() + ": " + body);
+                response.body().close();
+                sendEvent(writer, "error", "上游模型服务暂时不可用 (HTTP " + response.statusCode() + ")");
                 writer.flush();
                 return;
             }
@@ -233,9 +233,9 @@ public class LLMStreamService {
             sendEvent(writer, "done", "");
             writer.flush();
         } catch (Exception e) {
-            log.warn("手动 SSE 流式输出异常: {}", e.getMessage());
+            log.warn("manual SSE stream failed type={}", e.getClass().getSimpleName());
             try {
-                sendEvent(writer, "error", e.getMessage());
+                sendEvent(writer, "error", "上游模型服务暂时不可用，请稍后重试");
                 writer.flush();
             } catch (Exception ignored) {
                 // 客户端可能已断开

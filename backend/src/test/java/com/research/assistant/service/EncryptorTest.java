@@ -3,6 +3,7 @@ package com.research.assistant.service;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class EncryptorTest {
 
@@ -43,6 +44,8 @@ class EncryptorTest {
         assertThat(encryptor.shouldEncrypt("embedding_api_key")).isTrue();
         assertThat(encryptor.shouldEncrypt("zotero_api_key")).isTrue();
         assertThat(encryptor.shouldEncrypt("model")).isFalse();
+        assertThat(encryptor.shouldEncrypt("provider_token")).isTrue();
+        assertThat(encryptor.shouldEncrypt("provider_secret")).isTrue();
     }
 
     @Test
@@ -53,5 +56,11 @@ class EncryptorTest {
 
         String again = encryptor.encryptIfNeeded("api_key", encrypted);
         assertThat(again).isEqualTo(encrypted);
+    }
+
+    @Test
+    void failClosedRejectsMissingMasterKey() {
+        assertThatThrownBy(() -> new Encryptor("", true))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

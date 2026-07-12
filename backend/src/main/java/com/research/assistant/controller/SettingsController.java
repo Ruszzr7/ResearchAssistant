@@ -3,74 +3,66 @@ package com.research.assistant.controller;
 import com.research.assistant.common.Result;
 import com.research.assistant.entity.Settings;
 import com.research.assistant.service.SettingsService;
-import org.springframework.web.bind.annotation.*;
-
-import org.springframework.util.StringUtils;
+import com.research.assistant.service.security.SettingsPolicy;
+import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 系统设置 REST 接口。
- * <p>
- * 前端在 SettingsView 中读取/保存设置，测试连接单独一个接口。
- * 返回的 settings 列表中 API Key 已做脱敏处理，避免在接口中暴露完整密钥。
- */
+/** Settings API. Secrets are always returned as masked values. */
 @RestController
 @RequestMapping("/api/settings")
 public class SettingsController {
 
+    private static final Logger log = LoggerFactory.getLogger(SettingsController.class);
     private final SettingsService settingsService;
 
     public SettingsController(SettingsService settingsService) {
         this.settingsService = settingsService;
     }
 
-    /** GET /api/settings — 获取所有设置（api_key 脱敏返回） */
     @GetMapping
     public Result<List<Settings>> getAll() {
         List<Settings> list = settingsService.getAll();
-        for (Settings s : list) {
-            if ("api_key".equals(s.getKeyName()) && StringUtils.hasLength(s.getValue())) {
-                s.setValue(maskApiKey(s.getValue()));
+        // Defense in depth for alternate SettingsService implementations.
+        for (Settings setting : list) {
+            if (SettingsPolicy.isSensitive(setting.getKeyName())) {
+                setting.setConfigured(setting.getValue() != null && !setting.getValue().isBlank());
+                setting.setValue(SettingsPolicy.mask(setting.getValue()));
             }
         }
         return Result.ok(list);
     }
 
-    private String maskApiKey(String value) {
-        if (value == null) {
-            return "";
-        }
-        if (value.length() <= 8) {
-            return "****";
-        }
-        int prefixLen = Math.min(6, value.length() - 4);
-        return value.substring(0, prefixLen) + "****" + value.substring(value.length() - 4);
-    }
-
-    /** PUT /api/settings — 批量保存设置 */
     @PutMapping
-    public Result<Void> saveAll(@RequestBody List<Settings> settings) {
+    public Result<Void> saveAll(@RequestBody List<@Valid Settings> settings) {
         settingsService.saveAll(settings);
         return Result.ok();
     }
 
-    /** POST /api/settings/test — 测试 LLM API 连接 */
     @PostMapping("/test")
-    public Result<Map<String, Object>> testConnection() {
+    public ResponseEntity<Result<Map<String, Object>>> testConnection() {
         try {
             boolean ok = settingsService.testConnection();
             Map<String, Object> data = new HashMap<>();
             data.put("success", ok);
             data.put("message", ok ? "连接成功" : "连接失败，请检查 API Key、模型名和 Base URL");
-            return Result.ok(data);
+            return ResponseEntity.ok(Result.ok(data));
         } catch (Exception e) {
-            Map<String, Object> data = new HashMap<>();
-            data.put("success", false);
-            data.put("message", "连接失败: " + e.getMessage());
-            return Result.ok(data);
+            log.warn("LLM connection test failed type={}", e.getClass().getSimpleName());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Result.error(502, "上游模型服务暂时不可用，请检查配置后重试"));
         }
     }
 }

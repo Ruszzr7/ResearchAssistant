@@ -282,7 +282,7 @@ public class AgentController {
             List<Map<String, Object>> results = arxivFetcher.search(query, maxResults);
             return Result.ok(results);
         } catch (Exception e) {
-            return Result.error(500, "检索失败: " + e.getMessage());
+            return Result.error(502, "外部文献检索暂时不可用，请稍后重试");
         }
     }
 

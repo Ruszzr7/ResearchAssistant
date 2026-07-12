@@ -4,10 +4,11 @@ import com.research.assistant.entity.Settings;
 import com.research.assistant.mapper.SettingsMapper;
 import com.research.assistant.service.Encryptor;
 import com.research.assistant.service.LLMService;
-import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.SettingsChangedEvent;
-import org.springframework.context.ApplicationEventPublisher;
+import com.research.assistant.service.SettingsService;
+import com.research.assistant.service.security.SettingsPolicy;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
@@ -17,13 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Settings 服务实现。
- * <p>
- * - 对以 {@code api_key} 结尾的敏感 key 自动加解密。
- * - 支持环境变量覆盖（RA_API_KEY、RA_BASE_URL、RA_MODEL 等）。
- * - saveAll 使用 saveOrUpdate 逐条处理（数据量极小，无需批量优化）。
- */
+/** Settings persistence and secret handling. */
 @Service
 public class SettingsServiceImpl implements SettingsService {
 
@@ -43,7 +38,6 @@ public class SettingsServiceImpl implements SettingsService {
     private final ApplicationEventPublisher eventPublisher;
     private final Map<String, String> valueCache = new ConcurrentHashMap<>();
 
-    /** @Lazy 打破与 LLMServiceImpl 之间的循环依赖 */
     @Autowired
     public SettingsServiceImpl(SettingsMapper settingsMapper, @Lazy LLMService llmService,
                                Encryptor encryptor, Environment environment,
@@ -55,7 +49,7 @@ public class SettingsServiceImpl implements SettingsService {
         this.eventPublisher = eventPublisher;
     }
 
-    /** 保留纯单元测试使用的旧构造器。 */
+    /** Constructor retained for focused unit tests. */
     public SettingsServiceImpl(SettingsMapper settingsMapper, LLMService llmService,
                                Encryptor encryptor, Environment environment) {
         this(settingsMapper, llmService, encryptor, environment, event -> { });
@@ -64,8 +58,11 @@ public class SettingsServiceImpl implements SettingsService {
     @Override
     public List<Settings> getAll() {
         List<Settings> list = settingsMapper.selectList(null);
-        for (Settings s : list) {
-            s.setValue(decryptForDisplay(s.getKeyName(), s.getValue()));
+        for (Settings setting : list) {
+            String value = decryptForDisplay(setting.getKeyName(), setting.getValue());
+            setting.setConfigured(value != null && !value.isBlank());
+            setting.setValue(SettingsPolicy.isSensitive(setting.getKeyName())
+                    ? SettingsPolicy.mask(value) : value);
         }
         return list;
     }
@@ -78,9 +75,9 @@ public class SettingsServiceImpl implements SettingsService {
         String cached = valueCache.get(keyName);
         if (cached != null) return cached;
 
-        Settings s = settingsMapper.selectByKey(keyName);
-        if (s == null) return null;
-        String value = decryptForDisplay(keyName, s.getValue());
+        Settings setting = settingsMapper.selectByKey(keyName);
+        if (setting == null) return null;
+        String value = decryptForDisplay(keyName, setting.getValue());
         if (value != null) valueCache.put(keyName, value);
         return value;
     }
@@ -88,17 +85,27 @@ public class SettingsServiceImpl implements SettingsService {
     @Override
     @Transactional
     public void saveAll(List<Settings> settings) {
-        for (Settings s : settings) {
-            String value = encryptor.encryptIfNeeded(s.getKeyName(), s.getValue());
-            s.setValue(value);
-            Settings existing = settingsMapper.selectByKey(s.getKeyName());
-            if (existing != null) {
-                s.setId(existing.getId());
-                settingsMapper.updateById(s);
-            } else {
-                settingsMapper.insert(s);
+        SettingsPolicy.validateBatch(settings);
+        for (Settings setting : settings) {
+            Settings existing = settingsMapper.selectByKey(setting.getKeyName());
+            if (SettingsPolicy.isSensitive(setting.getKeyName())
+                    && SettingsPolicy.isMaskedValue(setting.getValue())) {
+                if (existing == null) {
+                    throw new IllegalArgumentException("敏感设置尚未配置，不能保存脱敏占位符");
+                }
+                continue;
             }
-            valueCache.remove(s.getKeyName());
+
+            String value = encryptor.encryptIfNeeded(setting.getKeyName(),
+                    setting.getValue() == null ? "" : setting.getValue());
+            setting.setValue(value);
+            if (existing != null) {
+                setting.setId(existing.getId());
+                settingsMapper.updateById(setting);
+            } else {
+                settingsMapper.insert(setting);
+            }
+            valueCache.remove(setting.getKeyName());
         }
         eventPublisher.publishEvent(new SettingsChangedEvent(this));
     }
@@ -111,9 +118,7 @@ public class SettingsServiceImpl implements SettingsService {
 
     private String decryptForDisplay(String keyName, String value) {
         if (!encryptor.shouldEncrypt(keyName)) return value;
-        String decrypted = encryptor.decryptIfNeeded(value);
-        // 解密失败时返回原值，避免用 null 覆盖数据库
-        return decrypted != null ? decrypted : value;
+        return encryptor.decryptIfNeeded(value);
     }
 
     private String environmentOverride(String keyName) {

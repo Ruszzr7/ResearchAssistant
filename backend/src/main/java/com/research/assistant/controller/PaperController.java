@@ -26,6 +26,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -213,11 +215,12 @@ public class PaperController {
         if (!pdfDir.isAbsolute()) {
             pdfDir = new File(System.getProperty("user.dir"), pdfStorageDir);
         }
-        File file = new File(pdfDir, paper.getPdfPath());
-        if (!file.exists()) {
+        Path root = pdfDir.toPath().toAbsolutePath().normalize();
+        Path filePath = root.resolve(paper.getPdfPath()).normalize();
+        if (!filePath.startsWith(root) || !Files.isRegularFile(filePath)) {
             return ResponseEntity.notFound().build();
         }
-        Resource resource = new FileSystemResource(file);
+        Resource resource = new FileSystemResource(filePath);
         // URL 编码处理中文文件名
         String encodedName = URLEncoder.encode(paper.getTitle() + ".pdf", StandardCharsets.UTF_8)
                 .replace("+", "%20");

@@ -1,0 +1,81 @@
+package com.research.assistant.controller;
+
+import com.research.assistant.common.GlobalExceptionHandler;
+import com.research.assistant.entity.Settings;
+import com.research.assistant.service.SettingsService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.util.List;
+
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@ExtendWith(MockitoExtension.class)
+class SettingsControllerContractTest {
+
+    @Mock
+    private SettingsService settingsService;
+
+    private MockMvc mockMvc;
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(new SettingsController(settingsService))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+    }
+
+    @Test
+    void getSettingsMasksEverySensitiveKey() throws Exception {
+        Settings main = new Settings("api_key", "sk-main-secret");
+        Settings ieee = new Settings("ieee_xplore_api_key", "ieee-secret");
+        Settings zotero = new Settings("zotero_api_key", "zotero-secret");
+        when(settingsService.getAll()).thenReturn(List.of(main, ieee, zotero));
+
+        mockMvc.perform(get("/api/settings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].value").value("sk-mai****cret"))
+                .andExpect(jsonPath("$.data[1].value").value("ieee-s****cret"))
+                .andExpect(jsonPath("$.data[2].value").value("zotero****cret"))
+                .andExpect(jsonPath("$.data[0].value", not(containsString("secret"))));
+    }
+
+    @Test
+    void unknownSettingReturnsSafeBadRequest() throws Exception {
+        doThrow(new IllegalArgumentException("不支持的设置项: injected_key"))
+                .when(settingsService).saveAll(anyList());
+
+        mockMvc.perform(put("/api/settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"keyName\":\"injected_key\",\"value\":\"value\"}]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("请求参数不合法"));
+    }
+
+    @Test
+    void connectionFailureDoesNotExposeProviderMessage() throws Exception {
+        when(settingsService.testConnection()).thenThrow(new RuntimeException("Authorization sk-secret at https://provider"));
+
+        mockMvc.perform(post("/api/settings/test"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value(502))
+                .andExpect(jsonPath("$.message").value(containsString("上游模型服务")))
+                .andExpect(jsonPath("$.message").value(not(containsString("sk-secret"))));
+    }
+}

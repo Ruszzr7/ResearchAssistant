@@ -6,6 +6,7 @@ import com.research.assistant.dto.ReadingPlanItemDto;
 import com.research.assistant.dto.ReadingPlanItemRequest;
 import com.research.assistant.dto.ReadingPlanRequest;
 import com.research.assistant.service.reading.ReadingPlanService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,7 +30,7 @@ public class ReadingPlanController {
     }
 
     @PostMapping
-    public Result<ReadingPlanDto> create(@RequestBody ReadingPlanRequest request) {
+    public Result<ReadingPlanDto> create(@RequestBody @Valid ReadingPlanRequest request) {
         return Result.ok(readingPlanService.createPlan(request));
     }
 
@@ -41,7 +42,7 @@ public class ReadingPlanController {
     }
 
     @PutMapping("/{id}")
-    public Result<ReadingPlanDto> update(@PathVariable Long id, @RequestBody ReadingPlanRequest request) {
+    public Result<ReadingPlanDto> update(@PathVariable Long id, @RequestBody @Valid ReadingPlanRequest request) {
         return Result.ok(readingPlanService.updatePlan(id, request));
     }
 
@@ -52,7 +53,7 @@ public class ReadingPlanController {
     }
 
     @PostMapping("/{id}/items")
-    public Result<ReadingPlanItemDto> addItem(@PathVariable Long id, @RequestBody ReadingPlanItemRequest request) {
+    public Result<ReadingPlanItemDto> addItem(@PathVariable Long id, @RequestBody @Valid ReadingPlanItemRequest request) {
         return Result.ok(readingPlanService.addItem(id, request));
     }
 
@@ -60,7 +61,7 @@ public class ReadingPlanController {
     public Result<ReadingPlanItemDto> updateItem(
             @PathVariable Long id,
             @PathVariable Long itemId,
-            @RequestBody ReadingPlanItemRequest request) {
+            @RequestBody @Valid ReadingPlanItemRequest request) {
         return Result.ok(readingPlanService.updateItem(id, itemId, request));
     }
 

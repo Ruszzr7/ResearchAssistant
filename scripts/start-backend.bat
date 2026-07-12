@@ -92,3 +92,14 @@ powershell -NoProfile -Command "
 
 echo [信息] 日志文件: %BACKEND_DIR%\backend.log
 echo [信息] 约 20-40 秒后可访问 http://localhost:8080
+echo [INFO] Waiting for backend health endpoint...
+for /L %%i in (1,1,30) do (
+  powershell -NoProfile -Command "try { $r=Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:8080/actuator/health; if ($r.StatusCode -eq 200) { exit 0 } } catch {}; exit 1" >nul 2>&1
+  if !errorlevel!==0 (
+    echo [OK] Backend health is ready.
+    goto :health_ready
+  )
+  timeout /t 2 /nobreak >nul
+)
+echo [WARN] Backend process started but health endpoint is not ready yet. Check backend.log.
+:health_ready
