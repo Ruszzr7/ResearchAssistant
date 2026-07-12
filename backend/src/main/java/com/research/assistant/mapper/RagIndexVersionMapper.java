@@ -34,6 +34,12 @@ public interface RagIndexVersionMapper extends BaseMapper<RagIndexVersion> {
     int markFailed(@Param("paperId") Long paperId, @Param("versionNo") Integer versionNo,
                    @Param("error") String error);
 
+    @Update("UPDATE rag_index_version SET status = 'RETIRED', error = #{error}, "
+            + "updated_at = CURRENT_TIMESTAMP WHERE paper_id = #{paperId} AND version_no = #{versionNo} "
+            + "AND status IN ('BUILDING', 'READY')")
+    int markSuperseded(@Param("paperId") Long paperId, @Param("versionNo") Integer versionNo,
+                       @Param("error") String error);
+
     @Select("SELECT id, paper_id, version_no, status, chunk_count, error, created_at, activated_at, updated_at "
             + "FROM rag_index_version WHERE paper_id = #{paperId} AND status = 'ACTIVE' LIMIT 1")
     RagIndexVersion selectActive(@Param("paperId") Long paperId);

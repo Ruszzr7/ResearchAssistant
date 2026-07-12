@@ -25,6 +25,9 @@ public class CitationCheckDto {
         private String paperTitle;
         private String reason;
         private String position;
+        private String evidenceId;
+        private String source;
+        private String locator;
 
         public Long getPaperId() { return paperId; }
         public void setPaperId(Long paperId) { this.paperId = paperId; }
@@ -37,6 +40,15 @@ public class CitationCheckDto {
 
         public String getPosition() { return position; }
         public void setPosition(String position) { this.position = position; }
+
+        public String getEvidenceId() { return evidenceId; }
+        public void setEvidenceId(String evidenceId) { this.evidenceId = evidenceId; }
+
+        public String getSource() { return source; }
+        public void setSource(String source) { this.source = source; }
+
+        public String getLocator() { return locator; }
+        public void setLocator(String locator) { this.locator = locator; }
     }
 
     /**
@@ -47,6 +59,7 @@ public class CitationCheckDto {
         private String paperTitle;
         private String type;
         private String reason;
+        private String evidenceId;
 
         public Long getPaperId() { return paperId; }
         public void setPaperId(Long paperId) { this.paperId = paperId; }
@@ -59,5 +72,8 @@ public class CitationCheckDto {
 
         public String getReason() { return reason; }
         public void setReason(String reason) { this.reason = reason; }
+
+        public String getEvidenceId() { return evidenceId; }
+        public void setEvidenceId(String evidenceId) { this.evidenceId = evidenceId; }
     }
 }

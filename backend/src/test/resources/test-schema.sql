@@ -57,11 +57,20 @@ CREATE TABLE paper_chunk (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id BIGINT NOT NULL,
     index_version INT NOT NULL DEFAULT 1,
+    chunk_key VARCHAR(160) NOT NULL,
+    source_type VARCHAR(32) NOT NULL DEFAULT 'PDF_TEXT',
+    chunk_order INT NOT NULL DEFAULT 0,
+    page_start INT,
+    page_end INT,
+    char_start INT,
+    char_end INT,
+    content_hash CHAR(64) NOT NULL,
     chunk_type VARCHAR(32) NOT NULL,
     content TEXT NOT NULL,
     embedding_json TEXT NOT NULL,
     source VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (paper_id, index_version, chunk_key)
 );
 
 CREATE TABLE rag_index_state (

@@ -185,12 +185,21 @@ CREATE TABLE IF NOT EXISTS paper_chunk (
     id            BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id      BIGINT       NOT NULL COMMENT '所属论文 ID',
     index_version INT          NOT NULL DEFAULT 1 COMMENT '所属 RAG 索引版本',
+    chunk_key     VARCHAR(160) NOT NULL COMMENT '稳定 chunk 标识',
+    source_type   VARCHAR(32)  NOT NULL DEFAULT 'PDF_TEXT' COMMENT 'PDF_TEXT / ANALYSIS_FIELD',
+    chunk_order   INT          NOT NULL DEFAULT 0 COMMENT '索引内稳定顺序',
+    page_start    INT          DEFAULT NULL COMMENT '证据起始页（未知时为空）',
+    page_end      INT          DEFAULT NULL COMMENT '证据结束页（未知时为空）',
+    char_start    INT          DEFAULT NULL COMMENT '规范化文本起始偏移',
+    char_end      INT          DEFAULT NULL COMMENT '规范化文本结束偏移',
+    content_hash  CHAR(64)     NOT NULL COMMENT '规范化内容 SHA-256',
     chunk_type    VARCHAR(32)  NOT NULL COMMENT '分片类型：RAW/CONTRIBUTION/METHOD/FINDING/LIMITATION/DATASET',
     content       MEDIUMTEXT   NOT NULL COMMENT '文本内容',
     embedding_json TEXT        NOT NULL COMMENT 'embedding float 数组 JSON',
     source        VARCHAR(255)          COMMENT '来源说明',
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_paper_id (paper_id),
+    UNIQUE KEY uk_paper_chunk_key (paper_id, index_version, chunk_key),
     FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

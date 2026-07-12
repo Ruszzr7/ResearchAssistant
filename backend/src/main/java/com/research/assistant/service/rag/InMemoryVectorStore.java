@@ -55,7 +55,10 @@ public class InMemoryVectorStore implements VectorStore {
             for (PaperChunk record : records) {
                 List<Float> vector = parseEmbedding(record.getEmbeddingJson());
                 if (vector != null && !vector.isEmpty()) {
-                    loadedEntries.add(new Entry(record.getPaperId(), record.getChunkType(), record.getContent(), record.getSource(), vector));
+                    loadedEntries.add(new Entry(record.getPaperId(), record.getChunkType(), record.getContent(),
+                            record.getSource(), vector, record.getChunkKey(), record.getIndexVersion(),
+                            record.getSourceType(), record.getPageStart(), record.getPageEnd(),
+                            record.getCharStart(), record.getCharEnd()));
                 }
             }
             lock.writeLock().lock();
@@ -93,9 +96,14 @@ public class InMemoryVectorStore implements VectorStore {
         lock.writeLock().lock();
         try {
             entries.removeIf(e -> paperId.equals(e.paperId));
-            for (EmbeddedChunk chunk : chunks) {
+            for (int i = 0; i < chunks.size(); i++) {
+                EmbeddedChunk chunk = chunks.get(i);
+                String chunkKey = chunk.chunkKey() == null || chunk.chunkKey().isBlank()
+                        ? RagChunkIdentity.chunkKey(chunk.paperId(), indexVersion, i, chunk.content())
+                        : chunk.chunkKey();
                 entries.add(new Entry(chunk.paperId(), chunk.chunkType(), chunk.content(),
-                        chunk.source(), chunk.embedding()));
+                        chunk.source(), chunk.embedding(), chunkKey, indexVersion, chunk.sourceType(),
+                        chunk.pageStart(), chunk.pageEnd(), chunk.charStart(), chunk.charEnd()));
             }
         } finally {
             lock.writeLock().unlock();
@@ -106,8 +114,15 @@ public class InMemoryVectorStore implements VectorStore {
     void addInMemory(List<EmbeddedChunk> chunks) {
         lock.writeLock().lock();
         try {
-            for (EmbeddedChunk chunk : chunks) {
-                entries.add(new Entry(chunk.paperId(), chunk.chunkType(), chunk.content(), chunk.source(), chunk.embedding()));
+            for (int i = 0; i < chunks.size(); i++) {
+                EmbeddedChunk chunk = chunks.get(i);
+                int version = chunk.indexVersion() == null ? 1 : chunk.indexVersion();
+                String chunkKey = chunk.chunkKey() == null || chunk.chunkKey().isBlank()
+                        ? RagChunkIdentity.chunkKey(chunk.paperId(), version, i, chunk.content())
+                        : chunk.chunkKey();
+                entries.add(new Entry(chunk.paperId(), chunk.chunkType(), chunk.content(), chunk.source(),
+                        chunk.embedding(), chunkKey, version, chunk.sourceType(), chunk.pageStart(),
+                        chunk.pageEnd(), chunk.charStart(), chunk.charEnd()));
             }
         } finally {
             lock.writeLock().unlock();
@@ -126,20 +141,29 @@ public class InMemoryVectorStore implements VectorStore {
             for (Entry e : entries) {
                 double score = cosineSimilarity(queryArray, e.embeddingArray);
                 if (score >= minScore) {
-                    scored.add(new ScoredChunk(e.paperId, e.chunkType, e.content, e.source, score));
+                    scored.add(new ScoredChunk(e.paperId, e.chunkType, e.content, e.source, score,
+                            e.chunkKey, e.indexVersion, e.sourceType, e.pageStart, e.pageEnd,
+                            e.charStart, e.charEnd, null));
                 }
             }
         } finally {
             lock.readLock().unlock();
         }
         scored.sort(Comparator.comparingDouble(ScoredChunk::score).reversed());
-        return scored.size() > maxResults ? scored.subList(0, maxResults) : scored;
+        int safeMaxResults = Math.max(1, maxResults);
+        return scored.size() > safeMaxResults ? scored.subList(0, safeMaxResults) : scored;
     }
 
     @Override
     public void removeByPaperId(Long paperId) {
         if (paperId == null) return;
         persistence.deleteByPaperId(paperId);
+        removeFromMemory(paperId);
+    }
+
+    /** 路由层已完成持久化删除时使用，避免 Qdrant + 内存双写 MySQL。 */
+    void removeFromMemory(Long paperId) {
+        if (paperId == null) return;
         lock.writeLock().lock();
         try {
             entries.removeIf(e -> paperId.equals(e.paperId));
@@ -185,9 +209,14 @@ public class InMemoryVectorStore implements VectorStore {
     }
 
     private record Entry(Long paperId, String chunkType, String content, String source,
-                         List<Float> embedding, double[] embeddingArray) {
-        Entry(Long paperId, String chunkType, String content, String source, List<Float> embedding) {
-            this(paperId, chunkType, content, source, embedding, toArrayStatic(embedding));
+                         List<Float> embedding, double[] embeddingArray, String chunkKey,
+                         Integer indexVersion, String sourceType, Integer pageStart, Integer pageEnd,
+                         Integer charStart, Integer charEnd) {
+        Entry(Long paperId, String chunkType, String content, String source, List<Float> embedding,
+              String chunkKey, Integer indexVersion, String sourceType, Integer pageStart,
+              Integer pageEnd, Integer charStart, Integer charEnd) {
+            this(paperId, chunkType, content, source, embedding, toArrayStatic(embedding), chunkKey,
+                    indexVersion, sourceType, pageStart, pageEnd, charStart, charEnd);
         }
 
         private static double[] toArrayStatic(List<Float> list) {

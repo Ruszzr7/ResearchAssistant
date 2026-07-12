@@ -30,6 +30,7 @@ class DocumentChunkerTest {
         assertThat(chunks).anyMatch(c -> "METHOD".equals(c.chunkType()));
         assertThat(chunks).anyMatch(c -> "FINDING".equals(c.chunkType()));
         assertThat(chunks).anyMatch(c -> "RAW".equals(c.chunkType()));
+        assertThat(chunks).allMatch(c -> c.chunkOrder() != null);
     }
 
     @Test
@@ -54,5 +55,20 @@ class DocumentChunkerTest {
 
         assertThat(chunks).hasSizeGreaterThan(1);
         assertThat(chunks.get(0).content().length()).isLessThanOrEqualTo(550);
+        assertThat(chunks.get(0).charStart()).isNotNull();
+        assertThat(chunks.get(0).charEnd()).isNotNull();
+    }
+
+    @Test
+    void shouldSplitAnOverlongSentence() {
+        String longContribution = "x".repeat(1300);
+        PaperAnalysis analysis = new PaperAnalysis();
+        analysis.setPaperId(4L);
+        analysis.setCoreContribution(longContribution);
+
+        List<DocumentChunk> chunks = chunker.chunk(analysis);
+
+        assertThat(chunks).hasSizeGreaterThan(1);
+        assertThat(chunks).allMatch(chunk -> chunk.content().length() <= 500);
     }
 }

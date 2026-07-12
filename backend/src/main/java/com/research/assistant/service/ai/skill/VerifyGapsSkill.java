@@ -9,12 +9,14 @@ import com.research.assistant.service.ai.ResearchToolAgent;
 import com.research.assistant.service.analysis.GapEvidenceScorer;
 import com.research.assistant.service.rag.RagRetrievalService;
 import com.research.assistant.service.rag.ScoredChunk;
+import com.research.assistant.service.rag.EvidenceValidator;
 import com.research.assistant.service.source.CitationNetworkExpansionService;
 import com.research.assistant.service.source.LiteratureCandidate;
 import com.research.assistant.service.source.LiteratureSearchService;
 import dev.langchain4j.service.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.context.annotation.Lazy;
 
@@ -44,7 +46,9 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
     private final RagRetrievalService ragRetrievalService;
     private final CitationNetworkExpansionService citationNetworkExpansionService;
     private final LiteratureSearchService literatureSearchService;
+    private final EvidenceValidator evidenceValidator;
 
+    @Autowired
     public VerifyGapsSkill(@Lazy ResearchToolAgent researchToolAgent,
                            ArxivFetcher arxivFetcher,
                            SemanticScholarFetcher semanticScholarFetcher,
@@ -53,6 +57,20 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
                            RagRetrievalService ragRetrievalService,
                            CitationNetworkExpansionService citationNetworkExpansionService,
                            LiteratureSearchService literatureSearchService) {
+        this(researchToolAgent, arxivFetcher, semanticScholarFetcher, llmService, objectMapper,
+                ragRetrievalService, citationNetworkExpansionService, literatureSearchService,
+                new EvidenceValidator());
+    }
+
+    public VerifyGapsSkill(@Lazy ResearchToolAgent researchToolAgent,
+                           ArxivFetcher arxivFetcher,
+                           SemanticScholarFetcher semanticScholarFetcher,
+                           LLMService llmService,
+                           ObjectMapper objectMapper,
+                           RagRetrievalService ragRetrievalService,
+                           CitationNetworkExpansionService citationNetworkExpansionService,
+                           LiteratureSearchService literatureSearchService,
+                           EvidenceValidator evidenceValidator) {
         this.researchToolAgent = researchToolAgent;
         this.arxivFetcher = arxivFetcher;
         this.semanticScholarFetcher = semanticScholarFetcher;
@@ -61,6 +79,7 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
         this.ragRetrievalService = ragRetrievalService;
         this.citationNetworkExpansionService = citationNetworkExpansionService;
         this.literatureSearchService = literatureSearchService;
+        this.evidenceValidator = evidenceValidator;
     }
 
     @Override
@@ -95,6 +114,16 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
                 List<Map<String, Object>> verified = objectMapper.readValue(json, List.class);
                 for (Map<String, Object> item : verified) {
                     item.put("searchDepth", "LLM 工具调用：arXiv + Semantic Scholar + PDF 提取综合验证");
+                    Object rawEvidence = item.get("evidence");
+                    if (rawEvidence instanceof List<?> list) {
+                        List<Map<String, Object>> maps = list.stream()
+                                .filter(Map.class::isInstance)
+                                .map(value -> (Map<String, Object>) value)
+                                .toList();
+                        item.put("evidence", evidenceValidator.markAgentEvidenceUnverified(maps));
+                        item.put("verifiedEvidenceCount", 0);
+                        item.put("unverifiedEvidenceCount", maps.size());
+                    }
                 }
                 return verified;
             }
@@ -155,6 +184,8 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
         item.put("searchDepth", "摘要级多源搜索 + 引用网络扩展 + LLM 语义比对");
         item.put("searchQueries", queries);
         item.put("resultCount", evidence.size());
+        item.put("candidateCount", candidates.size());
+        item.put("verifiedEvidenceCount", evidence.size());
         return item;
     }
 
@@ -216,8 +247,14 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
                 normalized.put("pdfUrl", "");
                 normalized.put("externalId", "");
                 normalized.put("paperId", c.paperId());
+                normalized.put("chunkKey", c.chunkKey());
+                normalized.put("chunkId", c.chunkKey());
                 normalized.put("chunkType", c.chunkType());
+                normalized.put("sourceType", c.sourceType());
                 normalized.put("score", c.score());
+                normalized.put("indexVersion", c.indexVersion());
+                normalized.put("evidenceId", c.evidenceId());
+                normalized.put("locator", locator(c));
                 candidates.add(normalized);
             }
         } catch (Exception e) {
@@ -282,6 +319,10 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
                 normalized.put("source", r.getOrDefault("source", sourceName));
                 normalized.put("pdfUrl", r.getOrDefault("pdfUrl", ""));
                 normalized.put("externalId", r.getOrDefault("paperId", ""));
+                normalized.put("evidenceId", externalEvidenceId(
+                        String.valueOf(r.getOrDefault("source", sourceName)),
+                        String.valueOf(r.getOrDefault("paperId", "")),
+                        String.valueOf(r.getOrDefault("title", ""))));
                 out.add(normalized);
             }
         } catch (Exception e) {
@@ -308,11 +349,12 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
 
                 数组中每个元素格式：
                 {
+                  "evidenceId": "必须来自候选论文列表，不要自行生成",
                   "title": "论文标题（与候选列表一致）",
                   "source": "arXiv 或 Semantic Scholar",
                   "year": "2024",
                   "snippet": "该论文与 Gap 直接相关的摘要或方法片段，50-100 字，必须来自候选论文摘要",
-                  "url": "论文链接"
+                  "url": "忽略，后端会从候选记录回填"
                 }
 
                 只有确实直接相关、能作为 Gap 已被覆盖或部分覆盖的证据时才加入数组。不要牵强附会。
@@ -322,19 +364,7 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
             String json = JsonUtils.extractJson(response);
             if (json == null || json.isBlank()) return List.of();
             List<Map<String, Object>> evidence = objectMapper.readValue(json, List.class);
-            // 补全 URL 与来源，防止 LLM 省略
-            for (Map<String, Object> e : evidence) {
-                String title = String.valueOf(e.getOrDefault("title", ""));
-                candidates.stream()
-                        .filter(c -> title.equalsIgnoreCase(String.valueOf(c.getOrDefault("title", ""))))
-                        .findFirst()
-                        .ifPresent(c -> {
-                            e.putIfAbsent("source", c.getOrDefault("source", ""));
-                            e.putIfAbsent("year", c.getOrDefault("published", ""));
-                            e.putIfAbsent("url", c.getOrDefault("sourceUrl", c.getOrDefault("pdfUrl", "")));
-                        });
-            }
-            return evidence;
+            return evidenceValidator.validate(evidence, candidates);
         } catch (Exception e) {
             log.warn("LLM 证据评估失败: {}", e.getMessage());
             return List.of();
@@ -354,6 +384,21 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
     private String truncate(String text, int max) {
         if (text == null || text.length() <= max) return text;
         return text.substring(0, max) + "…";
+    }
+
+    private String externalEvidenceId(String source, String externalId, String title) {
+        String identity = externalId == null || externalId.isBlank() ? title : externalId;
+        return "external:" + source.toLowerCase(Locale.ROOT).replaceAll("\\s+", "-") + ":" + identity;
+    }
+
+    private Map<String, Object> locator(ScoredChunk chunk) {
+        Map<String, Object> locator = new LinkedHashMap<>();
+        if (chunk.pageStart() != null) locator.put("pageStart", chunk.pageStart());
+        if (chunk.pageEnd() != null) locator.put("pageEnd", chunk.pageEnd());
+        if (chunk.charStart() != null) locator.put("charStart", chunk.charStart());
+        if (chunk.charEnd() != null) locator.put("charEnd", chunk.charEnd());
+        if (chunk.source() != null) locator.put("source", chunk.source());
+        return locator;
     }
 
     private List<Map<String, Object>> fallbackSingleReport(String gapReport) {

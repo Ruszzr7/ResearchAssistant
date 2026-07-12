@@ -71,6 +71,19 @@ public class ResearchMetrics {
                 .record(Duration.ofNanos(Math.max(0, System.nanoTime() - startedAtNanos)));
     }
 
+    public void ragRetrievalFinished(String outcome, int resultCount, long startedAtNanos) {
+        counter("research.rag.retrieve", "outcome", safeOutcome(outcome)).increment();
+        if (resultCount > 0) {
+            counter("research.rag.retrieved.chunks").increment(resultCount);
+        }
+        timer("research.rag.retrieve.duration", "outcome", safeOutcome(outcome))
+                .record(Duration.ofNanos(Math.max(0, System.nanoTime() - startedAtNanos)));
+    }
+
+    public void ragEvidenceValidated(String status) {
+        counter("research.rag.evidence", "status", safeOutcome(status)).increment();
+    }
+
     public void updateRecoverableQueueDepth(long depth) {
         recoverableQueueDepth.set((int) Math.min(Integer.MAX_VALUE, Math.max(0, depth)));
     }
@@ -93,5 +106,9 @@ public class ResearchMetrics {
 
     private String taskType(String taskType) {
         return taskType == null || taskType.isBlank() ? "general" : taskType;
+    }
+
+    private String safeOutcome(String value) {
+        return value == null || value.isBlank() ? "unknown" : value;
     }
 }

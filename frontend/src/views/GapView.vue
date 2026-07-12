@@ -67,11 +67,17 @@
             <div class="evidence-list">
               <div v-for="(ev, i) in gap.evidence" :key="i" class="evidence-item">
                 <div class="evidence-header">
-                  <a :href="ev.url" target="_blank" rel="noopener" class="evidence-title">{{ ev.title }}</a>
+                  <a v-if="ev.url" :href="ev.url" target="_blank" rel="noopener" class="evidence-title">{{ ev.title }}</a>
+                  <span v-else class="evidence-title">{{ ev.title }}</span>
                   <el-tag size="small" type="info">{{ ev.source }}</el-tag>
+                  <el-tag size="small" :type="ev.verificationStatus === 'VERIFIED' ? 'success' : 'warning'">
+                    {{ ev.verificationStatus === 'VERIFIED' ? '已核验' : '未核验' }}
+                  </el-tag>
                   <span v-if="ev.year" class="evidence-year">{{ ev.year }}</span>
+                  <span v-if="ev.locator?.source" class="evidence-year">{{ ev.locator.source }}</span>
                 </div>
-                <p class="evidence-snippet">{{ ev.snippet }}</p>
+                  <p class="evidence-snippet">{{ ev.snippet }}</p>
+                  <p v-if="ev.evidenceId" class="evidence-id">{{ ev.evidenceId }}</p>
               </div>
             </div>
           </div>
@@ -388,6 +394,10 @@ function downloadGapMd() {
 }
 .evidence-snippet {
   font-size: 12px; color: var(--ra-text-secondary); margin: 0; line-height: 1.5;
+}
+.evidence-id {
+  font-size: 10px; color: var(--ra-text-tertiary); margin: 5px 0 0;
+  word-break: break-all;
 }
 
 .empty-hint {

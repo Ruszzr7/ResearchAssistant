@@ -107,12 +107,12 @@ public class WritingAssistantService {
                 2. 判断该段落是否与已有文献存在观点重复（DUPLICATE）或方法冲突（CONFLICT）。
                 要求：
                 - 输出必须是合法 JSON，不要包含 markdown 代码块标记或其他说明文字。
-                - JSON 格式：{"suggestions":[{"paperId":1,"reason":"...","position":"..."}],"conflicts":[{"paperId":2,"type":"DUPLICATE|CONFLICT","reason":"..."}]}。
+                - JSON 格式：{"suggestions":[{"paperId":1,"evidenceId":"...","reason":"...","position":"..."}],"conflicts":[{"paperId":2,"evidenceId":"...","type":"DUPLICATE|CONFLICT","reason":"..."}]}。
                 - 如果没有任何建议或冲突，返回对应空数组。
                 """;
         String user = buildCitationCheckUserPrompt(paragraph, chunks, analyses);
         String raw = llmService.chat(system, user);
-        return parseCitationCheck(raw, analyses);
+        return parseCitationCheck(raw, analyses, chunks);
     }
 
     // ========== Prompt 构建 ==========
@@ -154,7 +154,8 @@ public class WritingAssistantService {
             sb.append("通过向量检索得到的相关论文片段：\n");
             for (int i = 0; i < chunks.size(); i++) {
                 ScoredChunk c = chunks.get(i);
-                sb.append(i + 1).append(". [paperId=").append(c.paperId()).append("] ")
+                sb.append(i + 1).append(". [evidenceId=").append(c.evidenceId())
+                        .append(", paperId=").append(c.paperId()).append("] ")
                         .append(c.content()).append("\n");
             }
             sb.append("\n");
@@ -237,14 +238,15 @@ public class WritingAssistantService {
         }
     }
 
-    private CitationCheckDto parseCitationCheck(String raw, Map<Long, PaperAnalysis> analyses) {
+    private CitationCheckDto parseCitationCheck(String raw, Map<Long, PaperAnalysis> analyses,
+                                                List<ScoredChunk> chunks) {
         String json = JsonUtils.extractJson(raw);
         if (json == null || json.isBlank()) {
             throw new IllegalStateException("LLM 返回的引用检查结果为空");
         }
         try {
             CitationCheckDto dto = objectMapper.readValue(json, CitationCheckDto.class);
-            enrichTitles(dto.getSuggestions(), dto.getConflicts(), analyses);
+            enrichTitles(dto.getSuggestions(), dto.getConflicts(), analyses, chunks);
             return dto;
         } catch (Exception e) {
             log.warn("引用检查 JSON 解析失败: {}", e.getMessage());
@@ -254,7 +256,8 @@ public class WritingAssistantService {
 
     private void enrichTitles(List<CitationCheckDto.Suggestion> suggestions,
                               List<CitationCheckDto.Conflict> conflicts,
-                              Map<Long, PaperAnalysis> analyses) {
+                              Map<Long, PaperAnalysis> analyses,
+                              List<ScoredChunk> chunks) {
         Set<Long> allIds = new HashSet<>();
         Optional.ofNullable(suggestions).orElse(List.of()).forEach(s -> allIds.add(s.getPaperId()));
         Optional.ofNullable(conflicts).orElse(List.of()).forEach(c -> allIds.add(c.getPaperId()));
@@ -263,11 +266,45 @@ public class WritingAssistantService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toMap(Paper::getId, p -> p.getTitle() != null ? p.getTitle() : "未知"));
         if (suggestions != null) {
-            suggestions.forEach(s -> s.setPaperTitle(titleMap.getOrDefault(s.getPaperId(), "未知论文")));
+            suggestions.forEach(s -> {
+                s.setPaperTitle(titleMap.getOrDefault(s.getPaperId(), "未知论文"));
+                enrichEvidence(s, chunks);
+            });
         }
         if (conflicts != null) {
-            conflicts.forEach(c -> c.setPaperTitle(titleMap.getOrDefault(c.getPaperId(), "未知论文")));
+            conflicts.forEach(c -> {
+                c.setPaperTitle(titleMap.getOrDefault(c.getPaperId(), "未知论文"));
+                if (c.getEvidenceId() != null && chunks.stream().noneMatch(chunk ->
+                        c.getEvidenceId().equals(chunk.evidenceId()))) {
+                    c.setEvidenceId(null);
+                }
+            });
         }
+    }
+
+    private void enrichEvidence(CitationCheckDto.Suggestion suggestion, List<ScoredChunk> chunks) {
+        ScoredChunk match = chunks.stream()
+                .filter(chunk -> suggestion.getEvidenceId() != null
+                        && suggestion.getEvidenceId().equals(chunk.evidenceId()))
+                .findFirst()
+                .orElseGet(() -> chunks.stream()
+                        .filter(chunk -> suggestion.getPaperId() != null
+                                && suggestion.getPaperId().equals(chunk.paperId()))
+                        .findFirst().orElse(null));
+        if (match == null) {
+            suggestion.setEvidenceId(null);
+            return;
+        }
+        suggestion.setEvidenceId(match.evidenceId());
+        suggestion.setSource(match.source());
+        suggestion.setLocator(formatLocator(match));
+    }
+
+    private String formatLocator(ScoredChunk chunk) {
+        if (chunk.pageStart() != null) {
+            return "第 " + chunk.pageStart() + " 页";
+        }
+        return chunk.source() == null ? "" : chunk.source();
     }
 
     private String nullToEmpty(String value) {

@@ -34,14 +34,26 @@ public class PaperChunkPersistence {
             return;
         }
         List<PaperChunk> records = new ArrayList<>(chunks.size());
-        for (EmbeddedChunk chunk : chunks) {
+        for (int i = 0; i < chunks.size(); i++) {
+            EmbeddedChunk chunk = chunks.get(i);
             PaperChunk record = new PaperChunk();
             record.setPaperId(chunk.paperId());
             record.setIndexVersion(indexVersion);
+            record.setChunkKey(chunk.chunkKey() == null || chunk.chunkKey().isBlank()
+                    ? RagChunkIdentity.chunkKey(chunk.paperId(), indexVersion, i, chunk.content())
+                    : chunk.chunkKey());
+            record.setSourceType(chunk.sourceType());
+            record.setChunkOrder(i);
+            record.setPageStart(chunk.pageStart());
+            record.setPageEnd(chunk.pageEnd());
+            record.setCharStart(chunk.charStart());
+            record.setCharEnd(chunk.charEnd());
             record.setChunkType(chunk.chunkType());
             record.setContent(chunk.content());
             record.setSource(chunk.source());
             record.setEmbeddingJson(toJson(chunk.embedding()));
+            record.setContentHash(chunk.contentHash() == null
+                    ? RagChunkIdentity.contentHash(chunk.content()) : chunk.contentHash());
             records.add(record);
         }
         // 单条保留原 insert，批量索引时使用一次 SQL 减少数据库往返。

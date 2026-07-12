@@ -37,7 +37,11 @@ public class DocumentChunker {
             chunks.addAll(splitRawText(paperId, rawText));
         }
 
-        return chunks;
+        List<DocumentChunk> ordered = new ArrayList<>(chunks.size());
+        for (int i = 0; i < chunks.size(); i++) {
+            ordered.add(chunks.get(i).withOrder(i));
+        }
+        return ordered;
     }
 
     private void addIfPresent(List<DocumentChunk> chunks, Long paperId, String type, String content, String source) {
@@ -56,15 +60,27 @@ public class DocumentChunker {
     private List<DocumentChunk> splitRawText(Long paperId, String rawText) {
         List<DocumentChunk> chunks = new ArrayList<>();
         // 先按段落拆分
+        String normalizedText = rawText.replaceAll("\\s+", " ").trim();
         String[] paragraphs = rawText.split("\\n\\s*\\n");
         StringBuilder buffer = new StringBuilder();
         int partIndex = 0;
+        int normalizedOffset = 0;
         for (String para : paragraphs) {
             String cleaned = para.trim().replaceAll("\\s+", " ");
             if (cleaned.isBlank()) continue;
 
+            int startOffset = normalizedText.indexOf(cleaned, Math.max(0, normalizedOffset));
+            if (startOffset < 0) {
+                startOffset = normalizedOffset;
+            }
+            normalizedOffset = Math.min(normalizedText.length(), startOffset + cleaned.length());
+
             if (buffer.length() + cleaned.length() > MAX_CHUNK_SIZE && buffer.length() > 0) {
-                chunks.add(new DocumentChunk(paperId, "RAW", buffer.toString().trim(), "PDF 原文 part " + (++partIndex)));
+                String content = buffer.toString().trim();
+                int end = Math.min(normalizedText.length(), startOffset);
+                int start = Math.max(0, end - content.length());
+                chunks.add(new DocumentChunk(paperId, "RAW", content,
+                        "PDF 原文 part " + (++partIndex), "PDF_TEXT", null, null, start, end));
                 buffer.setLength(0);
                 if (cleaned.length() > OVERLAP) {
                     buffer.append(cleaned, 0, OVERLAP).append(" ");
@@ -74,17 +90,30 @@ public class DocumentChunker {
             // 单段过长时直接按窗口切分
             while (cleaned.length() > MAX_CHUNK_SIZE) {
                 if (buffer.length() > 0) {
-                    chunks.add(new DocumentChunk(paperId, "RAW", buffer.toString().trim(), "PDF 原文 part " + (++partIndex)));
+                    String content = buffer.toString().trim();
+                    int end = Math.min(normalizedText.length(), startOffset);
+                    int start = Math.max(0, end - content.length());
+                    chunks.add(new DocumentChunk(paperId, "RAW", content,
+                            "PDF 原文 part " + (++partIndex), "PDF_TEXT", null, null, start, end));
                     buffer.setLength(0);
                 }
-                chunks.add(new DocumentChunk(paperId, "RAW", cleaned.substring(0, MAX_CHUNK_SIZE), "PDF 原文 part " + (++partIndex)));
+                String window = cleaned.substring(0, MAX_CHUNK_SIZE);
+                int windowStart = Math.max(0, startOffset);
+                int windowEnd = Math.min(normalizedText.length(), windowStart + window.length());
+                chunks.add(new DocumentChunk(paperId, "RAW", window,
+                        "PDF 原文 part " + (++partIndex), "PDF_TEXT", null, null, windowStart, windowEnd));
                 cleaned = cleaned.substring(MAX_CHUNK_SIZE - OVERLAP);
+                startOffset = Math.min(normalizedText.length(), startOffset + MAX_CHUNK_SIZE - OVERLAP);
             }
 
             buffer.append(cleaned).append(" ");
         }
         if (buffer.length() > 0) {
-            chunks.add(new DocumentChunk(paperId, "RAW", buffer.toString().trim(), "PDF 原文 part " + (++partIndex)));
+            String content = buffer.toString().trim();
+            int end = Math.min(normalizedText.length(), Math.max(normalizedOffset, content.length()));
+            int start = Math.max(0, end - content.length());
+            chunks.add(new DocumentChunk(paperId, "RAW", content,
+                    "PDF 原文 part " + (++partIndex), "PDF_TEXT", null, null, start, end));
         }
         return chunks;
     }
@@ -97,6 +126,23 @@ public class DocumentChunker {
         int partIndex = 0;
         for (String sentence : sentences) {
             if (sentence.isBlank()) continue;
+            if (sentence.length() > MAX_CHUNK_SIZE) {
+                if (buffer.length() > 0) {
+                    chunks.add(new DocumentChunk(paperId, type, buffer.toString().trim(),
+                            source + " part " + (++partIndex)));
+                    buffer.setLength(0);
+                }
+                String remaining = sentence.trim();
+                while (remaining.length() > MAX_CHUNK_SIZE) {
+                    chunks.add(new DocumentChunk(paperId, type,
+                            remaining.substring(0, MAX_CHUNK_SIZE), source + " part " + (++partIndex)));
+                    remaining = remaining.substring(MAX_CHUNK_SIZE - OVERLAP);
+                }
+                if (!remaining.isBlank()) {
+                    buffer.append(remaining).append(" ");
+                }
+                continue;
+            }
             if (buffer.length() + sentence.length() > MAX_CHUNK_SIZE && buffer.length() > 0) {
                 chunks.add(new DocumentChunk(paperId, type, buffer.toString().trim(), source + " part " + (++partIndex)));
                 buffer.setLength(0);

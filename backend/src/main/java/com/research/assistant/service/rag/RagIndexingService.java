@@ -98,6 +98,7 @@ public class RagIndexingService {
             throw new RagIndexingException(RagIndexingException.Reason.EMBEDDING_MISMATCH,
                     "Embedding 数量与论文分片数量不一致");
         }
+        validateEmbeddings(embeddings);
 
         // 3. 替换旧索引
         int indexVersion;
@@ -112,14 +113,18 @@ public class RagIndexingService {
         for (int i = 0; i < chunks.size(); i++) {
             DocumentChunk c = chunks.get(i);
             embeddedChunks.add(new EmbeddedChunk(c.paperId(), c.chunkType(), c.content(), c.source(),
-                    embeddings.get(i), indexVersion));
+                    embeddings.get(i), indexVersion,
+                    RagChunkIdentity.chunkKey(c.paperId(), indexVersion,
+                            c.chunkOrder() == null ? i : c.chunkOrder(), c.content()),
+                    c.sourceType(), c.pageStart(), c.pageEnd(), c.charStart(), c.charEnd(),
+                    RagChunkIdentity.contentHash(c.content())));
         }
         try {
             // 先写入不可见版本；旧版本在此期间继续提供查询服务。
             chunkPersistence.saveAll(embeddedChunks, indexVersion);
-            versionService.activate(paperId, indexVersion, embeddedChunks.size());
-            // active 指针切换后再做运行时 copy-on-write，内存实现不会出现空窗。
+            // 先准备运行时快照，数据库 active 指针最后切换；失败时旧版本仍是 active。
             vectorStore.replacePaperIndex(paperId, indexVersion, embeddedChunks);
+            versionService.activate(paperId, indexVersion, embeddedChunks.size());
         } catch (RuntimeException e) {
             versionService.markFailed(paperId, indexVersion, e.getMessage());
             throw new RagIndexingException(RagIndexingException.Reason.VECTOR_STORE_FAILED,
@@ -127,5 +132,27 @@ public class RagIndexingService {
         }
         log.info("event=rag_index_completed paperId={} chunkCount={}", paperId, embeddedChunks.size());
         return new RagIndexingResult(paperId, true, embeddedChunks.size());
+    }
+
+    private void validateEmbeddings(List<List<Float>> embeddings) {
+        int dimension = -1;
+        for (List<Float> embedding : embeddings) {
+            if (embedding == null || embedding.isEmpty()) {
+                throw new RagIndexingException(RagIndexingException.Reason.EMBEDDING_MISMATCH,
+                        "Embedding 含有空向量");
+            }
+            if (dimension < 0) {
+                dimension = embedding.size();
+            } else if (embedding.size() != dimension) {
+                throw new RagIndexingException(RagIndexingException.Reason.EMBEDDING_MISMATCH,
+                        "Embedding 维度不一致");
+            }
+            for (Float value : embedding) {
+                if (value == null || value.isNaN() || value.isInfinite()) {
+                    throw new RagIndexingException(RagIndexingException.Reason.EMBEDDING_MISMATCH,
+                            "Embedding 含有非法数值");
+                }
+            }
+        }
     }
 }

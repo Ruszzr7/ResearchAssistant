@@ -5,9 +5,11 @@ import com.research.assistant.dto.AiQualitySummary;
 import com.research.assistant.dto.AiQualityEventPage;
 import com.research.assistant.dto.AiQualityEventQuery;
 import com.research.assistant.dto.GoldenEvalMetrics;
+import com.research.assistant.dto.RagGoldenEvalMetrics;
 import com.research.assistant.entity.AiQualityEvent;
 import com.research.assistant.service.AiQualityEventService;
 import com.research.assistant.service.GoldenEvalService;
+import com.research.assistant.service.RagGoldenEvalService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -22,11 +24,14 @@ public class AiQualityController {
 
     private final AiQualityEventService qualityEventService;
     private final GoldenEvalService goldenEvalService;
+    private final RagGoldenEvalService ragGoldenEvalService;
 
     public AiQualityController(AiQualityEventService qualityEventService,
-                               GoldenEvalService goldenEvalService) {
+                               GoldenEvalService goldenEvalService,
+                               RagGoldenEvalService ragGoldenEvalService) {
         this.qualityEventService = qualityEventService;
         this.goldenEvalService = goldenEvalService;
+        this.ragGoldenEvalService = ragGoldenEvalService;
     }
 
     @GetMapping("/summary")
@@ -49,5 +54,10 @@ public class AiQualityController {
     @GetMapping("/golden")
     public Result<GoldenEvalMetrics> golden() {
         return Result.ok(goldenEvalService.evaluate());
+    }
+
+    @GetMapping("/rag-golden")
+    public Result<RagGoldenEvalMetrics> ragGolden() {
+        return Result.ok(ragGoldenEvalService.evaluate());
     }
 }

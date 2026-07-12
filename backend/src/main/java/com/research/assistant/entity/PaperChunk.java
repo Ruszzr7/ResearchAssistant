@@ -20,6 +20,19 @@ public class PaperChunk {
     /** 所属 RAG 索引版本；历史数据迁移为 1。 */
     private Integer indexVersion;
 
+    /** 不依赖数据库自增 id 的稳定 chunk 标识。 */
+    private String chunkKey;
+
+    /** 来源类别，例如 PDF_TEXT / ANALYSIS_FIELD。 */
+    private String sourceType;
+
+    private Integer chunkOrder;
+    private Integer pageStart;
+    private Integer pageEnd;
+    private Integer charStart;
+    private Integer charEnd;
+    private String contentHash;
+
     private String chunkType;
 
     private String content;
@@ -43,6 +56,30 @@ public class PaperChunk {
 
     public Integer getIndexVersion() { return indexVersion; }
     public void setIndexVersion(Integer indexVersion) { this.indexVersion = indexVersion; }
+
+    public String getChunkKey() { return chunkKey; }
+    public void setChunkKey(String chunkKey) { this.chunkKey = chunkKey; }
+
+    public String getSourceType() { return sourceType; }
+    public void setSourceType(String sourceType) { this.sourceType = sourceType; }
+
+    public Integer getChunkOrder() { return chunkOrder; }
+    public void setChunkOrder(Integer chunkOrder) { this.chunkOrder = chunkOrder; }
+
+    public Integer getPageStart() { return pageStart; }
+    public void setPageStart(Integer pageStart) { this.pageStart = pageStart; }
+
+    public Integer getPageEnd() { return pageEnd; }
+    public void setPageEnd(Integer pageEnd) { this.pageEnd = pageEnd; }
+
+    public Integer getCharStart() { return charStart; }
+    public void setCharStart(Integer charStart) { this.charStart = charStart; }
+
+    public Integer getCharEnd() { return charEnd; }
+    public void setCharEnd(Integer charEnd) { this.charEnd = charEnd; }
+
+    public String getContentHash() { return contentHash; }
+    public void setContentHash(String contentHash) { this.contentHash = contentHash; }
 
     public String getChunkType() { return chunkType; }
     public void setChunkType(String chunkType) { this.chunkType = chunkType; }

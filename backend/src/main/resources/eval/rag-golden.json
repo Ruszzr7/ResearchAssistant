@@ -1,0 +1,40 @@
+[
+  {
+    "name": "method_paraphrase",
+    "query": "attention mechanism improves long context modeling",
+    "candidates": [
+      {
+        "evidenceId": "gold:method",
+        "title": "Attention Study",
+        "source": "Local Fixture",
+        "published": "2024",
+        "sourceUrl": "https://example.org/method",
+        "summary": "The proposed attention mechanism improves long context modeling with sparse routing."
+      },
+      {
+        "evidenceId": "gold:dataset",
+        "title": "Dataset Study",
+        "source": "Local Fixture",
+        "published": "2022",
+        "sourceUrl": "https://example.org/dataset",
+        "summary": "A benchmark dataset is released for image classification."
+      }
+    ],
+    "relevantEvidenceIds": ["gold:method"]
+  },
+  {
+    "name": "no_relevant_candidate",
+    "query": "quantum compiler calibration",
+    "candidates": [
+      {
+        "evidenceId": "gold:unrelated",
+        "title": "Unrelated Study",
+        "source": "Local Fixture",
+        "published": "2023",
+        "sourceUrl": "https://example.org/unrelated",
+        "summary": "This paper studies document retrieval benchmarks."
+      }
+    ],
+    "relevantEvidenceIds": []
+  }
+]

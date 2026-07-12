@@ -85,9 +85,12 @@ public class LlmReranker {
             return firstN(candidates, limit);
         }
         List<RankScore> validScores = new ArrayList<>();
+        java.util.Set<Integer> seenIndexes = new java.util.HashSet<>();
         for (RankScore rs : scores) {
             int idx = rs.resolveIndex();
-            if (idx >= 1 && idx <= candidates.size()) {
+            if (idx >= 1 && idx <= candidates.size()
+                    && rs.score() != null && rs.score() >= 1 && rs.score() <= 10
+                    && seenIndexes.add(idx)) {
                 validScores.add(rs);
             }
         }
@@ -99,7 +102,10 @@ public class LlmReranker {
         for (int i = 0; i < Math.min(limit, validScores.size()); i++) {
             RankScore rs = validScores.get(i);
             ScoredChunk original = candidates.get(rs.resolveIndex() - 1);
-            result.add(original);
+            result.add(new ScoredChunk(original.paperId(), original.chunkType(), original.content(),
+                    original.source(), original.score(), original.chunkKey(), original.indexVersion(),
+                    original.sourceType(), original.pageStart(), original.pageEnd(), original.charStart(),
+                    original.charEnd(), rs.score()));
         }
         return result;
     }

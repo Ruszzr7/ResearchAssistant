@@ -16,11 +16,13 @@ import java.util.List;
 @Mapper
 public interface PaperChunkMapper extends BaseMapper<PaperChunk> {
 
-    @Select("SELECT id, paper_id, index_version, chunk_type, content, embedding_json, source, created_at " +
+    @Select("SELECT id, paper_id, index_version, chunk_key, source_type, chunk_order, page_start, page_end, " +
+            "char_start, char_end, content_hash, chunk_type, content, embedding_json, source, created_at " +
             "FROM paper_chunk WHERE paper_id = #{paperId} ORDER BY id")
     List<PaperChunk> selectByPaperId(Long paperId);
 
-    @Select("SELECT pc.id, pc.paper_id, pc.index_version, pc.chunk_type, pc.content, "
+    @Select("SELECT pc.id, pc.paper_id, pc.index_version, pc.chunk_key, pc.source_type, pc.chunk_order, "
+            + "pc.page_start, pc.page_end, pc.char_start, pc.char_end, pc.content_hash, pc.chunk_type, pc.content, "
             + "pc.embedding_json, pc.source, pc.created_at "
             + "FROM paper_chunk pc "
             + "JOIN rag_index_state s ON s.paper_id = pc.paper_id "
@@ -30,7 +32,8 @@ public interface PaperChunkMapper extends BaseMapper<PaperChunk> {
             + "WHERE pc.paper_id = #{paperId} ORDER BY pc.id")
     List<PaperChunk> selectActiveByPaperId(Long paperId);
 
-    @Select("SELECT pc.id, pc.paper_id, pc.index_version, pc.chunk_type, pc.content, "
+    @Select("SELECT pc.id, pc.paper_id, pc.index_version, pc.chunk_key, pc.source_type, pc.chunk_order, "
+            + "pc.page_start, pc.page_end, pc.char_start, pc.char_end, pc.content_hash, pc.chunk_type, pc.content, "
             + "pc.embedding_json, pc.source, pc.created_at "
             + "FROM paper_chunk pc "
             + "JOIN rag_index_state s ON s.paper_id = pc.paper_id "
@@ -41,10 +44,12 @@ public interface PaperChunkMapper extends BaseMapper<PaperChunk> {
     List<PaperChunk> selectAllActive();
 
     @Insert("<script>INSERT INTO paper_chunk " +
-            "(paper_id, index_version, chunk_type, content, embedding_json, source) VALUES " +
+            "(paper_id, index_version, chunk_key, source_type, chunk_order, page_start, page_end, " +
+            "char_start, char_end, content_hash, chunk_type, content, embedding_json, source) VALUES " +
             "<foreach collection='chunks' item='chunk' separator=','>" +
-            "(#{chunk.paperId}, #{chunk.indexVersion}, #{chunk.chunkType}, #{chunk.content}, "
-            + "#{chunk.embeddingJson}, #{chunk.source})" +
+            "(#{chunk.paperId}, #{chunk.indexVersion}, #{chunk.chunkKey}, #{chunk.sourceType}, "
+            + "#{chunk.chunkOrder}, #{chunk.pageStart}, #{chunk.pageEnd}, #{chunk.charStart}, #{chunk.charEnd}, "
+            + "#{chunk.contentHash}, #{chunk.chunkType}, #{chunk.content}, #{chunk.embeddingJson}, #{chunk.source})" +
             "</foreach></script>")
     int insertBatch(@Param("chunks") List<PaperChunk> chunks);
 

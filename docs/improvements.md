@@ -41,3 +41,10 @@
 - [x] Mission 11.1：敏感配置统一脱敏、生产加密 fail-closed、请求 ID、全局异常脱敏、主要 DTO 校验、Controller 契约测试和 PDF 路径 containment。
 - [x] Mission 11.2：Folder/Tag/Workflow/Agent/Search/Paper 批量请求契约收敛、核心 MockMvc 测试和 MySQL/Backend readiness 脚本。
 - [x] Mission 11.3: Paper write, Search execute/import, and Workflow confirm request contracts narrowed with validation and MockMvc coverage.
+
+## Mission 12.1 已完成
+
+- [x] RAG provenance：稳定分片身份、版本、来源和字符定位贯穿 MySQL、内存/Qdrant、检索上下文、Gap 与写作引用。
+- [x] Evidence validation：后端候选集校验、snippet 包含关系、未知 ID 拒绝、`VERIFIED/UNVERIFIED` 状态与前端展示。
+- [x] RAG index/retrieval reliability：active 版本发布顺序、Qdrant 新旧版本切换保护、内存降级、结构化检索状态和指标。
+- [x] RAG Golden Eval：本地 fixture、recall@5/MRR/grounded rate、失败原因统计和查询 API。

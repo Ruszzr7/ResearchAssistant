@@ -101,3 +101,13 @@
 - API 契约继续采用现有字段名和 `{code,message,data}` 包络；Workflow confirm/Search execute 使用带忽略未知字段的 DTO，避免动态请求直接进入业务上下文。
 - 单机 AI 并发保护和异步任务容量保护是两层边界：前者限制同步 AI/SSE 请求，后者限制持久化异步队列，均不依赖 Redis。
 - Mission 11.3 uses write DTOs as the boundary for dynamic payloads: Paper maps only client-editable metadata, Search execute/import preserves the existing snake_case fields, and Workflow confirm accepts only selected candidates and folderId. Unknown JSON fields are ignored for forwards compatibility while server-managed state cannot be injected.
+
+## Mission 12.1：RAG 质量与证据
+
+- 每个分片的证据身份由 `paperId + indexVersion + chunkOrder + contentHash` 稳定派生；`evidenceId` 只作为展示和 LLM 引用标识，不能由模型生成后直接信任。
+- RAG 候选必须先经过后端校验：`evidenceId` 必须存在于本次候选集，snippet 必须非空、限长并包含在候选正文中；标题、年份、URL、来源和定位信息始终从候选记录回填。
+- Agent 工具返回的证据如果没有可回传候选集，只能标记 `UNVERIFIED`；Gap 证据评分只统计 `VERIFIED`，避免模型自由文本直接提升结论等级。
+- 索引发布顺序是 BUILDING 分片 → embedding/vector snapshot → ACTIVE 指针；Qdrant 版本切换先 upsert 新版本再清理旧版本，失败时保留旧版本并由 Router 降级内存。
+- 检索接口通过 `RagRetrievalResult` 区分 disabled、empty、embedding unavailable、vector unavailable 和 degraded memory；指标只记录状态、数量和耗时，不记录论文正文或提示词。
+- RAG Golden Eval 使用本地 fixture 和 lexical baseline，默认不调用真实 embedding/LLM；通过 `/api/ai-quality/rag-golden` 提供 recall@5、MRR、grounded rate 和失败原因，便于后续扩展 Gap/compare 门禁。
+- 当前 PDF 文本分片记录字符范围但仍缺少真正的页码映射；接入 page-aware parser 后应优先填充 `pageStart/pageEnd`，同时保持 `evidenceId` 派生规则不变。

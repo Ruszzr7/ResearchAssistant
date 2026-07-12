@@ -109,6 +109,28 @@ class RagIndexingServiceTest {
         verify(vectorStore, never()).replacePaperIndex(any(), org.mockito.ArgumentMatchers.anyInt(), any());
     }
 
+    @Test
+    void shouldMarkVersionFailedWhenRuntimeSnapshotCannotBePrepared() {
+        PaperAnalysis analysis = analysis(5L);
+        when(analysisMapper.selectOne(any())).thenReturn(analysis);
+        when(chunker.chunk(analysis)).thenReturn(List.of(
+                new DocumentChunk(5L, "METHOD", "method", "analysis")));
+        when(embeddingService.embedBatch(List.of("method")))
+                .thenReturn(List.of(List.of(1.0f, 0.0f)));
+        when(versionService.beginBuild(5L)).thenReturn(2);
+        doThrow(new VectorStoreException("qdrant unavailable"))
+                .when(vectorStore).replacePaperIndex(any(), org.mockito.ArgumentMatchers.eq(2), any());
+
+        assertThatThrownBy(() -> service.indexPaper(5L))
+                .isInstanceOf(RagIndexingException.class)
+                .extracting(error -> ((RagIndexingException) error).getReason())
+                .isEqualTo(RagIndexingException.Reason.VECTOR_STORE_FAILED);
+        verify(versionService).markFailed(org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.eq(2), any());
+        verify(versionService, never()).activate(any(), org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt());
+    }
+
     private PaperAnalysis analysis(Long paperId) {
         PaperAnalysis analysis = new PaperAnalysis();
         analysis.setPaperId(paperId);

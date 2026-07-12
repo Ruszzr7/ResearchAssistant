@@ -43,6 +43,10 @@ public class GapEvidenceScorer {
         }
         double total = 0.0;
         for (Map<String, Object> e : evidence) {
+            String verificationStatus = String.valueOf(e.getOrDefault("verificationStatus", "VERIFIED"));
+            if (!"VERIFIED".equalsIgnoreCase(verificationStatus)) {
+                continue;
+            }
             String year = String.valueOf(e.getOrDefault("year", ""));
             total += weightByYear(year);
         }

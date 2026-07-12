@@ -67,3 +67,10 @@
 ## Mission 11.3（已完成）
 - 验收：Paper/Search/Workflow 动态请求已类型化并限制字段；新增 6 项 MockMvc 契约测试。
 - 后端 `mvnw.cmd -DforkCount=0 test`：266 项通过；前端 `npm.cmd run build`：通过（保留既有大 chunk 警告）。
+
+## Mission 12.1（已完成）
+- RAG 证据链：为分片补充稳定 `evidenceId/chunkKey`、索引版本、来源类型、字符定位和内容 hash；检索、Gap 验证与写作引用统一回传来源元数据。
+- 质量门禁：新增后端候选证据校验，拒绝未知 ID、超长/不包含于候选内容的 snippet；Agent 直出证据标记为 `UNVERIFIED`，Gap 评分不计入未验证证据。
+- 版本与降级：索引先写入 BUILDING 分片并准备运行时快照，再发布 ACTIVE；Qdrant 先写新版本后清理旧版本，检索过滤非 active 版本并在异常时降级内存，同时暴露结构化检索状态和 Micrometer 指标。
+- Golden Eval 与展示：新增本地确定性的 RAG Golden Eval、`/api/ai-quality/rag-golden`、Gap/写作页面证据 ID 与定位展示，以及 `schema-upgrade-12.1.sql`。
+- 验证：后端 `mvnw.cmd -DforkCount=0 test` 通过（275 项）；前端 `npm.cmd run build` 通过（保留既有 chunk 体积警告）。

@@ -72,8 +72,9 @@ public class QdrantVectorStore implements VectorStore {
         if (paperId == null || chunks == null || chunks.isEmpty()) {
             return;
         }
-        deleteRemoteByPaperId(paperId);
+        // 先写新版本，再删除旧版本，避免 Qdrant 短暂不可用时出现空索引。
         upsertRemote(chunks);
+        deleteRemoteByPaperIdExceptVersion(paperId, indexVersion);
     }
 
     @Override
@@ -94,7 +95,7 @@ public class QdrantVectorStore implements VectorStore {
                 .build();
         try {
             List<Points.ScoredPoint> results = client.searchAsync(request, OPERATION_TIMEOUT).get();
-            return results.stream()
+        return results.stream()
                     .map(this::toScoredChunk)
                     .filter(c -> c != null)
                     .toList();
@@ -137,21 +138,39 @@ public class QdrantVectorStore implements VectorStore {
     }
 
     private void deleteRemoteByPaperId(Long paperId) {
+        deleteRemoteByFilter(paperId, null);
+    }
+
+    private void deleteRemoteByPaperIdExceptVersion(Long paperId, int keepVersion) {
+        deleteRemoteByFilter(paperId, keepVersion);
+    }
+
+    private void deleteRemoteByFilter(Long paperId, Integer keepVersion) {
         String collection = collectionName();
         if (!collectionExists(collection)) {
             return;
         }
-        Points.Filter filter = Points.Filter.newBuilder()
+        Points.Filter.Builder filterBuilder = Points.Filter.newBuilder()
                 .addMust(Points.Condition.newBuilder()
                         .setField(Points.FieldCondition.newBuilder()
                                 .setKey("paperId")
                                 .setMatch(Points.Match.newBuilder().setInteger(paperId).build())
                                 .build())
                         .build())
-                .build();
+                ;
+        if (keepVersion != null) {
+            filterBuilder.addMustNot(Points.Condition.newBuilder()
+                    .setField(Points.FieldCondition.newBuilder()
+                            .setKey("indexVersion")
+                            .setMatch(Points.Match.newBuilder().setInteger(keepVersion).build())
+                            .build())
+                    .build());
+        }
+        Points.Filter filter = filterBuilder.build();
         try {
             client.deleteAsync(collection, filter, OPERATION_TIMEOUT).get();
-            log.debug("Qdrant 删除论文 chunk: collection={}, paperId={}", collection, paperId);
+            log.debug("Qdrant 删除论文 chunk: collection={}, paperId={}, keepVersion={}",
+                    collection, paperId, keepVersion);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new VectorStoreException("Qdrant delete 被中断", e);
@@ -231,14 +250,21 @@ public class QdrantVectorStore implements VectorStore {
             String id = deterministicUuid(c.paperId(), c.indexVersion(), c.chunkType(), i).toString();
             Points.Vector vector = Points.Vector.newBuilder().addAllData(c.embedding()).build();
             Points.Vectors vectors = Points.Vectors.newBuilder().setVector(vector).build();
-            Map<String, JsonWithInt.Value> payload = Map.of(
-                    "paperId", JsonWithInt.Value.newBuilder().setIntegerValue(c.paperId()).build(),
-                    "indexVersion", JsonWithInt.Value.newBuilder().setIntegerValue(
-                            c.indexVersion() == null ? 1 : c.indexVersion()).build(),
-                    "chunkType", JsonWithInt.Value.newBuilder().setStringValue(nonNull(c.chunkType())).build(),
-                    "content", JsonWithInt.Value.newBuilder().setStringValue(nonNull(c.content())).build(),
-                    "source", JsonWithInt.Value.newBuilder().setStringValue(nonNull(c.source())).build()
-            );
+            Map<String, JsonWithInt.Value> payload = new java.util.LinkedHashMap<>();
+            payload.put("paperId", JsonWithInt.Value.newBuilder().setIntegerValue(c.paperId()).build());
+            payload.put("indexVersion", JsonWithInt.Value.newBuilder().setIntegerValue(
+                    c.indexVersion() == null ? 1 : c.indexVersion()).build());
+            payload.put("chunkKey", JsonWithInt.Value.newBuilder().setStringValue(
+                    nonNull(c.chunkKey())).build());
+            payload.put("sourceType", JsonWithInt.Value.newBuilder().setStringValue(
+                    nonNull(c.sourceType())).build());
+            payload.put("chunkType", JsonWithInt.Value.newBuilder().setStringValue(nonNull(c.chunkType())).build());
+            payload.put("content", JsonWithInt.Value.newBuilder().setStringValue(nonNull(c.content())).build());
+            payload.put("source", JsonWithInt.Value.newBuilder().setStringValue(nonNull(c.source())).build());
+            putIntegerPayload(payload, "pageStart", c.pageStart());
+            putIntegerPayload(payload, "pageEnd", c.pageEnd());
+            putIntegerPayload(payload, "charStart", c.charStart());
+            putIntegerPayload(payload, "charEnd", c.charEnd());
             points.add(Points.PointStruct.newBuilder()
                     .setId(Points.PointId.newBuilder().setUuid(id).build())
                     .setVectors(vectors)
@@ -259,13 +285,32 @@ public class QdrantVectorStore implements VectorStore {
                 payloadValue(payload, "chunkType"),
                 payloadValue(payload, "content"),
                 payloadValue(payload, "source"),
-                point.getScore()
+                point.getScore(),
+                payloadValue(payload, "chunkKey"),
+                payloadIntegerValue(payload, "indexVersion"),
+                payloadValue(payload, "sourceType"),
+                payloadIntegerValue(payload, "pageStart"),
+                payloadIntegerValue(payload, "pageEnd"),
+                payloadIntegerValue(payload, "charStart"),
+                payloadIntegerValue(payload, "charEnd"),
+                null
         );
     }
 
     private String payloadValue(Map<String, JsonWithInt.Value> payload, String key) {
         JsonWithInt.Value value = payload.get(key);
         return value != null && value.hasStringValue() ? value.getStringValue() : "";
+    }
+
+    private Integer payloadIntegerValue(Map<String, JsonWithInt.Value> payload, String key) {
+        JsonWithInt.Value value = payload.get(key);
+        return value != null && value.hasIntegerValue() ? (int) value.getIntegerValue() : null;
+    }
+
+    private void putIntegerPayload(Map<String, JsonWithInt.Value> payload, String key, Integer value) {
+        if (value != null) {
+            payload.put(key, JsonWithInt.Value.newBuilder().setIntegerValue(value).build());
+        }
     }
 
     private UUID deterministicUuid(Long paperId, Integer indexVersion, String chunkType, int index) {

@@ -37,4 +37,9 @@ public interface VectorStore {
      * 清空某篇论文的所有 chunk。
      */
     void removeByPaperId(Long paperId);
+
+    /** 最近一次操作是否发生了外部向量库降级。 */
+    default boolean lastOperationDegraded() {
+        return false;
+    }
 }

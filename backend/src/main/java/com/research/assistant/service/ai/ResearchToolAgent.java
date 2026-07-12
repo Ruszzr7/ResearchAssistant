@@ -44,11 +44,12 @@ public interface ResearchToolAgent {
               "reason": "一句话结论，说明为什么是该等级",
               "evidence": [
                 {
+                  "evidenceId": "由工具返回的稳定证据 ID",
                   "title": "论文标题",
                   "source": "arXiv 或 Semantic Scholar",
                   "year": "2024",
                   "snippet": "与该 Gap 相关的摘要或正文片段（50-100字）",
-                  "url": "论文链接"
+                  "url": "不要自行生成，交给后端候选记录回填"
                 }
               ]
             }

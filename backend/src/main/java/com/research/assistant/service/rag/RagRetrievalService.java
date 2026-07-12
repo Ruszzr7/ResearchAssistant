@@ -3,11 +3,13 @@ package com.research.assistant.service.rag;
 import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.embedding.EmbeddingService;
 import com.research.assistant.service.embedding.EmbeddingUnavailableException;
+import com.research.assistant.service.observability.ResearchMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -28,15 +30,27 @@ public class RagRetrievalService {
     private final VectorStore vectorStore;
     private final SettingsService settingsService;
     private final LlmReranker llmReranker;
+    private final ResearchMetrics metrics;
+
+    @Autowired
+    public RagRetrievalService(EmbeddingService embeddingService,
+                               VectorStore vectorStore,
+                               SettingsService settingsService,
+                               LlmReranker llmReranker,
+                               ResearchMetrics metrics) {
+        this.embeddingService = embeddingService;
+        this.vectorStore = vectorStore;
+        this.settingsService = settingsService;
+        this.llmReranker = llmReranker;
+        this.metrics = metrics;
+    }
 
     public RagRetrievalService(EmbeddingService embeddingService,
                                VectorStore vectorStore,
                                SettingsService settingsService,
                                LlmReranker llmReranker) {
-        this.embeddingService = embeddingService;
-        this.vectorStore = vectorStore;
-        this.settingsService = settingsService;
-        this.llmReranker = llmReranker;
+        this(embeddingService, vectorStore, settingsService, llmReranker,
+                new ResearchMetrics(new SimpleMeterRegistry()));
     }
 
     /**
@@ -48,15 +62,39 @@ public class RagRetrievalService {
      * @return 相关片段列表；RAG 未启用或 embedding 失败时返回空列表
      */
     public List<ScoredChunk> retrieve(String query, int maxResults, double minScore) {
+        return retrieveWithStatus(query, maxResults, minScore).chunks();
+    }
+
+    /**
+     * 带状态的召回入口。调用方可以区分“没有命中”和 embedding/向量库失败。
+     */
+    public RagRetrievalResult retrieveWithStatus(String query, int maxResults, double minScore) {
+        long startedAt = metrics.startTimer();
         if (!isEnabled() || query == null || query.isBlank()) {
-            return Collections.emptyList();
+            return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.DISABLED), startedAt);
         }
+        int safeMaxResults = Math.max(1, Math.min(maxResults, 100));
+        double safeMinScore = Math.max(0, Math.min(minScore, 1));
         try {
             List<Float> embedding = embeddingService.embed(query);
-            return vectorStore.findRelevant(embedding, maxResults, minScore);
+            if (embedding == null || embedding.isEmpty()) {
+                return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.EMBEDDING_UNAVAILABLE), startedAt);
+            }
+            List<ScoredChunk> chunks = vectorStore.findRelevant(embedding, safeMaxResults, safeMinScore);
+            RagRetrievalStatus status = vectorStore.lastOperationDegraded()
+                    ? RagRetrievalStatus.DEGRADED_MEMORY
+                    : (chunks == null || chunks.isEmpty() ? RagRetrievalStatus.EMPTY : RagRetrievalStatus.SUCCESS);
+            return recordResult(new RagRetrievalResult(status, chunks, activeVersion(chunks),
+                    chunks == null ? 0 : chunks.size()), startedAt);
         } catch (EmbeddingUnavailableException e) {
             log.warn("RAG 召回失败，将降级: {}", e.getMessage());
-            return Collections.emptyList();
+            return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.EMBEDDING_UNAVAILABLE), startedAt);
+        } catch (VectorStoreException e) {
+            log.warn("RAG 向量存储不可用: {}", e.getMessage());
+            return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.VECTOR_STORE_UNAVAILABLE), startedAt);
+        } catch (RuntimeException e) {
+            log.warn("RAG 召回异常，返回空结果: errorType={}", e.getClass().getSimpleName());
+            return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.VECTOR_STORE_UNAVAILABLE), startedAt);
         }
     }
 
@@ -85,8 +123,8 @@ public class RagRetrievalService {
         if (retrieved == null || retrieved.size() < minChunks) {
             return retrieved;
         }
-        int rerankTopK = getRerankTopK();
-        int answerTopK = getAnswerTopK();
+        int rerankTopK = Math.max(1, Math.min(getRerankTopK(), 50));
+        int answerTopK = Math.max(1, Math.min(getAnswerTopK(), rerankTopK));
         List<ScoredChunk> toRerank = retrieved.size() > rerankTopK ? retrieved.subList(0, rerankTopK) : retrieved;
         return llmReranker.rerank(query, toRerank, answerTopK);
     }
@@ -103,11 +141,14 @@ public class RagRetrievalService {
         if (chunks == null || chunks.isEmpty()) {
             return "";
         }
-        StringBuilder sb = new StringBuilder("\n\n以下是与问题相关的论文片段（按相关度排序）：\n");
+        StringBuilder sb = new StringBuilder("\n\n以下是与问题相关的论文证据片段。只能引用给出的 evidenceId，不要自行生成论文链接或页码：\n");
         for (int i = 0; i < chunks.size(); i++) {
             ScoredChunk c = chunks.get(i);
-            sb.append(i + 1).append(". [paperId=").append(c.paperId())
-                    .append(", source=").append(c.source()).append("]\n")
+            sb.append(i + 1).append(". [evidenceId=").append(c.evidenceId())
+                    .append(", paperId=").append(c.paperId())
+                    .append(", source=").append(c.source())
+                    .append(", chunkType=").append(c.chunkType())
+                    .append("]\n")
                     .append(c.content()).append("\n");
         }
         return sb.toString();
@@ -126,7 +167,7 @@ public class RagRetrievalService {
     }
 
     private int getRerankMinChunks() {
-        return parseInt(getSetting(RAG_RERANK_MIN_CHUNKS_KEY, "3"), 3);
+        return Math.max(1, Math.min(parseInt(getSetting(RAG_RERANK_MIN_CHUNKS_KEY, "3"), 3), 50));
     }
 
     private String getSetting(String key, String defaultValue) {
@@ -145,5 +186,18 @@ public class RagRetrievalService {
     private boolean isEnabled() {
         String value = settingsService.getValue(RAG_ENABLED_KEY);
         return value == null || Boolean.parseBoolean(value);
+    }
+
+    private Integer activeVersion(List<ScoredChunk> chunks) {
+        if (chunks == null) {
+            return null;
+        }
+        return chunks.stream().map(ScoredChunk::indexVersion).filter(java.util.Objects::nonNull).findFirst().orElse(null);
+    }
+
+    private RagRetrievalResult recordResult(RagRetrievalResult result, long startedAt) {
+        metrics.ragRetrievalFinished(result.status().name().toLowerCase(java.util.Locale.ROOT),
+                result.chunks().size(), startedAt);
+        return result;
     }
 }

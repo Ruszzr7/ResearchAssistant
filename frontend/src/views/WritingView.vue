@@ -61,6 +61,7 @@
                 <div class="check-subtitle">推荐引用</div>
                 <div v-for="(s, i) in citationResult.suggestions" :key="i" class="check-item">
                   <strong>{{ s.paperTitle }}</strong>（{{ s.position }}）— {{ s.reason }}
+                  <span v-if="s.locator" class="evidence-locator">[{{ s.locator }}]</span>
                 </div>
               </div>
               <div v-if="citationResult.conflicts?.length" class="check-section">
@@ -524,6 +525,7 @@ onMounted(async () => {
   margin-bottom: 4px;
   line-height: 1.5;
 }
+.evidence-locator { color: var(--ra-text-tertiary); margin-left: 4px; }
 .editor-toolbar {
   display: flex;
   align-items: center;

@@ -64,7 +64,7 @@ public class ResearchTools {
         }
         try {
             int limit = Math.max(1, Math.min(maxResults, 50));
-            return arxivFetcher.search(query, limit);
+            return addEvidenceIds(arxivFetcher.search(query, limit), "arXiv");
         } catch (Exception e) {
             log.warn("arXiv 工具搜索失败 query={}: {}", query, e.getMessage());
             return List.of();
@@ -85,7 +85,7 @@ public class ResearchTools {
         }
         try {
             int limit = Math.max(1, Math.min(maxResults, 50));
-            return semanticScholarFetcher.search(query, limit);
+            return addEvidenceIds(semanticScholarFetcher.search(query, limit), "Semantic Scholar");
         } catch (Exception e) {
             log.warn("Semantic Scholar 工具搜索失败 query={}: {}", query, e.getMessage());
             return List.of();
@@ -194,6 +194,10 @@ public class ResearchTools {
                 item.put("content", c.content());
                 item.put("source", c.source());
                 item.put("score", c.score());
+                item.put("evidenceId", c.evidenceId());
+                item.put("chunkKey", c.chunkKey());
+                item.put("indexVersion", c.indexVersion());
+                item.put("sourceType", c.sourceType());
                 result.add(item);
             }
             return result;
@@ -201,5 +205,21 @@ public class ResearchTools {
             log.warn("知识库检索工具失败 query={}: {}", query, e.getMessage());
             return List.of();
         }
+    }
+
+    private List<Map<String, Object>> addEvidenceIds(List<Map<String, Object>> papers, String source) {
+        if (papers == null || papers.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> paper : papers) {
+            Map<String, Object> copy = new LinkedHashMap<>(paper);
+            String externalId = String.valueOf(copy.getOrDefault("paperId", copy.getOrDefault("arxivId", "")));
+            String title = String.valueOf(copy.getOrDefault("title", ""));
+            String identity = externalId.isBlank() ? title : externalId;
+            copy.putIfAbsent("evidenceId", "external:" + source.toLowerCase().replaceAll("\\s+", "-") + ":" + identity);
+            result.add(copy);
+        }
+        return result;
     }
 }

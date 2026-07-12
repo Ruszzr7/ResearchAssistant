@@ -68,8 +68,14 @@ public class RagIndexVersionService {
     /** 将完整构建标记为 READY，并在同一事务中切换 active 指针。 */
     @Transactional
     public void activate(Long paperId, int versionNo, int chunkCount) {
-        if (stateMapper.selectForUpdate(paperId) == null) {
+        RagIndexState state = stateMapper.selectForUpdate(paperId);
+        if (state == null) {
             throw new IllegalStateException("论文 RAG 索引状态不存在: " + paperId);
+        }
+        if (state.getActiveVersion() != null && state.getActiveVersion() > versionNo) {
+            versionMapper.markSuperseded(paperId, versionNo,
+                    "该构建版本晚于已激活的新版本");
+            throw new IllegalStateException("RAG 索引版本已被更新版本覆盖: " + paperId + "@" + versionNo);
         }
         if (versionMapper.markReady(paperId, versionNo, chunkCount) != 1) {
             throw new IllegalStateException("RAG 索引版本不在 BUILDING 状态: " + paperId + "@" + versionNo);
