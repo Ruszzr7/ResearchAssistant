@@ -10,6 +10,7 @@ import com.research.assistant.dto.ReadingProgressDto;
 import com.research.assistant.dto.ReadingProgressUpdateRequest;
 import com.research.assistant.dto.ReadingTimeRequest;
 import com.research.assistant.dto.PaperBatchMoveRequest;
+import com.research.assistant.dto.PaperWriteRequest;
 import com.research.assistant.service.PaperService;
 import com.research.assistant.service.ReadingProgressService;
 import com.research.assistant.service.ai.workflow.WorkflowService;
@@ -102,8 +103,9 @@ public class PaperController {
 
     /** POST /api/papers — 手动导入论文 */
     @PostMapping
-    public Result<Map<String, Object>> create(@RequestBody Paper paper,
+    public Result<Map<String, Object>> create(@RequestBody @Valid PaperWriteRequest request,
                                                  @RequestParam(defaultValue = "true") boolean runWorkflow) {
+        Paper paper = toPaper(request, null);
         Paper saved = paperService.create(paper);
         String taskId = runWorkflow ? workflowService.submitPaperImport(saved.getId()) : null;
         return Result.ok(buildPaperResult(saved, taskId));
@@ -111,9 +113,32 @@ public class PaperController {
 
     /** PUT /api/papers/:id — 编辑论文 */
     @PutMapping("/{id}")
-    public Result<Paper> update(@PathVariable Long id, @RequestBody Paper paper) {
-        paper.setId(id);
+    public Result<Paper> update(@PathVariable Long id, @RequestBody @Valid PaperWriteRequest request) {
+        Paper paper = toPaper(request, id);
         return Result.ok(paperService.update(paper));
+    }
+
+    private Paper toPaper(PaperWriteRequest request, Long id) {
+        Paper paper = new Paper();
+        paper.setId(id);
+        paper.setTitle(request.getTitle());
+        paper.setAuthors(request.getAuthors());
+        paper.setYear(request.getYear());
+        paper.setSource(request.getSource());
+        paper.setDoi(request.getDoi());
+        paper.setArxivId(request.getArxivId());
+        paper.setSemanticScholarId(request.getSemanticScholarId());
+        paper.setSourceUrl(request.getSourceUrl());
+        paper.setAbstractText(request.getAbstractText());
+        paper.setKeywords(request.getKeywords());
+        paper.setAcquisitionMethod(request.getAcquisitionMethod());
+        paper.setFolderId(request.getFolderId());
+        paper.setReadingStatus(request.getReadingStatus());
+        paper.setPinned(request.getPinned());
+        paper.setPageCount(request.getPageCount());
+        paper.setCurrentPage(request.getCurrentPage());
+        paper.setReadSeconds(request.getReadSeconds());
+        return paper;
     }
 
     /** DELETE /api/papers/:id — 删除论文 */

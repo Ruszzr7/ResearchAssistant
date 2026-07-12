@@ -64,3 +64,6 @@
 - 请求契约收敛：Folder/Tag/Workflow/Agent/Search/Paper 批量请求改用 DTO 或边界校验，保持现有 JSON 字段兼容。
 - 新增核心 Controller MockMvc 契约测试；MySQL、Backend 启动脚本补充 readiness 检查。
 - 验证：后端 260 项测试通过；前端生产构建通过。
+## Mission 11.3（已完成）
+- 验收：Paper/Search/Workflow 动态请求已类型化并限制字段；新增 6 项 MockMvc 契约测试。
+- 后端 `mvnw.cmd -DforkCount=0 test`：266 项通过；前端 `npm.cmd run build`：通过（保留既有大 chunk 警告）。

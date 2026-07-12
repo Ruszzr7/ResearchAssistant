@@ -5,8 +5,11 @@ import com.research.assistant.constant.AcquisitionMethod;
 import com.research.assistant.constant.ProcessingStatus;
 import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.dto.NetworkExpandRequest;
+import com.research.assistant.dto.SearchExecuteRequest;
 import com.research.assistant.dto.SearchExpandRequest;
 import com.research.assistant.dto.SearchExtractRequest;
+import com.research.assistant.dto.SearchImportPaper;
+import com.research.assistant.dto.SearchImportRequest;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.service.ArxivFetcher;
 import com.research.assistant.service.AsyncTaskService;
@@ -17,16 +20,18 @@ import com.research.assistant.service.source.LiteratureCandidate;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * 智能文献检索 REST 接口。
- * <p>
- * 对应 Spec 功能二：六步对话式检索。
- */
 @RestController
 @RequestMapping("/api/search")
 public class SearchController {
@@ -49,29 +54,21 @@ public class SearchController {
         this.expansionService = expansionService;
     }
 
-    /** POST /api/search/extract — Step 2: Agent 提炼检索要素 */
     @PostMapping("/extract")
     public Result<Map<String, Object>> extract(@RequestBody @Valid SearchExtractRequest request) {
-        String input = request.getQuery();
-        if (input == null || input.isBlank()) {
-            return Result.error(400, "请输入研究方向描述");
-        }
-        return Result.ok(searchService.extractSearchParams(input));
+        return Result.ok(searchService.extractSearchParams(request.getQuery()));
     }
 
-    /** POST /api/search/execute — Step 3: 执行检索 */
     @PostMapping("/execute")
-    public Result<List<Map<String, Object>>> execute(@RequestBody Map<String, Object> params) {
-        return Result.ok(searchService.executeSearch(params));
+    public Result<List<Map<String, Object>>> execute(@RequestBody @Valid SearchExecuteRequest request) {
+        return Result.ok(searchService.executeSearch(request.toParams()));
     }
 
-    /** POST /api/search/expand — Step 5-6: 扩展检索 */
     @PostMapping("/expand")
     public Result<Map<String, Object>> expand(@RequestBody @Valid SearchExpandRequest request) {
         return Result.ok(searchService.expandSearch(request.getQueries()));
     }
 
-    /** POST /api/search/expand/network — 按引用网络扩展（前向/后向/作者） */
     @PostMapping("/expand/network")
     public Result<Map<String, Object>> expandNetwork(@RequestBody @Valid NetworkExpandRequest request) {
         if (request.getPaperId() == null && (request.getS2PaperId() == null || request.getS2PaperId().isBlank())) {
@@ -92,28 +89,15 @@ public class SearchController {
         return Result.ok(result);
     }
 
-    /**
-     * POST /api/search/import — 批量导入检索结果中的论文。
-     * <p>
-     * 请求体: { "papers": [...], "folderId": 123 (可选) }
-     * 每篇 paper map 应包含 title, authors, summary, published, arxivId, pdfUrl。
-     */
     @PostMapping("/import")
-    public Result<Map<String, Object>> importPapers(@RequestBody Map<String, Object> body) {
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> papers = (List<Map<String, Object>>) body.get("papers");
-        if (papers == null || papers.isEmpty()) {
-            return Result.error(400, "没有要导入的论文");
-        }
-        Long folderId = body.get("folderId") != null
-                ? Long.valueOf(body.get("folderId").toString())
-                : null;
-
+    public Result<Map<String, Object>> importPapers(@RequestBody @Valid SearchImportRequest request) {
+        List<SearchImportPaper> papers = request.getPapers();
+        Long folderId = request.getFolderId();
         int imported = 0;
         int skipped = 0;
         List<String> errors = new ArrayList<>();
 
-        for (Map<String, Object> raw : papers) {
+        for (SearchImportPaper raw : papers) {
             try {
                 Paper paper = convertToPaper(raw);
                 if (paper.getTitle() == null || paper.getTitle().isBlank()) {
@@ -123,14 +107,13 @@ public class SearchController {
                 paper.setFolderId(folderId);
                 Paper saved = paperService.create(paper);
                 imported++;
-                // 异步下载 arXiv PDF
-                String arxivId = (String) raw.get("arxivId");
+                String arxivId = raw.getArxivId();
                 if (arxivId != null && !arxivId.isBlank()) {
                     triggerPdfDownload(saved.getId(), arxivId);
                 }
             } catch (Exception e) {
-                String title = (String) raw.getOrDefault("title", "未知");
-                log.warn("导入论文失败 type={}", e.getClass().getSimpleName());
+                String title = raw.getTitle() == null ? "未知" : raw.getTitle();
+                log.warn("paper_import_failed type={}", e.getClass().getSimpleName());
                 errors.add(title);
                 skipped++;
             }
@@ -144,13 +127,11 @@ public class SearchController {
         return Result.ok(result);
     }
 
-    /** 将检索结果 map 转换为 Paper 实体 */
-    private Paper convertToPaper(Map<String, Object> raw) {
+    private Paper convertToPaper(SearchImportPaper raw) {
         Paper paper = new Paper();
-        paper.setTitle((String) raw.get("title"));
+        paper.setTitle(raw.getTitle());
 
-        // 作者：逗号分隔字符串 → JSON 数组
-        String authorsStr = (String) raw.get("authors");
+        String authorsStr = raw.getAuthors();
         if (authorsStr != null && !authorsStr.isBlank()) {
             String authorsJson = Arrays.stream(authorsStr.split(","))
                     .map(String::trim)
@@ -160,30 +141,29 @@ public class SearchController {
             paper.setAuthors(authorsJson);
         }
 
-        // 年份：从 published 日期提取
-        String published = (String) raw.get("published");
+        String published = raw.getPublished();
         if (published != null && published.length() >= 4) {
             try {
                 paper.setYear(Integer.parseInt(published.substring(0, 4)));
-            } catch (NumberFormatException ignored) {}
+            } catch (NumberFormatException ignored) {
+                // Keep year unset when an external source has a non-standard date.
+            }
         }
 
-        String source = String.valueOf(raw.getOrDefault("source", "arXiv"));
+        String source = raw.getSource() == null || raw.getSource().isBlank() ? "arXiv" : raw.getSource();
         paper.setSource(source);
-        paper.setArxivId((String) raw.get("arxivId"));
-        paper.setSemanticScholarId("Semantic Scholar".equals(source) ? (String) raw.get("externalId") : null);
-        String sourceUrl = (String) raw.get("sourceUrl");
-        String pdfUrl = (String) raw.get("pdfUrl");
+        paper.setArxivId(raw.getArxivId());
+        paper.setSemanticScholarId("Semantic Scholar".equals(source) ? raw.getExternalId() : null);
+        String sourceUrl = raw.getSourceUrl();
+        String pdfUrl = raw.getPdfUrl();
         paper.setSourceUrl(sourceUrl != null && !sourceUrl.isBlank() ? sourceUrl : pdfUrl);
-        paper.setAbstractText((String) raw.get("summary"));
+        paper.setAbstractText(raw.getSummary());
         paper.setAcquisitionMethod(AcquisitionMethod.OA);
         paper.setReadingStatus(ReadingStatus.UNREAD);
         paper.setProcessingStatus(ProcessingStatus.PENDING);
-
         return paper;
     }
 
-    /** 异步下载 arXiv PDF 并更新论文 pdfPath，下载完成后自动触发 AI 处理 */
     private void triggerPdfDownload(Long paperId, String arxivId) {
         asyncTaskService.downloadArxivPdfAsync(paperId, arxivId);
     }

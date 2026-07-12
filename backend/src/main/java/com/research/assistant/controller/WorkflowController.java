@@ -1,13 +1,13 @@
 package com.research.assistant.controller;
 
 import com.research.assistant.common.Result;
+import com.research.assistant.dto.WorkflowConfirmRequest;
 import com.research.assistant.dto.WorkflowGapResearchRequest;
 import com.research.assistant.dto.WorkflowLiteratureSurveyRequest;
 import com.research.assistant.dto.WorkflowPaperImportRequest;
 import com.research.assistant.service.ai.workflow.WorkflowService;
 import com.research.assistant.service.async.AsyncTaskResult;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Size;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -54,9 +54,8 @@ public class WorkflowController {
 
     @PostMapping("/{taskId}/confirm")
     public Result<Map<String, String>> confirm(@PathVariable String taskId,
-                                               @RequestBody @Size(max = 64, message = "确认参数过多")
-                                               Map<String, Object> body) {
-        String newTaskId = workflowService.confirm(taskId, body);
+                                               @RequestBody @Valid WorkflowConfirmRequest request) {
+        String newTaskId = workflowService.confirm(taskId, request.toUserInput());
         return Result.ok(Map.of("taskId", newTaskId));
     }
 
