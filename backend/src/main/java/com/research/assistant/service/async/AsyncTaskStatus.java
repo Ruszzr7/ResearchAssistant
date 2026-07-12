@@ -6,14 +6,17 @@ package com.research.assistant.service.async;
 public enum AsyncTaskStatus {
     PENDING,
     PROCESSING,
+    RETRY_WAIT,
     COMPLETED,
     FAILED,
     CANCELLED,
     PENDING_USER,
-    EXPIRED;
+    EXPIRED,
+    DEAD_LETTER;
 
     public boolean isTerminal() {
-        return this == COMPLETED || this == FAILED || this == CANCELLED || this == EXPIRED;
+        return this == COMPLETED || this == FAILED || this == CANCELLED
+                || this == EXPIRED || this == DEAD_LETTER;
     }
 
     public boolean canTransitionTo(AsyncTaskStatus next) {
@@ -23,13 +26,16 @@ public enum AsyncTaskStatus {
         return switch (this) {
             case PENDING -> next == PROCESSING || next == FAILED || next == CANCELLED;
             case PROCESSING -> next == COMPLETED || next == FAILED
-                    || next == CANCELLED || next == PENDING_USER;
+                    || next == CANCELLED || next == PENDING_USER || next == RETRY_WAIT
+                    || next == DEAD_LETTER;
+            case RETRY_WAIT -> next == PROCESSING || next == FAILED || next == CANCELLED;
             case PENDING_USER -> next == CANCELLED || next == EXPIRED;
             default -> false;
         };
     }
 
     public boolean canRestart() {
-        return this == FAILED || this == CANCELLED || this == EXPIRED || this == PENDING_USER;
+        return this == FAILED || this == CANCELLED || this == EXPIRED
+                || this == DEAD_LETTER || this == PENDING_USER;
     }
 }

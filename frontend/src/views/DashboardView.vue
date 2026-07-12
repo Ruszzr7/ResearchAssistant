@@ -91,11 +91,13 @@
             <div class="task-stats">
               <div class="task-chip pending">待处理 {{ data.taskStats.pending }}</div>
               <div class="task-chip processing">进行中 {{ data.taskStats.processing }}</div>
+              <div class="task-chip processing">重试等待 {{ data.taskStats.retryWait || 0 }}</div>
               <div class="task-chip completed">已完成 {{ data.taskStats.completed }}</div>
               <div class="task-chip failed">失败 {{ data.taskStats.failed }}</div>
               <div class="task-chip cancelled">取消 {{ data.taskStats.cancelled }}</div>
               <div class="task-chip pending">待确认 {{ data.taskStats.pendingUser || 0 }}</div>
               <div class="task-chip cancelled">过期 {{ data.taskStats.expired || 0 }}</div>
+              <div class="task-chip failed">死信 {{ data.taskStats.deadLetter || 0 }}</div>
             </div>
             <div class="recent-tasks">
               <div class="recent-title">最近任务</div>
@@ -204,11 +206,13 @@ function taskStatusText(status) {
   const map = {
     PENDING: '待处理',
     PROCESSING: '进行中',
+    RETRY_WAIT: '等待重试',
     COMPLETED: '已完成',
     FAILED: '失败',
     CANCELLED: '取消',
     PENDING_USER: '待确认',
     EXPIRED: '已过期',
+    DEAD_LETTER: '超过重试上限',
   }
   return map[status] || status
 }
@@ -218,8 +222,10 @@ function taskTagType(status) {
     case 'COMPLETED': return 'success'
     case 'FAILED': return 'danger'
     case 'PROCESSING': return 'warning'
+    case 'RETRY_WAIT': return 'warning'
     case 'CANCELLED':
     case 'EXPIRED': return 'info'
+    case 'DEAD_LETTER': return 'danger'
     default: return ''
   }
 }

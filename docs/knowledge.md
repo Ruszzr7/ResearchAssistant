@@ -46,12 +46,13 @@
 - Spring `ThreadPoolTaskExecutor` 负责进程内任务，任务记录写入 `async_task`，工作流步骤写入 `workflow_step`。
 - 取消必须同时中断 Future、更新状态并释放引用；客户端断开时 SSE 回调不能继续写已关闭的 response。
 - 流式输出每次写入后 flush；Provider 返回非法 SSE JSON 时保留手动解析 fallback。
-- 服务重启后未完成任务默认标记为 FAILED，用户可重试；这不是可恢复的分布式任务队列。
+- 未声明 `task_type` 的旧版闭包任务在重启时标记为 FAILED；声明处理器的任务由 MySQL 调度器通过租约回收并继续执行。
 - 测试环境关闭孤儿任务恢复，避免测试启动修改任务状态。
 - 外部文献检索使用独立线程池，避免网络限速和等待占满 AI 任务线程；阶段文案相同则不重复写任务记录。
 - 对外继续使用 `PROCESSING/COMPLETED`（分别表示 RUNNING/SUCCESS）以保持 API 兼容；所有转换由状态机校验，取消、超时等终态不能被迟到的阶段或完成回调覆盖。
 - `PENDING_USER` 按 TTL 转为 `EXPIRED`，排队/运行任务按执行时限转为 `FAILED` 并中断 Future；同一 taskId 只有失败、取消、过期或待确认状态允许重新提交。
 - Actuator 暴露 health/info/metrics；Micrometer 只记录低基数任务类型、结果、耗时、token 和分片数，日志不写提示词、论文正文或凭据，错误文本入库前需脱敏和限长。
+- 可恢复任务只持久化 `task_type + context_json`，由 `AsyncTaskHandlerRegistry` 重建执行逻辑；数据库条件更新负责 claim，`lease_until` 防止进程崩溃后永久占用，`attempt_count/next_run_at` 实现指数退避和死信结算。幂等键配合请求哈希，避免同一键复用到不同参数。
 
 ## 7. RAG
 

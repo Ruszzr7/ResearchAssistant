@@ -22,28 +22,28 @@ public class WorkflowService {
      * 提交 Gap Research 工作流：库内 Gap 分析 → 外部验证。
      */
     public String submitGapResearch(List<Long> paperIds) {
-        return workflowEngine.submit("gap-research", Map.of("paperIds", paperIds));
+        return workflowEngine.submitRecoverable("gap-research", Map.of("paperIds", paperIds));
     }
 
     /**
      * 提交文献调研流水线。
      */
     public String submitLiteratureSurvey(String query) {
-        return workflowEngine.submit("literature-survey", Map.of("query", query));
+        return workflowEngine.submitRecoverable("literature-survey", Map.of("query", query));
     }
 
     /**
      * 用户确认后继续工作流。
      */
     public String confirm(String taskId, Map<String, Object> userInput) {
-        return workflowEngine.confirm(taskId, userInput);
+        return workflowEngine.confirmRecoverable(taskId, userInput);
     }
 
     /**
      * 提交论文入库流水线：元数据补全 → 标签/文件夹/阅读状态推荐 → 深度分析。
      */
     public String submitPaperImport(Long paperId) {
-        return workflowEngine.submit("paper-import", Map.of("paperId", paperId));
+        return workflowEngine.submitRecoverable("paper-import", Map.of("paperId", paperId));
     }
 
     /**
@@ -57,6 +57,6 @@ public class WorkflowService {
      * 从失败点重试工作流。
      */
     public String retry(String taskId) {
-        return workflowEngine.retry(taskId);
+        return workflowEngine.retryRecoverable(taskId);
     }
 }

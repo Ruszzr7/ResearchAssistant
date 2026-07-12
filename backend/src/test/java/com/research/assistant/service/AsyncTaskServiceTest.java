@@ -10,6 +10,7 @@ import com.research.assistant.service.ai.plan.Planner;
 import com.research.assistant.service.async.AsyncTaskManager;
 import com.research.assistant.service.async.AsyncTaskResult;
 import com.research.assistant.service.async.AsyncTaskStatus;
+import com.research.assistant.service.async.AsyncTaskHandlerRegistry;
 import com.research.assistant.service.rag.RagIndexingException;
 import com.research.assistant.service.rag.RagIndexingResult;
 import com.research.assistant.service.rag.RagIndexingService;
@@ -19,10 +20,12 @@ import org.springframework.core.task.AsyncTaskExecutor;
 
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -33,6 +36,7 @@ class AsyncTaskServiceTest {
     private final WorkflowStepMapper stepMapper = mock(WorkflowStepMapper.class);
     private final Future<?> future = mock(Future.class);
     private final RagIndexingService ragIndexingService = mock(RagIndexingService.class);
+    private final AtomicReference<AsyncTaskRecord> storedRecord = new AtomicReference<>();
     private AsyncTaskManager manager;
     private AsyncTaskService service;
 
@@ -43,14 +47,27 @@ class AsyncTaskServiceTest {
             return future;
         }).when(executor).submit(any(Runnable.class));
         doAnswer(invocation -> {
-            invocation.<com.research.assistant.entity.AsyncTaskRecord>getArgument(0).setId(1L);
+            AsyncTaskRecord record = invocation.getArgument(0);
+            record.setId(1L);
+            storedRecord.set(record);
             return 1;
         }).when(taskMapper).insert(any(AsyncTaskRecord.class));
+        when(taskMapper.selectByTaskId(any())).thenAnswer(invocation -> storedRecord.get());
+        when(taskMapper.selectByIdempotencyKey(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            AsyncTaskRecord record = storedRecord.get();
+            record.setStatus(AsyncTaskStatus.PROCESSING.name());
+            record.setLeaseOwner(invocation.getArgument(1));
+            record.setAttemptCount(1);
+            return 1;
+        }).when(taskMapper).claimForExecution(any(), any(), any());
+        doReturn(1).when(taskMapper).update(any(), any());
 
-        manager = new AsyncTaskManager(executor, taskMapper, stepMapper, new ObjectMapper());
+        AsyncTaskHandlerRegistry registry = new AsyncTaskHandlerRegistry();
+        manager = new AsyncTaskManager(executor, taskMapper, stepMapper, new ObjectMapper(), registry);
         service = new AsyncTaskService(
                 mock(AgentOrchestrator.class), mock(ArxivFetcher.class), mock(PaperMapper.class), manager,
-                mock(Planner.class), mock(PlanExecutor.class), ragIndexingService);
+                mock(Planner.class), mock(PlanExecutor.class), ragIndexingService, registry);
     }
 
     @Test

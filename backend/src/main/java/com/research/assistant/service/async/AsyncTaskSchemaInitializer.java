@@ -51,6 +51,20 @@ public class AsyncTaskSchemaInitializer implements InitializingBean {
             ADD COLUMN IF NOT EXISTS title VARCHAR(255) NULL COMMENT '任务展示标题'
             """;
 
+    private static final String ADD_RECOVERY_COLUMNS_SQL = """
+            ALTER TABLE async_task
+            ADD COLUMN IF NOT EXISTS task_type VARCHAR(64) NULL COMMENT '可恢复异步处理器类型',
+            ADD COLUMN IF NOT EXISTS failure_code VARCHAR(64) NULL,
+            ADD COLUMN IF NOT EXISTS attempt_count INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS max_attempts INT NOT NULL DEFAULT 3,
+            ADD COLUMN IF NOT EXISTS next_run_at DATETIME NULL,
+            ADD COLUMN IF NOT EXISTS lease_owner VARCHAR(128) NULL,
+            ADD COLUMN IF NOT EXISTS lease_until DATETIME NULL,
+            ADD COLUMN IF NOT EXISTS last_heartbeat_at DATETIME NULL,
+            ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128) NULL,
+            ADD COLUMN IF NOT EXISTS request_hash CHAR(64) NULL
+            """;
+
     private static final String CREATE_WORKFLOW_STEP_TABLE_SQL = """
             CREATE TABLE IF NOT EXISTS workflow_step (
                 id            BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -92,6 +106,7 @@ public class AsyncTaskSchemaInitializer implements InitializingBean {
             statement.execute(ADD_WORKFLOW_TYPE_COLUMN_SQL);
             statement.execute(ADD_CONTEXT_JSON_COLUMN_SQL);
             statement.execute(ADD_TITLE_COLUMN_SQL);
+            statement.execute(ADD_RECOVERY_COLUMNS_SQL);
             statement.execute(CREATE_WORKFLOW_STEP_TABLE_SQL);
             log.info("async_task / workflow_step 已就绪");
         } catch (SQLException e) {

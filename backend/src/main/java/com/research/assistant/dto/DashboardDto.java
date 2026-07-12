@@ -108,11 +108,13 @@ public class DashboardDto {
     public static class TaskStats {
         private long pending;
         private long processing;
+        private long retryWait;
         private long completed;
         private long failed;
         private long cancelled;
         private long pendingUser;
         private long expired;
+        private long deadLetter;
         private long total;
         private List<RecentTask> recent;
 
@@ -120,6 +122,8 @@ public class DashboardDto {
         public void setPending(long pending) { this.pending = pending; }
         public long getProcessing() { return processing; }
         public void setProcessing(long processing) { this.processing = processing; }
+        public long getRetryWait() { return retryWait; }
+        public void setRetryWait(long retryWait) { this.retryWait = retryWait; }
         public long getCompleted() { return completed; }
         public void setCompleted(long completed) { this.completed = completed; }
         public long getFailed() { return failed; }
@@ -130,6 +134,8 @@ public class DashboardDto {
         public void setPendingUser(long pendingUser) { this.pendingUser = pendingUser; }
         public long getExpired() { return expired; }
         public void setExpired(long expired) { this.expired = expired; }
+        public long getDeadLetter() { return deadLetter; }
+        public void setDeadLetter(long deadLetter) { this.deadLetter = deadLetter; }
         public long getTotal() { return total; }
         public void setTotal(long total) { this.total = total; }
         public List<RecentTask> getRecent() { return recent; }

@@ -31,6 +31,9 @@ Windows 用户也可以运行 `scripts/start-dev.bat`；Bash 环境可使用对�
 | `APP_STORAGE_PDF_DIR` | PDF 存储目录 |
 | `ASYNC_TASK_TIMEOUT` | 异步任务执行上限，默认 `30m` |
 | `ASYNC_PENDING_USER_TTL` | 人机确认等待期限，默认 `24h` |
+| `ASYNC_TASK_LEASE` | 可恢复任务租约时长，默认 `5m` |
+| `ASYNC_RETRY_BASE_DELAY` | 自动重试基础退避，默认 `5s` |
+| `ASYNC_MAX_ATTEMPTS` | 单任务最大尝试次数，默认 `3` |
 
 没有配置 `RA_MASTER_KEY` 时，API Key 仅适合本地临时开发，可能以明文保存。
 

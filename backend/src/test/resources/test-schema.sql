@@ -142,3 +142,44 @@ CREATE TABLE ai_quality_event (
     latency_ms BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE async_task (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    task_id VARCHAR(36) NOT NULL UNIQUE,
+    status VARCHAR(24) NOT NULL,
+    task_type VARCHAR(64),
+    workflow_type VARCHAR(64),
+    context_json TEXT,
+    title VARCHAR(255),
+    stage_text VARCHAR(255),
+    result_json TEXT,
+    error TEXT,
+    failure_code VARCHAR(64),
+    attempt_count INT NOT NULL DEFAULT 0,
+    max_attempts INT NOT NULL DEFAULT 3,
+    next_run_at TIMESTAMP,
+    lease_owner VARCHAR(128),
+    lease_until TIMESTAMP,
+    last_heartbeat_at TIMESTAMP,
+    idempotency_key VARCHAR(128),
+    request_hash CHAR(64),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE workflow_step (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    task_id VARCHAR(64) NOT NULL,
+    step_index INT NOT NULL,
+    step_name VARCHAR(128) NOT NULL,
+    skill_name VARCHAR(64) NOT NULL,
+    input_json TEXT,
+    output_json TEXT,
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    error TEXT,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(task_id, step_index)
+);

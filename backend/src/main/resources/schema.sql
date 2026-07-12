@@ -137,13 +137,25 @@ CREATE TABLE IF NOT EXISTS async_task (
     workflow_type  VARCHAR(64)  NULL     COMMENT '工作流模板 key，普通任务为空',
     context_json   MEDIUMTEXT   NULL     COMMENT '工作流启动上下文 JSON',
     title          VARCHAR(255) NULL     COMMENT '任务展示标题',
-    status         VARCHAR(20)  NOT NULL COMMENT 'PENDING / PROCESSING / COMPLETED / FAILED / CANCELLED / PENDING_USER / EXPIRED',
+    status         VARCHAR(24)  NOT NULL COMMENT 'PENDING / PROCESSING / RETRY_WAIT / COMPLETED / FAILED / CANCELLED / PENDING_USER / EXPIRED / DEAD_LETTER',
+    task_type      VARCHAR(64)  NULL     COMMENT '可恢复异步处理器类型；旧版内存任务为空',
     stage_text     VARCHAR(255),
     result_json    MEDIUMTEXT,
     error          TEXT,
+    failure_code   VARCHAR(64),
+    attempt_count  INT         NOT NULL DEFAULT 0,
+    max_attempts   INT         NOT NULL DEFAULT 3,
+    next_run_at    DATETIME    NULL,
+    lease_owner    VARCHAR(128) NULL,
+    lease_until    DATETIME    NULL,
+    last_heartbeat_at DATETIME NULL,
+    idempotency_key VARCHAR(128) NULL,
+    request_hash   CHAR(64)    NULL,
     created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_status_updated_at (status, updated_at)
+    INDEX idx_status_next_run (status, next_run_at),
+    INDEX idx_lease_until (status, lease_until),
+    UNIQUE KEY uk_async_idempotency (idempotency_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 工作流步骤持久化

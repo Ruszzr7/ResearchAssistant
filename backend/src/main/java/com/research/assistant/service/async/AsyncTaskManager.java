@@ -15,6 +15,7 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.DependsOn;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.task.AsyncTaskExecutor;
@@ -23,6 +24,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,13 +38,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 异步任务管理器 —— 内存 + MySQL 双写，支持跨重启查询。
+ * 异步任务管理器 —— 兼容旧版内存任务，并为声明 task_type 的任务提供 MySQL 调度与恢复。
  *
- * <p>任务状态实时同步到 {@code async_task} 表；后端重启后，
- * 内存中的 {@code tasks} 为空，可通过 {@link #get(String)} 回查数据库恢复结果。
- * 重启前未完成的 PENDING/PROCESSING 任务会在启动时被标记为 FAILED，避免用户无限等待。</p>
+ * <p>旧版闭包任务仍在进程内执行；可恢复任务只持久化 task_type/context_json，
+ * 通过租约和条件更新认领，服务重启后由调度器继续执行。</p>
  */
 @Service
+@DependsOn("asyncTaskSchemaInitializer")
 public class AsyncTaskManager {
 
     private static final Logger log = LoggerFactory.getLogger(AsyncTaskManager.class);
@@ -59,6 +63,13 @@ public class AsyncTaskManager {
     private final Duration pendingUserTtl;
     private final Duration executionTimeout;
     private final ResearchMetrics metrics;
+    private final AsyncTaskHandlerRegistry handlerRegistry;
+    private final Duration leaseDuration;
+    private final Duration retryBaseDelay;
+    private final int dispatchBatchSize;
+    private final int defaultMaxAttempts;
+    private final boolean dispatchEnabled;
+    private final String leaseOwner = UUID.randomUUID().toString();
     private final Map<String, TaskHolder> tasks = new ConcurrentHashMap<>();
 
     @Autowired
@@ -69,7 +80,13 @@ public class AsyncTaskManager {
                             @Value("${app.async.mark-orphaned-on-startup:true}") boolean markOrphanedOnStartup,
                             @Value("${app.async.pending-user-ttl:24h}") Duration pendingUserTtl,
                             @Value("${app.async.execution-timeout:30m}") Duration executionTimeout,
-                            ResearchMetrics metrics) {
+                            ResearchMetrics metrics,
+                            AsyncTaskHandlerRegistry handlerRegistry,
+                            @Value("${app.async.lease-duration:5m}") Duration leaseDuration,
+                            @Value("${app.async.retry-base-delay:5s}") Duration retryBaseDelay,
+                            @Value("${app.async.dispatch-batch-size:10}") int dispatchBatchSize,
+                            @Value("${app.async.max-attempts:3}") int defaultMaxAttempts,
+                            @Value("${app.async.dispatch-enabled:true}") boolean dispatchEnabled) {
         this.taskExecutor = taskExecutor;
         this.taskRecordMapper = taskRecordMapper;
         this.workflowStepMapper = workflowStepMapper;
@@ -78,6 +95,12 @@ public class AsyncTaskManager {
         this.pendingUserTtl = pendingUserTtl;
         this.executionTimeout = executionTimeout;
         this.metrics = metrics;
+        this.handlerRegistry = handlerRegistry;
+        this.leaseDuration = leaseDuration;
+        this.retryBaseDelay = retryBaseDelay;
+        this.dispatchBatchSize = Math.max(1, dispatchBatchSize);
+        this.defaultMaxAttempts = Math.max(1, defaultMaxAttempts);
+        this.dispatchEnabled = dispatchEnabled;
     }
 
     /**
@@ -89,7 +112,32 @@ public class AsyncTaskManager {
                             WorkflowStepMapper workflowStepMapper,
                             ObjectMapper objectMapper) {
         this(taskExecutor, taskRecordMapper, workflowStepMapper, objectMapper, true,
-                Duration.ofHours(24), Duration.ofMinutes(30), new ResearchMetrics(new SimpleMeterRegistry()));
+                Duration.ofHours(24), Duration.ofMinutes(30), new ResearchMetrics(new SimpleMeterRegistry()),
+                new AsyncTaskHandlerRegistry(), Duration.ofMinutes(5), Duration.ofSeconds(5), 10, 3, true);
+    }
+
+    public AsyncTaskManager(AsyncTaskExecutor taskExecutor,
+                            AsyncTaskRecordMapper taskRecordMapper,
+                            WorkflowStepMapper workflowStepMapper,
+                            ObjectMapper objectMapper,
+                            boolean markOrphanedOnStartup,
+                            Duration pendingUserTtl,
+                            Duration executionTimeout,
+                            ResearchMetrics metrics) {
+        this(taskExecutor, taskRecordMapper, workflowStepMapper, objectMapper,
+                markOrphanedOnStartup, pendingUserTtl, executionTimeout, metrics,
+                new AsyncTaskHandlerRegistry(), Duration.ofMinutes(5), Duration.ofSeconds(5), 10, 3, true);
+    }
+
+    public AsyncTaskManager(AsyncTaskExecutor taskExecutor,
+                            AsyncTaskRecordMapper taskRecordMapper,
+                            WorkflowStepMapper workflowStepMapper,
+                            ObjectMapper objectMapper,
+                            AsyncTaskHandlerRegistry handlerRegistry) {
+        this(taskExecutor, taskRecordMapper, workflowStepMapper, objectMapper, true,
+                Duration.ofHours(24), Duration.ofMinutes(30),
+                new ResearchMetrics(new SimpleMeterRegistry()), handlerRegistry,
+                Duration.ofMinutes(5), Duration.ofSeconds(5), 10, 3, true);
     }
 
     /**
@@ -105,6 +153,7 @@ public class AsyncTaskManager {
             UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
             wrapper.in("status",
                             java.util.Arrays.asList(AsyncTaskStatus.PENDING.name(), AsyncTaskStatus.PROCESSING.name()))
+                    .isNull("task_type")
                     .set("status", AsyncTaskStatus.FAILED.name())
                     .set("stage_text", "失败")
                     .set("result_json", null)
@@ -220,6 +269,270 @@ public class AsyncTaskManager {
     }
 
     /**
+     * 提交可在服务重启后恢复的任务。处理器只依赖 taskType 和持久化参数，不捕获业务闭包。
+     */
+    public String submitRecoverable(String taskType, String workflowType, String title,
+                                    Object arguments, String idempotencyKey) {
+        return submitRecoverable(UUID.randomUUID().toString(), taskType, workflowType, title,
+                toJson(arguments), idempotencyKey);
+    }
+
+    /** 工作流重试/确认等需要复用 taskId 的可恢复提交入口。 */
+    public String submitRecoverable(String taskId, String taskType, String workflowType, String title,
+                                    Object arguments, String idempotencyKey) {
+        return submitRecoverable(taskId, taskType, workflowType, title, toJson(arguments), idempotencyKey);
+    }
+
+    /** 工作流重试/确认等需要复用 taskId 的可恢复提交入口。 */
+    public String submitRecoverable(String taskId, String taskType, String workflowType, String title,
+                                    String contextJson, String idempotencyKey) {
+        if (taskType == null || taskType.isBlank()) {
+            throw new IllegalArgumentException("可恢复任务必须提供 taskType");
+        }
+        String requestHash = sha256(contextJson);
+        String normalizedIdempotencyKey = idempotencyKey == null || idempotencyKey.isBlank()
+                ? null : idempotencyKey.trim();
+        AsyncTaskRecord idempotent = normalizedIdempotencyKey == null
+                ? null : taskRecordMapper.selectByIdempotencyKey(normalizedIdempotencyKey);
+        if (idempotent != null) {
+            if (!java.util.Objects.equals(idempotent.getRequestHash(), requestHash)) {
+                throw new IllegalArgumentException("幂等键已用于另一组任务参数: " + normalizedIdempotencyKey);
+            }
+            return idempotent.getTaskId();
+        }
+
+        AsyncTaskResult<Object> initial = AsyncTaskResult.pending(taskId, "排队中…", workflowType, null, title);
+        Long recordId = insertRecoverableRecord(initial, taskType, contextJson, normalizedIdempotencyKey, requestHash);
+        TaskHolder holder = new TaskHolder(initial, null, recordId, metrics.startTimer(), taskType);
+        tasks.put(taskId, holder);
+        metrics.taskSubmitted(taskType);
+        dispatchRecoverableTask(taskId);
+        return taskId;
+    }
+
+    private void dispatchRecoverableTask(String taskId) {
+        AsyncTaskRecord record = taskRecordMapper.selectByTaskId(taskId);
+        if (record == null || record.getTaskType() == null) {
+            return;
+        }
+        if (!handlerRegistry.contains(record.getTaskType())) {
+            markRecoverableFailure(taskId, "HANDLER_NOT_FOUND", "没有注册任务处理器: " + record.getTaskType());
+            return;
+        }
+        int attempts = record.getAttemptCount() == null ? 0 : record.getAttemptCount();
+        int maxAttempts = record.getMaxAttempts() == null ? defaultMaxAttempts : record.getMaxAttempts();
+        if (attempts >= maxAttempts) {
+            markDeadLetter(taskId, "超过最大尝试次数");
+            return;
+        }
+        String claimOwner = leaseOwner + ":" + UUID.randomUUID();
+        try {
+            if (taskRecordMapper.claimForExecution(taskId, claimOwner,
+                    LocalDateTime.now().plus(leaseDuration)) == 0) {
+                return;
+            }
+        } catch (RuntimeException e) {
+            log.warn("event=async_task_claim_failed taskId={} errorType={}",
+                    taskId, e.getClass().getSimpleName());
+            return;
+        }
+
+        TaskHolder holder = tasks.computeIfAbsent(taskId,
+                id -> new TaskHolder(toResult(record), null, record.getId(), metrics.startTimer(),
+                        record.getTaskType() != null ? record.getTaskType() : record.getWorkflowType()));
+        synchronized (holder) {
+            if (holder.result.getStatus() == AsyncTaskStatus.RETRY_WAIT && holder.metricsFinished) {
+                holder.metricsFinished = false;
+                metrics.taskSubmitted(record.getTaskType());
+            }
+            holder.leaseToken = claimOwner;
+        }
+        updateStage(taskId, "正在处理…");
+        try {
+            Future<?> future = taskExecutor.submit(() -> runRecoverableTask(taskId));
+            synchronized (holder) {
+                if (holder.result.getStatus() == AsyncTaskStatus.PROCESSING) {
+                    holder.future = future;
+                }
+            }
+        } catch (RuntimeException e) {
+            scheduleRetry(taskId, new AsyncTaskExecutionException(
+                    "EXECUTOR_REJECTED", "任务执行器暂时无法接收任务", true, e));
+        }
+    }
+
+    private void runRecoverableTask(String taskId) {
+        AsyncTaskRecord record = taskRecordMapper.selectByTaskId(taskId);
+        if (record == null || record.getTaskType() == null) {
+            return;
+        }
+        AsyncTaskHandler handler = handlerRegistry.get(record.getTaskType());
+        if (handler == null) {
+            markRecoverableFailure(taskId, "HANDLER_NOT_FOUND", "没有注册任务处理器: " + record.getTaskType());
+            return;
+        }
+        try {
+            Map<String, Object> arguments = readArguments(record.getContextJson());
+            AsyncTaskExecutionContext context = new AsyncTaskExecutionContext(
+                    taskId,
+                    record.getTaskType(),
+                    arguments,
+                    stage -> updateStage(taskId, stage),
+                    partial -> setPendingUser(taskId, partial));
+            Object result = handler.execute(context);
+            if (!hasLease(taskId)) {
+                log.info("event=async_task_lease_lost taskId={} type={}", taskId, record.getTaskType());
+                return;
+            }
+            TaskHolder holder = tasks.get(taskId);
+            if (holder != null && holder.result.getStatus() == AsyncTaskStatus.PENDING_USER) {
+                log.info("event=async_task_pending_user taskId={} type={}", taskId, record.getTaskType());
+            } else if (holder != null && updateResult(taskId, completedResult(holder, result))) {
+                log.info("event=async_task_completed taskId={} type={}", taskId, record.getTaskType());
+            }
+        } catch (AsyncTaskExecutionException e) {
+            if (e.isRetryable()) {
+                scheduleRetry(taskId, e);
+            } else {
+                markRecoverableFailure(taskId, e.getFailureCode(), safeError(e));
+            }
+        } catch (Exception e) {
+            if (Thread.currentThread().isInterrupted()) {
+                Thread.currentThread().interrupt();
+                updateResult(taskId, currentResult(taskId).cancelled());
+            } else {
+                markRecoverableFailure(taskId, "TASK_FAILED", safeError(e));
+            }
+        }
+    }
+
+    private Map<String, Object> readArguments(String contextJson) throws JsonProcessingException {
+        if (contextJson == null || contextJson.isBlank()) {
+            return new java.util.LinkedHashMap<>();
+        }
+        return objectMapper.readValue(contextJson, Map.class);
+    }
+
+    private AsyncTaskResult<?> currentResult(String taskId) {
+        TaskHolder holder = tasks.get(taskId);
+        if (holder != null) {
+            return holder.result;
+        }
+        AsyncTaskRecord record = taskRecordMapper.selectByTaskId(taskId);
+        return record == null ? AsyncTaskResult.pending(taskId, "处理中…") : toResult(record);
+    }
+
+    @SuppressWarnings("unchecked")
+    private AsyncTaskResult<?> completedResult(TaskHolder holder, Object result) {
+        return ((AsyncTaskResult<Object>) holder.result).completed(result);
+    }
+
+    private boolean hasLease(String taskId) {
+        AsyncTaskRecord record = taskRecordMapper.selectByTaskId(taskId);
+        return record != null && leaseToken(taskId).equals(record.getLeaseOwner())
+                && AsyncTaskStatus.PROCESSING.name().equals(record.getStatus());
+    }
+
+    private void scheduleRetry(String taskId, AsyncTaskExecutionException error) {
+        AsyncTaskRecord record = taskRecordMapper.selectByTaskId(taskId);
+        if (record == null) {
+            return;
+        }
+        int attempt = record.getAttemptCount() == null ? 1 : record.getAttemptCount();
+        int maxAttempts = record.getMaxAttempts() == null ? defaultMaxAttempts : record.getMaxAttempts();
+        if (attempt >= maxAttempts) {
+            markDeadLetter(taskId, error.getMessage());
+            return;
+        }
+        long multiplier = 1L << Math.min(Math.max(attempt - 1, 0), 6);
+        LocalDateTime nextRunAt = LocalDateTime.now().plus(retryBaseDelay.multipliedBy(multiplier));
+        String safeMessage = safeError(error);
+        UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
+        wrapper.eq("task_id", taskId)
+                .eq("status", AsyncTaskStatus.PROCESSING.name())
+                .eq("lease_owner", leaseToken(taskId))
+                .set("status", AsyncTaskStatus.RETRY_WAIT.name())
+                .set("stage_text", "等待重试…")
+                .set("result_json", null)
+                .set("error", safeMessage)
+                .set("failure_code", error.getFailureCode())
+                .set("next_run_at", nextRunAt)
+                .set("lease_owner", null)
+                .set("lease_until", null)
+                .set("last_heartbeat_at", null)
+                .set("updated_at", LocalDateTime.now());
+        if (taskRecordMapper.update(null, wrapper) > 0) {
+            updateInMemoryAfterRetry(taskId, safeMessage);
+            log.warn("event=async_task_retry_scheduled taskId={} attempt={} nextRunAt={} failureCode={}",
+                    taskId, attempt, nextRunAt, error.getFailureCode());
+        }
+    }
+
+    private void updateInMemoryAfterRetry(String taskId, String error) {
+        TaskHolder holder = tasks.get(taskId);
+        if (holder == null) {
+            return;
+        }
+        synchronized (holder) {
+            holder.result = holder.result.retryWaiting(error);
+            holder.future = null;
+            finishMetrics(holder, "retry");
+        }
+    }
+
+    private void markRecoverableFailure(String taskId, String failureCode, String error) {
+        UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
+        wrapper.eq("task_id", taskId)
+                .in("status", java.util.Arrays.asList(
+                        AsyncTaskStatus.PENDING.name(), AsyncTaskStatus.PROCESSING.name(), AsyncTaskStatus.RETRY_WAIT.name()))
+                .set("status", AsyncTaskStatus.FAILED.name())
+                .set("stage_text", "失败")
+                .set("result_json", null)
+                .set("error", error)
+                .set("failure_code", failureCode)
+                .set("lease_owner", null)
+                .set("lease_until", null)
+                .set("last_heartbeat_at", null)
+                .set("updated_at", LocalDateTime.now());
+        if (taskRecordMapper.update(null, wrapper) > 0) {
+            TaskHolder holder = tasks.get(taskId);
+            if (holder != null) {
+                synchronized (holder) {
+                    holder.result = holder.result.failed(error);
+                    holder.future = null;
+                    finishMetrics(holder, "failed");
+                }
+            }
+        }
+    }
+
+    private void markDeadLetter(String taskId, String error) {
+        UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
+        wrapper.eq("task_id", taskId)
+                .in("status", java.util.Arrays.asList(
+                        AsyncTaskStatus.PENDING.name(), AsyncTaskStatus.PROCESSING.name(), AsyncTaskStatus.RETRY_WAIT.name()))
+                .set("status", AsyncTaskStatus.DEAD_LETTER.name())
+                .set("stage_text", "超过重试上限")
+                .set("result_json", null)
+                .set("error", error)
+                .set("failure_code", "MAX_ATTEMPTS")
+                .set("lease_owner", null)
+                .set("lease_until", null)
+                .set("last_heartbeat_at", null)
+                .set("updated_at", LocalDateTime.now());
+        if (taskRecordMapper.update(null, wrapper) > 0) {
+            TaskHolder holder = tasks.get(taskId);
+            if (holder != null) {
+                synchronized (holder) {
+                    holder.result = holder.result.deadLetter(error);
+                    holder.future = null;
+                    finishMetrics(holder, "dead_letter");
+                }
+            }
+        }
+    }
+
+    /**
      * 将任务置为等待用户确认状态（用于人机确认工作流）。
      */
     public void setPendingUser(String taskId, Object partialResult) {
@@ -236,6 +549,9 @@ public class AsyncTaskManager {
             holder.result = updated;
             holder.future = null;
             updateRecord(holder.recordId, updated);
+            if (holder.taskType != null) {
+                clearLease(taskId);
+            }
         }
     }
 
@@ -254,7 +570,8 @@ public class AsyncTaskManager {
         }
         AsyncTaskResult<?> result = toResult(record);
         // 缓存到内存，减少后续轮询查 DB
-        tasks.put(taskId, new TaskHolder(result, null, record.getId(), metrics.startTimer(), record.getWorkflowType()));
+        tasks.put(taskId, new TaskHolder(result, null, record.getId(), metrics.startTimer(),
+                record.getTaskType() != null ? record.getTaskType() : record.getWorkflowType()));
         return (AsyncTaskResult<T>) result;
     }
 
@@ -286,6 +603,7 @@ public class AsyncTaskManager {
                 future = holder.future;
                 holder.future = null;
                 updateRecord(holder.recordId, cancelled);
+                clearLease(taskId);
                 finishMetrics(holder, "cancelled");
             }
             if (future != null) {
@@ -344,7 +662,8 @@ public class AsyncTaskManager {
         }
         synchronized (holder) {
             AsyncTaskStatus status = holder.result.getStatus();
-            if (status != AsyncTaskStatus.PENDING && status != AsyncTaskStatus.PROCESSING) {
+            if (status != AsyncTaskStatus.PENDING && status != AsyncTaskStatus.PROCESSING
+                    && status != AsyncTaskStatus.RETRY_WAIT) {
                 return false;
             }
             if (java.util.Objects.equals(holder.result.getStageText(), stageText)
@@ -354,6 +673,9 @@ public class AsyncTaskManager {
             AsyncTaskResult<?> updated = holder.result.processing(stageText);
             holder.result = updated;
             updateRecord(holder.recordId, updated);
+            if (holder.taskType != null) {
+                touchLease(taskId);
+            }
             return true;
         }
     }
@@ -370,9 +692,39 @@ public class AsyncTaskManager {
             holder.result = result;
             holder.future = null; // 释放 Future 及其闭包引用
             updateRecord(holder.recordId, result);
+            if (holder.taskType != null && result.getStatus().isTerminal()) {
+                clearLease(taskId);
+            }
             finishMetrics(holder, result.getStatus().name().toLowerCase(java.util.Locale.ROOT));
             return true;
         }
+    }
+
+    private void touchLease(String taskId) {
+        UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
+        wrapper.eq("task_id", taskId)
+                .eq("status", AsyncTaskStatus.PROCESSING.name())
+                .eq("lease_owner", leaseToken(taskId))
+                .set("last_heartbeat_at", LocalDateTime.now())
+                .set("lease_until", LocalDateTime.now().plus(leaseDuration))
+                .set("updated_at", LocalDateTime.now());
+        taskRecordMapper.update(null, wrapper);
+    }
+
+    private void clearLease(String taskId) {
+        UpdateWrapper<AsyncTaskRecord> wrapper = new UpdateWrapper<>();
+        wrapper.eq("task_id", taskId)
+                .eq("lease_owner", leaseToken(taskId))
+                .set("lease_owner", null)
+                .set("lease_until", null)
+                .set("last_heartbeat_at", null)
+                .set("updated_at", LocalDateTime.now());
+        taskRecordMapper.update(null, wrapper);
+    }
+
+    private String leaseToken(String taskId) {
+        TaskHolder holder = tasks.get(taskId);
+        return holder != null && holder.leaseToken != null ? holder.leaseToken : leaseOwner;
     }
 
     private Long insertRecord(AsyncTaskResult<?> result, String contextJson) {
@@ -400,6 +752,47 @@ public class AsyncTaskManager {
         return record.getId();
     }
 
+    private Long insertRecoverableRecord(AsyncTaskResult<?> result, String taskType,
+                                         String contextJson, String idempotencyKey, String requestHash) {
+        AsyncTaskRecord existing = taskRecordMapper.selectByTaskId(result.getTaskId());
+        if (existing != null) {
+            if (!parseStatus(existing.getStatus()).canRestart()) {
+                throw new IllegalStateException("任务当前状态不允许重新提交: " + existing.getStatus());
+            }
+            existing.setStatus(AsyncTaskStatus.PENDING.name());
+            existing.setTaskType(taskType);
+            existing.setWorkflowType(result.getWorkflowType());
+            existing.setContextJson(contextJson);
+            existing.setTitle(result.getTitle());
+            existing.setStageText(result.getStageText());
+            existing.setResultJson(null);
+            existing.setError(null);
+            existing.setFailureCode(null);
+            existing.setAttemptCount(0);
+            existing.setNextRunAt(null);
+            existing.setLeaseOwner(null);
+            existing.setLeaseUntil(null);
+            existing.setLastHeartbeatAt(null);
+            existing.setIdempotencyKey(idempotencyKey);
+            existing.setRequestHash(requestHash);
+            if (existing.getMaxAttempts() == null || existing.getMaxAttempts() < 1) {
+                existing.setMaxAttempts(defaultMaxAttempts);
+            }
+            existing.setUpdatedAt(LocalDateTime.now());
+            taskRecordMapper.updateById(existing);
+            return existing.getId();
+        }
+        AsyncTaskRecord record = newRecord(result);
+        record.setTaskType(taskType);
+        record.setContextJson(contextJson);
+        record.setAttemptCount(0);
+        record.setMaxAttempts(defaultMaxAttempts);
+        record.setIdempotencyKey(idempotencyKey);
+        record.setRequestHash(requestHash);
+        taskRecordMapper.insert(record);
+        return record.getId();
+    }
+
     private void updateRecord(Long recordId, AsyncTaskResult<?> result) {
         if (recordId == null) {
             return;
@@ -421,6 +814,23 @@ public class AsyncTaskManager {
         record.setCreatedAt(result.getCreatedAt());
         record.setUpdatedAt(result.getUpdatedAt());
         return record;
+    }
+
+    private String sha256(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 不可用", e);
+        }
     }
 
     private AsyncTaskResult<?> toResult(AsyncTaskRecord record) {
@@ -534,6 +944,27 @@ public class AsyncTaskManager {
         });
     }
 
+    /** 从数据库认领可恢复任务；条件更新保证同一任务只会被一个节点执行。 */
+    @Scheduled(
+            fixedDelayString = "${app.async.dispatch-interval-ms:1000}",
+            initialDelayString = "${app.async.dispatch-interval-ms:1000}")
+    public void dispatchRecoverableTasks() {
+        if (!dispatchEnabled) {
+            return;
+        }
+        try {
+            int recovered = taskRecordMapper.recoverExpiredLeases();
+            if (recovered > 0) {
+                log.warn("event=async_task_lease_recovered count={}", recovered);
+            }
+            for (AsyncTaskRecord record : taskRecordMapper.selectDispatchable(dispatchBatchSize)) {
+                dispatchRecoverableTask(record.getTaskId());
+            }
+        } catch (Exception e) {
+            log.warn("event=async_task_dispatch_failed errorType={}", e.getClass().getSimpleName());
+        }
+    }
+
     /** 将超过确认期限的 PENDING_USER 任务结算为 EXPIRED。 */
     @Scheduled(
             fixedDelayString = "${app.async.pending-user-expiry-scan-ms:60000}",
@@ -591,6 +1022,9 @@ public class AsyncTaskManager {
             synchronized (holder) {
                 AsyncTaskStatus status = holder.result.getStatus();
                 LocalDateTime createdAt = holder.result.getCreatedAt();
+                if (holder.taskType != null) {
+                    continue;
+                }
                 if ((status != AsyncTaskStatus.PENDING && status != AsyncTaskStatus.PROCESSING)
                         || createdAt == null || !createdAt.isBefore(cutoff)) {
                     continue;
@@ -637,7 +1071,8 @@ public class AsyncTaskManager {
                                     AsyncTaskStatus.COMPLETED.name(),
                                     AsyncTaskStatus.FAILED.name(),
                                     AsyncTaskStatus.CANCELLED.name(),
-                                    AsyncTaskStatus.EXPIRED.name()))
+                                    AsyncTaskStatus.EXPIRED.name(),
+                                    AsyncTaskStatus.DEAD_LETTER.name()))
                     .lt("updated_at", cutoff);
             int deleted = taskRecordMapper.delete(wrapper);
             if (deleted > 0) {
@@ -654,6 +1089,7 @@ public class AsyncTaskManager {
         Long recordId;
         long startedAtNanos;
         String taskType;
+        String leaseToken;
         boolean metricsFinished;
 
         TaskHolder(AsyncTaskResult<?> result, Future<?> future, Long recordId,

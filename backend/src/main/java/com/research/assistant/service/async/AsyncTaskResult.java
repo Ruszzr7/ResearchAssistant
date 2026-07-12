@@ -70,6 +70,16 @@ public class AsyncTaskResult<T> {
                 workflowType, steps, title);
     }
 
+    public AsyncTaskResult<T> retryWaiting(String error) {
+        return new AsyncTaskResult<>(taskId, AsyncTaskStatus.RETRY_WAIT, null, null, error, createdAt, LocalDateTime.now(),
+                workflowType, steps, title);
+    }
+
+    public AsyncTaskResult<T> deadLetter(String error) {
+        return new AsyncTaskResult<>(taskId, AsyncTaskStatus.DEAD_LETTER, null, null, error, createdAt, LocalDateTime.now(),
+                workflowType, steps, title);
+    }
+
     public AsyncTaskResult<T> pendingUser(T result) {
         return new AsyncTaskResult<>(taskId, AsyncTaskStatus.PENDING_USER, null, result, null, createdAt, LocalDateTime.now(),
                 workflowType, steps, title);
@@ -97,6 +107,8 @@ public class AsyncTaskResult<T> {
             case FAILED -> "失败";
             case CANCELLED -> "已取消";
             case EXPIRED -> "已过期";
+            case RETRY_WAIT -> "等待重试";
+            case DEAD_LETTER -> "超过重试上限";
             default -> "";
         };
     }

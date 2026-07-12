@@ -44,6 +44,11 @@ app:
     schema-init-enabled: true
     pending-user-ttl: ${ASYNC_PENDING_USER_TTL:24h}
     execution-timeout: ${ASYNC_TASK_TIMEOUT:30m}
+    dispatch-batch-size: ${ASYNC_DISPATCH_BATCH_SIZE:10}
+    lease-duration: ${ASYNC_TASK_LEASE:5m}
+    retry-base-delay: ${ASYNC_RETRY_BASE_DELAY:5s}
+    max-attempts: ${ASYNC_MAX_ATTEMPTS:3}
+    dispatch-enabled: ${ASYNC_DISPATCH_ENABLED:true}
   storage:
     pdf-dir: ${APP_STORAGE_PDF_DIR:./data/papers}
   encryption:

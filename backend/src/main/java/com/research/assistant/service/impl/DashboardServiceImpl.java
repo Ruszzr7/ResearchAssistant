@@ -117,19 +117,23 @@ public class DashboardServiceImpl implements DashboardService {
         DashboardDto.TaskStats stats = new DashboardDto.TaskStats();
         long pending = asyncTaskRecordMapper.countByStatus("PENDING");
         long processing = asyncTaskRecordMapper.countByStatus("PROCESSING");
+        long retryWait = asyncTaskRecordMapper.countByStatus("RETRY_WAIT");
         long completed = asyncTaskRecordMapper.countByStatus("COMPLETED");
         long failed = asyncTaskRecordMapper.countByStatus("FAILED");
         long cancelled = asyncTaskRecordMapper.countByStatus("CANCELLED");
         long pendingUser = asyncTaskRecordMapper.countByStatus("PENDING_USER");
         long expired = asyncTaskRecordMapper.countByStatus("EXPIRED");
+        long deadLetter = asyncTaskRecordMapper.countByStatus("DEAD_LETTER");
         stats.setPending(pending);
         stats.setProcessing(processing);
+        stats.setRetryWait(retryWait);
         stats.setCompleted(completed);
         stats.setFailed(failed);
         stats.setCancelled(cancelled);
         stats.setPendingUser(pendingUser);
         stats.setExpired(expired);
-        stats.setTotal(pending + processing + completed + failed + cancelled + pendingUser + expired);
+        stats.setDeadLetter(deadLetter);
+        stats.setTotal(pending + processing + retryWait + completed + failed + cancelled + pendingUser + expired + deadLetter);
 
         List<AsyncTaskRecord> recent = asyncTaskRecordMapper.selectRecent(RECENT_LIMIT);
         stats.setRecent(recent.stream().map(this::toRecentTask).toList());

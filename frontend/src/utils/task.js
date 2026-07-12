@@ -97,7 +97,7 @@ export function waitForTask(apiGet, taskId, signal, onStage) {
   return poll({
     fetch: () => apiGet(`/agent/task/${taskId}`, { signal }).then(r => r.data),
     isCompleted: data => data?.status === 'COMPLETED',
-    isFailed: data => ['FAILED', 'CANCELLED', 'EXPIRED'].includes(data?.status),
+    isFailed: data => ['FAILED', 'CANCELLED', 'EXPIRED', 'DEAD_LETTER'].includes(data?.status),
     getError: data =>
       data?.status === 'CANCELLED' ? '任务已取消' : (data?.error || '任务执行失败'),
     onData: data => onStage?.(data.stageText),

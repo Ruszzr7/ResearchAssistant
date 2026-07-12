@@ -20,8 +20,12 @@ public class AsyncTaskRecord {
     @TableField("task_id")
     private String taskId;
 
-    /** PENDING / PROCESSING / COMPLETED / FAILED / CANCELLED / PENDING_USER / EXPIRED */
+    /** PENDING / PROCESSING / RETRY_WAIT / COMPLETED / FAILED / CANCELLED / PENDING_USER / EXPIRED / DEAD_LETTER */
     private String status;
+
+    /** 可恢复处理器类型；为空表示兼容旧版内存任务。 */
+    @TableField("task_type")
+    private String taskType;
 
     /** 工作流模板 key，普通任务为空 */
     @TableField("workflow_type")
@@ -45,6 +49,33 @@ public class AsyncTaskRecord {
     /** 失败时的错误信息 */
     private String error;
 
+    @TableField("failure_code")
+    private String failureCode;
+
+    @TableField("attempt_count")
+    private Integer attemptCount;
+
+    @TableField("max_attempts")
+    private Integer maxAttempts;
+
+    @TableField("next_run_at")
+    private LocalDateTime nextRunAt;
+
+    @TableField("lease_owner")
+    private String leaseOwner;
+
+    @TableField("lease_until")
+    private LocalDateTime leaseUntil;
+
+    @TableField("last_heartbeat_at")
+    private LocalDateTime lastHeartbeatAt;
+
+    @TableField("idempotency_key")
+    private String idempotencyKey;
+
+    @TableField("request_hash")
+    private String requestHash;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
@@ -61,6 +92,9 @@ public class AsyncTaskRecord {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public String getTaskType() { return taskType; }
+    public void setTaskType(String taskType) { this.taskType = taskType; }
 
     public String getWorkflowType() { return workflowType; }
     public void setWorkflowType(String workflowType) { this.workflowType = workflowType; }
@@ -79,6 +113,33 @@ public class AsyncTaskRecord {
 
     public String getError() { return error; }
     public void setError(String error) { this.error = error; }
+
+    public String getFailureCode() { return failureCode; }
+    public void setFailureCode(String failureCode) { this.failureCode = failureCode; }
+
+    public Integer getAttemptCount() { return attemptCount; }
+    public void setAttemptCount(Integer attemptCount) { this.attemptCount = attemptCount; }
+
+    public Integer getMaxAttempts() { return maxAttempts; }
+    public void setMaxAttempts(Integer maxAttempts) { this.maxAttempts = maxAttempts; }
+
+    public LocalDateTime getNextRunAt() { return nextRunAt; }
+    public void setNextRunAt(LocalDateTime nextRunAt) { this.nextRunAt = nextRunAt; }
+
+    public String getLeaseOwner() { return leaseOwner; }
+    public void setLeaseOwner(String leaseOwner) { this.leaseOwner = leaseOwner; }
+
+    public LocalDateTime getLeaseUntil() { return leaseUntil; }
+    public void setLeaseUntil(LocalDateTime leaseUntil) { this.leaseUntil = leaseUntil; }
+
+    public LocalDateTime getLastHeartbeatAt() { return lastHeartbeatAt; }
+    public void setLastHeartbeatAt(LocalDateTime lastHeartbeatAt) { this.lastHeartbeatAt = lastHeartbeatAt; }
+
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
+
+    public String getRequestHash() { return requestHash; }
+    public void setRequestHash(String requestHash) { this.requestHash = requestHash; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

@@ -197,11 +197,13 @@ const treeProps = { children: 'children', label: 'name' }
 const statusMeta = {
   PENDING: { label: '排队中', type: 'info' },
   PROCESSING: { label: '运行中', type: 'primary' },
+  RETRY_WAIT: { label: '等待重试', type: 'warning' },
   COMPLETED: { label: '已完成', type: 'success' },
   FAILED: { label: '失败', type: 'danger' },
   CANCELLED: { label: '已取消', type: 'warning' },
   PENDING_USER: { label: '待确认', type: 'warning' },
-  EXPIRED: { label: '已过期', type: 'info' }
+  EXPIRED: { label: '已过期', type: 'info' },
+  DEAD_LETTER: { label: '超过重试上限', type: 'danger' }
 }
 
 const typeMeta = {
@@ -226,7 +228,7 @@ function candidateKey(c) {
 }
 
 function isTerminal(status) {
-  return ['COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED'].includes(status)
+  return ['COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED', 'DEAD_LETTER'].includes(status)
 }
 
 function onIntroClose() {
