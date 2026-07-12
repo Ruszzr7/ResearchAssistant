@@ -6,6 +6,7 @@ import com.research.assistant.constant.ProcessingStatus;
 import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.dto.NetworkExpandRequest;
 import com.research.assistant.dto.SearchExpandRequest;
+import com.research.assistant.dto.SearchExtractRequest;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.service.ArxivFetcher;
 import com.research.assistant.service.AsyncTaskService;
@@ -50,8 +51,8 @@ public class SearchController {
 
     /** POST /api/search/extract — Step 2: Agent 提炼检索要素 */
     @PostMapping("/extract")
-    public Result<Map<String, Object>> extract(@RequestBody Map<String, String> body) {
-        String input = body.get("query");
+    public Result<Map<String, Object>> extract(@RequestBody @Valid SearchExtractRequest request) {
+        String input = request.getQuery();
         if (input == null || input.isBlank()) {
             return Result.error(400, "请输入研究方向描述");
         }

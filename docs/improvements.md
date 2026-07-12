@@ -40,3 +40,4 @@
 这是一个以 Java/Spring Boot 为工程骨架、以 LangChain4j 为 AI 接入层的本地科研 Agent。核心亮点是把 LLM、RAG、异步任务、可暂停工作流和人机确认串成可运行系统；后续重点是质量评估、可观测性和部署工程化。
 - [x] Mission 11.1：敏感配置统一脱敏、生产加密 fail-closed、请求 ID、全局异常脱敏、主要 DTO 校验、Controller 契约测试和 PDF 路径 containment。
 - [ ] Mission 11.2：补齐剩余 Map/Entity 请求 DTO、完整 API 契约覆盖和启动脚本 readiness；Flyway/Liquibase 与完整 Docker 仍留在 Mission 14。
+- [x] Mission 11.2：Folder/Tag/Workflow/Agent/Search/Paper 批量请求契约收敛、核心 MockMvc 测试和 MySQL/Backend readiness 脚本。

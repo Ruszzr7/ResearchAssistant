@@ -98,3 +98,5 @@
 - Mission 11 安全基线：设置读取端只返回脱敏值和 `configured`，保存端使用白名单、长度和类型校验；生产 profile 缺少 `RA_MASTER_KEY` 时 fail-closed，本地开发保留显式兼容模式。
 - API 错误响应通过 HTTP 状态和 `{code,message,data}` 传递，异常日志只记录类型、请求 ID 等低敏信息，不记录 provider 响应体、密钥或论文正文。
 - 默认监听 `127.0.0.1`，CORS 通过 `RA_CORS_ALLOWED_ORIGINS` 配置；MyBatis 默认关闭 SQL 日志，调试时显式设置 `MYBATIS_LOG_IMPL`。
+- API 契约继续采用现有字段名和 `{code,message,data}` 包络；对于不适合静态 DTO 的 Workflow confirm/Search execute，先限制 map 大小，避免破坏前端动态字段。
+- 单机 AI 并发保护和异步任务容量保护是两层边界：前者限制同步 AI/SSE 请求，后者限制持久化异步队列，均不依赖 Redis。

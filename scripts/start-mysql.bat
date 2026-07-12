@@ -75,3 +75,18 @@ if %errorlevel%==0 (
   pause
   exit /b 1
 )
+echo [INFO] Waiting for MySQL readiness...
+for /L %%i in (1,1,30) do (
+  if exist "%MYSQL_HOME%\bin\mysqladmin.exe" (
+    "%MYSQL_HOME%\bin\mysqladmin.exe" --protocol=tcp -h127.0.0.1 -P3306 ping --silent >nul 2>&1
+  ) else (
+    powershell -NoProfile -Command "if ((Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -WarningAction SilentlyContinue).TcpTestSucceeded) { exit 0 } else { exit 1 }" >nul 2>&1
+  )
+  if !errorlevel!==0 (
+    echo [OK] MySQL is ready.
+    goto :mysql_ready
+  )
+  timeout /t 2 /nobreak >nul
+)
+echo [WARN] MySQL process exists but port 3306 is not ready yet.
+:mysql_ready

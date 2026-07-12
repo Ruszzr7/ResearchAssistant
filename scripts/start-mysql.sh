@@ -91,3 +91,15 @@ else
   echo -e "${RED}MySQL 启动失败，请查看日志: $MYSQL_HOME/mysql.log${NC}"
   exit 1
 fi
+echo "[INFO] Waiting for MySQL readiness..."
+for i in $(seq 1 30); do
+  if command -v mysqladmin.exe >/dev/null 2>&1 && mysqladmin.exe --protocol=tcp -h127.0.0.1 -P3306 ping --silent >/dev/null 2>&1; then
+    echo "[OK] MySQL is ready."
+    exit 0
+  elif ! command -v mysqladmin.exe >/dev/null 2>&1 && (echo >/dev/tcp/127.0.0.1/3306) >/dev/null 2>&1; then
+    echo "[OK] MySQL TCP port is ready."
+    exit 0
+  fi
+  sleep 2
+done
+echo "[WARN] MySQL process exists but port 3306 is not ready yet." >&2

@@ -4,6 +4,11 @@ import com.research.assistant.common.Result;
 import com.research.assistant.dto.ChatRequest;
 import com.research.assistant.dto.CompareRequest;
 import com.research.assistant.dto.GapRequest;
+import com.research.assistant.dto.AgentFolderSuggestRequest;
+import com.research.assistant.dto.AgentGapVerifyRequest;
+import com.research.assistant.dto.AgentPaperIdRequest;
+import com.research.assistant.dto.AgentPlanRequest;
+import com.research.assistant.dto.AgentSearchRequest;
 import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.service.AgentOrchestrator;
@@ -146,10 +151,10 @@ public class AgentController {
      * POST /api/agent/plan — 自然语言任务规划：LLM 自动选择 Skill 并执行。
      */
     @PostMapping("/plan")
-    public Result<Map<String, String>> plan(@RequestBody Map<String, String> body,
+    public Result<Map<String, String>> plan(@RequestBody @Valid AgentPlanRequest request,
                                             @RequestHeader(value = "Idempotency-Key", required = false)
                                             String idempotencyKey) {
-        String goal = body.get("goal");
+        String goal = request.getGoal();
         if (goal == null || goal.isBlank()) {
             return Result.error(400, "请提供 goal");
         }
@@ -252,8 +257,8 @@ public class AgentController {
      * 由 Agent 调用 arXiv/Crossref/PDF 提取等工具综合判断每个 Gap 是否已被研究。
      */
     @PostMapping("/gap/verify")
-    public Result<List<Map<String, Object>>> gapVerify(@RequestBody Map<String, Object> body) {
-        String gaps = (String) body.get("gaps");
+    public Result<List<Map<String, Object>>> gapVerify(@RequestBody @Valid AgentGapVerifyRequest request) {
+        String gaps = request.getGaps();
         if (gaps == null || gaps.isBlank()) {
             return Result.error(400, "请提供库内 Gap 分析结果");
         }
@@ -272,12 +277,12 @@ public class AgentController {
      * POST /api/agent/search — 文献检索（arXiv API）。
      */
     @PostMapping("/search")
-    public Result<List<Map<String, Object>>> search(@RequestBody Map<String, Object> body) {
-        String query = (String) body.get("query");
+    public Result<List<Map<String, Object>>> search(@RequestBody @Valid AgentSearchRequest request) {
+        String query = request.getQuery();
         if (query == null || query.isBlank()) {
             return Result.error(400, "搜索关键词不能为空");
         }
-        int maxResults = body.containsKey("maxResults") ? ((Number) body.get("maxResults")).intValue() : 20;
+        int maxResults = request.getMaxResults() == null ? 20 : request.getMaxResults();
         try {
             List<Map<String, Object>> results = arxivFetcher.search(query, maxResults);
             return Result.ok(results);
@@ -287,19 +292,18 @@ public class AgentController {
     }
 
     @PostMapping("/tag-suggestions")
-    public Result<List<String>> suggestTags(@RequestBody Map<String, Long> body) {
-        return Result.ok(agentOrchestrator.suggestTags(body.get("paperId")));
+    public Result<List<String>> suggestTags(@RequestBody @Valid AgentPaperIdRequest request) {
+        return Result.ok(agentOrchestrator.suggestTags(request.getPaperId()));
     }
 
     @PostMapping("/folder-suggest")
-    public Result<Map<String, Object>> suggestFolder(@RequestBody Map<String, Object> body) {
+    public Result<Map<String, Object>> suggestFolder(@RequestBody @Valid AgentFolderSuggestRequest request) {
         // 支持两种模式：已有论文传 paperId，导入时传 title + folders
-        if (body.containsKey("paperId") && body.get("paperId") != null) {
-            Long paperId = Long.valueOf(body.get("paperId").toString());
-            return Result.ok(agentOrchestrator.suggestFolder(paperId));
+        if (request.getPaperId() != null) {
+            return Result.ok(agentOrchestrator.suggestFolder(request.getPaperId()));
         }
         // 导入时：基于标题和现有文件夹推荐
-        String title = (String) body.get("title");
+        String title = request.getTitle();
         if (title == null || title.isBlank()) {
             return Result.error(400, "请提供 paperId 或 title");
         }
@@ -307,8 +311,8 @@ public class AgentController {
     }
 
     @PostMapping("/reading-status-suggest")
-    public Result<Map<String, Object>> suggestReadingStatus(@RequestBody Map<String, Long> body) {
-        Long paperId = body.get("paperId");
+    public Result<Map<String, Object>> suggestReadingStatus(@RequestBody @Valid AgentPaperIdRequest request) {
+        Long paperId = request.getPaperId();
         if (paperId == null) {
             return Result.error(400, "请提供 paperId");
         }

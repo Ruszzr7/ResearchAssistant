@@ -9,6 +9,7 @@ import com.research.assistant.dto.EnrichmentResult;
 import com.research.assistant.dto.ReadingProgressDto;
 import com.research.assistant.dto.ReadingProgressUpdateRequest;
 import com.research.assistant.dto.ReadingTimeRequest;
+import com.research.assistant.dto.PaperBatchMoveRequest;
 import com.research.assistant.service.PaperService;
 import com.research.assistant.service.ReadingProgressService;
 import com.research.assistant.service.ai.workflow.WorkflowService;
@@ -180,10 +181,9 @@ public class PaperController {
 
     /** POST /api/papers/batch/move — 批量移动论文 */
     @PostMapping("/batch/move")
-    public Result<Void> moveBatch(@RequestBody Map<String, Object> body) {
-        @SuppressWarnings("unchecked")
-        List<Long> ids = (List<Long>) body.get("ids");
-        Long folderId = body.get("folderId") != null ? ((Number) body.get("folderId")).longValue() : null;
+    public Result<Void> moveBatch(@RequestBody @Valid PaperBatchMoveRequest request) {
+        List<Long> ids = request.getIds();
+        Long folderId = request.getFolderId();
         if (ids == null || ids.isEmpty()) {
             return Result.error(400, "请选择要移动的论文");
         }

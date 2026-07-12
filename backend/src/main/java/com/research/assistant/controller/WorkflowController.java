@@ -1,16 +1,23 @@
 package com.research.assistant.controller;
 
 import com.research.assistant.common.Result;
+import com.research.assistant.dto.WorkflowGapResearchRequest;
+import com.research.assistant.dto.WorkflowLiteratureSurveyRequest;
+import com.research.assistant.dto.WorkflowPaperImportRequest;
 import com.research.assistant.service.ai.workflow.WorkflowService;
 import com.research.assistant.service.async.AsyncTaskResult;
-import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Map;
 
-/**
- * 工作流相关接口。
- */
 @RestController
 @RequestMapping("/api/agent/workflow")
 public class WorkflowController {
@@ -21,78 +28,45 @@ public class WorkflowController {
         this.workflowService = workflowService;
     }
 
-    /**
-     * POST /api/agent/workflow/gap-research — 提交 Gap Research 工作流。
-     */
     @PostMapping("/gap-research")
-    public Result<Map<String, String>> gapResearch(@RequestBody Map<String, Object> body,
+    public Result<Map<String, String>> gapResearch(@RequestBody @Valid WorkflowGapResearchRequest request,
                                                    @RequestHeader(value = "Idempotency-Key", required = false)
                                                    String idempotencyKey) {
-        @SuppressWarnings("unchecked")
-        List<Long> paperIds = (List<Long>) body.get("paperIds");
-        if (paperIds == null || paperIds.size() < 3) {
-            return Result.error(400, "至少需要 3 篇论文进行 Gap 分析");
-        }
-        String taskId = workflowService.submitGapResearch(paperIds, idempotencyKey);
+        String taskId = workflowService.submitGapResearch(request.getPaperIds(), idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 
-    /**
-     * POST /api/agent/workflow/paper-import — 提交论文入库流水线。
-     */
     @PostMapping("/paper-import")
-    public Result<Map<String, String>> paperImport(@RequestBody Map<String, Object> body,
+    public Result<Map<String, String>> paperImport(@RequestBody @Valid WorkflowPaperImportRequest request,
                                                    @RequestHeader(value = "Idempotency-Key", required = false)
                                                    String idempotencyKey) {
-        Object paperIdObj = body.get("paperId");
-        if (paperIdObj == null) {
-            return Result.error(400, "请提供 paperId");
-        }
-        Long paperId = ((Number) paperIdObj).longValue();
-        String taskId = workflowService.submitPaperImport(paperId, idempotencyKey);
+        String taskId = workflowService.submitPaperImport(request.getPaperId(), idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 
-    /**
-     * POST /api/agent/workflow/literature-survey — 提交文献调研工作流。
-     */
     @PostMapping("/literature-survey")
-    public Result<Map<String, String>> literatureSurvey(@RequestBody Map<String, Object> body,
+    public Result<Map<String, String>> literatureSurvey(@RequestBody @Valid WorkflowLiteratureSurveyRequest request,
                                                         @RequestHeader(value = "Idempotency-Key", required = false)
                                                         String idempotencyKey) {
-        String query = (String) body.get("query");
-        if (query == null || query.isBlank()) {
-            return Result.error(400, "请提供检索目标 query");
-        }
-        String taskId = workflowService.submitLiteratureSurvey(query, idempotencyKey);
+        String taskId = workflowService.submitLiteratureSurvey(request.getQuery(), idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 
-    /**
-     * POST /api/agent/workflow/{taskId}/confirm — 用户确认后继续工作流。
-     */
     @PostMapping("/{taskId}/confirm")
     public Result<Map<String, String>> confirm(@PathVariable String taskId,
-                                             @RequestBody Map<String, Object> body) {
+                                               @RequestBody @Size(max = 64, message = "确认参数过多")
+                                               Map<String, Object> body) {
         String newTaskId = workflowService.confirm(taskId, body);
         return Result.ok(Map.of("taskId", newTaskId));
     }
 
-    /**
-     * GET /api/agent/workflow/{taskId} — 查询工作流任务状态与结果。
-     */
     @GetMapping("/{taskId}")
     public Result<AsyncTaskResult<?>> get(@PathVariable String taskId) {
         AsyncTaskResult<?> result = workflowService.get(taskId);
-        if (result == null) {
-            return Result.error(404, "任务不存在");
-        }
+        if (result == null) return Result.error(404, "任务不存在");
         return Result.ok(result);
     }
 
-    /**
-     * POST /api/agent/workflow/{taskId}/retry — 从失败点重试工作流。
-     */
     @PostMapping("/{taskId}/retry")
     public Result<Map<String, String>> retry(@PathVariable String taskId) {
         String newTaskId = workflowService.retry(taskId);

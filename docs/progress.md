@@ -60,3 +60,7 @@
 - 安全/API 基线：统一设置脱敏、生产加密 fail-closed、请求 ID、异常安全响应、主要 DTO 校验、单机 AI 并发保护和 PDF 路径 containment。
 - 验证：后端 255 项测试通过；前端生产构建通过。
 - 未纳入：Flyway/Liquibase、完整 Docker、备份恢复和 Spring Security，保留至后续 Mission。
+## Mission 11.2（已完成）
+- 请求契约收敛：Folder/Tag/Workflow/Agent/Search/Paper 批量请求改用 DTO 或边界校验，保持现有 JSON 字段兼容。
+- 新增核心 Controller MockMvc 契约测试；MySQL、Backend 启动脚本补充 readiness 检查。
+- 验证：后端 260 项测试通过；前端生产构建通过。
