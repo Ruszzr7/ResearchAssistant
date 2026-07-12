@@ -1,7 +1,11 @@
 package com.research.assistant.service.source;
 
+import com.research.assistant.service.reliability.ExternalCallPolicy;
+import com.research.assistant.service.reliability.ExternalCallResult;
+import com.research.assistant.service.reliability.ExternalCallStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -13,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 多源文献检索编排服务。
@@ -26,11 +31,21 @@ public class LiteratureSearchService {
 
     private final List<LiteratureSource> sources;
     private final TaskExecutor taskExecutor;
+    private final ExternalCallPolicy externalCallPolicy;
+    private final AtomicBoolean lastSearchDegraded = new AtomicBoolean();
+
+    @Autowired
+    public LiteratureSearchService(List<LiteratureSource> sources,
+                                   @Qualifier("literatureSearchExecutor") TaskExecutor taskExecutor,
+                                   ExternalCallPolicy externalCallPolicy) {
+        this.sources = sources != null ? sources : List.of();
+        this.taskExecutor = taskExecutor;
+        this.externalCallPolicy = externalCallPolicy;
+    }
 
     public LiteratureSearchService(List<LiteratureSource> sources,
                                    @Qualifier("literatureSearchExecutor") TaskExecutor taskExecutor) {
-        this.sources = sources != null ? sources : List.of();
-        this.taskExecutor = taskExecutor;
+        this(sources, taskExecutor, new ExternalCallPolicy());
     }
 
     /**
@@ -41,6 +56,7 @@ public class LiteratureSearchService {
      * @return 去重排序后的候选列表
      */
     public List<LiteratureCandidate> search(List<String> keywords, int maxPerSource) {
+        lastSearchDegraded.set(false);
         if (sources.isEmpty()) {
             log.warn("没有可用的 LiteratureSource");
             return List.of();
@@ -53,11 +69,22 @@ public class LiteratureSearchService {
         for (LiteratureSource source : sources) {
             if (!source.supportsSearch()) continue;
             CompletableFuture<List<LiteratureCandidate>> future = CompletableFuture
-                    .supplyAsync(() -> source.searchKeywords(keywords, maxPerSource), taskExecutor)
-                    .orTimeout(30, TimeUnit.SECONDS)
+                    .supplyAsync(() -> {
+                        ExternalCallResult<List<LiteratureCandidate>> call = externalCallPolicy.executeWithStatus(
+                                "literature_" + source.sourceName(),
+                                () -> source.searchKeywords(keywords, maxPerSource),
+                                () -> List.<LiteratureCandidate>of());
+                        if (call.status() != ExternalCallStatus.SUCCESS
+                                && call.status() != ExternalCallStatus.RETRIED_SUCCESS) {
+                            lastSearchDegraded.set(true);
+                        }
+                        return call.value() == null ? List.<LiteratureCandidate>of() : call.value();
+                    }, taskExecutor)
+                    .orTimeout(externalCallPolicy.timeout().toMillis(), TimeUnit.MILLISECONDS)
                     .exceptionally(e -> {
+                        lastSearchDegraded.set(true);
                         log.warn("来源 {} 检索失败: {}", source.sourceName(), e.getMessage());
-                        return List.of();
+                        return List.<LiteratureCandidate>of();
                     });
             futures.add(future);
         }
@@ -72,6 +99,10 @@ public class LiteratureSearchService {
         }
 
         return deduplicateAndSort(all);
+    }
+
+    public boolean lastSearchDegraded() {
+        return lastSearchDegraded.get();
     }
 
     /**

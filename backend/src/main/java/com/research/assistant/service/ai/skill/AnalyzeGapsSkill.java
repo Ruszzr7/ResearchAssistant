@@ -6,6 +6,8 @@ import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.ai.ResearchToolAgent;
+import com.research.assistant.service.ai.ResearchSynthesisQualityException;
+import com.research.assistant.service.ai.ResearchSynthesisQualityGate;
 import com.research.assistant.service.ai.skill.io.AnalyzeGapsInput;
 import com.research.assistant.service.rag.RagRetrievalService;
 import dev.langchain4j.service.Result;
@@ -30,15 +32,26 @@ public class AnalyzeGapsSkill implements Skill<AnalyzeGapsInput, String> {
     private final LLMService llmService;
     private final ResearchToolAgent researchToolAgent;
     private final RagRetrievalService ragRetrievalService;
+    private final ResearchSynthesisQualityGate qualityGate;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public AnalyzeGapsSkill(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
                             LLMService llmService, @Lazy ResearchToolAgent researchToolAgent,
-                            RagRetrievalService ragRetrievalService) {
+                            RagRetrievalService ragRetrievalService,
+                            ResearchSynthesisQualityGate qualityGate) {
         this.paperMapper = paperMapper;
         this.analysisMapper = analysisMapper;
         this.llmService = llmService;
         this.researchToolAgent = researchToolAgent;
         this.ragRetrievalService = ragRetrievalService;
+        this.qualityGate = qualityGate;
+    }
+
+    public AnalyzeGapsSkill(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
+                            LLMService llmService, @Lazy ResearchToolAgent researchToolAgent,
+                            RagRetrievalService ragRetrievalService) {
+        this(paperMapper, analysisMapper, llmService, researchToolAgent, ragRetrievalService,
+                new ResearchSynthesisQualityGate());
     }
 
     @Override
@@ -71,7 +84,19 @@ public class AnalyzeGapsSkill implements Skill<AnalyzeGapsInput, String> {
                 () -> researchToolAgent.analyzeGaps(contextText),
                 "使用 LangChain4j Agent 完成 Gap 分析",
                 "LangChain4j Gap 分析失败，回退到旧调用");
-        return result != null ? result : llmService.chat(GAP_SYSTEM_PROMPT, contextText);
+        if (result == null) {
+            result = llmService.chat(GAP_SYSTEM_PROMPT, contextText);
+        }
+        ResearchSynthesisQualityGate.QualityReport quality = qualityGate.validateGaps(result);
+        if (!quality.valid()) {
+            log.warn("gap report rejected: issues={}", quality.issues());
+            result = llmService.chat(GAP_SYSTEM_PROMPT, contextText);
+            quality = qualityGate.validateGaps(result);
+        }
+        if (!quality.valid()) {
+            throw new ResearchSynthesisQualityException("gap", quality.issues());
+        }
+        return quality.content();
     }
 
     private List<Paper> loadPapers(AnalyzeGapsInput input) {

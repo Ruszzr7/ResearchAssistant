@@ -3,12 +3,17 @@ package com.research.assistant.service.source;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
+import com.research.assistant.service.observability.ResearchMetrics;
+import com.research.assistant.service.reliability.ExternalCallPolicy;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class LiteratureSearchServiceTest {
 
@@ -52,6 +57,26 @@ class LiteratureSearchServiceTest {
         String reason = (String) maps.get(0).get("recommendReason");
         assertTrue(reason.contains("transformer"), reason);
         assertTrue(reason.contains("arXiv"), reason);
+    }
+
+    @Test
+    void shouldRetrySourceFailureAndExposeHealthyResult() {
+        LiteratureSource source = mock(LiteratureSource.class);
+        when(source.sourceName()).thenReturn("Test Source");
+        when(source.supportsSearch()).thenReturn(true);
+        when(source.searchKeywords(List.of("transformer"), 5))
+                .thenThrow(new RuntimeException("temporary"))
+                .thenReturn(List.of(candidate("Transformer", "2024", "", "summary", "Test Source")));
+        ExternalCallPolicy policy = new ExternalCallPolicy(
+                new ResearchMetrics(new SimpleMeterRegistry()),
+                java.time.Duration.ofMillis(100), 2, java.time.Duration.ZERO, 2, java.time.Duration.ZERO);
+        service = new LiteratureSearchService(List.of(source), Runnable::run, policy);
+
+        List<LiteratureCandidate> result = service.search(List.of("transformer"), 5);
+
+        assertEquals(1, result.size());
+        assertTrue(!service.lastSearchDegraded());
+        policy.shutdown();
     }
 
     private LiteratureCandidate candidate(String title, String year, String doi, String summary, String source) {

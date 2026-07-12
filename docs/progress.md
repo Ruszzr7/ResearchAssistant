@@ -74,3 +74,9 @@
 - 版本与降级：索引先写入 BUILDING 分片并准备运行时快照，再发布 ACTIVE；Qdrant 先写新版本后清理旧版本，检索过滤非 active 版本并在异常时降级内存，同时暴露结构化检索状态和 Micrometer 指标。
 - Golden Eval 与展示：新增本地确定性的 RAG Golden Eval、`/api/ai-quality/rag-golden`、Gap/写作页面证据 ID 与定位展示，以及 `schema-upgrade-12.1.sql`。
 - 验证：后端 `mvnw.cmd -DforkCount=0 test` 通过（275 项）；前端 `npm.cmd run build` 通过（保留既有 chunk 体积警告）。
+
+## Mission 12.2（已完成，Mission 12 结束）
+- 质量门禁扩展：compare-papers 要求多论文比较表和比较维度；analyze-gaps 要求至少三个 Gap 标题、三个研究维度和验证/研究方向，失败时不持久化不合格 Markdown。
+- Golden Eval：新增 compare/gap 本地 fixture、通过率与失败原因统计，并暴露 `/api/ai-quality/synthesis-golden`。
+- 外部调用可靠性：统一超时、最多重试、并发许可、失败降级和 Micrometer 指标；LiteratureSearchService 与 VerifyGapsSkill 的外部检索、Embedding 单段/批量调用共用策略，不依赖 Redis。
+- 验证：后端 `mvnw.cmd -DforkCount=0 test` 通过（282 项）；前端 `npm.cmd run build` 通过（保留既有 chunk 体积警告）。

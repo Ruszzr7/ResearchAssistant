@@ -111,3 +111,11 @@
 - 检索接口通过 `RagRetrievalResult` 区分 disabled、empty、embedding unavailable、vector unavailable 和 degraded memory；指标只记录状态、数量和耗时，不记录论文正文或提示词。
 - RAG Golden Eval 使用本地 fixture 和 lexical baseline，默认不调用真实 embedding/LLM；通过 `/api/ai-quality/rag-golden` 提供 recall@5、MRR、grounded rate 和失败原因，便于后续扩展 Gap/compare 门禁。
 - 当前 PDF 文本分片记录字符范围但仍缺少真正的页码映射；接入 page-aware parser 后应优先填充 `pageStart/pageEnd`，同时保持 `evidenceId` 派生规则不变。
+
+## Mission 12.2：消费质量门禁与外部调用可靠性
+
+- compare/gap 的 LLM 输出是 Markdown 而非持久化 POJO，因此门禁只检查可确定的结构契约：compare 必须有比较表和维度，gap 必须有至少三个 Gap 标题、三个维度和研究/验证方向；不满足时先重试一次生成，仍失败则抛出质量拒绝，不写入结果表。
+- Golden Eval fixture 与真实模型调用隔离；`synthesis-golden.json` 只验证门禁边界和期望结果，`/api/ai-quality/synthesis-golden` 返回 compare/gap 分项数量、通过率和失败原因。
+- `ExternalCallPolicy` 是单机共享策略：信号量限制并发，Future 超时中断等待，失败最多按配置重试，最终返回显式降级状态；默认配置通过 `RA_EXTERNAL_*` 环境变量覆盖，不需要 Redis。
+- LiteratureSearchService、VerifyGapsSkill 和 EmbeddingService 统一记录外部调用 operation/outcome/attempts/duration；调用失败返回空候选或 EmbeddingUnavailableException，由上层继续走既有降级路径。
+- 外部来源适配器仍可能把 HTTP 错误转换为空列表，因此“无结果”和“调用失败”的区分依赖策略状态与指标；后续若需要更细粒度 HTTP 分类，应让来源适配器返回结构化 source result。

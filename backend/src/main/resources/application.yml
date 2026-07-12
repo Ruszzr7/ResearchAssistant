@@ -69,6 +69,12 @@ app:
       allowed-origins: ${RA_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174}
       allow-credentials: ${RA_CORS_ALLOW_CREDENTIALS:false}
     ai-max-concurrency: ${RA_AI_MAX_CONCURRENCY:4}
+  external:
+    timeout: ${RA_EXTERNAL_TIMEOUT:30s}
+    max-attempts: ${RA_EXTERNAL_MAX_ATTEMPTS:2}
+    retry-backoff: ${RA_EXTERNAL_RETRY_BACKOFF:250ms}
+    max-concurrency: ${RA_EXTERNAL_MAX_CONCURRENCY:8}
+    permit-wait: ${RA_EXTERNAL_PERMIT_WAIT:25ms}
   ai-quality:
     retention-days: ${AI_QUALITY_RETENTION_DAYS:180}
     retention-cron: ${AI_QUALITY_RETENTION_CRON:0 30 3 * * *}

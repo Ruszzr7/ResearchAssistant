@@ -14,8 +14,8 @@
 
 ## P0：可靠性与质量保证
 
-- [ ] 将论文精读已有质量门禁扩展到 `compare-papers`、`analyze-gaps`，补齐对应 golden eval。
-- [ ] 为外部来源和 Embedding 增加统一超时、限流、重试和降级指标。
+- [x] 将论文精读已有质量门禁扩展到 `compare-papers`、`analyze-gaps`，补齐对应 golden eval（Mission 12.2）。
+- [x] 为外部来源和 Embedding 增加统一超时、限流、重试和降级指标（Mission 12.2）。
 
 ## P1：工程化
 
@@ -48,3 +48,9 @@
 - [x] Evidence validation：后端候选集校验、snippet 包含关系、未知 ID 拒绝、`VERIFIED/UNVERIFIED` 状态与前端展示。
 - [x] RAG index/retrieval reliability：active 版本发布顺序、Qdrant 新旧版本切换保护、内存降级、结构化检索状态和指标。
 - [x] RAG Golden Eval：本地 fixture、recall@5/MRR/grounded rate、失败原因统计和查询 API。
+
+## Mission 12.2 已完成
+
+- [x] compare-papers / analyze-gaps 确定性质量门禁与 fail-closed 持久化边界。
+- [x] compare/gap Golden Eval fixture、通过率、失败原因与查询 API。
+- [x] 外部来源和 Embedding 统一超时、重试、并发许可、降级状态与 Micrometer 指标。

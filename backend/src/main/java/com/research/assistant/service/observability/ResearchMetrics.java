@@ -84,6 +84,21 @@ public class ResearchMetrics {
         counter("research.rag.evidence", "status", safeOutcome(status)).increment();
     }
 
+    public void synthesisQualityFinished(String operation, String outcome) {
+        counter("research.synthesis.quality", "operation", safeOutcome(operation),
+                "outcome", safeOutcome(outcome)).increment();
+    }
+
+    public void externalCallFinished(String operation, String outcome, int attempts, long startedAtNanos) {
+        counter("research.external.calls", "operation", safeOutcome(operation),
+                "outcome", safeOutcome(outcome)).increment();
+        counter("research.external.attempts", "operation", safeOutcome(operation))
+                .increment(Math.max(1, attempts));
+        timer("research.external.duration", "operation", safeOutcome(operation),
+                "outcome", safeOutcome(outcome))
+                .record(Duration.ofNanos(Math.max(0, System.nanoTime() - startedAtNanos)));
+    }
+
     public void updateRecoverableQueueDepth(long depth) {
         recoverableQueueDepth.set((int) Math.min(Integer.MAX_VALUE, Math.max(0, depth)));
     }

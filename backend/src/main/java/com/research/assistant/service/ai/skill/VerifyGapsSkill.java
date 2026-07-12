@@ -13,6 +13,8 @@ import com.research.assistant.service.rag.EvidenceValidator;
 import com.research.assistant.service.source.CitationNetworkExpansionService;
 import com.research.assistant.service.source.LiteratureCandidate;
 import com.research.assistant.service.source.LiteratureSearchService;
+import com.research.assistant.service.reliability.ExternalCallPolicy;
+import com.research.assistant.service.reliability.ExternalCallResult;
 import dev.langchain4j.service.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,8 +49,8 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
     private final CitationNetworkExpansionService citationNetworkExpansionService;
     private final LiteratureSearchService literatureSearchService;
     private final EvidenceValidator evidenceValidator;
+    private final ExternalCallPolicy externalCallPolicy;
 
-    @Autowired
     public VerifyGapsSkill(@Lazy ResearchToolAgent researchToolAgent,
                            ArxivFetcher arxivFetcher,
                            SemanticScholarFetcher semanticScholarFetcher,
@@ -59,7 +61,30 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
                            LiteratureSearchService literatureSearchService) {
         this(researchToolAgent, arxivFetcher, semanticScholarFetcher, llmService, objectMapper,
                 ragRetrievalService, citationNetworkExpansionService, literatureSearchService,
-                new EvidenceValidator());
+                new EvidenceValidator(), new ExternalCallPolicy());
+    }
+
+    @Autowired
+    public VerifyGapsSkill(@Lazy ResearchToolAgent researchToolAgent,
+                           ArxivFetcher arxivFetcher,
+                           SemanticScholarFetcher semanticScholarFetcher,
+                           LLMService llmService,
+                           ObjectMapper objectMapper,
+                           RagRetrievalService ragRetrievalService,
+                           CitationNetworkExpansionService citationNetworkExpansionService,
+                           LiteratureSearchService literatureSearchService,
+                           EvidenceValidator evidenceValidator,
+                           ExternalCallPolicy externalCallPolicy) {
+        this.researchToolAgent = researchToolAgent;
+        this.arxivFetcher = arxivFetcher;
+        this.semanticScholarFetcher = semanticScholarFetcher;
+        this.llmService = llmService;
+        this.objectMapper = objectMapper;
+        this.ragRetrievalService = ragRetrievalService;
+        this.citationNetworkExpansionService = citationNetworkExpansionService;
+        this.literatureSearchService = literatureSearchService;
+        this.evidenceValidator = evidenceValidator;
+        this.externalCallPolicy = externalCallPolicy;
     }
 
     public VerifyGapsSkill(@Lazy ResearchToolAgent researchToolAgent,
@@ -71,15 +96,9 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
                            CitationNetworkExpansionService citationNetworkExpansionService,
                            LiteratureSearchService literatureSearchService,
                            EvidenceValidator evidenceValidator) {
-        this.researchToolAgent = researchToolAgent;
-        this.arxivFetcher = arxivFetcher;
-        this.semanticScholarFetcher = semanticScholarFetcher;
-        this.llmService = llmService;
-        this.objectMapper = objectMapper;
-        this.ragRetrievalService = ragRetrievalService;
-        this.citationNetworkExpansionService = citationNetworkExpansionService;
-        this.literatureSearchService = literatureSearchService;
-        this.evidenceValidator = evidenceValidator;
+        this(researchToolAgent, arxivFetcher, semanticScholarFetcher, llmService, objectMapper,
+                ragRetrievalService, citationNetworkExpansionService, literatureSearchService,
+                evidenceValidator, new ExternalCallPolicy());
     }
 
     @Override
@@ -307,7 +326,11 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
     private void searchSource(String query, SourceSearch source,
                               List<Map<String, Object>> out, Set<String> seen, String sourceName) {
         try {
-            List<Map<String, Object>> results = source.search(query, 5);
+            ExternalCallResult<List<Map<String, Object>>> call = externalCallPolicy.executeWithStatus(
+                    "literature_" + sourceName,
+                    () -> source.search(query, 5),
+                    () -> List.<Map<String, Object>>of());
+            List<Map<String, Object>> results = call.value();
             for (Map<String, Object> r : results) {
                 String title = String.valueOf(r.getOrDefault("title", "")).trim().toLowerCase(Locale.ROOT);
                 if (title.isBlank() || !seen.add(title)) continue;

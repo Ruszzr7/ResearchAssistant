@@ -8,6 +8,8 @@ import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.ai.ResearchToolAgent;
+import com.research.assistant.service.ai.ResearchSynthesisQualityException;
+import com.research.assistant.service.ai.ResearchSynthesisQualityGate;
 import com.research.assistant.service.ai.skill.io.ComparePapersInput;
 import dev.langchain4j.service.Result;
 import org.slf4j.Logger;
@@ -33,15 +35,26 @@ public class ComparePapersSkill implements Skill<ComparePapersInput, String> {
     private final ComparisonMapper comparisonMapper;
     private final LLMService llmService;
     private final ResearchToolAgent researchToolAgent;
+    private final ResearchSynthesisQualityGate qualityGate;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ComparePapersSkill(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
                               ComparisonMapper comparisonMapper, LLMService llmService,
-                              @Lazy ResearchToolAgent researchToolAgent) {
+                              @Lazy ResearchToolAgent researchToolAgent,
+                              ResearchSynthesisQualityGate qualityGate) {
         this.paperMapper = paperMapper;
         this.analysisMapper = analysisMapper;
         this.comparisonMapper = comparisonMapper;
         this.llmService = llmService;
         this.researchToolAgent = researchToolAgent;
+        this.qualityGate = qualityGate;
+    }
+
+    public ComparePapersSkill(PaperMapper paperMapper, PaperAnalysisMapper analysisMapper,
+                              ComparisonMapper comparisonMapper, LLMService llmService,
+                              @Lazy ResearchToolAgent researchToolAgent) {
+        this(paperMapper, analysisMapper, comparisonMapper, llmService, researchToolAgent,
+                new ResearchSynthesisQualityGate());
     }
 
     @Override
@@ -83,6 +96,17 @@ public class ComparePapersSkill implements Skill<ComparePapersInput, String> {
             }
             result = llmService.chat(systemPrompt, contextText);
         }
+
+        ResearchSynthesisQualityGate.QualityReport quality = qualityGate.validateCompare(result, paperIds.size());
+        if (!quality.valid()) {
+            log.warn("compare report rejected: issues={}", quality.issues());
+            result = llmService.chat(COMPARE_SYSTEM_PROMPT, contextText);
+            quality = qualityGate.validateCompare(result, paperIds.size());
+        }
+        if (!quality.valid()) {
+            throw new ResearchSynthesisQualityException("compare", quality.issues());
+        }
+        result = quality.content();
 
         Comparison comparison = new Comparison();
         comparison.setPaperIds(paperIds.stream().map(String::valueOf).collect(Collectors.joining(",")));

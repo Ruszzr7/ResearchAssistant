@@ -1,0 +1,28 @@
+[
+  {
+    "name": "valid_compare",
+    "type": "compare",
+    "paperCount": 2,
+    "expectedValid": true,
+    "content": "## Comparison\n\n| Dimension | Paper A | Paper B |\n|---|---|---|\n| Method | sparse attention | dense attention |\n| Dataset | long context | short context |\n| Performance | stronger recall | lower cost |\n\nThe comparison shows complementary trade-offs in method and performance."
+  },
+  {
+    "name": "invalid_compare_without_table",
+    "type": "compare",
+    "paperCount": 2,
+    "expectedValid": false,
+    "content": "Paper A is better than Paper B in some ways, but the comparison is incomplete."
+  },
+  {
+    "name": "valid_gap_report",
+    "type": "gap",
+    "expectedValid": true,
+    "content": "### [方法 Gap] Robustness\n描述与方法分析。建议研究并验证新的训练策略。\n\n### [场景 Gap] Long-tail data\n现有工作缺少真实场景研究，未来方向是跨域验证。\n\n### [比较 Gap] Benchmark\n缺少统一比较，建议设计公开 benchmark 并进行 research validation。"
+  },
+  {
+    "name": "invalid_gap_report_too_few_dimensions",
+    "type": "gap",
+    "expectedValid": false,
+    "content": "### [方法 Gap] One\n需要进一步研究。"
+  }
+]

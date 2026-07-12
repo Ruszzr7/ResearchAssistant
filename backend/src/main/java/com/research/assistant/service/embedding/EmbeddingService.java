@@ -2,6 +2,7 @@ package com.research.assistant.service.embedding;
 
 import com.research.assistant.service.ai.LangChain4jModelFactory;
 import com.research.assistant.service.observability.ResearchMetrics;
+import com.research.assistant.service.reliability.ExternalCallPolicy;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
@@ -27,11 +28,18 @@ public class EmbeddingService {
 
     private final LangChain4jModelFactory modelFactory;
     private final ResearchMetrics metrics;
+    private final ExternalCallPolicy externalCallPolicy;
 
     @Autowired
-    public EmbeddingService(LangChain4jModelFactory modelFactory, ResearchMetrics metrics) {
+    public EmbeddingService(LangChain4jModelFactory modelFactory, ResearchMetrics metrics,
+                            ExternalCallPolicy externalCallPolicy) {
         this.modelFactory = modelFactory;
         this.metrics = metrics;
+        this.externalCallPolicy = externalCallPolicy;
+    }
+
+    public EmbeddingService(LangChain4jModelFactory modelFactory, ResearchMetrics metrics) {
+        this(modelFactory, metrics, new ExternalCallPolicy(metrics));
     }
 
     public EmbeddingService(LangChain4jModelFactory modelFactory) {
@@ -48,8 +56,14 @@ public class EmbeddingService {
         long startedAt = metrics.startTimer();
         String outcome = "success";
         try {
-            EmbeddingModel model = modelFactory.createEmbeddingModel();
-            Embedding embedding = model.embed(TextSegment.from(text)).content();
+            Embedding embedding = externalCallPolicy.execute("embedding_single",
+                    () -> {
+                        EmbeddingModel model = modelFactory.createEmbeddingModel();
+                        return model.embed(TextSegment.from(text)).content();
+                    }, () -> null);
+            if (embedding == null || embedding.vector() == null) {
+                throw new IllegalStateException("embedding response was empty");
+            }
             return toList(embedding.vector());
         } catch (Exception e) {
             outcome = "failure";
@@ -76,10 +90,13 @@ public class EmbeddingService {
         long startedAt = metrics.startTimer();
         String outcome = "success";
         try {
-            EmbeddingModel model = modelFactory.createEmbeddingModel();
             List<TextSegment> segments = nonBlank.stream().map(TextSegment::from).toList();
-            Response<List<Embedding>> response = model.embedAll(segments);
-            List<Embedding> embeddings = response != null ? response.content() : null;
+            List<Embedding> embeddings = externalCallPolicy.execute("embedding_batch",
+                    () -> {
+                        EmbeddingModel model = modelFactory.createEmbeddingModel();
+                        Response<List<Embedding>> response = model.embedAll(segments);
+                        return response != null ? response.content() : null;
+                    }, () -> null);
             if (embeddings == null || embeddings.size() != nonBlank.size()) {
                 throw new EmbeddingUnavailableException("Embedding 返回数量不一致",
                         new IllegalStateException("provider returned an unexpected number of embeddings"));
