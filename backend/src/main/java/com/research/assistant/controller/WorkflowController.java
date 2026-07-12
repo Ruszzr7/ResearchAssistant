@@ -25,13 +25,15 @@ public class WorkflowController {
      * POST /api/agent/workflow/gap-research — 提交 Gap Research 工作流。
      */
     @PostMapping("/gap-research")
-    public Result<Map<String, String>> gapResearch(@RequestBody Map<String, Object> body) {
+    public Result<Map<String, String>> gapResearch(@RequestBody Map<String, Object> body,
+                                                   @RequestHeader(value = "Idempotency-Key", required = false)
+                                                   String idempotencyKey) {
         @SuppressWarnings("unchecked")
         List<Long> paperIds = (List<Long>) body.get("paperIds");
         if (paperIds == null || paperIds.size() < 3) {
             return Result.error(400, "至少需要 3 篇论文进行 Gap 分析");
         }
-        String taskId = workflowService.submitGapResearch(paperIds);
+        String taskId = workflowService.submitGapResearch(paperIds, idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 
@@ -39,13 +41,15 @@ public class WorkflowController {
      * POST /api/agent/workflow/paper-import — 提交论文入库流水线。
      */
     @PostMapping("/paper-import")
-    public Result<Map<String, String>> paperImport(@RequestBody Map<String, Object> body) {
+    public Result<Map<String, String>> paperImport(@RequestBody Map<String, Object> body,
+                                                   @RequestHeader(value = "Idempotency-Key", required = false)
+                                                   String idempotencyKey) {
         Object paperIdObj = body.get("paperId");
         if (paperIdObj == null) {
             return Result.error(400, "请提供 paperId");
         }
         Long paperId = ((Number) paperIdObj).longValue();
-        String taskId = workflowService.submitPaperImport(paperId);
+        String taskId = workflowService.submitPaperImport(paperId, idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 
@@ -53,12 +57,14 @@ public class WorkflowController {
      * POST /api/agent/workflow/literature-survey — 提交文献调研工作流。
      */
     @PostMapping("/literature-survey")
-    public Result<Map<String, String>> literatureSurvey(@RequestBody Map<String, Object> body) {
+    public Result<Map<String, String>> literatureSurvey(@RequestBody Map<String, Object> body,
+                                                        @RequestHeader(value = "Idempotency-Key", required = false)
+                                                        String idempotencyKey) {
         String query = (String) body.get("query");
         if (query == null || query.isBlank()) {
             return Result.error(400, "请提供检索目标 query");
         }
-        String taskId = workflowService.submitLiteratureSurvey(query);
+        String taskId = workflowService.submitLiteratureSurvey(query, idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 

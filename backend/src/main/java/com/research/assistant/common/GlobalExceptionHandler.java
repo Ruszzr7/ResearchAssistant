@@ -6,6 +6,8 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import com.research.assistant.service.async.AsyncTaskCapacityException;
+import com.research.assistant.service.async.AsyncTaskIdempotencyConflictException;
 
 /**
  * 全局异常处理器 —— 将所有未捕获异常统一包装为 {@link Result} 返回。
@@ -21,6 +23,18 @@ public class GlobalExceptionHandler {
     public Result<Void> handleIllegalArgument(IllegalArgumentException e) {
         log.warn("参数错误: {}", e.getMessage());
         return Result.error(400, e.getMessage());
+    }
+
+    @ExceptionHandler(AsyncTaskCapacityException.class)
+    public Result<Void> handleTaskCapacity(AsyncTaskCapacityException e) {
+        log.warn("异步任务容量达到上限: {}", e.getMessage());
+        return Result.error(429, e.getMessage());
+    }
+
+    @ExceptionHandler(AsyncTaskIdempotencyConflictException.class)
+    public Result<Void> handleIdempotencyConflict(AsyncTaskIdempotencyConflictException e) {
+        log.warn("异步任务幂等键冲突: {}", e.getMessage());
+        return Result.error(409, e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

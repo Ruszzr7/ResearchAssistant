@@ -34,6 +34,10 @@ Windows 用户也可以运行 `scripts/start-dev.bat`；Bash 环境可使用对�
 | `ASYNC_TASK_LEASE` | 可恢复任务租约时长，默认 `5m` |
 | `ASYNC_RETRY_BASE_DELAY` | 自动重试基础退避，默认 `5s` |
 | `ASYNC_MAX_ATTEMPTS` | 单任务最大尝试次数，默认 `3` |
+| `ASYNC_MAX_INFLIGHT` | 可恢复任务最大并发执行数，默认 `20` |
+| `ASYNC_MAX_QUEUE_DEPTH` | 可恢复任务队列容量，默认 `500` |
+| `RAG_INDEX_RETENTION` | RAG 旧版本保留时间，默认 `7d` |
+| `RAG_INDEX_CLEANUP_CRON` | RAG 旧版本清理计划，默认每天 03:45 |
 
 没有配置 `RA_MASTER_KEY` 时，API Key 仅适合本地临时开发，可能以明文保存。
 

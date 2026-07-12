@@ -64,23 +64,16 @@ public class QdrantVectorStore implements VectorStore {
         // 1. 先写 MySQL，保证内存降级能读到最新数据（即使 Qdrant 不可用）
         persistence.saveAll(chunks);
 
-        // 2. 批量 upsert 到 Qdrant
-        String collection = collectionName();
-        int dimension = chunks.get(0).embedding().size();
-        ensureCollection(collection, dimension);
-        List<Points.PointStruct> points = toPointStructs(chunks);
-        for (int i = 0; i < points.size(); i += UPSERT_BATCH_SIZE) {
-            List<Points.PointStruct> batch = points.subList(i, Math.min(i + UPSERT_BATCH_SIZE, points.size()));
-            try {
-                Points.UpdateResult result = client.upsertAsync(collection, batch, OPERATION_TIMEOUT).get();
-                log.debug("Qdrant upsert 完成: collection={}, batch={}, status={}", collection, batch.size(), result.getStatus());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new VectorStoreException("Qdrant upsert 被中断", e);
-            } catch (ExecutionException e) {
-                throw new VectorStoreException("Qdrant upsert 失败: " + e.getCause().getMessage(), e.getCause());
-            }
+        upsertRemote(chunks);
+    }
+
+    @Override
+    public void replacePaperIndex(Long paperId, int indexVersion, List<EmbeddedChunk> chunks) {
+        if (paperId == null || chunks == null || chunks.isEmpty()) {
+            return;
         }
+        deleteRemoteByPaperId(paperId);
+        upsertRemote(chunks);
     }
 
     @Override
@@ -118,9 +111,33 @@ public class QdrantVectorStore implements VectorStore {
         if (paperId == null) {
             return;
         }
-        String collection = collectionName();
-        // 1. 先删 MySQL，保证内存降级不读到已删除数据
+        // 先删 MySQL，保证内存降级不读到已删除数据
         persistence.deleteByPaperId(paperId);
+        deleteRemoteByPaperId(paperId);
+    }
+
+    private void upsertRemote(List<EmbeddedChunk> chunks) {
+        String collection = collectionName();
+        int dimension = chunks.get(0).embedding().size();
+        ensureCollection(collection, dimension);
+        List<Points.PointStruct> points = toPointStructs(chunks);
+        for (int i = 0; i < points.size(); i += UPSERT_BATCH_SIZE) {
+            List<Points.PointStruct> batch = points.subList(i, Math.min(i + UPSERT_BATCH_SIZE, points.size()));
+            try {
+                Points.UpdateResult result = client.upsertAsync(collection, batch, OPERATION_TIMEOUT).get();
+                log.debug("Qdrant upsert 完成: collection={}, batch={}, status={}", collection, batch.size(), result.getStatus());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new VectorStoreException("Qdrant upsert 被中断", e);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause() == null ? e : e.getCause();
+                throw new VectorStoreException("Qdrant upsert 失败: " + cause.getMessage(), cause);
+            }
+        }
+    }
+
+    private void deleteRemoteByPaperId(Long paperId) {
+        String collection = collectionName();
         if (!collectionExists(collection)) {
             return;
         }
@@ -139,7 +156,8 @@ public class QdrantVectorStore implements VectorStore {
             Thread.currentThread().interrupt();
             throw new VectorStoreException("Qdrant delete 被中断", e);
         } catch (ExecutionException e) {
-            throw new VectorStoreException("Qdrant delete 失败: " + e.getCause().getMessage(), e.getCause());
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            throw new VectorStoreException("Qdrant delete 失败: " + cause.getMessage(), cause);
         }
     }
 
@@ -210,11 +228,13 @@ public class QdrantVectorStore implements VectorStore {
         List<Points.PointStruct> points = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
             EmbeddedChunk c = chunks.get(i);
-            String id = deterministicUuid(c.paperId(), c.chunkType(), i).toString();
+            String id = deterministicUuid(c.paperId(), c.indexVersion(), c.chunkType(), i).toString();
             Points.Vector vector = Points.Vector.newBuilder().addAllData(c.embedding()).build();
             Points.Vectors vectors = Points.Vectors.newBuilder().setVector(vector).build();
             Map<String, JsonWithInt.Value> payload = Map.of(
                     "paperId", JsonWithInt.Value.newBuilder().setIntegerValue(c.paperId()).build(),
+                    "indexVersion", JsonWithInt.Value.newBuilder().setIntegerValue(
+                            c.indexVersion() == null ? 1 : c.indexVersion()).build(),
                     "chunkType", JsonWithInt.Value.newBuilder().setStringValue(nonNull(c.chunkType())).build(),
                     "content", JsonWithInt.Value.newBuilder().setStringValue(nonNull(c.content())).build(),
                     "source", JsonWithInt.Value.newBuilder().setStringValue(nonNull(c.source())).build()
@@ -248,8 +268,9 @@ public class QdrantVectorStore implements VectorStore {
         return value != null && value.hasStringValue() ? value.getStringValue() : "";
     }
 
-    private UUID deterministicUuid(Long paperId, String chunkType, int index) {
-        String raw = paperId + "|" + chunkType + "|" + index;
+    private UUID deterministicUuid(Long paperId, Integer indexVersion, String chunkType, int index) {
+        String raw = paperId + "|" + (indexVersion == null ? 1 : indexVersion)
+                + "|" + chunkType + "|" + index;
         return UUID.nameUUIDFromBytes(raw.getBytes(StandardCharsets.UTF_8));
     }
 

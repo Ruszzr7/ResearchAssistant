@@ -25,17 +25,23 @@ public class RagIndexingService {
     private final EmbeddingService embeddingService;
     private final VectorStore vectorStore;
     private final ResearchMetrics metrics;
+    private final PaperChunkPersistence chunkPersistence;
+    private final RagIndexVersionService versionService;
 
     public RagIndexingService(PaperAnalysisMapper analysisMapper,
                               DocumentChunker chunker,
                               EmbeddingService embeddingService,
                               VectorStore vectorStore,
-                              ResearchMetrics metrics) {
+                              ResearchMetrics metrics,
+                              PaperChunkPersistence chunkPersistence,
+                              RagIndexVersionService versionService) {
         this.analysisMapper = analysisMapper;
         this.chunker = chunker;
         this.embeddingService = embeddingService;
         this.vectorStore = vectorStore;
         this.metrics = metrics;
+        this.chunkPersistence = chunkPersistence;
+        this.versionService = versionService;
     }
 
     /**
@@ -88,23 +94,36 @@ public class RagIndexingService {
                     "Embedding 服务不可用，论文 " + paperId + " 索引失败", e);
         }
 
-        if (embeddings.size() != chunks.size()) {
+        if (embeddings == null || embeddings.size() != chunks.size()) {
             throw new RagIndexingException(RagIndexingException.Reason.EMBEDDING_MISMATCH,
                     "Embedding 数量与论文分片数量不一致");
         }
 
         // 3. 替换旧索引
+        int indexVersion;
+        try {
+            indexVersion = versionService.beginBuild(paperId);
+        } catch (RuntimeException e) {
+            throw new RagIndexingException(RagIndexingException.Reason.INDEX_VERSION_FAILED,
+                    "无法创建论文 " + paperId + " 的 RAG 索引版本", e);
+        }
+
         List<EmbeddedChunk> embeddedChunks = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             DocumentChunk c = chunks.get(i);
-            embeddedChunks.add(new EmbeddedChunk(c.paperId(), c.chunkType(), c.content(), c.source(), embeddings.get(i)));
+            embeddedChunks.add(new EmbeddedChunk(c.paperId(), c.chunkType(), c.content(), c.source(),
+                    embeddings.get(i), indexVersion));
         }
         try {
-            vectorStore.removeByPaperId(paperId);
-            vectorStore.add(embeddedChunks);
+            // 先写入不可见版本；旧版本在此期间继续提供查询服务。
+            chunkPersistence.saveAll(embeddedChunks, indexVersion);
+            versionService.activate(paperId, indexVersion, embeddedChunks.size());
+            // active 指针切换后再做运行时 copy-on-write，内存实现不会出现空窗。
+            vectorStore.replacePaperIndex(paperId, indexVersion, embeddedChunks);
         } catch (RuntimeException e) {
+            versionService.markFailed(paperId, indexVersion, e.getMessage());
             throw new RagIndexingException(RagIndexingException.Reason.VECTOR_STORE_FAILED,
-                    "向量存储写入失败，论文 " + paperId + " 索引未完成", e);
+                    "RAG 索引版本提交失败，论文 " + paperId + " 仍保留旧版本", e);
         }
         log.info("event=rag_index_completed paperId={} chunkCount={}", paperId, embeddedChunks.size());
         return new RagIndexingResult(paperId, true, embeddedChunks.size());

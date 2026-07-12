@@ -57,7 +57,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 - Skill Registry：原子能力统一注册、描述和测试。
 - Planner + PlanExecutor：将自然语言目标转换为顺序 Skill 计划。
 - Workflow Engine：`paper-import`、`literature-survey`、`gap-research`。
-- 支持异步任务、阶段提示、持久化步骤、失败点重试、取消、执行超时和带过期状态的 `PENDING_USER` 人机确认；可恢复任务通过 MySQL task_type/context 调度，旧版闭包任务仅兼容进程内执行。
+- 支持异步任务、阶段提示、持久化步骤、失败点重试、取消、执行超时和带过期状态的 `PENDING_USER` 人机确认；可恢复任务通过 MySQL task_type/context 调度，具有队列容量、并发上限、租约和幂等键保护，旧版闭包任务仅兼容进程内执行。
 
 ### 4.4 写作与交互
 
@@ -83,6 +83,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 ## 6. 数据与安全约定
 
 - `schema.sql` 是新环境的完整建库脚本；`schema-upgrade-*.sql` 用于已有库升级。
+- RAG 索引版本化升级使用 `schema-upgrade-10.3.sql`；已有 `paper_chunk` 会迁移为版本 1 并建立 ACTIVE 指针。
 - PDF 存放在 `app.storage.pdf-dir`，默认 `./data/papers`。
 - API Key 支持 `RA_API_KEY` 等环境变量覆盖；配置 `RA_MASTER_KEY` 后使用 AES-GCM 加密保存。
 - 测试使用 `test` profile 的 H2 内存库，不得依赖开发库中的论文、任务或阅读计划数据。
@@ -91,7 +92,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 
 1. 将现有论文精读质量门禁扩展到对比/Gap，并评估多模型 fallback。
 2. 统一数据库迁移工具，替代逐步累积的手写升级脚本。
-3. 在当前 MySQL 可恢复调度基础上，按部署需求补充限流、跨节点压测和更强的任务队列能力。
+3. 在当前 MySQL 可恢复调度基础上补充跨节点压测、生产告警导出和更强的任务队列能力。
 4. 拆分超大前端页面，优化首屏包体积和公共 composable。
 5. 增加 Docker 一键部署、接口契约测试和 Micrometer 指标。
 

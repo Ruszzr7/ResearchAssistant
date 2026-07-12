@@ -47,7 +47,10 @@ public class InMemoryVectorStore implements VectorStore {
             return;
         }
         try {
-            List<PaperChunk> records = paperChunkMapper.selectList(null);
+            List<PaperChunk> records = paperChunkMapper.selectAllActive();
+            if (records == null) {
+                records = List.of();
+            }
             List<Entry> loadedEntries = new ArrayList<>(records.size());
             for (PaperChunk record : records) {
                 List<Float> vector = parseEmbedding(record.getEmbeddingJson());
@@ -80,6 +83,23 @@ public class InMemoryVectorStore implements VectorStore {
         }
         persistence.saveAll(chunks);
         addInMemory(chunks);
+    }
+
+    @Override
+    public void replacePaperIndex(Long paperId, int indexVersion, List<EmbeddedChunk> chunks) {
+        if (paperId == null || chunks == null || chunks.isEmpty()) {
+            return;
+        }
+        lock.writeLock().lock();
+        try {
+            entries.removeIf(e -> paperId.equals(e.paperId));
+            for (EmbeddedChunk chunk : chunks) {
+                entries.add(new Entry(chunk.paperId(), chunk.chunkType(), chunk.content(),
+                        chunk.source(), chunk.embedding()));
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     /** Qdrant 失败降级时只更新内存，避免重复写入 paper_chunk。 */

@@ -9,7 +9,8 @@ public class RagIndexingException extends RuntimeException {
         NO_CHUNKS,
         EMBEDDING_UNAVAILABLE,
         EMBEDDING_MISMATCH,
-        VECTOR_STORE_FAILED
+        VECTOR_STORE_FAILED,
+        INDEX_VERSION_FAILED
     }
 
     private final Reason reason;

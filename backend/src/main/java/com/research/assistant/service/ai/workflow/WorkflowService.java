@@ -22,14 +22,22 @@ public class WorkflowService {
      * 提交 Gap Research 工作流：库内 Gap 分析 → 外部验证。
      */
     public String submitGapResearch(List<Long> paperIds) {
-        return workflowEngine.submitRecoverable("gap-research", Map.of("paperIds", paperIds));
+        return submitGapResearch(paperIds, null);
+    }
+
+    public String submitGapResearch(List<Long> paperIds, String idempotencyKey) {
+        return workflowEngine.submitRecoverable("gap-research", Map.of("paperIds", paperIds), idempotencyKey);
     }
 
     /**
      * 提交文献调研流水线。
      */
     public String submitLiteratureSurvey(String query) {
-        return workflowEngine.submitRecoverable("literature-survey", Map.of("query", query));
+        return submitLiteratureSurvey(query, null);
+    }
+
+    public String submitLiteratureSurvey(String query, String idempotencyKey) {
+        return workflowEngine.submitRecoverable("literature-survey", Map.of("query", query), idempotencyKey);
     }
 
     /**
@@ -43,7 +51,11 @@ public class WorkflowService {
      * 提交论文入库流水线：元数据补全 → 标签/文件夹/阅读状态推荐 → 深度分析。
      */
     public String submitPaperImport(Long paperId) {
-        return workflowEngine.submitRecoverable("paper-import", Map.of("paperId", paperId));
+        return submitPaperImport(paperId, null);
+    }
+
+    public String submitPaperImport(Long paperId, String idempotencyKey) {
+        return workflowEngine.submitRecoverable("paper-import", Map.of("paperId", paperId), idempotencyKey);
     }
 
     /**

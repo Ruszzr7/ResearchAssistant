@@ -26,6 +26,10 @@ public class PaperChunkPersistence {
     }
 
     public void saveAll(List<EmbeddedChunk> chunks) {
+        saveAll(chunks, 1);
+    }
+
+    public void saveAll(List<EmbeddedChunk> chunks, int indexVersion) {
         if (chunks == null || chunks.isEmpty()) {
             return;
         }
@@ -33,6 +37,7 @@ public class PaperChunkPersistence {
         for (EmbeddedChunk chunk : chunks) {
             PaperChunk record = new PaperChunk();
             record.setPaperId(chunk.paperId());
+            record.setIndexVersion(indexVersion);
             record.setChunkType(chunk.chunkType());
             record.setContent(chunk.content());
             record.setSource(chunk.source());
@@ -50,6 +55,12 @@ public class PaperChunkPersistence {
     public void deleteByPaperId(Long paperId) {
         if (paperId != null) {
             mapper.deleteByPaperId(paperId);
+        }
+    }
+
+    public void deleteByVersion(Long paperId, int indexVersion) {
+        if (paperId != null) {
+            mapper.deleteByVersion(paperId, indexVersion);
         }
     }
 

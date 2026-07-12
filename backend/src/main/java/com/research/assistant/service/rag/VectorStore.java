@@ -15,6 +15,15 @@ public interface VectorStore {
     void add(List<EmbeddedChunk> chunks);
 
     /**
+     * 用指定版本替换论文的运行时索引。数据库版本指针由 RagIndexVersionService 先完成切换，
+     * 此方法只负责把完整版本原子地映射到内存/外部向量库。
+     */
+    default void replacePaperIndex(Long paperId, int indexVersion, List<EmbeddedChunk> chunks) {
+        removeByPaperId(paperId);
+        add(chunks);
+    }
+
+    /**
      * 检索与查询向量最相关的文档块。
      *
      * @param query     查询向量

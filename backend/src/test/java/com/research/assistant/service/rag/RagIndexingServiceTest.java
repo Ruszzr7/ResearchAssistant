@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,12 +26,14 @@ class RagIndexingServiceTest {
     private final DocumentChunker chunker = mock(DocumentChunker.class);
     private final EmbeddingService embeddingService = mock(EmbeddingService.class);
     private final VectorStore vectorStore = mock(VectorStore.class);
+    private final PaperChunkPersistence chunkPersistence = mock(PaperChunkPersistence.class);
+    private final RagIndexVersionService versionService = mock(RagIndexVersionService.class);
     private RagIndexingService service;
 
     @BeforeEach
     void setUp() {
         service = new RagIndexingService(analysisMapper, chunker, embeddingService, vectorStore,
-                new ResearchMetrics(new SimpleMeterRegistry()));
+                new ResearchMetrics(new SimpleMeterRegistry()), chunkPersistence, versionService);
     }
 
     @Test
@@ -43,13 +46,16 @@ class RagIndexingServiceTest {
         when(chunker.chunk(analysis)).thenReturn(chunks);
         when(embeddingService.embedBatch(List.of("method", "finding")))
                 .thenReturn(List.of(List.of(1.0f, 0.0f), List.of(0.0f, 1.0f)));
+        when(versionService.beginBuild(1L)).thenReturn(1);
 
         RagIndexingResult result = service.indexPaper(1L);
 
         assertThat(result.indexed()).isTrue();
         assertThat(result.chunkCount()).isEqualTo(2);
-        verify(vectorStore).removeByPaperId(1L);
-        verify(vectorStore).add(any());
+        verify(chunkPersistence).saveAll(any(), org.mockito.ArgumentMatchers.eq(1));
+        verify(versionService).activate(1L, 1, 2);
+        verify(vectorStore).replacePaperIndex(org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(1), any());
     }
 
     @Test
@@ -62,6 +68,7 @@ class RagIndexingServiceTest {
                 .extracting(error -> ((RagIndexingException) error).getReason())
                 .isEqualTo(RagIndexingException.Reason.ANALYSIS_MISSING);
         verify(vectorStore, never()).removeByPaperId(any());
+        verify(versionService, never()).beginBuild(any());
     }
 
     @Test
@@ -79,6 +86,27 @@ class RagIndexingServiceTest {
                 .isEqualTo(RagIndexingException.Reason.EMBEDDING_UNAVAILABLE);
         verify(vectorStore, never()).removeByPaperId(any());
         verify(vectorStore, never()).add(any());
+    }
+
+    @Test
+    void shouldMarkVersionFailedWhenNewChunksCannotBePersisted() {
+        PaperAnalysis analysis = analysis(4L);
+        when(analysisMapper.selectOne(any())).thenReturn(analysis);
+        when(chunker.chunk(analysis)).thenReturn(List.of(
+                new DocumentChunk(4L, "METHOD", "method", "analysis")));
+        when(embeddingService.embedBatch(List.of("method")))
+                .thenReturn(List.of(List.of(1.0f, 0.0f)));
+        when(versionService.beginBuild(4L)).thenReturn(2);
+        doThrow(new RuntimeException("database unavailable"))
+                .when(chunkPersistence).saveAll(any(), org.mockito.ArgumentMatchers.eq(2));
+
+        assertThatThrownBy(() -> service.indexPaper(4L))
+                .isInstanceOf(RagIndexingException.class)
+                .extracting(error -> ((RagIndexingException) error).getReason())
+                .isEqualTo(RagIndexingException.Reason.VECTOR_STORE_FAILED);
+        verify(versionService).markFailed(org.mockito.ArgumentMatchers.eq(4L),
+                org.mockito.ArgumentMatchers.eq(2), any());
+        verify(vectorStore, never()).replacePaperIndex(any(), org.mockito.ArgumentMatchers.anyInt(), any());
     }
 
     private PaperAnalysis analysis(Long paperId) {

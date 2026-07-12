@@ -37,6 +37,14 @@ public interface AsyncTaskRecordMapper extends BaseMapper<AsyncTaskRecord> {
     @Select("SELECT COUNT(*) FROM async_task WHERE status = #{status}")
     long countByStatus(@Param("status") String status);
 
+    @Select("SELECT COUNT(*) FROM async_task WHERE task_type IS NOT NULL "
+            + "AND status IN ('PENDING', 'PROCESSING', 'RETRY_WAIT')")
+    long countRecoverableActive();
+
+    @Select("SELECT COUNT(*) FROM async_task WHERE task_type IS NOT NULL "
+            + "AND status IN ('PROCESSING')")
+    long countRecoverableProcessing();
+
     @Select("SELECT " + COLUMNS + " FROM async_task WHERE idempotency_key = #{idempotencyKey} LIMIT 1")
     AsyncTaskRecord selectByIdempotencyKey(@Param("idempotencyKey") String idempotencyKey);
 

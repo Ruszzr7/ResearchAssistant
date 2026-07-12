@@ -184,12 +184,36 @@ CREATE TABLE IF NOT EXISTS workflow_step (
 CREATE TABLE IF NOT EXISTS paper_chunk (
     id            BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id      BIGINT       NOT NULL COMMENT '所属论文 ID',
+    index_version INT          NOT NULL DEFAULT 1 COMMENT '所属 RAG 索引版本',
     chunk_type    VARCHAR(32)  NOT NULL COMMENT '分片类型：RAW/CONTRIBUTION/METHOD/FINDING/LIMITATION/DATASET',
     content       MEDIUMTEXT   NOT NULL COMMENT '文本内容',
     embedding_json TEXT        NOT NULL COMMENT 'embedding float 数组 JSON',
     source        VARCHAR(255)          COMMENT '来源说明',
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_paper_id (paper_id),
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS rag_index_state (
+    paper_id      BIGINT      NOT NULL PRIMARY KEY,
+    active_version INT        DEFAULT NULL COMMENT '当前对外提供检索的版本',
+    next_version  INT         NOT NULL DEFAULT 0,
+    updated_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS rag_index_version (
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id      BIGINT       NOT NULL,
+    version_no    INT          NOT NULL,
+    status        VARCHAR(16)  NOT NULL COMMENT 'BUILDING / READY / ACTIVE / RETIRED / FAILED',
+    chunk_count   INT          NOT NULL DEFAULT 0,
+    error         VARCHAR(1000) DEFAULT NULL,
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    activated_at  DATETIME     DEFAULT NULL,
+    updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_rag_paper_version (paper_id, version_no),
+    KEY idx_rag_active (paper_id, status),
     FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

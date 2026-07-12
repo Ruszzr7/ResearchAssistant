@@ -10,7 +10,11 @@ spring:
       schema-locations: classpath:test-schema.sql
 
 app:
+  rag:
+    index-retention: 7d
   async:
     mark-orphaned-on-startup: false
     schema-init-enabled: false
+    max-inflight: 4
+    max-queue-depth: 100
     dispatch-enabled: false

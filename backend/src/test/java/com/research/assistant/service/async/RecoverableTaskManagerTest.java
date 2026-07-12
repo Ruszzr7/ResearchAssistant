@@ -7,17 +7,20 @@ import com.research.assistant.mapper.WorkflowStepMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class RecoverableTaskManagerTest {
@@ -114,5 +117,27 @@ class RecoverableTaskManagerTest {
         manager.dispatchRecoverableTasks();
 
         assertThat(manager.get(taskId).getStatus()).isEqualTo(AsyncTaskStatus.DEAD_LETTER);
+    }
+
+    @Test
+    void shouldRejectSubmissionWhenRecoverableQueueIsFull() {
+        ReflectionTestUtils.setField(manager, "maxQueueDepth", 1);
+        when(taskMapper.countRecoverableActive()).thenReturn(1L);
+
+        assertThatThrownBy(() -> manager.submitRecoverable(
+                "full", null, "Full", java.util.Map.of(), null))
+                .isInstanceOf(AsyncTaskCapacityException.class);
+        org.mockito.Mockito.verify(executor, never()).submit(any(Runnable.class));
+    }
+
+    @Test
+    void shouldRejectIdempotencyKeyReuseWithDifferentArguments() {
+        registry.register("same-key", context -> "ok");
+        String taskId = manager.submitRecoverable("same-key", null, "Same", java.util.Map.of("value", 1), "key-2");
+
+        assertThatThrownBy(() -> manager.submitRecoverable(
+                "same-key", null, "Same", java.util.Map.of("value", 2), "key-2"))
+                .isInstanceOf(AsyncTaskIdempotencyConflictException.class);
+        assertThat(manager.get(taskId).getStatus()).isEqualTo(AsyncTaskStatus.COMPLETED);
     }
 }

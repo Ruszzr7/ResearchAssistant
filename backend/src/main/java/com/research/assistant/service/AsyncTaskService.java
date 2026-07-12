@@ -106,7 +106,8 @@ public class AsyncTaskService {
                         "chunkCount", result.chunkCount());
             } catch (RagIndexingException e) {
                 boolean retryable = e.getReason() == RagIndexingException.Reason.EMBEDDING_UNAVAILABLE
-                        || e.getReason() == RagIndexingException.Reason.VECTOR_STORE_FAILED;
+                        || e.getReason() == RagIndexingException.Reason.VECTOR_STORE_FAILED
+                        || e.getReason() == RagIndexingException.Reason.INDEX_VERSION_FAILED;
                 throw new AsyncTaskExecutionException(e.getReason().name(), e.getMessage(), retryable, e);
             }
         });
@@ -184,23 +185,31 @@ public class AsyncTaskService {
         submitRecoverable(TASK_PROCESS_PAPER, paperId, null);
     }
 
+    public String submitProcessPaper(Long paperId, String idempotencyKey) {
+        return submitRecoverable(TASK_PROCESS_PAPER, paperId, idempotencyKey);
+    }
+
     /**
      * 异步下载 arXiv PDF 并更新论文 pdfPath。
      * <p>
      * 下载成功后自动触发 AI 分析（参见 P1.3）。
      */
     public void downloadArxivPdfAsync(Long paperId, String arxivId) {
+        downloadArxivPdfAsync(paperId, arxivId, null);
+    }
+
+    public String downloadArxivPdfAsync(Long paperId, String arxivId, String idempotencyKey) {
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("paperId", paperId);
         arguments.put("arxivId", arxivId);
-        asyncTaskManager.submitRecoverable(TASK_DOWNLOAD_ARXIV, null,
-                "arXiv PDF 下载 (paperId=" + paperId + ")", arguments, null);
+        return asyncTaskManager.submitRecoverable(TASK_DOWNLOAD_ARXIV, null,
+                "arXiv PDF 下载 (paperId=" + paperId + ")", arguments, idempotencyKey);
     }
 
-    private void submitRecoverable(String taskType, Long paperId, String idempotencyKey) {
+    private String submitRecoverable(String taskType, Long paperId, String idempotencyKey) {
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("paperId", paperId);
-        asyncTaskManager.submitRecoverable(taskType, null, "论文处理 (paperId=" + paperId + ")", arguments, idempotencyKey);
+        return asyncTaskManager.submitRecoverable(taskType, null, "论文处理 (paperId=" + paperId + ")", arguments, idempotencyKey);
     }
 
     /**
@@ -209,11 +218,15 @@ public class AsyncTaskService {
      * @return 任务 ID
      */
     public String submitComparePapers(List<Long> paperIds, String customDimensions) {
+        return submitComparePapers(paperIds, customDimensions, null);
+    }
+
+    public String submitComparePapers(List<Long> paperIds, String customDimensions, String idempotencyKey) {
         String title = "论文对比 (" + (paperIds != null ? paperIds.size() : 0) + " 篇)";
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("paperIds", paperIds == null ? List.of() : paperIds);
         arguments.put("customDimensions", customDimensions);
-        return asyncTaskManager.submitRecoverable(TASK_COMPARE, null, title, arguments, null);
+        return asyncTaskManager.submitRecoverable(TASK_COMPARE, null, title, arguments, idempotencyKey);
     }
 
     /**
@@ -222,9 +235,13 @@ public class AsyncTaskService {
      * @return 任务 ID
      */
     public String submitGapAnalysis(List<Long> paperIds) {
+        return submitGapAnalysis(paperIds, null);
+    }
+
+    public String submitGapAnalysis(List<Long> paperIds, String idempotencyKey) {
         String title = "Gap 分析 (" + (paperIds != null ? paperIds.size() : 0) + " 篇)";
         return asyncTaskManager.submitRecoverable(TASK_GAP_PAPERS, null, title,
-                Map.of("paperIds", paperIds == null ? List.of() : paperIds), null);
+                Map.of("paperIds", paperIds == null ? List.of() : paperIds), idempotencyKey);
     }
 
     /**
@@ -233,10 +250,14 @@ public class AsyncTaskService {
      * @return 任务 ID
      */
     public String submitGapAnalysisByFolder(Long folderId) {
+        return submitGapAnalysisByFolder(folderId, null);
+    }
+
+    public String submitGapAnalysisByFolder(Long folderId, String idempotencyKey) {
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("folderId", folderId);
         return asyncTaskManager.submitRecoverable(TASK_GAP_FOLDER, null,
-                "Gap 分析 (文件夹 " + folderId + ")", arguments, null);
+                "Gap 分析 (文件夹 " + folderId + ")", arguments, idempotencyKey);
     }
 
     /**
@@ -245,13 +266,17 @@ public class AsyncTaskService {
      * @return 任务 ID
      */
     public String submitPlan(String goal) {
+        return submitPlan(goal, null);
+    }
+
+    public String submitPlan(String goal, String idempotencyKey) {
         String title = "智能规划";
         if (goal != null) {
             title += ": " + (goal.length() > 30 ? goal.substring(0, 30) + "…" : goal);
         }
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("goal", goal);
-        return asyncTaskManager.submitRecoverable(TASK_PLAN, null, title, arguments, null);
+        return asyncTaskManager.submitRecoverable(TASK_PLAN, null, title, arguments, idempotencyKey);
     }
 
     /**

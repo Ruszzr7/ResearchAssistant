@@ -56,11 +56,32 @@ CREATE TABLE paper_tag (
 CREATE TABLE paper_chunk (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id BIGINT NOT NULL,
+    index_version INT NOT NULL DEFAULT 1,
     chunk_type VARCHAR(32) NOT NULL,
     content TEXT NOT NULL,
     embedding_json TEXT NOT NULL,
     source VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE rag_index_state (
+    paper_id BIGINT PRIMARY KEY,
+    active_version INT,
+    next_version INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE rag_index_version (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id BIGINT NOT NULL,
+    version_no INT NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    chunk_count INT NOT NULL DEFAULT 0,
+    error VARCHAR(1000),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    activated_at TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (paper_id, version_no)
 );
 
 CREATE TABLE note (

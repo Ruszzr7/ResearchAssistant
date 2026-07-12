@@ -72,4 +72,18 @@ class VectorStoreRouterTest {
 
         verify(memory).removeByPaperId(1L);
     }
+
+    @Test
+    void shouldKeepMemoryActiveWhenQdrantVersionSwitchFails() {
+        InMemoryVectorStore memory = mock(InMemoryVectorStore.class);
+        QdrantVectorStore qdrant = mock(QdrantVectorStore.class);
+        VectorStoreRouter router = new VectorStoreRouter(memory, qdrant, true);
+        List<EmbeddedChunk> chunks = List.of(new EmbeddedChunk(5L, "RAW", "new", "source", List.of(1.0f)));
+        doThrow(new VectorStoreException("qdrant unavailable"))
+                .when(qdrant).replacePaperIndex(5L, 2, chunks);
+
+        router.replacePaperIndex(5L, 2, chunks);
+
+        verify(memory).replacePaperIndex(5L, 2, chunks);
+    }
 }

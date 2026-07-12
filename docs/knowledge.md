@@ -53,6 +53,7 @@
 - `PENDING_USER` 按 TTL 转为 `EXPIRED`，排队/运行任务按执行时限转为 `FAILED` 并中断 Future；同一 taskId 只有失败、取消、过期或待确认状态允许重新提交。
 - Actuator 暴露 health/info/metrics；Micrometer 只记录低基数任务类型、结果、耗时、token 和分片数，日志不写提示词、论文正文或凭据，错误文本入库前需脱敏和限长。
 - 可恢复任务只持久化 `task_type + context_json`，由 `AsyncTaskHandlerRegistry` 重建执行逻辑；数据库条件更新负责 claim，`lease_until` 防止进程崩溃后永久占用，`attempt_count/next_run_at` 实现指数退避和死信结算。幂等键配合请求哈希，避免同一键复用到不同参数。
+- 可恢复任务提交前检查持久化队列深度，调度器同时受本地 in-flight 和数据库 PROCESSING 数量限制；超过容量返回 429，避免线程池和 MySQL 无限堆积。队列深度、in-flight、容量拒绝通过低基数 Micrometer 指标暴露。
 
 ## 7. RAG
 
@@ -63,6 +64,8 @@
 - `paper_chunk` 持久化由独立组件统一处理；Qdrant 失败降级只更新内存，不能再次写 MySQL。
 - Embedding 批量接口应使用 Provider 原生 `embedAll`；重建索引先完成 Embedding，再替换旧索引。
 - 内存向量条目预计算数组并使用读写锁，避免每次检索重复分配向量数组。
+- RAG 重建采用 `rag_index_state + rag_index_version + paper_chunk.index_version`：新分片先写 BUILDING 版本，短事务内将其标记 READY、回收旧 ACTIVE 并切换 active_version；运行时向量存储再做 copy-on-write。Embedding、持久化或向量库失败不会先删除旧版本，过期 RETIRED/FAILED 版本由定时任务清理。
+- Qdrant 点 ID 包含论文、索引版本和分片序号；版本切换失败时路由层回退到内存 active 版本，避免外部向量库短暂不可用阻断检索。
 
 ## 8. 多源学术检索
 

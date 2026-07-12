@@ -103,13 +103,17 @@ public class WorkflowEngine {
 
     /** 生产入口：工作流上下文和恢复位置均持久化，可由调度器在重启后继续。 */
     public String submitRecoverable(String workflowKey, Map<String, Object> context) {
+        return submitRecoverable(workflowKey, context, null);
+    }
+
+    public String submitRecoverable(String workflowKey, Map<String, Object> context, String idempotencyKey) {
         WorkflowDefinition def = workflowRegistry.get(workflowKey);
         if (def == null) {
             throw new WorkflowException("未知工作流: " + workflowKey);
         }
         return asyncTaskManager.submitRecoverable(
                 recoverableType(workflowKey), workflowKey, def.name(),
-                workflowPayload(context, 0, Map.of()), null);
+                workflowPayload(context, 0, Map.of()), idempotencyKey);
     }
 
     /**

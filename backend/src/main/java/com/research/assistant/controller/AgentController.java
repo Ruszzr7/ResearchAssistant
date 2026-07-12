@@ -55,9 +55,11 @@ public class AgentController {
      * POST /api/agent/process/{paperId} — 启动论文深度分析（异步）。
      */
     @PostMapping("/process/{paperId}")
-    public Result<Map<String, Object>> process(@PathVariable Long paperId) {
-        asyncTaskService.processPaperAsync(paperId);
-        return Result.ok(Map.of("paperId", paperId, "status", "PROCESSING"));
+    public Result<Map<String, Object>> process(@PathVariable Long paperId,
+                                               @RequestHeader(value = "Idempotency-Key", required = false)
+                                               String idempotencyKey) {
+        String taskId = asyncTaskService.submitProcessPaper(paperId, idempotencyKey);
+        return Result.ok(Map.of("paperId", paperId, "status", "PROCESSING", "taskId", taskId));
     }
 
     /**
@@ -144,12 +146,14 @@ public class AgentController {
      * POST /api/agent/plan — 自然语言任务规划：LLM 自动选择 Skill 并执行。
      */
     @PostMapping("/plan")
-    public Result<Map<String, String>> plan(@RequestBody Map<String, String> body) {
+    public Result<Map<String, String>> plan(@RequestBody Map<String, String> body,
+                                            @RequestHeader(value = "Idempotency-Key", required = false)
+                                            String idempotencyKey) {
         String goal = body.get("goal");
         if (goal == null || goal.isBlank()) {
             return Result.error(400, "请提供 goal");
         }
-        String taskId = asyncTaskService.submitPlan(goal);
+        String taskId = asyncTaskService.submitPlan(goal, idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 
@@ -157,9 +161,11 @@ public class AgentController {
      * POST /api/agent/compare — 提交横向对比异步任务。
      */
     @PostMapping("/compare")
-    public Result<Map<String, String>> compare(@RequestBody @Valid CompareRequest request) {
+    public Result<Map<String, String>> compare(@RequestBody @Valid CompareRequest request,
+                                               @RequestHeader(value = "Idempotency-Key", required = false)
+                                               String idempotencyKey) {
         String taskId = asyncTaskService.submitComparePapers(
-                request.getPaperIds(), request.getCustomDimensions());
+                request.getPaperIds(), request.getCustomDimensions(), idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 
@@ -175,8 +181,10 @@ public class AgentController {
      * POST /api/agent/gap/folder/{folderId} — 提交基于文件夹的 Gap 分析异步任务。
      */
     @PostMapping("/gap/folder/{folderId}")
-    public Result<Map<String, String>> gapByFolder(@PathVariable Long folderId) {
-        String taskId = asyncTaskService.submitGapAnalysisByFolder(folderId);
+    public Result<Map<String, String>> gapByFolder(@PathVariable Long folderId,
+                                                   @RequestHeader(value = "Idempotency-Key", required = false)
+                                                   String idempotencyKey) {
+        String taskId = asyncTaskService.submitGapAnalysisByFolder(folderId, idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 
@@ -184,8 +192,10 @@ public class AgentController {
      * POST /api/agent/gap — 提交 Gap 分析异步任务（库内分析 + 外部验证）。
      */
     @PostMapping("/gap")
-    public Result<Map<String, String>> gap(@RequestBody @Valid GapRequest request) {
-        String taskId = asyncTaskService.submitGapAnalysis(request.getPaperIds());
+    public Result<Map<String, String>> gap(@RequestBody @Valid GapRequest request,
+                                          @RequestHeader(value = "Idempotency-Key", required = false)
+                                          String idempotencyKey) {
+        String taskId = asyncTaskService.submitGapAnalysis(request.getPaperIds(), idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 

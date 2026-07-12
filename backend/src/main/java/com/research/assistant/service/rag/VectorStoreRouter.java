@@ -43,6 +43,19 @@ public class VectorStoreRouter implements VectorStore {
     }
 
     @Override
+    public void replacePaperIndex(Long paperId, int indexVersion, List<EmbeddedChunk> chunks) {
+        if (qdrantEnabled) {
+            try {
+                qdrant.replacePaperIndex(paperId, indexVersion, chunks);
+            } catch (VectorStoreException e) {
+                log.warn("Qdrant 版本切换失败，降级到内存向量存储: {}", e.getMessage());
+            }
+        }
+        // 内存使用 copy-on-write，始终保持当前数据库 active 版本可检索。
+        memory.replacePaperIndex(paperId, indexVersion, chunks);
+    }
+
+    @Override
     public List<ScoredChunk> findRelevant(List<Float> query, int maxResults, double minScore) {
         if (qdrantEnabled) {
             try {

@@ -32,6 +32,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -69,8 +71,14 @@ public class AsyncTaskManager {
     private final int dispatchBatchSize;
     private final int defaultMaxAttempts;
     private final boolean dispatchEnabled;
+    @Value("${app.async.max-inflight:20}")
+    private int maxInFlight = 20;
+    @Value("${app.async.max-queue-depth:500}")
+    private int maxQueueDepth = 500;
     private final String leaseOwner = UUID.randomUUID().toString();
     private final Map<String, TaskHolder> tasks = new ConcurrentHashMap<>();
+    private final AtomicBoolean dispatchRunning = new AtomicBoolean();
+    private final AtomicInteger recoverableInFlight = new AtomicInteger();
 
     @Autowired
     public AsyncTaskManager(@Qualifier("taskExecutor") AsyncTaskExecutor taskExecutor,
@@ -101,6 +109,8 @@ public class AsyncTaskManager {
         this.dispatchBatchSize = Math.max(1, dispatchBatchSize);
         this.defaultMaxAttempts = Math.max(1, defaultMaxAttempts);
         this.dispatchEnabled = dispatchEnabled;
+        this.maxInFlight = Math.max(1, this.maxInFlight);
+        this.maxQueueDepth = Math.max(1, this.maxQueueDepth);
     }
 
     /**
@@ -145,6 +155,8 @@ public class AsyncTaskManager {
      */
     @PostConstruct
     public void markOrphanedTasksAsFailed() {
+        maxInFlight = Math.max(1, maxInFlight);
+        maxQueueDepth = Math.max(1, maxQueueDepth);
         if (!markOrphanedOnStartup) {
             log.info("已跳过启动时孤儿任务恢复（配置 app.async.mark-orphaned-on-startup=false）");
             return;
@@ -289,16 +301,27 @@ public class AsyncTaskManager {
         if (taskType == null || taskType.isBlank()) {
             throw new IllegalArgumentException("可恢复任务必须提供 taskType");
         }
-        String requestHash = sha256(contextJson);
+        String requestHash = sha256(taskType + "|" + (workflowType == null ? "" : workflowType)
+                + "|" + (contextJson == null ? "" : contextJson));
         String normalizedIdempotencyKey = idempotencyKey == null || idempotencyKey.isBlank()
                 ? null : idempotencyKey.trim();
+        if (normalizedIdempotencyKey != null && normalizedIdempotencyKey.length() > 128) {
+            throw new IllegalArgumentException("幂等键长度不能超过 128 个字符");
+        }
         AsyncTaskRecord idempotent = normalizedIdempotencyKey == null
                 ? null : taskRecordMapper.selectByIdempotencyKey(normalizedIdempotencyKey);
         if (idempotent != null) {
             if (!java.util.Objects.equals(idempotent.getRequestHash(), requestHash)) {
-                throw new IllegalArgumentException("幂等键已用于另一组任务参数: " + normalizedIdempotencyKey);
+                throw new AsyncTaskIdempotencyConflictException("幂等键已用于另一组任务参数: " + normalizedIdempotencyKey);
             }
             return idempotent.getTaskId();
+        }
+
+        refreshQueueMetric();
+        long activeCount = taskRecordMapper.countRecoverableActive();
+        if (activeCount >= maxQueueDepth) {
+            metrics.taskCapacityRejected(taskType);
+            throw new AsyncTaskCapacityException("异步任务队列已达到容量上限，请稍后重试");
         }
 
         AsyncTaskResult<Object> initial = AsyncTaskResult.pending(taskId, "排队中…", workflowType, null, title);
@@ -306,6 +329,7 @@ public class AsyncTaskManager {
         TaskHolder holder = new TaskHolder(initial, null, recordId, metrics.startTimer(), taskType);
         tasks.put(taskId, holder);
         metrics.taskSubmitted(taskType);
+        refreshQueueMetric();
         dispatchRecoverableTask(taskId);
         return taskId;
     }
@@ -325,13 +349,18 @@ public class AsyncTaskManager {
             markDeadLetter(taskId, "超过最大尝试次数");
             return;
         }
+        if (!tryAcquireRecoverableSlot()) {
+            return;
+        }
         String claimOwner = leaseOwner + ":" + UUID.randomUUID();
         try {
             if (taskRecordMapper.claimForExecution(taskId, claimOwner,
                     LocalDateTime.now().plus(leaseDuration)) == 0) {
+                releaseRecoverableSlot();
                 return;
             }
         } catch (RuntimeException e) {
+            releaseRecoverableSlot();
             log.warn("event=async_task_claim_failed taskId={} errorType={}",
                     taskId, e.getClass().getSimpleName());
             return;
@@ -356,22 +385,23 @@ public class AsyncTaskManager {
                 }
             }
         } catch (RuntimeException e) {
+            releaseRecoverableSlot();
             scheduleRetry(taskId, new AsyncTaskExecutionException(
                     "EXECUTOR_REJECTED", "任务执行器暂时无法接收任务", true, e));
         }
     }
 
     private void runRecoverableTask(String taskId) {
-        AsyncTaskRecord record = taskRecordMapper.selectByTaskId(taskId);
-        if (record == null || record.getTaskType() == null) {
-            return;
-        }
-        AsyncTaskHandler handler = handlerRegistry.get(record.getTaskType());
-        if (handler == null) {
-            markRecoverableFailure(taskId, "HANDLER_NOT_FOUND", "没有注册任务处理器: " + record.getTaskType());
-            return;
-        }
         try {
+            AsyncTaskRecord record = taskRecordMapper.selectByTaskId(taskId);
+            if (record == null || record.getTaskType() == null) {
+                return;
+            }
+            AsyncTaskHandler handler = handlerRegistry.get(record.getTaskType());
+            if (handler == null) {
+                markRecoverableFailure(taskId, "HANDLER_NOT_FOUND", "没有注册任务处理器: " + record.getTaskType());
+                return;
+            }
             Map<String, Object> arguments = readArguments(record.getContextJson());
             AsyncTaskExecutionContext context = new AsyncTaskExecutionContext(
                     taskId,
@@ -403,6 +433,43 @@ public class AsyncTaskManager {
             } else {
                 markRecoverableFailure(taskId, "TASK_FAILED", safeError(e));
             }
+        } finally {
+            releaseRecoverableSlot();
+        }
+    }
+
+    private boolean tryAcquireRecoverableSlot() {
+        int current;
+        do {
+            current = recoverableInFlight.get();
+            if (current >= maxInFlight) {
+                return false;
+            }
+        } while (!recoverableInFlight.compareAndSet(current, current + 1));
+        try {
+            if (taskRecordMapper.countRecoverableProcessing() >= maxInFlight) {
+                releaseRecoverableSlot();
+                return false;
+            }
+        } catch (RuntimeException e) {
+            releaseRecoverableSlot();
+            log.warn("event=async_task_capacity_check_failed errorType={}", e.getClass().getSimpleName());
+            return false;
+        }
+        metrics.updateRecoverableInFlight(recoverableInFlight.get());
+        return true;
+    }
+
+    private void releaseRecoverableSlot() {
+        recoverableInFlight.updateAndGet(value -> Math.max(0, value - 1));
+        metrics.updateRecoverableInFlight(recoverableInFlight.get());
+    }
+
+    private void refreshQueueMetric() {
+        try {
+            metrics.updateRecoverableQueueDepth(taskRecordMapper.countRecoverableActive());
+        } catch (RuntimeException e) {
+            log.debug("刷新异步队列指标失败: {}", e.getMessage());
         }
     }
 
@@ -949,7 +1016,7 @@ public class AsyncTaskManager {
             fixedDelayString = "${app.async.dispatch-interval-ms:1000}",
             initialDelayString = "${app.async.dispatch-interval-ms:1000}")
     public void dispatchRecoverableTasks() {
-        if (!dispatchEnabled) {
+        if (!dispatchEnabled || !dispatchRunning.compareAndSet(false, true)) {
             return;
         }
         try {
@@ -957,11 +1024,20 @@ public class AsyncTaskManager {
             if (recovered > 0) {
                 log.warn("event=async_task_lease_recovered count={}", recovered);
             }
-            for (AsyncTaskRecord record : taskRecordMapper.selectDispatchable(dispatchBatchSize)) {
+            refreshQueueMetric();
+            long processing = taskRecordMapper.countRecoverableProcessing();
+            int available = Math.max(0, maxInFlight - (int) Math.min(Integer.MAX_VALUE, processing));
+            int batchSize = Math.min(dispatchBatchSize, available);
+            if (batchSize <= 0) {
+                return;
+            }
+            for (AsyncTaskRecord record : taskRecordMapper.selectDispatchable(batchSize)) {
                 dispatchRecoverableTask(record.getTaskId());
             }
         } catch (Exception e) {
             log.warn("event=async_task_dispatch_failed errorType={}", e.getClass().getSimpleName());
+        } finally {
+            dispatchRunning.set(false);
         }
     }
 

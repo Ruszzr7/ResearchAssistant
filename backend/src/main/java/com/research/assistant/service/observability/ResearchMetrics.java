@@ -17,11 +17,19 @@ public class ResearchMetrics {
 
     private final MeterRegistry registry;
     private final AtomicInteger activeTasks = new AtomicInteger();
+    private final AtomicInteger recoverableQueueDepth = new AtomicInteger();
+    private final AtomicInteger recoverableInFlight = new AtomicInteger();
 
     public ResearchMetrics(MeterRegistry registry) {
         this.registry = registry;
         Gauge.builder("research.async.tasks.active", activeTasks, AtomicInteger::get)
                 .description("In-process asynchronous tasks that have not reached a terminal state")
+                .register(registry);
+        Gauge.builder("research.async.queue.depth", recoverableQueueDepth, AtomicInteger::get)
+                .description("Persisted recoverable tasks waiting or running")
+                .register(registry);
+        Gauge.builder("research.async.tasks.inflight", recoverableInFlight, AtomicInteger::get)
+                .description("Recoverable tasks currently claimed by this process")
                 .register(registry);
     }
 
@@ -61,6 +69,18 @@ public class ResearchMetrics {
         }
         timer("research.rag.index.duration", "outcome", outcome)
                 .record(Duration.ofNanos(Math.max(0, System.nanoTime() - startedAtNanos)));
+    }
+
+    public void updateRecoverableQueueDepth(long depth) {
+        recoverableQueueDepth.set((int) Math.min(Integer.MAX_VALUE, Math.max(0, depth)));
+    }
+
+    public void updateRecoverableInFlight(int inFlight) {
+        recoverableInFlight.set(Math.max(0, inFlight));
+    }
+
+    public void taskCapacityRejected(String taskType) {
+        counter("research.async.capacity", "type", taskType(taskType), "outcome", "rejected").increment();
     }
 
     private Counter counter(String name, String... tags) {

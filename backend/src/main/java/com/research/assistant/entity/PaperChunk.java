@@ -17,6 +17,9 @@ public class PaperChunk {
 
     private Long paperId;
 
+    /** 所属 RAG 索引版本；历史数据迁移为 1。 */
+    private Integer indexVersion;
+
     private String chunkType;
 
     private String content;
@@ -37,6 +40,9 @@ public class PaperChunk {
 
     public Long getPaperId() { return paperId; }
     public void setPaperId(Long paperId) { this.paperId = paperId; }
+
+    public Integer getIndexVersion() { return indexVersion; }
+    public void setIndexVersion(Integer indexVersion) { this.indexVersion = indexVersion; }
 
     public String getChunkType() { return chunkType; }
     public void setChunkType(String chunkType) { this.chunkType = chunkType; }
