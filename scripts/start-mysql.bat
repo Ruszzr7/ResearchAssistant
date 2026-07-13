@@ -37,9 +37,9 @@ if "%MYSQLD%"=="" (
 )
 
 if "%MYSQLD%"=="" (
-  echo [错误] 未找到 MySQL 的 mysqld.exe
-  echo 请先安装 MySQL，或者设置环境变量 MYSQL_HOME 指向安装目录
-  echo 常见位置：
+  echo [ERROR] MySQL mysqld.exe was not found.
+  echo Install MySQL or set MYSQL_HOME to its installation directory.
+  echo Common locations:
   echo   - C:\tools\mysql-8.0.28-winx64
   echo   - C:\xampp\mysql
   exit /b 1
@@ -47,10 +47,10 @@ if "%MYSQLD%"=="" (
 
 echo [信息] 找到 MySQL: %MYSQLD%
 
-:: 检查是否已在运行
-tasklist | findstr /i "mysqld.exe" > nul
-if %errorlevel%==0 (
-  echo [信息] MySQL 已经在运行中，无需重复启动
+:: 检查是否已在运行；避免 tasklist 在进程较多时阻塞启动脚本
+powershell -NoProfile -Command "try { Get-Process -Name mysqld -ErrorAction Stop | Out-Null; exit 0 } catch { exit 1 }" > nul 2>&1
+if not errorlevel 1 (
+  echo [INFO] MySQL is already running; skipping startup.
   exit /b 0
 )
 
@@ -66,11 +66,11 @@ echo [信息] 正在启动 MySQL...
 start /B "" "%MYSQLD%" --console > "%MYSQL_HOME%\mysql.log" 2>&1
 timeout /t 3 /nobreak > nul
 
-tasklist | findstr /i "mysqld.exe" > nul
-if %errorlevel%==0 (
-  echo [成功] MySQL 启动成功
+powershell -NoProfile -Command "try { Get-Process -Name mysqld -ErrorAction Stop | Out-Null; exit 0 } catch { exit 1 }" > nul 2>&1
+if not errorlevel 1 (
+  echo [OK] MySQL started successfully.
 ) else (
-  echo [错误] MySQL 启动失败，请查看日志: %MYSQL_HOME%\mysql.log
+  echo [ERROR] MySQL startup failed. Check: %MYSQL_HOME%\mysql.log
   exit /b 1
 )
 echo [INFO] Waiting for MySQL readiness...
@@ -78,9 +78,9 @@ for /L %%i in (1,1,30) do (
   if exist "%MYSQL_HOME%\bin\mysqladmin.exe" (
     "%MYSQL_HOME%\bin\mysqladmin.exe" --protocol=tcp -h 127.0.0.1 -P 3306 ping --silent >nul 2>&1
   ) else (
-    powershell -NoProfile -Command "if ((Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -WarningAction SilentlyContinue).TcpTestSucceeded) { exit 0 } else { exit 1 }" >nul 2>&1
+    powershell -NoProfile -Command "Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -InformationLevel Quiet -WarningAction SilentlyContinue" | findstr /I "^True$" >nul 2>&1
   )
-  if !errorlevel!==0 (
+  if not errorlevel 1 (
     echo [OK] MySQL is ready.
     goto :mysql_ready
   )

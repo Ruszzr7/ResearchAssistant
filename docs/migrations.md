@@ -8,3 +8,5 @@ Mission 13 起，Flyway 是正式数据库迁移工具。
 - `schema.sql` 和 `schema-upgrade-*.sql`：历史参考，不再作为部署步骤。
 
 空数据库直接启动即可执行迁移。已有数据库必须先备份；baseline history 记录不等于实际 schema 完整，旧库应先让 Flyway 执行增量修复迁移。对部分升级或未知版本数据库，禁止盲目 baseline。
+
+本文和迁移脚本均使用 UTF-8；PowerShell 查看 SQL 时显式使用 `Get-Content -Encoding utf8`。

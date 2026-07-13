@@ -12,6 +12,7 @@ target/
 
 # Runtime data
 data/
+backups/
 *.log
 *.pid
 

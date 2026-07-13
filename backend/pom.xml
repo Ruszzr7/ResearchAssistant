@@ -19,8 +19,8 @@
 
     <properties>
         <java.version>17</java.version>
-        <!-- LangChain4j 版本：先锁定 1.0.0 GA，跑通后再升级 -->
-        <langchain4j.version>1.0.0</langchain4j.version>
+        <!-- LangChain4j：Java Agent/RAG 接入层，统一锁定版本避免模块漂移。 -->
+        <langchain4j.version>1.15.1</langchain4j.version>
     </properties>
 
     <dependencies>

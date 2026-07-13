@@ -14,6 +14,12 @@ Windows 用户也可以运行 `scripts/start-dev.bat`；Bash 环境可使用对�
 
 生产或本地交付环境可复制 `.env.example` 为 `.env`，再运行 `scripts/deploy-up.bat`（或 `scripts/deploy-up.sh`）通过 Docker Compose 一键启动 MySQL、后端和前端。完整流程见 [docs/deployment.md](docs/deployment.md)。
 
+## 文档与编码约定
+
+- 源码、Markdown、YAML、JSON、SQL 和 Shell 脚本统一保存为 UTF-8；`.sh` 使用 LF 换行。
+- PowerShell 读取中文文件时显式使用 `Get-Content -Encoding utf8`；Bash/WSL 建议设置 `LANG=C.UTF-8` 和 `LC_ALL=C.UTF-8`。
+- Windows 批处理脚本使用 `chcp 65001`；不要在编辑器或脚本中隐式转换项目文件编码。
+
 ## 功能概览
 
 - 文库：文件夹、标签、PDF 上传、DOI / arXiv 元数据补全、批量操作。

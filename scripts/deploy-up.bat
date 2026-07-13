@@ -19,7 +19,7 @@ if errorlevel 1 exit /b 1
 echo [INFO] Waiting for frontend health...
 for /L %%i in (1,1,30) do (
   curl.exe -fsS --max-time 2 http://127.0.0.1:8088 >nul 2>&1
-  if !errorlevel!==0 (
+  if not errorlevel 1 (
     echo [OK] ResearchAssistant is ready at http://localhost:8088
     exit /b 0
   )

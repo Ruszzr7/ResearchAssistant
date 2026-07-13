@@ -30,7 +30,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 | 前端 | Vue 3、Vite、Element Plus、vxe-table、PDF.js |
 | 后端 | Java 17、Spring Boot 3.2.6、Maven、MyBatis Plus |
 | 数据 | MySQL 8；Flyway 版本化迁移，MySQL 保存任务/RAG/证据元数据 |
-| AI | LangChain4j 1.0；OpenAI 兼容 Chat / Embedding API |
+| AI | LangChain4j 1.15.1；OpenAI 兼容 Chat / Embedding API |
 | PDF | PDFBox；可选 Marker / MinerU / Grobid 外部命令 |
 | 向量 | 默认内存存储，可切换 Qdrant；MySQL 保存分片元数据 |
 
@@ -82,7 +82,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 
 ## 6. 数据与安全约定
 
-- 正式运行由 `backend/src/main/resources/db/migration` 下的 Flyway 迁移负责初始化和升级；`V12.1` 是 Mission 12.1 完成后的无损基线，`V13` 增加 RAG 一致性审计表。`schema.sql` 与 `schema-upgrade-*.sql` 仅作历史参考。
+- 正式运行由 `backend/src/main/resources/db/migration` 下的 Flyway 迁移负责初始化和升级；`V12.1` 是无损基线，`V13` 增加 RAG 一致性审计表，`V13.1` 修复旧库实际 schema 缺失。`schema.sql` 与 `schema-upgrade-*.sql` 仅作历史参考。
 - 已有数据库切换到 Flyway 前必须备份并核验 schema；只允许在确认数据库对应基线后临时使用 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true`，禁止对未知版本数据库盲目 baseline。
 - RAG 一致性巡检通过 `/api/rag/consistency` 比对 MySQL active 指针、active version 元数据和 active chunk 数量，审计写入 `rag_consistency_audit` 不影响只读巡检结果。
 - PDF 存放在 `app.storage.pdf-dir`，默认 `./data/papers`。
@@ -108,3 +108,4 @@ MySQL / 本地 PDF / 可选 Qdrant
 - `progress.md`：只记录阶段、日期、关键交付和验证结果。
 - `knowledge.md`：只保留可复用的设计决策、踩坑和排查方法。
 - 详细历史 diff 以 Git 为准，不在文档中重复保存。
+- 源码、Markdown、配置和脚本统一使用 UTF-8；PowerShell 读取中文文件时显式指定 `-Encoding utf8`。

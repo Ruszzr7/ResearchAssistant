@@ -6,7 +6,7 @@
 
 - 前端：Vue 3、Vite、Element Plus、vxe-table、PDF.js。
 - 后端：Java 17、Spring Boot 3.2.6、MyBatis Plus、MySQL 8。
-- AI：LangChain4j 1.0，调用 OpenAI 兼容 API。
+- AI：LangChain4j 1.15.1，调用 OpenAI 兼容 API。
 - 检索：默认内存向量存储，可选 Qdrant；分片和元数据保存在 MySQL。
 - PDF：PDFBox 默认解析器，可按设置调用 Marker / MinerU / Grobid。
 
@@ -19,3 +19,5 @@ Redis 和 Pinia 当前不在实际运行链路中；异步任务使用 Spring �
 ## 工作约定
 
 按 Plan → Explain → Code → Test → Review 推进。功能完成后更新进度文档，重要技术结论写入知识文档。Git 操作在执行前先向用户确认；不要覆盖用户已有改动。
+
+源码、文档和配置统一使用 UTF-8；PowerShell 读取中文文件显式指定 `-Encoding utf8`，Bash/WSL 使用 UTF-8 locale。

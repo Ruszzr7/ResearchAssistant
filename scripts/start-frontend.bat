@@ -4,16 +4,16 @@ setlocal
 
 :: 启动前端开发服务器
 
-netstat -ano | findstr /R /C:":5173 .*LISTENING" > nul
-if %errorlevel%==0 (
-  echo [信息] 5173 端口已被占用，前端开发服务器可能已经在运行
-  echo 请访问 http://localhost:5173
+curl.exe -fsS --max-time 1 http://127.0.0.1:5173/ > nul 2>&1
+if not errorlevel 1 (
+  echo [INFO] Port 5173 is already in use; frontend may already be running.
+  echo Open http://localhost:5173
   exit /b 0
 )
 
 where npm > nul 2>&1
 if errorlevel 1 (
-  echo [错误] 未找到 npm，请先安装 Node.js
+  echo [ERROR] npm was not found. Install Node.js first.
   exit /b 1
 )
 
@@ -26,7 +26,7 @@ if not exist "node_modules" (
   echo 检测到 frontend\node_modules 不存在，先执行 npm install...
   call npm install
   if errorlevel 1 (
-    echo [错误] npm install 失败
+    echo [ERROR] npm install failed.
     exit /b 1
   )
 )

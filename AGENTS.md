@@ -13,7 +13,7 @@ Spring Boot 负责业务编排、持久化和异步任务；LangChain4j 接入 O
 | 前端 | Vue 3 + Vite + Element Plus + vxe-table + PDF.js |
 | 后端 | Java 17 + Spring Boot 3.2.6 + Maven |
 | ORM / 数据库 | MyBatis Plus + MySQL 8 |
-| AI | LangChain4j 1.0 + OpenAI 兼容 API |
+| AI | LangChain4j 1.15.1 + OpenAI 兼容 API |
 | 检索 | 内存向量存储（默认）/ 可选 Qdrant；MySQL 保存分片 |
 | PDF | PDFBox 默认实现，可接入 Marker / MinerU / Grobid 外部命令 |
 
@@ -41,4 +41,6 @@ Plan → Explain → Code → Test → Review。每个实质功能完成后更�
 后端测试：cd backend && mvnw.cmd test
 ```
 
-首次启动前需执行 `backend/src/main/resources/schema.sql`，并在设置页或环境变量中配置模型。设置 `RA_MASTER_KEY` 后 API Key 才会使用 AES-GCM 加密保存。
+首次启动由 Flyway 自动初始化/升级 MySQL；`schema.sql` 仅作历史参考。请在设置页或环境变量中配置模型。设置 `RA_MASTER_KEY` 后 API Key 才会使用 AES-GCM 加密保存。
+
+源码和 Markdown 等文本统一使用 UTF-8；PowerShell 读取中文文件使用 `Get-Content -Encoding utf8`，Bash/WSL 使用 UTF-8 locale，Windows `.bat` 保留 `chcp 65001`。

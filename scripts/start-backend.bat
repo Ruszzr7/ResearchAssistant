@@ -36,9 +36,9 @@ if "%JDK%"=="" (
 )
 
 if "%JDK%"=="" (
-  echo [错误] 未找到 JDK 17+
-  echo 请安装 JDK 17 或更高版本，并设置 JAVA_HOME
-  echo 常见位置：
+  echo [ERROR] JDK 17+ was not found.
+  echo Install JDK 17+ or set JAVA_HOME.
+  echo Common locations:
   echo   - C:\tools\jdk-17.0.19+10
   echo   - C:\Program Files\Eclipse Adoptium\jdk-17...
   exit /b 1
@@ -58,23 +58,23 @@ cd /d "%BACKEND_DIR%"
 if exist "%BACKEND_DIR%\backend.pid" (
   set /p PID=<"%BACKEND_DIR%\backend.pid"
   if not "!PID!"=="" (
-    tasklist | findstr "!PID!" > nul
-    if !errorlevel!==0 (
-      echo [信息] 后端已经在运行中，PID=!PID!，无需重复启动
+    powershell -NoProfile -Command "try { Get-Process -Id !PID! -ErrorAction Stop | Out-Null; exit 0 } catch { exit 1 }" > nul 2>&1
+    if not errorlevel 1 (
+      echo [INFO] Backend is already running, PID=!PID!; skipping startup.
       exit /b 0
     )
     del /q "%BACKEND_DIR%\backend.pid" >nul 2>&1
   )
 )
 
-netstat -ano | findstr ":8080" | findstr "LISTENING" > nul
-if !errorlevel!==0 (
-  echo [信息] 8080 端口已被占用，后端可能已经在运行
+curl.exe -fsS --max-time 1 http://127.0.0.1:8080/actuator/health > nul 2>&1
+if not errorlevel 1 (
+  echo [INFO] Port 8080 is already in use; backend may already be running.
   exit /b 0
 )
 
 if not exist "mvnw.cmd" (
-  echo [错误] 未找到 backend/mvnw.cmd，请确认在项目根目录下执行
+  echo [ERROR] backend/mvnw.cmd was not found. Run this script from the project checkout.
   exit /b 1
 )
 
@@ -91,7 +91,7 @@ echo [信息] 约 20-40 秒后可访问 http://localhost:8080
 echo [INFO] Waiting for backend health endpoint...
 for /L %%i in (1,1,30) do (
   curl.exe -fsS --max-time 2 http://127.0.0.1:8080/actuator/health >nul 2>&1
-  if !errorlevel!==0 (
+  if not errorlevel 1 (
     echo [OK] Backend health is ready.
     goto :health_ready
   )

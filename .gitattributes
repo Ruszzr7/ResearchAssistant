@@ -1,4 +1,5 @@
 # 统一文本文件编码与换行，避免 Windows 检出时产生无意义的 CRLF 差异
+# 文本内容统一保存为 UTF-8；Git 主要负责换行规范，编辑器需保持 UTF-8。
 * text=auto
 *.java text eol=lf
 *.js text eol=lf

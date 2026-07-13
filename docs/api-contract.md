@@ -1,29 +1,30 @@
-# API Contract Baseline
+# API 契约基线
 
-Mission 11.2 and 11.3 keep the existing JSON success envelope:
+## 响应格式
+
+成功和业务错误沿用统一包络：
 
 ```json
 {"code": 200, "message": "success", "data": {}}
 ```
 
-Validation and service failures use the same body with the corresponding HTTP status:
-
-| HTTP | `code` | Meaning |
+| HTTP 状态 | `code` | 含义 |
 |---:|---:|---|
-| 400 | 400 | Invalid JSON, missing field, or value outside the documented bounds |
-| 404 | 404 | Resource not found |
-| 409 | 409 | Idempotency or state conflict |
-| 429 | 429 | Async/task or synchronous AI capacity exhausted |
-| 502 | 502 | External AI/literature provider unavailable |
-| 500 | 500 | Internal failure; provider/database details are never returned |
+| 400 | 400 | JSON 无效、字段缺失或值越界 |
+| 404 | 404 | 资源不存在 |
+| 409 | 409 | 幂等键或任务状态冲突 |
+| 429 | 429 | 异步任务或同步 AI 容量已满 |
+| 502 | 502 | 外部 AI/文献服务不可用 |
+| 500 | 500 | 内部错误；不返回 Provider、数据库或密钥细节 |
 
-Request bodies for folders, tags, workflow submission, agent search/plan, and paper batch move are validated DTOs. Existing JSON field names remain unchanged so the Vue client does not need a transport migration.
+文件下载保持二进制/404 响应；SSE 错误使用 `event:error`，只发送客户端可见信息。所有 API 响应返回 `X-Request-Id` 便于本地排查。
 
-## Mission 11.3 dynamic request boundaries
+## 请求边界
 
-- `POST /api/papers` and `PUT /api/papers/{id}` accept `PaperWriteRequest`. Only editable metadata and reading fields are copied; IDs, PDF paths, timestamps, processing state, and tags remain server-managed.
-- `POST /api/search/execute` accepts `keywords_en` (1–50 terms) plus the known extraction fields. Unknown fields are ignored for compatibility.
-- `POST /api/search/import` accepts at most 500 typed paper records and requires a non-blank title for each record.
-- `POST /api/agent/workflow/{taskId}/confirm` accepts only `selected` and `folderId`; arbitrary context keys are ignored.
+- 文件夹、标签、Workflow、Agent/Search 和论文批量操作使用 DTO 与边界校验。
+- `POST /api/papers`、`PUT /api/papers/{id}` 只接受可编辑论文元数据和阅读字段；ID、PDF 路径、时间戳、处理状态和标签由服务端管理。
+- `POST /api/search/execute` 只接受已定义的 `keywords_en` 和提取字段，关键词限制为 1–50 项。
+- `POST /api/search/import` 最多接收 500 条类型化论文记录，每条必须有非空标题。
+- `POST /api/agent/workflow/{taskId}/confirm` 只接受 `selected` 和 `folderId`；未知字段忽略以保持前后端兼容。
 
-File downloads keep their normal binary/404 responses. SSE endpoints keep `event:error` but only emit client-safe messages. `X-Request-Id` is returned on API responses for local troubleshooting.
+契约测试位于后端 Controller 测试目录，更新字段时应同步更新 Vue 请求和 MockMvc 场景。
