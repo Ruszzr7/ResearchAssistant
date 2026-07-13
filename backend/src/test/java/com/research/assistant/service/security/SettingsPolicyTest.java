@@ -13,6 +13,7 @@ class SettingsPolicyTest {
     @Test
     void masksSecretsAndRecognisesProviderCredentials() {
         assertThat(SettingsPolicy.isSensitive("qdrant_api_key")).isTrue();
+        assertThat(SettingsPolicy.isSensitive("apiKey")).isTrue();
         assertThat(SettingsPolicy.isSensitive("provider_token")).isTrue();
         assertThat(SettingsPolicy.mask("secret-value")).isEqualTo("secret****alue");
         assertThat(SettingsPolicy.isMaskedValue("secret****alue")).isTrue();

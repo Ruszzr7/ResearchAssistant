@@ -8,8 +8,8 @@ export function createAnnotation(paperId, annotation) {
   return api.post(`/papers/${paperId}/annotations`, annotation).then(r => r.data)
 }
 
-export function updateAnnotation(annotationId, annotation) {
-  return api.put(`/annotations/${annotationId}`, annotation).then(r => r.data)
+export function updateAnnotation(paperId, annotationId, annotation) {
+  return api.put(`/papers/${paperId}/annotations/${annotationId}`, annotation).then(r => r.data)
 }
 
 export function deleteAnnotation(annotationId) {

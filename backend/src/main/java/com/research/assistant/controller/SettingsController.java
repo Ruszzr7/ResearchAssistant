@@ -39,7 +39,9 @@ public class SettingsController {
         for (Settings setting : list) {
             if (SettingsPolicy.isSensitive(setting.getKeyName())) {
                 setting.setConfigured(setting.getValue() != null && !setting.getValue().isBlank());
-                setting.setValue(SettingsPolicy.mask(setting.getValue()));
+                if (!SettingsPolicy.isMaskedValue(setting.getValue())) {
+                    setting.setValue(SettingsPolicy.mask(setting.getValue()));
+                }
             }
         }
         return Result.ok(list);

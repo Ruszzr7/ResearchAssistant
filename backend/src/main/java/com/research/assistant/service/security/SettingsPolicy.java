@@ -64,7 +64,9 @@ public final class SettingsPolicy {
     public static boolean isSensitive(String keyName) {
         if (keyName == null) return false;
         String key = keyName.toLowerCase(Locale.ROOT);
+        // 兼容旧库中的 camelCase 设置名（例如 apiKey），避免历史密钥明文返回。
         return key.contains("api_key")
+                || "apikey".equals(key)
                 || key.endsWith("_token")
                 || key.endsWith("_secret")
                 || key.endsWith("_password")

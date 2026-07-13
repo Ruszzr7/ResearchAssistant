@@ -30,7 +30,7 @@ defineProps({
   selectedId: { type: Number, default: null }
 })
 
-defineEmits(['new-note', 'edit', 'delete', 'select'])
+const emit = defineEmits(['new-note', 'edit', 'delete', 'select'])
 
 function select(note) {
   emit('select', note)

@@ -41,6 +41,7 @@ class EncryptorTest {
     void shouldEncryptApiKeyVariants() {
         Encryptor encryptor = new Encryptor("key");
         assertThat(encryptor.shouldEncrypt("api_key")).isTrue();
+        assertThat(encryptor.shouldEncrypt("apiKey")).isTrue();
         assertThat(encryptor.shouldEncrypt("embedding_api_key")).isTrue();
         assertThat(encryptor.shouldEncrypt("zotero_api_key")).isTrue();
         assertThat(encryptor.shouldEncrypt("model")).isFalse();

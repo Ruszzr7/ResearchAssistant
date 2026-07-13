@@ -566,7 +566,7 @@ async function saveAnnotations() {
       Object.assign(ann, saved, { localId: ann.localId, isNew: false })
     }
     for (const ann of updatedItems) {
-      const saved = await updateAnnotation(ann.id, toPayload(ann))
+      const saved = await updateAnnotation(props.paper.id, ann.id, toPayload(ann))
       Object.assign(ann, saved, { localId: ann.localId, dirty: false })
     }
     for (const ann of deletedItems) {

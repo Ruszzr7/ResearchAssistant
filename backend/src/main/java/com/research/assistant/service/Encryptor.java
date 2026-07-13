@@ -1,5 +1,6 @@
 package com.research.assistant.service;
 
+import com.research.assistant.service.security.SettingsPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -12,7 +13,6 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.Locale;
 
 /** AES-256-GCM encryption for sensitive settings. */
 @Component
@@ -45,13 +45,7 @@ public class Encryptor {
     }
 
     public boolean shouldEncrypt(String keyName) {
-        if (keyName == null) return false;
-        String lower = keyName.toLowerCase(Locale.ROOT);
-        return lower.contains("api_key")
-                || lower.endsWith("_token")
-                || lower.endsWith("_secret")
-                || lower.endsWith("_password")
-                || "zotero_collection_key".equals(lower);
+        return SettingsPolicy.isSensitive(keyName);
     }
 
     public String encryptIfNeeded(String keyName, String value) {
