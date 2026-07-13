@@ -5,8 +5,10 @@ setlocal
 set "SCRIPT_DIR=%~dp0"
 
 call "%SCRIPT_DIR%start-mysql.bat"
+if errorlevel 1 exit /b 1
 echo.
 call "%SCRIPT_DIR%start-backend.bat"
+if errorlevel 1 exit /b 1
 
 echo.
 echo ==================================================
@@ -15,4 +17,3 @@ echo 后端地址: http://localhost:8080
 echo 如需启动前端，请执行: scripts\start-frontend.bat
 echo 或一键启动完整开发环境: scripts\start-dev.bat
 echo ==================================================
-pause

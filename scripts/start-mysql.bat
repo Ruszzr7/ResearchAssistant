@@ -32,7 +32,7 @@ if "%MYSQLD%"=="" (
     "C:\xampp\mysql\bin\mysqld.exe"
     "D:\xampp\mysql\bin\mysqld.exe"
   ) do (
-    if exist "%%~p" set "MYSQLD=%%~p"
+    if not defined MYSQLD if exist "%%~p" set "MYSQLD=%%~p"
   )
 )
 
@@ -42,7 +42,6 @@ if "%MYSQLD%"=="" (
   echo 常见位置：
   echo   - C:\tools\mysql-8.0.28-winx64
   echo   - C:\xampp\mysql
-  pause
   exit /b 1
 )
 
@@ -72,13 +71,12 @@ if %errorlevel%==0 (
   echo [成功] MySQL 启动成功
 ) else (
   echo [错误] MySQL 启动失败，请查看日志: %MYSQL_HOME%\mysql.log
-  pause
   exit /b 1
 )
 echo [INFO] Waiting for MySQL readiness...
 for /L %%i in (1,1,30) do (
   if exist "%MYSQL_HOME%\bin\mysqladmin.exe" (
-    "%MYSQL_HOME%\bin\mysqladmin.exe" --protocol=tcp -h127.0.0.1 -P3306 ping --silent >nul 2>&1
+    "%MYSQL_HOME%\bin\mysqladmin.exe" --protocol=tcp -h 127.0.0.1 -P 3306 ping --silent >nul 2>&1
   ) else (
     powershell -NoProfile -Command "if ((Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -WarningAction SilentlyContinue).TcpTestSucceeded) { exit 0 } else { exit 1 }" >nul 2>&1
   )
@@ -89,4 +87,5 @@ for /L %%i in (1,1,30) do (
   timeout /t 2 /nobreak >nul
 )
 echo [WARN] MySQL process exists but port 3306 is not ready yet.
+exit /b 1
 :mysql_ready

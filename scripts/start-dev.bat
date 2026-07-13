@@ -7,6 +7,7 @@ setlocal
 set "SCRIPT_DIR=%~dp0"
 
 call "%SCRIPT_DIR%start-all.bat"
+if errorlevel 1 exit /b 1
 echo.
 echo ==================================================
 echo 正在启动前端开发服务器...

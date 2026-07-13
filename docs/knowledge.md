@@ -123,6 +123,7 @@
 ## Mission 13：交付与可运维性
 
 - Flyway 采用 `V12.1` 无损基线 + 后续增量迁移。基线脚本只使用 `CREATE TABLE IF NOT EXISTS`，不包含 `DROP DATABASE`、`DROP TABLE`、`USE` 或数据清理；未知版本数据库不能直接 baseline。
+- 对已经写入 Flyway baseline、但实际仍停留在旧 schema 的数据库，使用 `V13.1__repair_legacy_schema.sql` 无损补齐异步任务、RAG 索引、AI 质量事件和证据元数据；不要把 `flyway_schema_history` 的版本记录当作表结构完整性的证明。MySQL 8.0.28 不支持 `ADD COLUMN IF NOT EXISTS`，启动兜底初始化必须先查 `information_schema` 再执行单列 `ALTER TABLE`。
 - 测试 profile 必须关闭 Flyway，因为测试使用独立 H2 schema；生产/本地 MySQL 则由 Spring Boot 启动时自动 migrate。数据库切换前先做 mysqldump，并把 PDF 数据卷作为独立数据资产备份。
 - 单机优先的部署拓扑是 MySQL、Spring Boot、Nginx/Vue；Qdrant 是可选 Compose profile，Redis 不在当前架构中。Nginx 对 `/api/` 统一反代并关闭 SSE buffering，前端无需感知后端容器地址。
 - 生产启动校验只检查无法安全推断的配置：主密钥长度、fail-closed、MySQL JDBC URL、PDF 路径和非通配 CORS。校验失败应快速停止，而不是启动后以不安全默认值运行。

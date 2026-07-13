@@ -88,4 +88,5 @@
 - 可运维性：新增 `/api/rag/consistency`，对比 active 指针、active version 和 MySQL 分片数量并保留审计；延续 Actuator health/metrics、结构化日志、任务和外部 API 指标链路。
 - 前端产品化：统一任务 API 与轮询 composable，修复跨页批量选择，提取文库批量操作组件；PDF 阅读器改为带上下占位高度的可见页窗口；看板增加引用网络和研究主题概览。
 - 前端质量：新增 Vitest + Vue Test Utils + Playwright 配置和 smoke E2E；分页选择/任务轮询单测通过（5/5）。已安装 `@playwright/test@1.49.1` 及匹配 Chromium 1148/headless shell 1148，并用真实浏览器 smoke 校验通过；当前 Node 26 桌面环境下 Playwright Test CLI 仍在 runner 启动阶段无输出，标准 `npm run test:e2e` 需在正常 CI/Node LTS 环境复核。
+- 旧库兼容修复：新增 `V13.1__repair_legacy_schema.sql`，无损补齐被错误 baseline 的异步任务、RAG、AI 质量和分片证据字段；修正 MySQL 8.0.28 不支持 `ADD COLUMN IF NOT EXISTS` 的启动兜底逻辑。
 - 验证：后端 `mvnw.cmd -DforkCount=0 test` 通过（286 项，含双管理器 claim 竞争测试）；前端 `npm.cmd run test:unit` 通过（5 项）；前端 `npm.cmd run build` 通过。当前环境未安装 Docker CLI，Compose 仅完成静态审计，未执行容器启动。

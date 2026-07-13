@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -26,7 +28,7 @@ public class AsyncTaskSchemaInitializer implements InitializingBean {
             CREATE TABLE IF NOT EXISTS async_task (
                 id          BIGINT AUTO_INCREMENT PRIMARY KEY,
                 task_id     VARCHAR(36)  NOT NULL UNIQUE,
-                status      VARCHAR(20)  NOT NULL,
+                status      VARCHAR(24)  NOT NULL,
                 stage_text  VARCHAR(255),
                 result_json MEDIUMTEXT,
                 error       TEXT,
@@ -34,35 +36,6 @@ public class AsyncTaskSchemaInitializer implements InitializingBean {
                 updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_status_updated_at (status, updated_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """;
-
-    private static final String ADD_WORKFLOW_TYPE_COLUMN_SQL = """
-            ALTER TABLE async_task
-            ADD COLUMN IF NOT EXISTS workflow_type VARCHAR(64) NULL COMMENT '工作流模板 key，普通任务为空'
-            """;
-
-    private static final String ADD_CONTEXT_JSON_COLUMN_SQL = """
-            ALTER TABLE async_task
-            ADD COLUMN IF NOT EXISTS context_json MEDIUMTEXT NULL COMMENT '工作流启动上下文 JSON'
-            """;
-
-    private static final String ADD_TITLE_COLUMN_SQL = """
-            ALTER TABLE async_task
-            ADD COLUMN IF NOT EXISTS title VARCHAR(255) NULL COMMENT '任务展示标题'
-            """;
-
-    private static final String ADD_RECOVERY_COLUMNS_SQL = """
-            ALTER TABLE async_task
-            ADD COLUMN IF NOT EXISTS task_type VARCHAR(64) NULL COMMENT '可恢复异步处理器类型',
-            ADD COLUMN IF NOT EXISTS failure_code VARCHAR(64) NULL,
-            ADD COLUMN IF NOT EXISTS attempt_count INT NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS max_attempts INT NOT NULL DEFAULT 3,
-            ADD COLUMN IF NOT EXISTS next_run_at DATETIME NULL,
-            ADD COLUMN IF NOT EXISTS lease_owner VARCHAR(128) NULL,
-            ADD COLUMN IF NOT EXISTS lease_until DATETIME NULL,
-            ADD COLUMN IF NOT EXISTS last_heartbeat_at DATETIME NULL,
-            ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128) NULL,
-            ADD COLUMN IF NOT EXISTS request_hash CHAR(64) NULL
             """;
 
     private static final String CREATE_WORKFLOW_STEP_TABLE_SQL = """
@@ -103,14 +76,40 @@ public class AsyncTaskSchemaInitializer implements InitializingBean {
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
             statement.execute(CREATE_TABLE_SQL);
-            statement.execute(ADD_WORKFLOW_TYPE_COLUMN_SQL);
-            statement.execute(ADD_CONTEXT_JSON_COLUMN_SQL);
-            statement.execute(ADD_TITLE_COLUMN_SQL);
-            statement.execute(ADD_RECOVERY_COLUMNS_SQL);
+            ensureColumn(connection, "workflow_type", "VARCHAR(64) NULL");
+            ensureColumn(connection, "context_json", "MEDIUMTEXT NULL");
+            ensureColumn(connection, "title", "VARCHAR(255) NULL");
+            ensureColumn(connection, "task_type", "VARCHAR(64) NULL");
+            ensureColumn(connection, "failure_code", "VARCHAR(64) NULL");
+            ensureColumn(connection, "attempt_count", "INT NOT NULL DEFAULT 0");
+            ensureColumn(connection, "max_attempts", "INT NOT NULL DEFAULT 3");
+            ensureColumn(connection, "next_run_at", "DATETIME NULL");
+            ensureColumn(connection, "lease_owner", "VARCHAR(128) NULL");
+            ensureColumn(connection, "lease_until", "DATETIME NULL");
+            ensureColumn(connection, "last_heartbeat_at", "DATETIME NULL");
+            ensureColumn(connection, "idempotency_key", "VARCHAR(128) NULL");
+            ensureColumn(connection, "request_hash", "CHAR(64) NULL");
+            statement.execute("ALTER TABLE async_task MODIFY COLUMN status VARCHAR(24) NOT NULL");
             statement.execute(CREATE_WORKFLOW_STEP_TABLE_SQL);
             log.info("async_task / workflow_step 已就绪");
         } catch (SQLException e) {
             log.warn("确保 async_task / workflow_step 表存在失败: {}", e.getMessage());
+        }
+    }
+
+    private void ensureColumn(Connection connection, String columnName, String definition) throws SQLException {
+        String existsSql = "SELECT 1 FROM information_schema.columns "
+                + "WHERE table_schema = DATABASE() AND table_name = 'async_task' AND column_name = ?";
+        try (PreparedStatement preparedStatement = connection.prepareStatement(existsSql)) {
+            preparedStatement.setString(1, columnName);
+            try (ResultSet resultSet = preparedStatement.executeQuery()) {
+                if (resultSet.next()) {
+                    return;
+                }
+            }
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE async_task ADD COLUMN `" + columnName + "` " + definition);
         }
     }
 }

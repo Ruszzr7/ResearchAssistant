@@ -4,6 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+if ! command -v docker >/dev/null 2>&1; then
+  echo "[ERROR] Docker CLI not found." >&2
+  exit 1
+fi
+
 if [[ ! -f .env ]]; then
   echo "[ERROR] .env not found. Copy .env.example to .env and set RA_MASTER_KEY first." >&2
   exit 1
@@ -19,3 +24,4 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 echo "[WARN] Containers started but frontend is not ready. Run: docker compose logs -f backend" >&2
+exit 1

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 启动后端（自动探测 JDK 17+）
-set -e
+set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -22,14 +22,14 @@ JDK_CANDIDATES=(
 
 find_jdk() {
   # 1. 已有 JAVA_HOME
-  if [ -n "$JAVA_HOME" ] && [ -f "$JAVA_HOME/bin/java.exe" ]; then
+  if [ -n "${JAVA_HOME:-}" ] && { [ -f "$JAVA_HOME/bin/java.exe" ] || [ -f "$JAVA_HOME/bin/java" ]; }; then
     echo "$JAVA_HOME"
     return
   fi
 
   # 2. PATH 中有 java
-  if command -v java.exe &> /dev/null; then
-    java_path=$(command -v java.exe)
+  if command -v java.exe &> /dev/null || command -v java &> /dev/null; then
+    java_path=$(command -v java.exe || command -v java)
     # 取 bin 的上级目录
     echo "$(cd "$(dirname "$java_path")/.." && pwd)"
     return
@@ -80,19 +80,21 @@ if [ -f "$BACKEND_DIR/backend.pid" ]; then
     echo -e "${YELLOW}后端已经在运行中 (PID: $pid)，无需重复启动${NC}"
     exit 0
   fi
+  rm -f "$BACKEND_DIR/backend.pid"
 fi
 
-if netstat -ano | grep -q ":8080.*LISTENING"; then
+if netstat -ano 2>/dev/null | grep -Eq ':8080[[:space:]].*LISTENING'; then
   echo -e "${YELLOW}8080 端口已被占用，后端可能已经在运行${NC}"
   exit 0
 fi
 
-if ! command -v ./mvnw &> /dev/null; then
+if [ ! -f ./mvnw ]; then
   echo -e "${RED}未找到 backend/mvnw，请确认在项目根目录下执行${NC}"
   exit 1
 fi
 
 echo "正在启动后端服务..."
+# 现有数据库切换 Flyway 前必须先核验 schema；需要时由用户显式设置 SPRING_FLYWAY_BASELINE_ON_MIGRATE=true。
 nohup ./mvnw spring-boot:run -DskipTests > "$BACKEND_DIR/backend.log" 2>&1 &
 echo $! > "$BACKEND_DIR/backend.pid"
 
@@ -108,3 +110,7 @@ for i in $(seq 1 30); do
   sleep 2
 done
 echo "[WARN] Backend process started but health endpoint is not ready yet. Check backend.log." >&2
+if grep -Eiq 'no schema history table|Unsupported Database' "$BACKEND_DIR/backend.log" 2>/dev/null; then
+  echo "[ACTION] Verify the existing database schema, then set SPRING_FLYWAY_BASELINE_ON_MIGRATE=true only for a verified Mission 12.1 baseline." >&2
+fi
+exit 1

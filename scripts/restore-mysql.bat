@@ -1,6 +1,11 @@
 @echo off
 setlocal
 cd /d "%~dp0.."
+where docker >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] Docker CLI not found.
+  exit /b 1
+)
 if "%~1"=="" (
   echo Usage: scripts\restore-mysql.bat backups\research_assistant_YYYYMMDD_HHMMSS.sql
   exit /b 1
