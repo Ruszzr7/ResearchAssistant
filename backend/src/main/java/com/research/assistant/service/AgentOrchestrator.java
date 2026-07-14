@@ -91,6 +91,13 @@ public interface AgentOrchestrator {
     }
 
     /**
+     * 导入前同时使用标题、摘要和关键词。关键词可帮助区分同一大类下的场景、方法或指标子目录。
+     */
+    default Map<String, Object> suggestFolderByTitle(String title, String abstractText, String keywords) {
+        return suggestFolderByTitle(title, abstractText);
+    }
+
+    /**
      * Agent 推荐阅读状态 —— 基于论文标题和摘要。
      *
      * @return Map of {status: UNREAD/READING/READ, reason: string}

@@ -307,7 +307,8 @@ public class AgentController {
         if (title == null || title.isBlank()) {
             return Result.error(400, "请提供 paperId 或 title");
         }
-        return Result.ok(agentOrchestrator.suggestFolderByTitle(title, request.getAbstractText()));
+        return Result.ok(agentOrchestrator.suggestFolderByTitle(
+                title, request.getAbstractText(), request.getKeywords()));
     }
 
     @PostMapping("/reading-status-suggest")

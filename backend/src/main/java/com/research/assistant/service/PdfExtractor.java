@@ -87,6 +87,41 @@ public class PdfExtractor {
         return extractFromMultipartFile(file, maxPages, true);
     }
 
+    /**
+     * 一次读取上传文件，同时取得「首页身份标识」与「前若干页元数据」文本。
+     *
+     * <p>DOI / arXiv ID 只能从首页识别，避免把后续正文或参考文献中的标识符误认为
+     * 当前论文；标题、摘要、关键词则仍使用前几页文本。上传的 {@link MultipartFile}
+     * 不能安全地多次 {@code transferTo}，所以在同一个临时文件上完成两次解析。</p>
+     */
+    public MetadataTextExtraction extractMetadataTextExtraction(MultipartFile file, int maxPages) {
+        if (file == null || file.isEmpty()) {
+            return new MetadataTextExtraction("", "");
+        }
+        try {
+            Path temp = Files.createTempFile("upload-", ".pdf");
+            try {
+                file.transferTo(temp.toFile());
+                return extractMetadataTextExtraction(temp.toFile(), maxPages);
+            } finally {
+                Files.deleteIfExists(temp);
+            }
+        } catch (Exception e) {
+            return new MetadataTextExtraction("", "");
+        }
+    }
+
+    /**
+     * 从已保存 PDF 中同时取得首页身份标识和前若干页元数据文本。
+     */
+    public MetadataTextExtraction extractMetadataTextExtraction(String pdfPath, int maxPages) {
+        File file = resolveFile(pdfPath);
+        if (file == null) {
+            return new MetadataTextExtraction("", "");
+        }
+        return extractMetadataTextExtraction(file, maxPages);
+    }
+
     private String extractFromMultipartFile(MultipartFile file, int maxPages, boolean metadataMode) {
         if (file == null || file.isEmpty()) {
             return "";
@@ -104,6 +139,16 @@ public class PdfExtractor {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    private MetadataTextExtraction extractMetadataTextExtraction(File file, int maxPages) {
+        PdfParseResult identity = pdfParser.parseFirstPagesForMetadata(file, 1);
+        PdfParseResult metadata = maxPages <= 1
+                ? identity
+                : pdfParser.parseFirstPagesForMetadata(file, maxPages);
+        return new MetadataTextExtraction(
+                identity.success() ? identity.text() : "",
+                metadata.success() ? metadata.text() : "");
     }
 
     /**
@@ -149,5 +194,9 @@ public class PdfExtractor {
         }
         File file = new File(dir, pdfPath);
         return file.exists() ? file : null;
+    }
+
+    /** PDF 元数据识别所需的两种文本视图。 */
+    public record MetadataTextExtraction(String identityText, String metadataText) {
     }
 }

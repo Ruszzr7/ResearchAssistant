@@ -1656,7 +1656,8 @@ async function recommendFolder() {
   try {
     const res = await api.post('/agent/folder-suggest', {
       title: form.value.title,
-      abstractText: form.value.abstractText || ''
+      abstractText: form.value.abstractText || '',
+      keywords: form.value.keywords || ''
     })
     const data = res.data
     if (data.recommended) {

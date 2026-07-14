@@ -134,8 +134,13 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
 
     @Override
     public Map<String, Object> suggestFolderByTitle(String title, String abstractText) {
+        return suggestFolderByTitle(title, abstractText, null);
+    }
+
+    @Override
+    public Map<String, Object> suggestFolderByTitle(String title, String abstractText, String keywords) {
         return executeQuietly(suggestFolderSkill,
-                new SuggestFolderInput(null, title, abstractText),
+                new SuggestFolderInput(null, title, abstractText, keywords),
                 "folder-title",
                 "文件夹推荐失败",
                 folderSuggestionFallback());

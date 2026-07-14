@@ -41,6 +41,14 @@ public class RecommendationCache {
     }
 
     /**
+     * 允许推荐逻辑使用内容指纹作为缓存键。论文补全摘要或关键词后，旧推荐不会被继续复用。
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T get(String type, String contentKey) {
+        return (T) cache.getIfPresent(key(type, contentKey));
+    }
+
+    /**
      * 写入缓存。
      *
      * @param type    推荐类型
@@ -52,6 +60,13 @@ public class RecommendationCache {
     }
 
     /**
+     * 写入以内容指纹区分的推荐结果。
+     */
+    public void put(String type, String contentKey, Object value) {
+        cache.put(key(type, contentKey), value);
+    }
+
+    /**
      * 清空全部缓存（管理后台可用）。
      */
     public void invalidateAll() {
@@ -60,5 +75,9 @@ public class RecommendationCache {
 
     private String key(String type, Long paperId) {
         return type + ":" + paperId;
+    }
+
+    private String key(String type, String contentKey) {
+        return type + ":" + contentKey;
     }
 }

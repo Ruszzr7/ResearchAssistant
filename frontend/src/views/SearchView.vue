@@ -352,7 +352,10 @@ async function recommendFolderForSearch() {
   if (!first?.title) return
   recommendingFolder.value = true
   try {
-    const res = await api.post('/agent/folder-suggest', { title: first.title })
+    const res = await api.post('/agent/folder-suggest', {
+      title: first.title,
+      abstractText: first.summary || ''
+    })
     const data = res.data
     if (data.recommended) {
       importFolderId.value = data.recommended

@@ -68,12 +68,12 @@ class IdentifierExtractorTest {
     }
 
     @Test
-    void shouldPreferArxivOverDoi() {
+    void shouldPreferDoiOverArxiv() {
         String text = "Published in Nature, doi 10.1038/nature14539, also arXiv:2301.12345.";
         IdentifierResult result = extractor.extract(text);
-        assertEquals("2301.12345", result.getArxivId());
-        // DOI 在识别到 arXiv 时不返回
-        assertNull(result.getDoi());
+        assertEquals("10.1038/nature14539", result.getDoi());
+        // 出版社 DOI 优先，避免正文或参考文献中的 arXiv 引用抢占当前论文身份。
+        assertNull(result.getArxivId());
     }
 
     @Test

@@ -37,7 +37,8 @@ public class IdentifierExtractor {
             "((?:\\d{4}\\.\\d{4,5}(?:v\\d+)?)|(?:[a-z-]+(?:\\.[A-Z]{2})?/\\d{7}))");
 
     /**
-     * 从文本中提取标识符。优先返回 arXiv ID（元数据更全），其次 DOI。
+ * 从文本中提取标识符。优先返回 DOI；出版社 PDF 的首页 DOI 通常比正文/参考文献中
+ * 偶然出现的 arXiv 引用更能代表当前论文。
      *
      * @param text PDF 文本
      * @return 识别结果，不会为 null
@@ -47,14 +48,14 @@ public class IdentifierExtractor {
             return new IdentifierResult(null, null);
         }
 
-        String arxivId = extractArxivId(text);
-        if (arxivId != null) {
-            return new IdentifierResult(null, arxivId);
-        }
-
         // 在原始文本中匹配，避免把 DOI 后面的正文拼接到 DOI 末尾。
         String doi = extractDoi(text);
-        return new IdentifierResult(doi, null);
+        if (doi != null) {
+            return new IdentifierResult(doi, null);
+        }
+
+        String arxivId = extractArxivId(text);
+        return new IdentifierResult(null, arxivId);
     }
 
     private String extractDoi(String text) {

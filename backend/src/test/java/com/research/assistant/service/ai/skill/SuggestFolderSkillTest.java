@@ -9,7 +9,6 @@ import com.research.assistant.service.ai.ResearchToolAgent;
 import com.research.assistant.service.ai.SuggestionPojos.FolderSuggestionResult;
 import com.research.assistant.service.ai.skill.io.SuggestFolderInput;
 import com.research.assistant.service.cache.RecommendationCache;
-import com.research.assistant.service.rag.RagRetrievalService;
 import dev.langchain4j.service.Result;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,13 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SuggestFolderSkillTest {
@@ -35,7 +31,6 @@ class SuggestFolderSkillTest {
     private FolderMapper folderMapper;
     private ResearchToolAgent researchToolAgent;
     private LLMService llmService;
-    private RagRetrievalService ragRetrievalService;
     private SuggestFolderSkill skill;
 
     @BeforeEach
@@ -44,15 +39,13 @@ class SuggestFolderSkillTest {
         folderMapper = mock(FolderMapper.class);
         researchToolAgent = mock(ResearchToolAgent.class);
         llmService = mock(LLMService.class);
-        ragRetrievalService = mock(RagRetrievalService.class);
         skill = new SuggestFolderSkill(
                 paperMapper,
                 folderMapper,
                 researchToolAgent,
                 llmService,
                 new RecommendationCache(),
-                new ObjectMapper(),
-                ragRetrievalService);
+                new ObjectMapper());
     }
 
     @Test
@@ -73,8 +66,6 @@ class SuggestFolderSkillTest {
         folder.setId(5L);
         folder.setName("RSMA");
         when(folderMapper.selectList(any())).thenReturn(List.of(folder));
-        when(ragRetrievalService.retrieveAsContext(anyString(), anyInt(), anyDouble()))
-                .thenReturn("");
         doThrow(new RuntimeException("provider unavailable"))
                 .when(researchToolAgent)
                 .suggestFolder(anyString(), anyString(), anyString(), anyString());
@@ -89,7 +80,7 @@ class SuggestFolderSkillTest {
     }
 
     @Test
-    void shouldPreferNestedContentMatchWithoutCallingAgent() {
+    void shouldPreferNestedFolderReturnedByMetadataAgent() {
         Folder parent = new Folder();
         parent.setId(5L);
         parent.setName("RSMA");
@@ -98,6 +89,13 @@ class SuggestFolderSkillTest {
         child.setName("SumRate");
         child.setParentId(5L);
         when(folderMapper.selectList(any())).thenReturn(List.of(parent, child));
+        FolderSuggestionResult pojo = new FolderSuggestionResult();
+        pojo.setFolderId(7L);
+        pojo.setReason("主指标是 Sum Rate");
+        Result<FolderSuggestionResult> agentResult = mock(Result.class);
+        when(agentResult.content()).thenReturn(pojo);
+        when(researchToolAgent.suggestFolder(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(agentResult);
 
         Map<String, Object> result = skill.execute(
                 new SkillContext("test"),
@@ -106,7 +104,7 @@ class SuggestFolderSkillTest {
                         "The paper derives an ergodic sum-rate expression."));
 
         assertEquals(7L, result.get("recommended"));
-        assertEquals("根据论文内容匹配到文件夹", result.get("reason"));
+        assertEquals("主指标是 Sum Rate", result.get("reason"));
     }
 
     @Test
@@ -119,9 +117,6 @@ class SuggestFolderSkillTest {
         child.setName("SumRate");
         child.setParentId(5L);
         when(folderMapper.selectList(any())).thenReturn(List.of(parent, child));
-        when(ragRetrievalService.retrieveAsContext(anyString(), anyInt(), anyDouble()))
-                .thenReturn("related evidence");
-
         FolderSuggestionResult pojo = new FolderSuggestionResult();
         pojo.setFolderId(7L);
         pojo.setReason("主题涉及吞吐率");
@@ -129,9 +124,9 @@ class SuggestFolderSkillTest {
         when(agentResult.content()).thenReturn(pojo);
         when(researchToolAgent.suggestFolder(
                 eq("Autonomous driving in high mobility wireless networks"),
+                eq(""),
                 eq("The paper studies aggregate throughput under strict latency constraints."),
-                anyString(),
-                eq("related evidence"))).thenReturn(agentResult);
+                anyString())).thenReturn(agentResult);
 
         Map<String, Object> result = skill.execute(
                 new SkillContext("test"),
@@ -141,7 +136,6 @@ class SuggestFolderSkillTest {
 
         assertEquals(7L, result.get("recommended"));
         assertEquals("主题涉及吞吐率", result.get("reason"));
-        verify(ragRetrievalService).retrieveAsContext(anyString(), anyInt(), anyDouble());
     }
 
     @Test
@@ -154,15 +148,12 @@ class SuggestFolderSkillTest {
         existingChild.setName("SumRate");
         existingChild.setParentId(5L);
         when(folderMapper.selectList(any())).thenReturn(List.of(parent, existingChild));
-        when(ragRetrievalService.retrieveAsContext(anyString(), anyInt(), anyDouble()))
-                .thenReturn("related evidence");
-
         FolderSuggestionResult pojo = new FolderSuggestionResult();
         pojo.setFolderId(5L);
         pojo.setReason("主题属于 RSMA");
         Result<FolderSuggestionResult> agentResult = mock(Result.class);
         when(agentResult.content()).thenReturn(pojo);
-        when(researchToolAgent.suggestFolder(anyString(), anyString(), anyString(), eq("related evidence")))
+        when(researchToolAgent.suggestFolder(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(agentResult);
 
         Map<String, Object> result = skill.execute(
@@ -191,9 +182,6 @@ class SuggestFolderSkillTest {
         fairness.setName("Fairness");
         fairness.setParentId(5L);
         when(folderMapper.selectList(any())).thenReturn(List.of(parent, sumRate, fairness));
-        when(ragRetrievalService.retrieveAsContext(anyString(), anyInt(), anyDouble()))
-                .thenReturn("related evidence");
-
         FolderSuggestionResult pojo = new FolderSuggestionResult();
         pojo.setFolderId(5L);
         pojo.setReason("主题属于 RSMA");
@@ -217,8 +205,6 @@ class SuggestFolderSkillTest {
         folder.setId(5L);
         folder.setName("RSMA");
         when(folderMapper.selectList(any())).thenReturn(List.of(folder));
-        when(ragRetrievalService.retrieveAsContext(anyString(), anyInt(), anyDouble()))
-                .thenReturn("");
         doThrow(new RuntimeException("agent unavailable"))
                 .when(researchToolAgent)
                 .suggestFolder(anyString(), anyString(), anyString(), anyString());
@@ -230,5 +216,80 @@ class SuggestFolderSkillTest {
 
         assertEquals(5, ((Number) result.get("recommended")).intValue());
         assertEquals("主题一致", result.get("reason"));
+    }
+
+    @Test
+    void shouldCreateErgodicRateInsteadOfLatencyForUrlccRatePaper() {
+        Folder parent = new Folder();
+        parent.setId(5L);
+        parent.setName("RSMA");
+        Folder aoi = new Folder();
+        aoi.setId(7L);
+        aoi.setName("AoI");
+        aoi.setParentId(5L);
+        Folder latency = new Folder();
+        latency.setId(8L);
+        latency.setName("Latency");
+        latency.setParentId(5L);
+        Folder sumRate = new Folder();
+        sumRate.setId(9L);
+        sumRate.setName("SumRate");
+        sumRate.setParentId(5L);
+        when(folderMapper.selectList(any())).thenReturn(List.of(parent, aoi, latency, sumRate));
+
+        FolderSuggestionResult pojo = new FolderSuggestionResult();
+        pojo.setFolderId(8L);
+        pojo.setReason("涉及 URLCC 延迟要求");
+        Result<FolderSuggestionResult> agentResult = mock(Result.class);
+        when(agentResult.content()).thenReturn(pojo);
+        when(researchToolAgent.suggestFolder(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(agentResult);
+
+        Map<String, Object> result = skill.execute(
+                new SkillContext("test"),
+                new SuggestFolderInput(null,
+                        "Rate-Splitting Multiple Access With Finite Blocklength and High Mobility for URLLC Transmissions",
+                        "The paper derives an ergodic sum-rate under URLLC low-latency requirements.",
+                        "Ergodic rate, finite blocklength, RSMA, URLLC"));
+
+        assertNull(result.get("recommended"));
+        assertEquals(true, result.get("suggestNew"));
+        assertEquals(5L, ((Number) result.get("parentFolderId")).longValue());
+        assertEquals("Ergodic Rate", result.get("newName"));
+    }
+
+    @Test
+    void shouldPreferExistingChineseRateChildOverLatencyForUrlccRatePaper() {
+        Folder parent = new Folder();
+        parent.setId(5L);
+        parent.setName("RSMA");
+        Folder rate = new Folder();
+        rate.setId(7L);
+        rate.setName("和速率");
+        rate.setParentId(5L);
+        Folder latency = new Folder();
+        latency.setId(8L);
+        latency.setName("Latency");
+        latency.setParentId(5L);
+        when(folderMapper.selectList(any())).thenReturn(List.of(parent, rate, latency));
+
+        FolderSuggestionResult pojo = new FolderSuggestionResult();
+        pojo.setFolderId(8L);
+        pojo.setReason("URLLC 的低时延约束");
+        Result<FolderSuggestionResult> agentResult = mock(Result.class);
+        when(agentResult.content()).thenReturn(pojo);
+        when(researchToolAgent.suggestFolder(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(agentResult);
+
+        Map<String, Object> result = skill.execute(
+                new SkillContext("test"),
+                new SuggestFolderInput(null,
+                        "Rate-Splitting Multiple Access With Finite Blocklength and High Mobility for URLLC Transmissions",
+                        "The paper derives an ergodic sum-rate under URLLC low-latency requirements.",
+                        "Ergodic rate, finite blocklength, RSMA, URLLC"));
+
+        assertEquals(7L, result.get("recommended"));
+        assertEquals(false, result.get("suggestNew"));
+        assertNull(result.get("newName"));
     }
 }
