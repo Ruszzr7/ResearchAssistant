@@ -1,219 +1,226 @@
-# PDF 精确选取与论文工作台规格（草案）
+# PDF 精确选取与论文工作台规格
 
-状态：Draft，2026-07-14。本文只定义后续实现路线；除已完成的基础批注改进外，不代表本轮立即建设 PDF 内 AI 工作台。
+状态：Draft，2026-07-14。本文件定义后续建设路线；它不表示本轮立即重构 PDF 阅读器。
 
-## 1. 目标与边界
+## 1. 产品目标：做“有证据的论文 Agent”，不是再做一个 PDF 编辑器
 
-目标是把论文 PDF 阅读从“看图 + 另开分析页”变为可追溯的研究工作台：用户能准确选择正文、公式或区域，直接提问、解释、生成批注、做全文分析或把当前论文加入多篇对比。
+论文工作台要解决的不是把 PDF 放在聊天框旁边，而是让每个 AI 结论都能回答三个问题：它基于哪篇论文、哪一页、哪一段，以及这段内容的解析是否可信。
 
-本规格不把 PDF 当作连续纯文本。系统必须同时保留：
+首要目标：
 
-- 原始 PDF 的视觉呈现与原生文本选择；
-- 面向 AI 的、去除页眉页脚后的结构化正文；
-- 可从 AI 结论回到页码、段落、坐标和原文的证据链。
+- 用户可在当前论文中选中正文或区域，直接提问、生成批注、做全文分析，必要时加入多篇对比；
+- AI 的回答必须带可跳回 PDF 的证据，不把页眉、页脚、参考文献或双栏串读内容伪装成正文；
+- 对复杂 PDF 允许降级为“视觉区域上下文”，而不是制造看似精确的错误文本；
+- 工作流可测试、可观测、可恢复，形成项目可写入简历的 Agent 编排亮点。
 
-## 2. 核心产品形态
+明确不做：
 
-### 2.1 单篇论文工作台
+- 不复制 Acrobat 的完整编辑器能力；
+- 不承诺公式逐字符可选或所有扫描件可解析；
+- 不引入没有边界的多 Agent 自由讨论；
+- 不让模型直接执行删除批注、移动文件夹等确定性、有副作用的 UI 操作。
 
-打开论文后，主区域维持双栏布局：左侧 PDF，右侧“论文助手”。右侧始终显示当前上下文状态：全文、某章节、选中段落、选中公式或选中区域。
+## 2. 可落地的产品形态
 
-用户在 PDF 中选中文字后，右侧对话框可以进行问答，并提供解释、翻译等功能。用户不选内容时，右侧助手默认以“全文”工作，可执行全文概览、方法拆解和实验结论提取。
+PDF 页面仍是论文阅读入口，左侧为 PDF，右侧为“论文助手”。右侧只有四类清晰入口：
 
-### 2.2 独立页面的定位
+| 用户上下文 | 可做的事 | 默认范围 |
+| --- | --- | --- |
+| 选中正文 | 解释、翻译、提问、建议批注 | 选区 + 相邻段落 |
+| 框选区域 | 解释公式、图或表 | 区域 + 相交块 |
+| 未选内容 | 总结、方法拆解、局限、全文问答 | 当前论文正文 |
+| 已选多篇论文 | 对比方法、假设、指标、结论 | 指定论文集合 |
 
-“论文分析”保留为报告和历史结果中心；“研究空白/对比”保留为多论文、跨文件夹任务中心。PDF 工作台是这些能力的上下文入口，而不是重复实现：点击“全文分析”在右侧展示概要，并允许打开完整报告；点击“加入对比”把当前论文和证据锚点传给独立对比工作流。
+“论文分析”页面继续承载完整报告和历史结果；“研究空白/对比”页面继续承载跨论文任务。PDF 工作台只负责携带当前上下文进入这些能力，避免重复建设两套页面。
 
-## 3. 为什么当前文本选取不可靠
+## 3. 最小文档数据模型
 
-PDF 的视觉字形、内部文本顺序和语义段落可能完全不同：双栏文字可能交错、标题可能拆为多个 span、公式可能是绘图路径或分散字形。仅依赖浏览器的 `window.getSelection()` 可以得到屏幕范围，但不能保证得到正确语义文本。
-
-PDF.js 的 display layer 可提供页面、viewport 和 `TextContent`；每个 `TextItem` 含文本、变换矩阵、宽高、字体等信息。其官方 viewer 本身拥有经过长期维护的 text layer、缩放、选择和 annotation/editor 层，因此应作为交互层实现的参照，而不是自行从 canvas 上猜文字。[PDF.js Getting Started](https://mozilla.github.io/pdf.js/getting_started/?lang=en) [PDF.js API: TextItem](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib.html)
-
-## 4. 双轨文档模型
-
-### 4.1 交互轨：PDF.js Viewer Layer
-
-职责：呈现原始页、缩放、搜索、原生拖选、视觉批注、键盘可访问性。
-
-决策：从当前自绘 canvas/text layer 逐步迁移到 PDF.js 的 viewer primitives（`PDFPageView`、`TextLayerBuilder`、event bus、link/annotation layer），或以官方 viewer 作为受控基础二次开发。不能继续只用自定义绝对定位 span 来承担完整选取体验。
-
-要求：
-
-- 文本选择模式下，批注 SVG 容器不得覆盖 text layer；
-- 缩放、旋转和 HiDPI 必须共用同一 viewport；
-- `Selection` 仅作为用户选择的视觉来源，不能直接当作 AI 正文顺序来源；
-- 选择后保存 `page + normalized boxes + anchorText + character offsets + documentHash + parserVersion`，而非只保存屏幕像素。
-
-### 4.2 语义轨：Layout-aware Document Graph
-
-职责：为 AI 问答、全文分析、检索和对比提供正确阅读顺序与结构。
-
-每个解析块至少保存：
+不在第一期直接建设庞大的通用 Document Graph。先为每篇已解析论文持久化一个可版本化的 `PaperLayoutArtifact`，它足以支撑证据、检索和回链。
 
 ```text
-DocumentBlock {
-  documentHash, parserVersion, page,
-  bbox(normalized), role,
-  sectionPath, readingOrder,
-  text, latex?, tableHtml?, confidence,
-  sourceTokens[]
+PaperLayoutArtifact {
+  paperId, documentHash, parserVersion,
+  layoutConfidence, generatedAt,
+  blocks[]
 }
-```
 
-`role` 包括 `TITLE`、`AUTHOR`、`ABSTRACT`、`BODY`、`HEADING`、`FIGURE`、`CAPTION`、`FORMULA`、`TABLE`、`REFERENCE`、`HEADER`、`FOOTER`、`MARGIN_METADATA`。面向 AI 的默认语料只使用 `ABSTRACT/BODY/HEADING/CAPTION/FORMULA/TABLE`，页眉、页脚、页码、版权声明和左侧出版信息不进入默认上下文。
+DocumentBlock {
+  id, page, bbox(normalized), role,
+  readingOrder, sectionPath,
+  text, latex?, tableText?, confidence
+}
 
-### 4.3 解析后端与回退
-
-1. PDFBox/PDF.js token 坐标解析作为快速本地层；
-2. 根据页面 token 的 x 分布、列间空隙、字号和重复率构建单栏/双栏阅读顺序；
-3. 低置信度、扫描件、复杂公式或表格页交给可选外部解析器；
-4. 首选外部结果为 MinerU 或 GROBID，保留原始 PDF 坐标以便回链。
-
-GROBID 的全文结果可请求标题、段落、句子、公式、图表等结构的坐标；其官方建议的交互方式正是 PDF.js 显示原始 PDF，再叠加坐标结果。[GROBID PDF coordinates](https://grobid.readthedocs.io/en/latest/Coordinates-in-PDF/) [GROBID FAQ](https://github.com/grobidOrg/grobid/blob/master/doc/Frequently-asked-questions.md)
-
-MinerU 可输出按阅读顺序组织的 JSON/Markdown，支持单栏、多栏、页眉页脚移除、公式 LaTex、表格和版面可视化，适合作为复杂论文或公式页的高质量回退。[MinerU 官方仓库](https://github.com/opendatalab/MinerU)
-
-## 5. 精确选取设计
-
-### 5.1 文本选取
-
-1. 浏览器原生 selection 给出若干 client rect；
-2. 按页截断并转为归一化 bbox；
-3. 与当前页 `DocumentBlock.sourceTokens` 做 IoU + 文本前后缀匹配；
-4. 生成 `SelectionAnchor`，保存命中的 block、token 范围和原生 anchorText；
-5. 若匹配置信度低，仍允许“按视觉区域提问”，但 UI 标示“区域上下文”，不能伪装为精确文字锚点。
-
-```text
 SelectionAnchor {
   paperId, page, boxes[], anchorText,
-  blockIds[], tokenStart?, tokenEnd?,
-  selectionKind: TEXT | REGION | FORMULA | TABLE,
+  blockIds[], tokenRange?,
+  kind: TEXT | REGION | FORMULA | TABLE,
   confidence, documentHash, parserVersion
 }
 ```
 
-### 5.2 标题、作者、双栏正文
+`role` 仅保留实际需要的类别：`TITLE`、`AUTHOR`、`ABSTRACT`、`HEADING`、`BODY`、`FIGURE`、`CAPTION`、`FORMULA`、`TABLE`、`REFERENCE`、`HEADER`、`FOOTER`、`MARGIN_METADATA`。
 
-- 标题/作者：使用官方 text layer；若 PDF 缺失可复制文本，则降级为区域选择，不制造错误文本。
-- 双栏：阅读顺序由 layout graph 的列块决定，通常是“左栏自上而下，再右栏自上而下”；不得把 PDFBox 的原始 token 流直接送进 Agent。
-- 页眉页脚/左边栏出版信息：通过跨页重复、页面边缘位置、字体尺寸和 `role` 排除；保留在视觉层和元数据层，不进入正文检索。
+默认 AI 上下文只使用 `ABSTRACT`、`HEADING`、`BODY`、`CAPTION`、`FORMULA`、`TABLE`。出版信息可用于元数据，但不得混入正文证据。
 
-### 5.3 公式、表格和图
+## 4. 解析策略：先快后准，低置信度才回退
 
-公式不能保证可作为正常字符选取：有的 PDF 用路径绘制，有的把上下标拆散。首期应提供“框选区域”而非伪造逐字符公式选择。区域与 `FORMULA` block 相交时，AI 上下文优先使用解析器给出的 LaTex；没有 LaTex 时返回图片区域并明确标注“公式 OCR/解析置信度不足”。
+### 4.1 默认本地解析
 
-表格同理：框选后优先使用结构化 HTML/Markdown 表，而非把屏幕上看见的列顺序拼成一行。
+1. PDFBox 提取字符及坐标，按 y 轴聚合为行、按 x 轴空隙识别单栏或双栏；
+2. 对双栏页按“左栏从上到下，再右栏从上到下”生成 `readingOrder`；
+3. 利用跨页重复、页边缘位置和字号识别页眉、页脚、页码与左侧出版信息；
+4. 将块、坐标、章节层级和置信度写入 `PaperLayoutArtifact`，后续请求复用而非重复解析。
 
-### 5.4 质量门控
+这一步可以基于现有 PDFBox/PDF.js 能力渐进实现，不要求马上替换整个 PDF viewer。
 
-每页生成 `layoutConfidence`，至少检查：
+### 4.2 回退条件
 
-- 文字是否在左右栏之间异常交错；
-- 页眉/页脚重复率；
-- block 是否大量跨列；
-- 章节标题与段落阅读顺序是否连续；
-- 公式/表格区域是否只含绘图对象；
-- 可选外部解析结果与 PDF.js token 文本的覆盖率。
+仅在下列情况调用可选外部解析器（GROBID 或 MinerU 适配器）：
 
-低于阈值时触发外部解析；外部解析失败时保留视觉区域模式，不允许低置信度文本作为 AI 引用证据。
+- 单双栏判定不稳定；
+- block 明显跨列或正文顺序不连续；
+- 公式/表格区域无法得到可信文本；
+- 扫描件或字符覆盖率过低。
 
-## 6. PDF 内 AI Skills 与 Workflows
+外部解析必须有超时、任务状态、失败回退和结果缓存。失败时保留视觉区域模式，不把低质量 OCR 当成可引用正文。
 
-Skill 是稳定、可测试的原子能力；Workflow 负责多步编排。用户明确点击的命令优先，Agent 只在“提问/分析”入口内决定检索和组合，不得替代用户的高亮、删除、移动文件夹等确定性操作。
+## 5. 选取与批注的边界
 
-### 6.1 建议 Skills
+### 5.1 选取映射
 
-| Skill | 输入 | 输出 | 责任 |
-| --- | --- | --- | --- |
-| `resolveSelectionContext` | `SelectionAnchor` | 干净正文块、邻近上下文、置信度 | 从视觉选区映射到语义块 |
-| `retrievePaperEvidence` | `paperId + query + scope` | 带页码/坐标的证据块 | 论文内检索，不混入页眉页脚 |
-| `explainSelection` | 选区上下文 + 指令 | 解释、术语、引用锚点 | 解释一段或一个公式 |
-| `askPaper` | 问题 + scope | 有证据引用的回答 | 单篇论文问答 |
-| `analyzeFullPaper` | `paperId` | 结构化分析报告 | 全文贡献、方法、实验、局限 |
-| `comparePaperSet` | `paperIds + dimensions` | 对比矩阵、证据 | 多篇论文统一维度比较 |
-| `createAnchoredAnnotation` | anchor + 内容 + 样式 | 可移动批注 | 保存视觉批注及语义锚点 |
-| `groundAnswer` | 草稿回答 + evidence | 通过/拒绝 + 引用 | 阻止无证据结论 |
+原生浏览器 selection 负责“用户到底圈了哪里”，不是 AI 的最终阅读顺序：
 
-### 6.2 Workflows
+1. 将 selection 的 client rect 按页转成归一化 boxes；
+2. 用 boxes 与 `DocumentBlock` 的 IoU、文本前后缀匹配；
+3. 命中成功时生成 `SelectionAnchor(TEXT)`；
+4. 命中不足时生成 `SelectionAnchor(REGION)`，在 UI 标记“按区域理解”。
 
-**选区提问**：`resolveSelectionContext → retrievePaperEvidence(邻近范围) → askPaper → groundAnswer → 返回页码/高亮`。
+标题、作者与复杂公式不能可靠映射时，宁可进入区域模式。公式/表格优先使用 block 中的 LaTeX 或表格文本；没有时只传截图区域和置信度说明。
 
-**全文分析**：`ensureLayoutParse → analyzeFullPaper → groundAnswer → 持久化报告 → 右侧摘要 + 打开完整分析页`。
+### 5.2 批注交互
 
-**当前论文加入对比**：`ensureLayoutParse(current + selected) → comparePaperSet → groundAnswer → 对比页/右侧预览`。
+- 高亮、下划线和便签都是独立、自动保存的对象；
+- 编辑模式中点击批注选中，删除直接作用于该对象；
+- 高亮/下划线用左右手柄调整首个/末个矩形的可视范围，拖动结束后自动保存；这是一期的几何编辑，真正的 token 级重锚定留给 `SelectionAnchor` 完成后实现；
+- 自由便签保存 `notePosition`；锚定便签保存 `anchorQuads + anchorText + notePosition`；
+- 默认不提供自由画笔，避免把“圈注”做成难以检索、难以回链的涂鸦。
 
-**选区生成批注**：`resolveSelectionContext → explainSelection(可选) → createAnchoredAnnotation`。这是用户触发的短工作流，不应调用全文分析。
+## 6. Agent 编排：受限计划，而不是自由代理
 
-### 6.3 Agent 路由规则
+工作台的核心技术亮点应是“layout-aware、evidence-grounded、bounded agent loop”。模型只决定语义任务和答案组织；范围、工具权限、证据校验和副作用全部由后端约束。
 
-输入包含 `intent`、`scope`、`SelectionAnchor`、论文 ID 列表和用户问题。路由优先级：
+### 6.1 统一调用上下文
 
-1. 明确 UI 操作：直接调用对应 Skill，不经 Agent 规划；
-2. 选区存在：默认 `selection` scope，只补充相邻段落；
-3. “全文/本文/作者方法”类提问：`paper` scope；
-4. “与 X 对比/多个论文”类提问：`comparison` workflow；
-5. 不清楚时由 Agent 询问范围，而不是静默扩大到整库。
-
-## 7. 便签与批注交互规格
-
-- **自由便签**：用户点击便签工具后在页面落点，填写内容；坐标以归一化 `notePosition` 保存，在“管理批注”模式可拖动。
-- **锚定便签**：用户先选中正文，再点击便签；保存 `anchorQuads + anchorText + notePosition`。页面绘制选区轮廓，并用引导线连接到便签图标；拖动只改变 `notePosition`，不改变原文锚点。
-- **高亮/下划线**：始终是“先选择，后应用”；只保存选择锚点，不靠自由画笔覆盖正文。
-- **自由画笔**：从默认工具栏移除。若未来确有审阅草图需求，作为独立“手绘”高级能力，不混称为圈注。
-
-## 8. 数据迁移与兼容性
-
-现有 `coordinates_json` 是可扩展 Map，因此新版 NOTE 可增加：
-
-```json
-{
-  "coordinateSpace": "viewport",
-  "pageWidth": 918,
-  "pageHeight": 1188,
-  "notePosition": {"x": 0.86, "y": 0.31},
-  "anchorQuads": [{"x1": 0.12, "y1": 0.30, "x2": 0.42, "y2": 0.30, "x3": 0.42, "y3": 0.27, "x4": 0.12, "y4": 0.27}],
-  "anchorText": "optional text"
+```text
+WorkbenchInvocation {
+  userId, paperIds[], question, intent?,
+  scope: SELECTION | REGION | PAPER | COMPARISON,
+  selectionAnchor?, parserVersion,
+  maxSteps, tokenBudget, evidenceRequired
 }
 ```
 
-旧 NOTE 只有 `quads` 时，将其解释为 `notePosition`，不显示引导线；旧 FREEHAND 继续渲染，但不再提供新建入口。
+`scope` 由 UI 和规则优先确定：有选区时默认 `SELECTION`；用户明确说“全文”才扩大到 `PAPER`；只有明确选择多篇论文才进入 `COMPARISON`。不清楚时先让用户选择范围，不能静默检索整个文库。
 
-## 9. 分阶段实施与验收
+### 6.2 Skill 契约
 
-### Phase 0：样本与可观测性
+| Skill | 类型 | 输入 | 输出 | 约束 |
+| --- | --- | --- | --- | --- |
+| `resolveSelectionContext` | 确定性 | `SelectionAnchor` | block、邻近文本、置信度 | 不调用模型 |
+| `ensureLayoutArtifact` | 确定性/异步 | paper + parser policy | artifact 状态 | 可缓存、可回退 |
+| `retrievePaperEvidence` | 确定性 | paper、query、scope | 有页码/块 ID 的证据 | 过滤 HEADER/FOOTER/REFERENCE |
+| `synthesizeEvidenceAnswer` | LLM | 问题 + 受限证据 | 结构化答案草稿 | 不得自造引用 |
+| `validateEvidenceAnswer` | 确定性 | 草稿 + evidence | pass / repair reason | 检查证据 ID、覆盖率、范围 |
+| `analyzePaper` | LLM workflow | artifact + 模板 | 结构化报告 | 单篇、可持久化 |
+| `compareEvidenceSet` | LLM workflow | 多篇统一证据 | 对比矩阵 | 只读指定集合 |
+| `proposeAnchoredAnnotation` | LLM | anchor + 指令 | 批注建议 | 用户确认后才创建 |
 
-建立至少四类真实样本：单栏、IEEE 双栏、左侧/顶部出版信息、含密集公式/扫描页。记录每页 layout 置信度、选择映射置信度、外部解析耗时和失败原因。
+Skill 必须有清晰 I/O DTO、超时、token 预算和可单测的纯逻辑部分。`create/update/delete annotation` 仍是确定性 API，由用户点击确认，不交给 Agent。
 
-验收：用户提供的 WY/ZJP 两篇论文中，正文阅读顺序正确，页眉页脚不会进入 AI 上下文。
+### 6.3 Bounded Plan–Execute–Ground Loop
 
-### Phase 1：Viewer 选择基础
+每次工作台请求最多经历一个受限循环，而不是让 Planner 无限调用工具：
 
-替换/补足 text layer 为 PDF.js viewer primitives；保留缩放、搜索、原生选择。为每个选区生成 visual boxes 与 `SelectionAnchor`。
+```text
+Preflight
+  → Rule Router
+  → WorkflowPlan（最多 3 个只读 Skill）
+  → Execute
+  → Evidence Gate
+  → [一次 Repair 或 Final Answer]
+```
 
-验收：标题、摘要、双栏正文可稳定选择；缩放 50%–300% 后同一批注和选区锚点保持对齐。
+1. **Preflight**：校验论文、artifact 版本、选区置信度、预算和用户范围；
+2. **Rule Router**：把明显意图直接路由，例如“解释选区”“全文总结”“比较两篇”；仅模糊自然语言才调用轻量 LLM 分类器；
+3. **WorkflowPlan**：输出受 JSON Schema 约束的 `route / allowedSkills / maxSteps / evidenceRequired`，后端拒绝计划外 Skill；
+4. **Execute**：顺序运行固定 Workflow，记录每步输入摘要、耗时、模型消耗和 artifact 版本；
+5. **Evidence Gate**：校验回答中的每个引用是否来自本次 evidence set；不足时只允许一次基于同一证据集的 repair；
+6. **Final**：返回答案、证据锚点、置信度和“查看完整报告/加入对比”的明确下一步。
 
-### Phase 2：结构化解析层
+这套 loop 可直接复用项目已有的 Skill Registry、Planner、PlanExecutor、质量门禁、异步任务和任务持久化能力，不额外引入复杂编排框架。
 
-实现 Document Graph、PDFBox 坐标布局检测、header/footer 去除和 GROBID/MinerU 回退适配器。
+## 7. 固定 Workflow
 
-验收：AI 输入不含重复页眉、页码、版权行；双栏正文不交错；公式/表格按区域降级而非乱码。
+### 7.1 选区提问
 
-### Phase 3：锚定批注与问答
+`resolveSelectionContext → retrievePaperEvidence(局部) → synthesizeEvidenceAnswer → validateEvidenceAnswer`
 
-实现自由/锚定便签、拖动、引导线、选区问答和证据回链。
+若 `SelectionAnchor.confidence` 低，只把任务标记为区域解释，不输出“原文第 X 句”的伪精确引用。
 
-验收：选区提问的每条回答都能跳回页码与标注区域；移动便签不丢失原文锚点。
+### 7.2 全文分析
 
-### Phase 4：全文与跨论文工作流
+`ensureLayoutArtifact → retrievePaperEvidence(全文分段) → analyzePaper → validateEvidenceAnswer → persist report`
 
-接入全文分析、加入对比、结果中心跳转和质量门控。
+报告沿用现有论文分析实体，增加 artifact/parser 版本与证据列表，避免一份报告在 PDF 重新解析后无法回链。
 
-验收：用户能从 PDF 内完成“选区解释”“全文分析”“加入两篇对比”三条路径；Agent 不能把低置信度解析当作可靠证据。
+### 7.3 多篇对比
 
-## 10. 风险与决策点
+`ensureLayoutArtifact(all) → retrievePaperEvidence(per paper) → compareEvidenceSet → validateEvidenceAnswer`
 
-- PDF.js 能保证视觉层和可复制文字，但不能把所有公式图形变成可靠文本；公式需要区域语义与解析器回退。
-- GROBID 更适合学术结构与坐标，但不能保证视觉排版完全保留；它负责逻辑结构，不替代原 PDF viewer。
-- MinerU 适合复杂版面/公式回退，但部署体积和硬件成本更高，应设置为可选后端而非强制依赖。
-- 首期优先保证“正确且可追溯”，不以把所有 PDF 强行转成连续文本为目标。
+对比维度由用户选择或由受限 Schema 提议，例如问题、假设、方法、数据集、指标、结论与局限；不得把不同论文的证据混为一条来源。
+
+### 7.4 生成批注建议
+
+`resolveSelectionContext → synthesizeEvidenceAnswer/explain → proposeAnchoredAnnotation → user confirm → deterministic create API`
+
+模型只提供建议内容，用户决定是否落库。
+
+## 8. 持久化、可观测性与评估
+
+建议新增或扩展以下持久化对象：
+
+```text
+paper_layout_artifact: paper_id, document_hash, parser_version, status,
+                       layout_confidence, blocks_json, created_at
+paper_workbench_run:  run_id, paper_ids, scope, workflow, status,
+                       artifact_versions, token_usage, latency_ms, result_json
+paper_workbench_step: run_id, step_name, skill_name, status,
+                       evidence_count, retry_count, error_code
+```
+
+核心指标：
+
+- 选区映射成功率与低置信度降级率；
+- 双栏样本的阅读顺序正确率；
+- 回答证据覆盖率、无效引用率、repair 率；
+- 每个 Workflow 的耗时、token 和失败原因；
+- 外部解析回退率及其相对收益。
+
+建立真实测试集：单栏、IEEE 双栏、左侧出版信息、密集公式、扫描页。每个样本标记正文顺序、应排除的页眉页脚、代表性选区和预期证据页码。
+
+## 9. 分阶段实施
+
+| 阶段 | 交付 | 验收 |
+| --- | --- | --- |
+| P0（已在推进） | 原生选择、归一化批注、缩放、自动保存、可编辑范围 | 选择不被 SVG 遮挡；缩放后批注对齐 |
+| P1 | `PaperLayoutArtifact`、单双栏排序、SelectionAnchor、局部证据检索 | 真实双栏样本正文不串栏，页眉不进入 evidence |
+| P2 | 右侧论文助手、四条固定 Workflow、Evidence Gate、run trace | 每个回答均可跳回页码/块；不合格回答只 repair 一次 |
+| P3 | 多论文对比、外部解析适配器、评测集和指标面板 | 复杂页安全降级；比较结果保留每篇证据归属 |
+
+## 10. 可提炼为简历亮点的技术叙事
+
+项目不应只描述为“接入大模型的论文管理工具”，而应强调可验证的 Agent 系统设计：
+
+> 设计并实现面向科研论文的 evidence-grounded Agent 工作台：将 PDF 版面解析结果版本化为可回链的 layout artifact，使用受 Schema 约束的 Skill 编排与有界 Plan–Execute–Ground loop 完成选区问答、全文分析和跨论文对比；通过证据门禁、一次 repair 上限、异步可恢复任务及真实 PDF 评测集，控制双栏串读、无依据引用和工具失控问题。
+
+这段能力的前提是指标、测试样本、任务 trace 和失败降级都真实落地；不要为了“Agent”标签堆叠不可验证的多智能体概念。

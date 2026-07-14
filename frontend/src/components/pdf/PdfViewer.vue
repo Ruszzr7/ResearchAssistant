@@ -48,6 +48,7 @@
         <el-button size="small" :type="currentTool === 'edit' ? 'info' : 'default'" @click="toggleAnnotationEditMode">
           {{ currentTool === 'edit' ? '完成编辑' : '编辑批注' }}
         </el-button>
+        <el-button size="small" :disabled="!selectedAnnotation" @click="openAnnotationEditor(selectedAnnotation)">编辑</el-button>
         <el-button size="small" :disabled="!selectedAnnotation" @click="deleteSelected">删除批注</el-button>
       </div>
       <div class="pdf-toolbar-right">
@@ -112,6 +113,33 @@
                 :y2="quadLine(q, page, ann.coordinates).y2"
                 :stroke="ann.color || '#ff9800'"
                 stroke-width="2"
+              />
+            </g>
+            <g
+              v-if="currentTool === 'edit' && selectedAnnotation?.localId === ann.localId && isResizableAnnotation(ann)"
+              class="annotation-resize-handles"
+            >
+              <rect
+                class="annotation-resize-handle"
+                :x="annotationResizeHandle(ann, page, 'start').x - 5"
+                :y="annotationResizeHandle(ann, page, 'start').y - 5"
+                width="10"
+                height="10"
+                rx="2"
+                :stroke="ann.color || '#ff9800'"
+                @pointerdown.stop="beginAnnotationResize($event, ann, page, 'start')"
+                @click.stop
+              />
+              <rect
+                class="annotation-resize-handle"
+                :x="annotationResizeHandle(ann, page, 'end').x - 5"
+                :y="annotationResizeHandle(ann, page, 'end').y - 5"
+                width="10"
+                height="10"
+                rx="2"
+                :stroke="ann.color || '#ff9800'"
+                @pointerdown.stop="beginAnnotationResize($event, ann, page, 'end')"
+                @click.stop
               />
             </g>
             <g v-if="ann.type === 'FREEHAND'">
@@ -259,6 +287,7 @@ import { listAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, 
 import { listNotesByPaper, deleteNote, unlinkNote } from '@/api/notes'
 import NoteLinkPanel from '@/components/notes/NoteLinkPanel.vue'
 import NoteEditor from '@/components/notes/NoteEditor.vue'
+import { resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
 import { ElMessage } from 'element-plus'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
@@ -315,6 +344,7 @@ const predefineColors = [...annotationColors, '#ff9800', '#9c27b0']
 
 let nextLocalId = 1
 let draggingNote = null
+let resizingAnnotation = null
 let suppressAnnotationClickId = null
 
 const pageAnnotations = computed(() => (pageNum) => annotations.value.filter(a => a.page === pageNum))
@@ -325,7 +355,7 @@ const selectionHint = computed(() => {
   const text = pendingTextSelection.value?.text || ''
   if (text) return `已选中“${text.slice(0, 18)}${text.length > 18 ? '…' : ''}”，可添加高亮、下划线或关联便签`
   if (currentTool.value === 'note') return '点击页面放置便签；先选中文本再点“便签”可建立关联'
-  if (currentTool.value === 'edit') return '点击批注即可修改或删除；便签可直接拖动位置'
+  if (currentTool.value === 'edit') return '点击批注后可编辑或删除；拖动高亮/下划线两端可调整范围'
   return '先拖动选择文本，再点高亮、下划线或便签'
 })
 
@@ -780,39 +810,65 @@ async function confirmNote() {
 }
 
 function onOverlayPointerMove(e) {
-  if (!draggingNote) return
-  const { annotation, pageEl, startPosition } = draggingNote
-  const rect = pageEl.getBoundingClientRect()
-  if (!rect.width || !rect.height) return
-  annotation.coordinates = annotation.coordinates || { coordinateSpace: 'viewport' }
-  const nextPosition = {
-    x: clamp((e.clientX - rect.left) / rect.width, 0.02, 0.98),
-    y: clamp((e.clientY - rect.top) / rect.height, 0.02, 0.98)
+  if (draggingNote) {
+    const { annotation, pageEl, startPosition } = draggingNote
+    const rect = pageEl.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    annotation.coordinates = annotation.coordinates || { coordinateSpace: 'viewport' }
+    const nextPosition = {
+      x: clamp((e.clientX - rect.left) / rect.width, 0.02, 0.98),
+      y: clamp((e.clientY - rect.top) / rect.height, 0.02, 0.98)
+    }
+    if (Math.abs(nextPosition.x - startPosition.x) > 0.002
+        || Math.abs(nextPosition.y - startPosition.y) > 0.002) {
+      draggingNote.moved = true
+    }
+    annotation.coordinates.notePosition = nextPosition
+    return
   }
-  if (Math.abs(nextPosition.x - startPosition.x) > 0.002
-      || Math.abs(nextPosition.y - startPosition.y) > 0.002) {
-    draggingNote.moved = true
+  if (resizingAnnotation) {
+    resizeAnnotationRange(resizingAnnotation, e)
   }
-  annotation.coordinates.notePosition = nextPosition
 }
 
 async function onOverlayPointerUp(e) {
-  if (!draggingNote) return
-  const drag = draggingNote
-  const { captureTarget } = drag
-  if (captureTarget?.hasPointerCapture?.(e.pointerId)) {
-    captureTarget.releasePointerCapture(e.pointerId)
+  if (draggingNote) {
+    const drag = draggingNote
+    const { captureTarget } = drag
+    if (captureTarget?.hasPointerCapture?.(e.pointerId)) {
+      captureTarget.releasePointerCapture(e.pointerId)
+    }
+    draggingNote = null
+    if (!drag.moved) return
+    suppressAnnotationClickId = drag.annotation.localId
+    window.setTimeout(() => {
+      suppressAnnotationClickId = null
+    }, 250)
+    try {
+      await persistUpdatedAnnotation(drag.annotation)
+    } catch (error) {
+      ElMessage.error('便签位置保存失败：' + requestErrorMessage(error))
+    }
+    return
   }
-  draggingNote = null
-  if (!drag.moved) return
-  suppressAnnotationClickId = drag.annotation.localId
-  window.setTimeout(() => {
-    suppressAnnotationClickId = null
-  }, 250)
-  try {
-    await persistUpdatedAnnotation(drag.annotation)
-  } catch (error) {
-    ElMessage.error('便签位置保存失败：' + requestErrorMessage(error))
+  if (resizingAnnotation) {
+    const resize = resizingAnnotation
+    if (resize.captureTarget?.hasPointerCapture?.(e.pointerId)) {
+      resize.captureTarget.releasePointerCapture(e.pointerId)
+    }
+    resizingAnnotation = null
+    if (!resize.moved) return
+    suppressAnnotationClickId = resize.annotation.localId
+    window.setTimeout(() => {
+      suppressAnnotationClickId = null
+    }, 250)
+    try {
+      await persistUpdatedAnnotation(resize.annotation)
+      ElMessage.success('批注范围已更新')
+    } catch (error) {
+      resize.annotation.coordinates.quads = resize.originalQuads
+      ElMessage.error('批注范围保存失败：' + requestErrorMessage(error))
+    }
   }
 }
 
@@ -833,13 +889,59 @@ function beginAnnotationPointerDown(e, ann) {
   e.currentTarget.setPointerCapture?.(e.pointerId)
 }
 
+function isResizableAnnotation(annotation) {
+  return (annotation?.type === 'HIGHLIGHT' || annotation?.type === 'UNDERLINE')
+    && Array.isArray(annotation.coordinates?.quads)
+    && annotation.coordinates.quads.length > 0
+}
+
+function annotationResizeHandle(annotation, page, edge) {
+  const quads = annotation.coordinates?.quads || []
+  const quad = edge === 'start' ? quads[0] : quads[quads.length - 1]
+  if (!quad || !page?.viewport) return { x: 0, y: 0 }
+  const points = edge === 'start'
+    ? [annotationPoint(quad.x1, quad.y1, page, annotation.coordinates), annotationPoint(quad.x4, quad.y4, page, annotation.coordinates)]
+    : [annotationPoint(quad.x2, quad.y2, page, annotation.coordinates), annotationPoint(quad.x3, quad.y3, page, annotation.coordinates)]
+  return {
+    x: edge === 'start' ? Math.min(...points.map(([x]) => x)) : Math.max(...points.map(([x]) => x)),
+    y: points.reduce((sum, [, y]) => sum + y, 0) / points.length
+  }
+}
+
+function beginAnnotationResize(e, annotation, page, edge) {
+  if (currentTool.value !== 'edit' || !isResizableAnnotation(annotation)) return
+  const pageEl = findPageElement(e.currentTarget)
+  if (!pageEl) return
+  selectedAnnotation.value = annotation
+  resizingAnnotation = {
+    annotation,
+    page,
+    pageEl,
+    edge,
+    captureTarget: e.currentTarget,
+    originalQuads: JSON.parse(JSON.stringify(annotation.coordinates.quads)),
+    moved: false
+  }
+  e.currentTarget.setPointerCapture?.(e.pointerId)
+  e.preventDefault()
+}
+
+function resizeAnnotationRange(resize, event) {
+  const rect = resize.pageEl.getBoundingClientRect()
+  if (!rect.width) return
+  const quads = resize.annotation.coordinates?.quads
+  if (!quads?.length) return
+  const rawPointerX = clamp((event.clientX - rect.left) / rect.width, 0.002, 0.998)
+  const result = resizeTextAnnotationQuads(quads, resize.edge, rawPointerX)
+  if (!result.changed) return
+  resize.annotation.coordinates.quads = result.quads
+  resize.moved = true
+}
+
 function onAnnotationClick(ann) {
   if (suppressAnnotationClickId === ann.localId) return
   selectedAnnotation.value = ann
-  if (currentTool.value === 'edit') {
-    openAnnotationEditor(ann)
-    return
-  }
+  if (currentTool.value === 'edit') return
   if (ann.type === 'NOTE') {
     notePreview.value = notePreview.value?.localId === ann.localId ? null : ann
   }
@@ -1287,6 +1389,14 @@ function colorName(color) {
 }
 .annotation-overlay.editing-annotations .note-marker:active {
   cursor: grabbing;
+}
+.annotation-resize-handle {
+  fill: var(--ra-panel-bg);
+  stroke-width: 2;
+  cursor: ew-resize;
+}
+.annotation-resize-handle:hover {
+  fill: var(--ra-hover-bg);
 }
 .note-content-popover {
   position: absolute;

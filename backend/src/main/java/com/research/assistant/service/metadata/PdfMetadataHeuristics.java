@@ -450,8 +450,10 @@ public final class PdfMetadataHeuristics {
         if (raw == null) {
             return "";
         }
-        return raw.replace('\u00ad', ' ')
-                .replaceAll("(?<=\\p{L})-\\s*\\R\\s*(?=\\p{L})", "")
+        // 只去掉 PDF 排版产生的断词：软连字符或“字母-换行-字母”。
+        // 不能全局删除连字符，否则会破坏 cell-free、rate-splitting、end-to-end 等术语。
+        return raw.replace("\u00ad", "")
+                .replaceAll("(?<=\\p{L})[-\u2010]\\s*\\R\\s*(?=\\p{L})", "")
                 .replaceAll("\\s+", " ")
                 .trim();
     }

@@ -374,7 +374,7 @@
     </el-dialog>
 
     <!-- ==================== 编辑文件夹弹窗 ==================== -->
-    <el-dialog v-model="showEditFoldersDialog" title="编辑文件夹" width="500px">
+    <el-dialog v-model="showEditFoldersDialog" title="编辑文件夹" width="500px" destroy-on-close>
       <p style="font-size:12px;color:#909399;margin:0 0 8px">点击选中文件夹，操作后点「确认」保存</p>
       <div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap">
         <el-button size="small" @click="editMoveUp" :disabled="!editCanMoveUp">↑ 上移</el-button>
@@ -386,10 +386,12 @@
       <div v-if="moveInSource" style="margin-bottom:4px;padding:4px 8px;background:#ecf5ff;border-radius:3px;font-size:12px">
         将「{{ moveInSource.name }}」移入到 → 点击目标文件夹 | <el-button size="small" text @click="moveInSource=null">取消</el-button>
       </div>
-      <el-tree :data="editFolders" :props="treeProps" node-key="id"
-        :key="editTreeKey"
+      <el-tree ref="editTreeRef" :data="editFolders" :props="treeProps" node-key="id"
+        :default-expanded-keys="editExpandedKeys"
         highlight-current :current-node-key="editFolderId"
         @node-click="onEditTreeClick"
+        @node-expand="onEditTreeNodeExpand"
+        @node-collapse="onEditTreeNodeCollapse"
         style="max-height:300px;overflow-y:auto"
       />
       <div style="margin-top:8px;display:flex;gap:4px">
@@ -571,7 +573,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import { waitForAnalysis } from '@/utils/analysis.js'
@@ -968,20 +970,46 @@ const showEditFoldersDialog = ref(false)
 const editFolderId = ref(null)
 const editFolderName = ref('')
 const editFolders = ref([]) // 本地副本
+const editTreeRef = ref(null)
+const editExpandedKeys = ref([])
 const moveInSource = ref(null)
 const editOps = ref([]) // 待提交操作队列: [{type, id, body}]
 
 function openEditFoldersDialog() {
   editFolderId.value = null; editFolderName.value = ''; moveInSource.value = null
   editFolders.value = JSON.parse(JSON.stringify(folders.value))
+  // 初次打开时展开已有父目录；之后的删除/移动不重建树，用户当前展开状态会保持。
+  editExpandedKeys.value = collectExpandableFolderIds(editFolders.value)
   editOps.value = []
-  editTreeKey.value++
   showEditFoldersDialog.value = true
 }
 
-const editTreeKey = ref(0)
 function cancelEditFolders() { showEditFoldersDialog.value = false }
-function refreshEditFolders() { editTreeKey.value++ }
+
+function collectExpandableFolderIds(nodes, result = []) {
+  for (const node of nodes || []) {
+    if (node.children?.length) {
+      result.push(node.id)
+      collectExpandableFolderIds(node.children, result)
+    }
+  }
+  return result
+}
+
+function onEditTreeNodeExpand(node) {
+  if (!editExpandedKeys.value.includes(node.id)) editExpandedKeys.value.push(node.id)
+}
+
+function onEditTreeNodeCollapse(node) {
+  editExpandedKeys.value = editExpandedKeys.value.filter(id => id !== node.id)
+}
+
+function expandEditedFolder(id) {
+  nextTick(() => {
+    editTreeRef.value?.getNode(id)?.expand()
+    onEditTreeNodeExpand({ id })
+  })
+}
 
 // 记录操作到队列
 function addEditOp(type, id, body) { editOps.value.push({ type, id, body }) }
@@ -1069,15 +1097,20 @@ function editRename() {
   if (f) f.name = editFolderName.value.trim()
   addEditOp('rename', editFolderId.value, { name: editFolderName.value.trim() })
   editFolderName.value = ''
-  refreshEditFolders()
 }
 
 function editDelete() {
   if (!editFolderId.value) return
-  addEditOp('delete', editFolderId.value, {})
-  removeFromTree(editFolders.value, editFolderId.value)
+  const folder = findFolderById(editFolders.value, editFolderId.value)
+  if (!folder) return
+  const removedIds = new Set(collectAllIds([folder]))
+  const parentId = folder.parentId
+  addEditOp('delete', folder.id, {})
+  removeFromTree(editFolders.value, folder.id)
+  // 不再通过 key 强制重建 el-tree，因此父目录的展开状态不会因删除兄弟节点而丢失。
+  editExpandedKeys.value = editExpandedKeys.value.filter(id => !removedIds.has(id))
+  if (parentId != null && editExpandedKeys.value.includes(parentId)) expandEditedFolder(parentId)
   editFolderId.value = null; moveInSource.value = null
-  refreshEditFolders()
 }
 
 function editMoveUp() { shiftFolderLocal(-1) }
@@ -1101,7 +1134,6 @@ function shiftFolderLocal(delta) {
   for (const f of list) {
     addEditOp('move', f.id, { parentId: f.parentId, sortOrder: f.sortOrder })
   }
-  refreshEditFolders()
 }
 
 function editMoveOut() {
@@ -1113,7 +1145,7 @@ function editMoveOut() {
   folder.parentId = newParentId
   addToTree(editFolders.value, newParentId, folder)
   addEditOp('move', folder.id, { parentId: newParentId, sortOrder: 99 })
-  refreshEditFolders()
+  if (newParentId != null) expandEditedFolder(newParentId)
 }
 
 function startMoveIn() {
@@ -1132,7 +1164,7 @@ function moveFolderToLocal(targetId) {
   addEditOp('move', f.id, { parentId: targetId, sortOrder: 99 })
   editFolderId.value = targetId
   moveInSource.value = null
-  refreshEditFolders()
+  expandEditedFolder(targetId)
 }
 
 function openNewFolderForm() { newFolderName.value=''; newFolderParentId.value=selectedFolderId.value; showNewFolderForm.value=true }

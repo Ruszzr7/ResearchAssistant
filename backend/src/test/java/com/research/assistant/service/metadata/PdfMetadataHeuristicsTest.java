@@ -127,6 +127,24 @@ class PdfMetadataHeuristicsTest {
     }
 
     @Test
+    void shouldRemoveOnlyLineWrapHyphenationAndKeepRealHyphenatedTerms() {
+        PdfMetadataHeuristics.Metadata result = extractor.extract("""
+                A Useful Conference Paper
+                Alice Smith, Bob Jones
+
+                Abstract—We study communica-
+                tion systems with cell-free cooperation, rate-splitting, and co\u00adoperation.
+                Index Terms—reliabili-
+                ty, cell-free, rate-splitting, end-to-end communication.
+                I. INTRODUCTION
+                """);
+
+        assertEquals("We study communication systems with cell-free cooperation, rate-splitting, and cooperation.",
+                result.abstractText());
+        assertEquals("reliability, cell-free, rate-splitting, end-to-end communication", result.keywords());
+    }
+
+    @Test
     void shouldExtractConferenceAuthorsAndFooterSource() {
         PdfMetadataHeuristics.Metadata result = extractor.extract("""
                 A Useful Conference Paper
