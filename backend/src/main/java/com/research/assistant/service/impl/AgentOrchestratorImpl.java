@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -123,16 +124,31 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
                 new SuggestFolderInput(paperId, null),
                 "folder-" + paperId,
                 "文件夹推荐失败",
-                Map.of("recommended", null, "suggestNew", false));
+                folderSuggestionFallback());
     }
 
     @Override
     public Map<String, Object> suggestFolderByTitle(String title) {
+        return suggestFolderByTitle(title, null);
+    }
+
+    @Override
+    public Map<String, Object> suggestFolderByTitle(String title, String abstractText) {
         return executeQuietly(suggestFolderSkill,
-                new SuggestFolderInput(null, title),
+                new SuggestFolderInput(null, title, abstractText),
                 "folder-title",
                 "文件夹推荐失败",
-                Map.of("recommended", null, "suggestNew", false));
+                folderSuggestionFallback());
+    }
+
+    private Map<String, Object> folderSuggestionFallback() {
+        Map<String, Object> fallback = new LinkedHashMap<>();
+        fallback.put("recommended", null);
+        fallback.put("reason", "AI 推荐暂不可用，请手动选择文件夹");
+        fallback.put("suggestNew", false);
+        fallback.put("newName", null);
+        fallback.put("parentFolderId", null);
+        return fallback;
     }
 
     @Override

@@ -84,6 +84,13 @@ public interface AgentOrchestrator {
     Map<String, Object> suggestFolderByTitle(String title);
 
     /**
+     * Agent 推荐文件夹 —— 导入前同时使用标题和摘要。
+     */
+    default Map<String, Object> suggestFolderByTitle(String title, String abstractText) {
+        return suggestFolderByTitle(title);
+    }
+
+    /**
      * Agent 推荐阅读状态 —— 基于论文标题和摘要。
      *
      * @return Map of {status: UNREAD/READING/READ, reason: string}

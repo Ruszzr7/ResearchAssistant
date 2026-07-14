@@ -3,6 +3,7 @@ package com.research.assistant.service.annotation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.dto.AnnotationDto;
 import com.research.assistant.entity.PaperAnalysis;
+import com.research.assistant.entity.Paper;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.LLMService;
@@ -48,6 +49,7 @@ class AiAnnotationServiceTest {
         analysis.setCoreContribution("我们提出了一种新方法");
         analysis.setMethodSummary("方法细节");
         when(paperAnalysisMapper.selectOne(any())).thenReturn(analysis);
+        when(paperMapper.selectById(1L)).thenReturn(paper(1L));
 
         String json = """
                 [{"category":"METHOD","anchorText":"新方法","note":"核心方法"},
@@ -71,10 +73,34 @@ class AiAnnotationServiceTest {
         PaperAnalysis analysis = new PaperAnalysis();
         analysis.setPaperId(1L);
         when(paperAnalysisMapper.selectOne(any())).thenReturn(analysis);
+        when(paperMapper.selectById(1L)).thenReturn(paper(1L));
         when(llmService.chat(anyString(), anyString())).thenReturn("not json");
 
         List<AnnotationDto> result = service.generateAndSave(1L);
 
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    void shouldGenerateWithoutPrecomputedAnalysis() {
+        when(paperAnalysisMapper.selectOne(any())).thenReturn(null);
+        when(paperMapper.selectById(1L)).thenReturn(paper(1L));
+        when(llmService.chat(anyString(), anyString())).thenReturn(
+                "[{\"category\":\"METHOD\",\"anchorText\":\"new method\",\"note\":\"核心方法\"}]");
+
+        AnnotationDto saved = new AnnotationDto();
+        saved.setType("HIGHLIGHT");
+        when(annotationService.create(eq(1L), any(), eq(true))).thenReturn(saved);
+
+        assertThat(service.generateAndSave(1L)).hasSize(1);
+        verify(llmService).chat(anyString(), contains("PDF 正文片段"));
+    }
+
+    private Paper paper(Long id) {
+        Paper paper = new Paper();
+        paper.setId(id);
+        paper.setTitle("Test Paper");
+        paper.setAbstractText("Test abstract");
+        return paper;
     }
 }

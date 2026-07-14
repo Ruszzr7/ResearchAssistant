@@ -72,6 +72,10 @@ public interface PaperMapper extends BaseMapper<Paper> {
         "FROM paper p WHERE p.id = #{id}")
     Paper selectById(@Param("id") Long id);
 
+    /** 按 DOI 查找已有论文，用于导入前给出覆盖确认。 */
+    @Select("SELECT id, title, pdf_path AS pdfPath, year FROM paper WHERE doi = #{doi} LIMIT 1")
+    Paper selectByDoi(@Param("doi") String doi);
+
     /** 统计各文件夹下的直接论文数 */
     @Select("SELECT p.folder_id AS folder_id, COUNT(*) AS cnt FROM paper p " +
         "WHERE p.folder_id IS NOT NULL GROUP BY p.folder_id")

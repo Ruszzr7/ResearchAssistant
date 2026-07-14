@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 元数据规范化工具。
@@ -19,6 +21,7 @@ public class MetadataNormalizer {
 
     private static final Logger log = LoggerFactory.getLogger(MetadataNormalizer.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final Pattern NUMERIC_HTML_ENTITY = Pattern.compile("&#(x?)([0-9a-fA-F]+);");
 
     private MetadataNormalizer() {
         // 工具类
@@ -75,7 +78,45 @@ public class MetadataNormalizer {
         if (title == null || title.isBlank()) {
             return null;
         }
-        return title.replaceAll("\\s+", " ").trim();
+        return decodeHtmlEntities(title).replaceAll("\\s+", " ").trim();
+    }
+
+    /** 规范化期刊/会议来源，去掉 Crossref 偶尔附带的出版年份前缀。 */
+    public static String normalizeSource(String source) {
+        if (source == null || source.isBlank()) return source;
+        return decodeHtmlEntities(source)
+                .replaceFirst("^\\s*20\\d{2}\\s+", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    /** 解码 Crossref 等来源返回的 HTML 实体，避免来源显示为 &amp;、&quot; 等文本。 */
+    public static String decodeHtmlEntities(String value) {
+        if (value == null || value.isBlank()) {
+            return value;
+        }
+        String decoded = value
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&apos;", "'")
+                .replace("&nbsp;", " ");
+        Matcher matcher = NUMERIC_HTML_ENTITY.matcher(decoded);
+        StringBuffer result = new StringBuffer();
+        while (matcher.find()) {
+            try {
+                int radix = matcher.group(1).isEmpty() ? 10 : 16;
+                int codePoint = Integer.parseInt(matcher.group(2), radix);
+                matcher.appendReplacement(result, Matcher.quoteReplacement(
+                        new String(Character.toChars(codePoint))));
+            } catch (RuntimeException ignored) {
+                matcher.appendReplacement(result, Matcher.quoteReplacement(matcher.group()));
+            }
+        }
+        matcher.appendTail(result);
+        return result.toString();
     }
 
     /**

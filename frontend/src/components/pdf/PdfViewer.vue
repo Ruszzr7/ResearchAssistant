@@ -14,6 +14,19 @@
           <el-radio-button label="freehand">圈注</el-radio-button>
         </el-radio-group>
 
+        <div class="annotation-color-palette" aria-label="批注颜色">
+          <button
+            v-for="color in annotationColors"
+            :key="color"
+            type="button"
+            class="annotation-color"
+            :class="{ active: currentColor === color }"
+            :style="{ backgroundColor: color }"
+            :title="colorName(color)"
+            :aria-label="colorName(color)"
+            @click.stop="currentColor = color"
+          />
+        </div>
         <el-color-picker v-model="currentColor" size="small" :predefine="predefineColors" show-alpha />
 
         <el-button size="small" type="primary" :loading="saving" @click="saveAnnotations">保存批注</el-button>
@@ -47,6 +60,7 @@
             :ref="el => setOverlayRef(el, page.pageNum)"
             class="annotation-overlay"
             :style="layerStyle(page)"
+            :class="{ interactive: currentTool === 'select' || currentTool === 'note' || currentTool === 'freehand' }"
             @pointerdown="onOverlayPointerDown"
             @pointermove="onOverlayPointerMove"
             @pointerup="onOverlayPointerUp"
@@ -60,7 +74,7 @@
               <polygon
                 v-for="(q, i) in ann.coordinates?.quads"
                 :key="i"
-                :points="quadPoints(q, page)"
+                :points="quadPoints(q, page, ann.coordinates)"
                 :fill="ann.color || '#ffeb3b'"
                 fill-opacity="0.4"
               />
@@ -69,10 +83,10 @@
               <line
                 v-for="(q, i) in ann.coordinates?.quads"
                 :key="i"
-                :x1="quadLine(q, page).x1"
-                :y1="quadLine(q, page).y1"
-                :x2="quadLine(q, page).x2"
-                :y2="quadLine(q, page).y2"
+                :x1="quadLine(q, page, ann.coordinates).x1"
+                :y1="quadLine(q, page, ann.coordinates).y1"
+                :x2="quadLine(q, page, ann.coordinates).x2"
+                :y2="quadLine(q, page, ann.coordinates).y2"
                 :stroke="ann.color || '#ff9800'"
                 stroke-width="2"
               />
@@ -153,7 +167,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, shallowRef, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { listAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, generateAiAnnotations } from '@/api/annotation'
@@ -168,13 +182,15 @@ const props = defineProps({
   paper: { type: Object, required: true }
 })
 
-const emit = defineEmits(['close', 'pageChanged'])
+const emit = defineEmits(['close'])
 
 const containerRef = ref(null)
 const canvasRefs = ref({})
 const textLayerRefs = ref({})
 const overlayRefs = ref({})
-const pdfDoc = ref(null)
+// PDF.js 的文档对象包含私有字段，不能被 Vue 深层代理，否则调用 getPage/render
+// 时会报 "Cannot read from private field"。
+const pdfDoc = shallowRef(null)
 const renderedPages = ref([])
 const visiblePageStart = ref(1)
 const visiblePageEnd = ref(1)
@@ -197,7 +213,8 @@ const noteEditInitial = ref(null)
 const selectedNote = ref(null)
 const contextMenu = ref({ visible: false, x: 0, y: 0 })
 
-const predefineColors = ['#ffeb3b', '#ff9800', '#f44336', '#4caf50', '#2196f3', '#9c27b0']
+const annotationColors = ['#f44336', '#ffeb3b', '#2196f3', '#4caf50', '#000000']
+const predefineColors = [...annotationColors, '#ff9800', '#9c27b0']
 
 let nextLocalId = 1
 let freehandPointsTemp = []
@@ -382,36 +399,62 @@ async function loadNotes() {
 
 function onMouseUp() {
   if (currentTool.value !== 'highlight' && currentTool.value !== 'underline') return
-  const selection = window.getSelection()
-  if (!selection || selection.isCollapsed) return
-  const range = selection.getRangeAt(0)
-  const pageEl = findPageElement(range.commonAncestorContainer)
-  if (!pageEl) return
-  const pageNum = Number(pageEl.dataset.page)
-  const pageState = renderedPages.value.find(p => p.pageNum === pageNum)
-  if (!pageState?.viewport) return
-
-  const pageRect = pageEl.getBoundingClientRect()
-  const rects = Array.from(range.getClientRects())
-  const quads = rects.map(r => rectToQuad(r, pageRect, pageState.viewport))
-
-  annotations.value.push({
-    localId: nextLocalId++,
-    paperId: props.paper.id,
-    type: currentTool.value.toUpperCase(),
-    page: pageNum,
-    color: currentColor.value,
-    note: '',
-    coordinates: {
-      pageWidth: pageState.viewport.width,
-      pageHeight: pageState.viewport.height,
-      rotation: pageState.viewport.rotation,
-      scale: pageState.viewport.scale,
-      quads
-    },
-    isNew: true
+  // 浏览器在 mouseup 后才最终提交 Selection，放到下一帧读取可避免拿到旧范围。
+  requestAnimationFrame(() => {
+    const selection = window.getSelection()
+    if (!selection || selection.isCollapsed) return
+    const range = selection.getRangeAt(0)
+    const groups = selectionGeometry(range)
+    for (const group of groups) {
+      annotations.value.push({
+        localId: nextLocalId++,
+        paperId: props.paper.id,
+        type: currentTool.value.toUpperCase(),
+        page: group.pageNum,
+        color: currentColor.value,
+        note: '',
+        coordinates: {
+          coordinateSpace: 'viewport',
+          pageWidth: group.pageState.viewport.width,
+          pageHeight: group.pageState.viewport.height,
+          rotation: group.pageState.viewport.rotation,
+          scale: group.pageState.viewport.scale,
+          quads: group.quads
+        },
+        isNew: true
+      })
+    }
+    if (groups.length) selection.removeAllRanges()
   })
-  selection.removeAllRanges()
+}
+
+function selectionGeometry(range) {
+  const grouped = new Map()
+  for (const rect of Array.from(range.getClientRects())) {
+    if (rect.width <= 0 || rect.height <= 0) continue
+    const pageEl = pageElementAt(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    if (!pageEl) continue
+    const pageNum = Number(pageEl.dataset.page)
+    const pageState = renderedPages.value.find(p => p.pageNum === pageNum)
+    if (!pageState?.viewport) continue
+    const pageRect = pageEl.getBoundingClientRect()
+    const left = Math.max(rect.left, pageRect.left)
+    const right = Math.min(rect.right, pageRect.right)
+    const top = Math.max(rect.top, pageRect.top)
+    const bottom = Math.min(rect.bottom, pageRect.bottom)
+    if (right <= left || bottom <= top) continue
+    if (!grouped.has(pageNum)) grouped.set(pageNum, { pageNum, pageState, quads: [] })
+    grouped.get(pageNum).quads.push(rectToViewportQuad({ left, right, top, bottom }, pageRect))
+  }
+  return [...grouped.values()]
+}
+
+function pageElementAt(x, y) {
+  const pages = containerRef.value?.querySelectorAll('.pdf-page') || []
+  return [...pages].find(page => {
+    const rect = page.getBoundingClientRect()
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+  }) || null
 }
 
 function findPageElement(node) {
@@ -423,16 +466,12 @@ function findPageElement(node) {
   return null
 }
 
-function rectToQuad(rect, pageRect, viewport) {
-  const x1 = viewport.convertToPdfPoint(rect.left - pageRect.left, rect.bottom - pageRect.top)[0] / viewport.width
-  const y1 = viewport.convertToPdfPoint(rect.left - pageRect.left, rect.bottom - pageRect.top)[1] / viewport.height
-  const x2 = viewport.convertToPdfPoint(rect.right - pageRect.left, rect.bottom - pageRect.top)[0] / viewport.width
-  const y2 = y1
-  const x3 = viewport.convertToPdfPoint(rect.right - pageRect.left, rect.top - pageRect.top)[0] / viewport.width
-  const y3 = viewport.convertToPdfPoint(rect.right - pageRect.left, rect.top - pageRect.top)[1] / viewport.height
-  const x4 = x1
-  const y4 = y3
-  return { x1, y1, x2, y2, x3, y3, x4, y4 }
+function rectToViewportQuad(rect, pageRect) {
+  const x1 = (rect.left - pageRect.left) / pageRect.width
+  const x2 = (rect.right - pageRect.left) / pageRect.width
+  const y1 = (rect.bottom - pageRect.top) / pageRect.height
+  const y3 = (rect.top - pageRect.top) / pageRect.height
+  return { x1, y1, x2, y2: y1, x3: x2, y3, x4: x1, y4: y3 }
 }
 
 function onOverlayClick(e) {
@@ -445,8 +484,6 @@ function onOverlayClick(e) {
   const rect = pageEl.getBoundingClientRect()
   const x = e.clientX - rect.left
   const y = e.clientY - rect.top
-  const [pdfX, pdfY] = pageState.viewport.convertToPdfPoint(x, y)
-
   noteEditTarget.value = {
     localId: nextLocalId++,
     paperId: props.paper.id,
@@ -455,20 +492,14 @@ function onOverlayClick(e) {
     color: currentColor.value,
     note: '',
     coordinates: {
+      coordinateSpace: 'viewport',
       pageWidth: pageState.viewport.width,
       pageHeight: pageState.viewport.height,
       rotation: pageState.viewport.rotation,
       scale: pageState.viewport.scale,
-      quads: [{
-        x1: pdfX / pageState.viewport.width,
-        y1: pdfY / pageState.viewport.height,
-        x2: pdfX / pageState.viewport.width,
-        y2: pdfY / pageState.viewport.height,
-        x3: pdfX / pageState.viewport.width,
-        y3: pdfY / pageState.viewport.height,
-        x4: pdfX / pageState.viewport.width,
-        y4: pdfY / pageState.viewport.height
-      }]
+      quads: [{ x1: x / rect.width, y1: y / rect.height, x2: x / rect.width,
+        y2: y / rect.height, x3: x / rect.width, y3: y / rect.height,
+        x4: x / rect.width, y4: y / rect.height }]
     },
     isNew: true
   }
@@ -517,8 +548,9 @@ function onOverlayPointerUp(e) {
   if (!pageState?.viewport) return
 
   const points = freehandPointsTemp.map(p => {
-    const [pdfX, pdfY] = pageState.viewport.convertToPdfPoint(p.x, p.y)
-    return { x: pdfX / pageState.viewport.width, y: pdfY / pageState.viewport.height }
+    const pageEl = containerRef.value?.querySelector(`[data-page="${pageNum}"]`)
+    const rect = pageEl?.getBoundingClientRect()
+    return { x: rect ? p.x / rect.width : 0, y: rect ? p.y / rect.height : 0 }
   })
 
   annotations.value.push({
@@ -529,6 +561,7 @@ function onOverlayPointerUp(e) {
     color: currentColor.value,
     note: '',
     coordinates: {
+      coordinateSpace: 'viewport',
       pageWidth: pageState.viewport.width,
       pageHeight: pageState.viewport.height,
       rotation: pageState.viewport.rotation,
@@ -570,7 +603,7 @@ async function saveAnnotations() {
       Object.assign(ann, saved, { localId: ann.localId, dirty: false })
     }
     for (const ann of deletedItems) {
-      await deleteAnnotation(ann.id)
+      await deleteAnnotation(props.paper.id, ann.id)
     }
     annotations.value = annotations.value.filter(a => !a.deleted)
     ElMessage.success('批注已保存')
@@ -606,29 +639,39 @@ function toPayload(ann) {
   }
 }
 
-function quadPoints(q, page) {
+function quadPoints(q, page, coords) {
   if (!page.viewport) return ''
   const v = page.viewport
-  const p1 = v.convertToViewportPoint(q.x1 * v.width, q.y1 * v.height)
-  const p2 = v.convertToViewportPoint(q.x2 * v.width, q.y2 * v.height)
-  const p3 = v.convertToViewportPoint(q.x3 * v.width, q.y3 * v.height)
-  const p4 = v.convertToViewportPoint(q.x4 * v.width, q.y4 * v.height)
+  const p1 = annotationPoint(q.x1, q.y1, page, coords)
+  const p2 = annotationPoint(q.x2, q.y2, page, coords)
+  const p3 = annotationPoint(q.x3, q.y3, page, coords)
+  const p4 = annotationPoint(q.x4, q.y4, page, coords)
   return `${p1[0]},${p1[1]} ${p2[0]},${p2[1]} ${p3[0]},${p3[1]} ${p4[0]},${p4[1]}`
 }
 
-function quadLine(q, page) {
+function quadLine(q, page, coords) {
   if (!page.viewport) return { x1: 0, y1: 0, x2: 0, y2: 0 }
-  const v = page.viewport
-  const p1 = v.convertToViewportPoint(q.x1 * v.width, q.y1 * v.height)
-  const p2 = v.convertToViewportPoint(q.x2 * v.width, q.y2 * v.height)
+  const p1 = annotationPoint(q.x1, q.y1, page, coords)
+  const p2 = annotationPoint(q.x2, q.y2, page, coords)
   return { x1: p1[0], y1: p1[1], x2: p2[0], y2: p2[1] }
+}
+
+function annotationPoint(x, y, page, coords) {
+  const v = page.viewport
+  if (coords?.coordinateSpace === 'viewport') return [x * v.width, y * v.height]
+  const width = coords?.pageWidth || (v.viewBox[2] - v.viewBox[0])
+  const height = coords?.pageHeight || (v.viewBox[3] - v.viewBox[1])
+  return v.convertToViewportPoint(x * width + v.viewBox[0], y * height + v.viewBox[1])
 }
 
 function freehandPoints(coords, page) {
   if (!page.viewport || !coords?.points) return ''
   const v = page.viewport
   return coords.points.map(p => {
-    const vp = v.convertToViewportPoint(p.x * v.width, p.y * v.height)
+    if (coords.coordinateSpace === 'viewport') return `${p.x * v.width},${p.y * v.height}`
+    const width = coords.pageWidth || (v.viewBox[2] - v.viewBox[0])
+    const height = coords.pageHeight || (v.viewBox[3] - v.viewBox[1])
+    const vp = v.convertToViewportPoint(p.x * width + v.viewBox[0], p.y * height + v.viewBox[1])
     return `${vp[0]},${vp[1]}`
   }).join(' ')
 }
@@ -637,7 +680,10 @@ function notePoint(coords, page) {
   if (!page.viewport || !coords?.quads?.length) return { x: 0, y: 0 }
   const v = page.viewport
   const q = coords.quads[0]
-  const p = v.convertToViewportPoint(q.x1 * v.width, q.y1 * v.height)
+  const p = coords.coordinateSpace === 'viewport'
+    ? [q.x1 * v.width, q.y1 * v.height]
+    : v.convertToViewportPoint(q.x1 * (coords.pageWidth || (v.viewBox[2] - v.viewBox[0])) + v.viewBox[0],
+      q.y1 * (coords.pageHeight || (v.viewBox[3] - v.viewBox[1])) + v.viewBox[1])
   return { x: p[0], y: p[1] }
 }
 
@@ -652,22 +698,20 @@ function createNoteFromSelection() {
   const selection = window.getSelection()
   if (!selection || selection.isCollapsed) return
   const range = selection.getRangeAt(0)
-  const pageEl = findPageElement(range.commonAncestorContainer)
-  if (!pageEl) return
-  const pageNum = Number(pageEl.dataset.page)
+  const group = selectionGeometry(range)[0]
+  if (!group) return
+  const pageNum = group.pageNum
   const pageState = renderedPages.value.find(p => p.pageNum === pageNum)
   const anchorText = selection.toString().slice(0, 200)
   let coordinates = null
   if (pageState?.viewport) {
-    const pageRect = pageEl.getBoundingClientRect()
-    const rects = Array.from(range.getClientRects())
-    const quads = rects.map(r => rectToQuad(r, pageRect, pageState.viewport))
     coordinates = {
+      coordinateSpace: 'viewport',
       pageWidth: pageState.viewport.width,
       pageHeight: pageState.viewport.height,
       rotation: pageState.viewport.rotation,
       scale: pageState.viewport.scale,
-      quads
+      quads: group.quads
     }
   }
   noteEditInitial.value = {
@@ -714,6 +758,16 @@ async function jumpToNote(note) {
 
 function onWindowClick() {
   if (contextMenu.value.visible) contextMenu.value.visible = false
+}
+
+function colorName(color) {
+  return {
+    '#f44336': '红色',
+    '#ffeb3b': '黄色',
+    '#2196f3': '蓝色',
+    '#4caf50': '绿色',
+    '#000000': '黑色'
+  }[color] || color
 }
 </script>
 
@@ -790,6 +844,7 @@ function onWindowClick() {
   line-height: 1;
   user-select: text;
   cursor: text;
+  z-index: 1;
 }
 .text-layer ::v-deep(span) {
   color: transparent;
@@ -802,11 +857,38 @@ function onWindowClick() {
   position: absolute;
   top: 0;
   left: 0;
-  pointer-events: auto;
+  z-index: 2;
+  pointer-events: none;
   cursor: crosshair;
 }
+.annotation-overlay.interactive {
+  pointer-events: auto;
+}
+.annotation-overlay > g {
+  pointer-events: none;
+  cursor: pointer;
+}
+.annotation-overlay.interactive > g { pointer-events: all; }
 .annotation-overlay .selected {
   filter: drop-shadow(0 0 2px var(--ra-link));
+}
+.annotation-color-palette {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.annotation-color {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgba(127, 127, 127, 0.55);
+  border-radius: 50%;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.annotation-color.active {
+  outline: 2px solid var(--ra-link);
+  outline-offset: 1px;
 }
 .context-menu {
   position: fixed;

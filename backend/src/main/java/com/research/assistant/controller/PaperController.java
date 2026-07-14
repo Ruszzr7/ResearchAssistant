@@ -162,6 +162,7 @@ public class PaperController {
             @RequestParam(value = "abstractText", required = false) String abstractText,
             @RequestParam(value = "keywords", required = false) String keywords,
             @RequestParam(value = "folderId", required = false) Long folderId,
+            @RequestParam(defaultValue = "false") boolean overwrite,
             @RequestParam(defaultValue = "true") boolean runWorkflow) {
         Paper paper = new Paper();
         paper.setTitle(title);
@@ -176,7 +177,7 @@ public class PaperController {
         paper.setFolderId(folderId);
         paper.setAcquisitionMethod(AcquisitionMethod.MANUAL_UPLOAD);
         paper.setReadingStatus(ReadingStatus.UNREAD);
-        Paper saved = paperService.uploadPdfAndCreate(file, paper);
+        Paper saved = paperService.uploadPdfAndCreate(file, paper, overwrite);
         String taskId = runWorkflow ? workflowService.submitPaperImport(saved.getId()) : null;
         return Result.ok(buildPaperResult(saved, taskId));
     }

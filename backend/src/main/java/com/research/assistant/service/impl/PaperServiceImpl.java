@@ -2,6 +2,7 @@ package com.research.assistant.service.impl;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.research.assistant.common.DuplicatePaperException;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.Tag;
 import com.research.assistant.mapper.PaperMapper;
@@ -11,6 +12,7 @@ import com.research.assistant.service.AsyncTaskService;
 import com.research.assistant.service.PaperService;
 import com.research.assistant.service.PdfExtractor;
 import com.research.assistant.service.metadata.MetadataNormalizer;
+import com.research.assistant.service.metadata.PdfMetadataHeuristics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +22,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.security.MessageDigest;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -158,10 +163,11 @@ public class PaperServiceImpl implements PaperService {
         if (!extracted.isEmpty()) {
             paper.setAiSummary(extracted);
         }
-        // 若年份为空或默认值，尝试从 PDF 文本中自动提取真实年份
+        // 若年份为空或历史默认值，使用出版信息行提取真实年份；识别不到时保持为空，
+        // 不再把授权下载时间等首页年份误认为出版年份。
         Integer existingYear = paperMapper.selectById(paperId).getYear();
         if (existingYear == null || existingYear == 2025) {
-            Integer parsedYear = extractYearFromText(extracted);
+            Integer parsedYear = new PdfMetadataHeuristics().extract(extracted).year();
             if (parsedYear != null) {
                 paper.setYear(parsedYear);
             }
@@ -176,48 +182,32 @@ public class PaperServiceImpl implements PaperService {
         return storedName;
     }
 
-    private static final java.util.regex.Pattern YEAR_PATTERN =
-            java.util.regex.Pattern.compile("\\b(19\\d{2}|20\\d{2})\\b");
-
-    /**
-     * 从 PDF 文本中提取最可能的出版年份。
-     * 策略：优先扫描文本前 1500 个字符内的年份（通常包含期刊/会议页眉），
-     * 若不存在则在整个文本中选择出现次数最多的年份。
-     */
-    private Integer extractYearFromText(String text) {
-        if (text == null || text.isBlank()) return null;
-        // 先尝试前 1500 字符
-        String header = text.length() > 1500 ? text.substring(0, 1500) : text;
-        java.util.Map<Integer, Integer> headerFreq = collectYearFreq(header);
-        if (!headerFreq.isEmpty()) {
-            return headerFreq.entrySet().stream()
-                    .max(java.util.Map.Entry.comparingByValue())
-                    .map(java.util.Map.Entry::getKey)
-                    .orElse(null);
-        }
-        // 否则全文中找出现最多的
-        java.util.Map<Integer, Integer> freq = collectYearFreq(text);
-        if (freq.isEmpty()) return null;
-        return freq.entrySet().stream()
-                .max(java.util.Map.Entry.comparingByValue())
-                .map(java.util.Map.Entry::getKey)
-                .orElse(null);
-    }
-
-    private java.util.Map<Integer, Integer> collectYearFreq(String text) {
-        java.util.Map<Integer, Integer> freq = new java.util.HashMap<>();
-        java.util.regex.Matcher matcher = YEAR_PATTERN.matcher(text);
-        while (matcher.find()) {
-            int year = Integer.parseInt(matcher.group(1));
-            freq.put(year, freq.getOrDefault(year, 0) + 1);
-        }
-        return freq;
+    @Override
+    @Transactional
+    public Paper uploadPdfAndCreate(MultipartFile file, Paper paper) {
+        return uploadPdfAndCreate(file, paper, false);
     }
 
     @Override
     @Transactional
-    public Paper uploadPdfAndCreate(MultipartFile file, Paper paper) {
+    public Paper uploadPdfAndCreate(MultipartFile file, Paper paper, boolean overwrite) {
         normalizeAuthors(paper);
+        Paper duplicate = findDuplicatePaper(file, paper);
+        if (duplicate != null) {
+            if (!overwrite) {
+                throw new DuplicatePaperException(duplicate.getId(), duplicate.getTitle());
+            }
+            String oldPdfPath = duplicate.getPdfPath();
+            paper.setId(duplicate.getId());
+            if (paper.getTitle() == null || paper.getTitle().isBlank()) {
+                paper.setTitle(duplicate.getTitle());
+            }
+            paperMapper.updateById(paper);
+            uploadPdf(duplicate.getId(), file);
+            deleteStoredPdf(oldPdfPath);
+            triggerAsyncProcessing(duplicate.getId());
+            return getById(duplicate.getId());
+        }
         paperMapper.insert(paper);
         if (file != null && !file.isEmpty()) {
             uploadPdf(paper.getId(), file);
@@ -227,6 +217,66 @@ public class PaperServiceImpl implements PaperService {
             triggerAsyncProcessing(paper.getId());
         }
         return getById(paper.getId());
+    }
+
+    private Paper findDuplicatePaper(MultipartFile file, Paper paper) {
+        if (paper.getDoi() != null && !paper.getDoi().isBlank()) {
+            Paper duplicate = paperMapper.selectByDoi(paper.getDoi().trim());
+            if (duplicate != null) return duplicate;
+        }
+        if (file == null || file.isEmpty()) return null;
+        String uploadedHash = sha256(file);
+        if (uploadedHash == null) return null;
+        for (Paper existing : paperMapper.selectList(null)) {
+            File stored = resolveStoredFile(existing.getPdfPath());
+            if (stored != null && uploadedHash.equals(sha256(stored))) return existing;
+        }
+        return null;
+    }
+
+    private String sha256(MultipartFile file) {
+        try (InputStream input = file.getInputStream()) {
+            return sha256(input);
+        } catch (Exception e) {
+            log.warn("计算上传 PDF 指纹失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String sha256(File file) {
+        try (InputStream input = Files.newInputStream(file.toPath())) {
+            return sha256(input);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String sha256(InputStream input) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = input.read(buffer)) >= 0) {
+            if (read > 0) digest.update(buffer, 0, read);
+        }
+        StringBuilder hex = new StringBuilder(64);
+        for (byte value : digest.digest()) hex.append(String.format("%02x", value));
+        return hex.toString();
+    }
+
+    private File resolveStoredFile(String storedName) {
+        if (storedName == null || storedName.isBlank()) return null;
+        File dir = new File(pdfStorageDir);
+        if (!dir.isAbsolute()) dir = new File(System.getProperty("user.dir"), pdfStorageDir);
+        File file = new File(dir, storedName);
+        return file.isFile() ? file : null;
+    }
+
+    private void deleteStoredPdf(String storedName) {
+        File oldFile = resolveStoredFile(storedName);
+        if (oldFile != null) {
+            try { Files.deleteIfExists(oldFile.toPath()); }
+            catch (IOException e) { log.warn("删除被覆盖的旧 PDF 失败: {}", oldFile.getName()); }
+        }
     }
 
     @Override

@@ -17,6 +17,9 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /** Converts failures to safe, stable JSON without echoing provider or SQL details. */
 @Slf4j
 @RestControllerAdvice
@@ -70,6 +73,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Void>> handleUploadTooLarge(MaxUploadSizeExceededException e) {
         log.warn("request_upload_too_large");
         return response(HttpStatus.PAYLOAD_TOO_LARGE, "上传文件超过大小限制");
+    }
+
+    @ExceptionHandler(DuplicatePaperException.class)
+    public ResponseEntity<Result<Map<String, Object>>> handleDuplicatePaper(DuplicatePaperException e) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("paperId", e.getExistingPaperId());
+        data.put("title", e.getExistingTitle());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Result.error(HttpStatus.CONFLICT.value(), "文献已存在，是否覆盖？"));
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)

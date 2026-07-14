@@ -65,7 +65,7 @@ public class WorkflowRegistry {
         return new WorkflowDefinition(
                 "paper-import",
                 "论文入库流水线",
-                "为已上传 PDF 的论文自动补全元数据、推荐标签/文件夹/阅读状态并完成深度分析。",
+                "为已上传 PDF 的论文自动补全元数据并推荐标签和文件夹；阅读状态由用户直接维护，深度分析由用户单独触发。",
                 List.of(
                         new WorkflowStepDefinition(
                                 "元数据补全",
@@ -84,18 +84,6 @@ public class WorkflowRegistry {
                                 Skills.SUGGEST_FOLDER,
                                 folderArgs,
                                 "folder"
-                        ),
-                        new WorkflowStepDefinition(
-                                "阅读状态推荐",
-                                Skills.SUGGEST_READING_STATUS,
-                                Map.of("paperId", "{{context.paperId}}"),
-                                "readingStatus"
-                        ),
-                        new WorkflowStepDefinition(
-                                "深度分析",
-                                Skills.ANALYZE_PAPER,
-                                Map.of("paperId", "{{context.paperId}}"),
-                                "analysis"
                         )
                 )
         );

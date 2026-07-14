@@ -25,6 +25,27 @@ class IdentifierExtractorTest {
     }
 
     @Test
+    void shouldStopDoiAtFollowingPdfText() {
+        String text = "DOI: 10.1109/LWC.2024.3381154\nAt receivers, we consider one-layer RSMA.";
+        IdentifierResult result = extractor.extract(text);
+        assertEquals("10.1109/LWC.2024.3381154", result.getDoi());
+    }
+
+    @Test
+    void shouldNotReturnTruncatedVerticalIeeeDoi() {
+        String text = "DOI: 10.1109/VTC2023-Fall60731.2023.10333373\nAuthorized licensed use";
+        IdentifierResult result = extractor.extract(text);
+        assertEquals("10.1109/VTC2023-Fall60731.2023.10333373", result.getDoi());
+    }
+
+    @Test
+    void shouldExtractDoiWhenPdfSplitsLabelAndCharacters() {
+        String text = "D\nO\nI:\n10\n.1\n10\n9/\nIC\nCC62\n479.\n2024.\n10681927\nAuthorized licensed use";
+        IdentifierResult result = extractor.extract(text);
+        assertEquals("10.1109/ICCC62479.2024.10681927", result.getDoi());
+    }
+
+    @Test
     void shouldExtractArxivNewFormat() {
         String text = "See arXiv:2301.12345v2 for details.";
         IdentifierResult result = extractor.extract(text);

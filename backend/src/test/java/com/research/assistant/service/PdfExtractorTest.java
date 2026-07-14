@@ -62,6 +62,18 @@ class PdfExtractorTest {
     }
 
     @Test
+    void extractFirstPagesForMetadataShouldUseMetadataParser() throws IOException {
+        Path pdf = createPdf("paper.pdf");
+        when(pdfParser.parseFirstPagesForMetadata(pdf.toFile(), 2))
+                .thenReturn(PdfParseResult.success("metadata pages", 2));
+
+        String result = extractor.extractFirstPagesForMetadata("paper.pdf", 2);
+
+        assertThat(result).isEqualTo("metadata pages");
+        verify(pdfParser).parseFirstPagesForMetadata(pdf.toFile(), 2);
+    }
+
+    @Test
     void extractShouldReturnEmptyWhenFileMissing() {
         assertThat(extractor.extract("missing.pdf")).isEmpty();
         verifyNoInteractions(pdfParser);

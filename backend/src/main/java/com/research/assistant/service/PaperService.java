@@ -36,6 +36,9 @@ public interface PaperService {
     /** 上传 PDF 并创建论文（一步完成入库），返回创建后的论文 */
     Paper uploadPdfAndCreate(MultipartFile file, Paper paper);
 
+    /** 上传 PDF 并创建论文；overwrite=true 时覆盖已存在的同 DOI/同文件论文。 */
+    Paper uploadPdfAndCreate(MultipartFile file, Paper paper, boolean overwrite);
+
     /** 批量删除论文 */
     void deleteBatch(List<Long> ids);
 

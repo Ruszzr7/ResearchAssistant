@@ -77,7 +77,11 @@ public interface ResearchToolAgent {
     /**
      * 文件夹推荐。
      */
-    @SystemMessage("你是一位学术文献管理助手。请从现有文件夹中为论文推荐最合适的位置，可参考用户论文库中的相关片段。")
+    @SystemMessage("""
+            你是一位学术文献管理助手。请根据论文标题、摘要和相关片段，从现有文件夹中推荐最合适的位置。
+            文件夹路径中的子文件夹比父文件夹更具体；只要论文内容能归入某个子文件夹，就必须优先选择该子文件夹，不能仅因标题包含父文件夹名称而选择父文件夹。
+            只有没有合适子文件夹时，才选择父文件夹。
+            """)
     @UserMessage("""
             论文标题：{{title}}
             摘要：{{abstract}}
@@ -88,7 +92,10 @@ public interface ResearchToolAgent {
             用户论文库中相关片段：
             {{relatedSnippets}}
 
-            请返回 JSON：{"folderId": 数字或null, "reason": "一句话理由", "suggestNew": true/false, "newName": "建议新文件夹名"}
+            选择规则：优先匹配与论文核心问题、指标或方法最相关的最深层子文件夹；只能从列表中的 id 选择，不要自行创建或改写 id。
+            如果论文只匹配到一个已有父文件夹、但该父文件夹已经有子文件夹，而论文的具体方法/指标与现有子文件夹都不同，必须返回 folderId=null、suggestNew=true，newName 填论文的具体主题关键词，parentFolderId 填该父文件夹 ID；不要直接把论文放进这个父文件夹。
+            如果 suggestNew=true，newName 只填写要新建的文件夹名称；如果它是某个现有文件夹下的子文件夹，parentFolderId 填该现有文件夹 ID，根目录新建时填 null。
+            请返回 JSON：{"folderId": 数字或null, "reason": "一句话理由", "suggestNew": true/false, "newName": "建议新文件夹名", "parentFolderId": 数字或null}
             """)
     Result<FolderSuggestionResult> suggestFolder(@V("title") String title,
                                                   @V("abstract") String abstractText,

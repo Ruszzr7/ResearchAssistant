@@ -18,6 +18,15 @@ public interface PdfParser {
      * 仅解析前 N 页。
      */
     PdfParseResult parseFirstPages(File file, int maxPages);
+
+    /**
+     * 仅解析前 N 页，并优先保留页眉、页脚和页面版面信息，供元数据识别使用。
+     * 默认实现兼容不支持独立版面模式的解析器。
+     */
+    default PdfParseResult parseFirstPagesForMetadata(File file, int maxPages) {
+        return parseFirstPages(file, maxPages);
+    }
+
     /**
      * 仅获取 PDF 总页数，不提取文本。
      */

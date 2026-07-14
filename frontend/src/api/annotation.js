@@ -12,8 +12,8 @@ export function updateAnnotation(paperId, annotationId, annotation) {
   return api.put(`/papers/${paperId}/annotations/${annotationId}`, annotation).then(r => r.data)
 }
 
-export function deleteAnnotation(annotationId) {
-  return api.delete(`/annotations/${annotationId}`)
+export function deleteAnnotation(paperId, annotationId) {
+  return api.delete(`/papers/${paperId}/annotations/${annotationId}`)
 }
 
 export function generateAiAnnotations(paperId) {

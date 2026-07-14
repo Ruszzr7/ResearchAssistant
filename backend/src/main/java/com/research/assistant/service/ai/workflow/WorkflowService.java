@@ -48,7 +48,7 @@ public class WorkflowService {
     }
 
     /**
-     * 提交论文入库流水线：元数据补全 → 标签/文件夹/阅读状态推荐 → 深度分析。
+     * 提交论文入库流水线：元数据补全 → 标签/文件夹推荐；深度分析由用户单独触发。
      */
     public String submitPaperImport(Long paperId) {
         return submitPaperImport(paperId, null);

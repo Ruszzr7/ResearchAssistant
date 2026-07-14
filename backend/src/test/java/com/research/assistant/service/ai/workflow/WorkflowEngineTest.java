@@ -224,6 +224,32 @@ class WorkflowEngineTest {
         verify(asyncTaskManager).setPendingUser(eq("task-pause"), any());
     }
 
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void shouldUnwrapSingleArgumentForScalarSkill() throws Exception {
+        Skill scalarSkill = new ScalarLongSkill();
+        doReturn(scalarSkill).when(skillRegistry).get("scalar");
+
+        WorkflowEngine engine = engine();
+        replaceRegistryWith(engine, new WorkflowDefinition(
+                "gap-research", "test", "test",
+                List.of(new WorkflowStepDefinition(
+                        "scalar", "scalar", Map.of("paperId", "{{context.paperId}}"), "out"))
+        ));
+
+        AtomicReference<BiFunction<String, Consumer<String>, Object>> captured = new AtomicReference<>();
+        doAnswer(invocation -> {
+            captured.set(invocation.getArgument(3));
+            return "task-scalar";
+        }).when(asyncTaskManager).submit(anyString(), anyString(), anyString(), any(BiFunction.class));
+        lenient().doAnswer(invocation -> new WorkflowStepRecord()).when(workflowStepMapper).selectOne(any());
+
+        engine.submit("gap-research", Map.of("paperId", 123L));
+        Object result = captured.get().apply("task-scalar", s -> {});
+
+        assertThat(result).isEqualTo(Map.of("out", 246L));
+    }
+
     private void replaceRegistryWith(WorkflowEngine engine, WorkflowDefinition def) throws Exception {
         java.lang.reflect.Field field = WorkflowEngine.class.getDeclaredField("workflowRegistry");
         field.setAccessible(true);
@@ -271,5 +297,16 @@ class WorkflowEngineTest {
         public Class<Object> inputType() { return Object.class; }
         @Override
         public Object execute(SkillContext ctx, Object input) { throw new RuntimeException("always fails"); }
+    }
+
+    private static class ScalarLongSkill implements Skill<Long, Long> {
+        @Override
+        public String name() { return "scalar"; }
+        @Override
+        public String description() { return "scalar"; }
+        @Override
+        public Class<Long> inputType() { return Long.class; }
+        @Override
+        public Long execute(SkillContext ctx, Long input) { return input * 2; }
     }
 }

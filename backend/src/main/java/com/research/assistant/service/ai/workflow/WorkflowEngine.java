@@ -356,7 +356,11 @@ public class WorkflowEngine {
 
             Map<String, Object> resolved = argumentResolver.resolve(stepDef.arguments(), context, userInput, results);
             record.setInputJson(toJson(resolved));
-            Object input = objectMapper.convertValue(resolved, skill.inputType());
+            Object inputSource = resolved;
+            if (isScalarInput(skill.inputType()) && resolved.size() == 1) {
+                inputSource = resolved.values().iterator().next();
+            }
+            Object input = objectMapper.convertValue(inputSource, skill.inputType());
             Object output = skill.execute(new SkillContext(taskId, setStage), input);
 
             record.setStatus(AsyncTaskStatus.COMPLETED.name());
@@ -383,6 +387,19 @@ public class WorkflowEngine {
             }
         }
         return result.isEmpty() ? results.get(results.size() - 1) : result;
+    }
+
+    private boolean isScalarInput(Class<?> inputType) {
+        return inputType == String.class
+                || inputType == Boolean.class
+                || inputType == Byte.class
+                || inputType == Short.class
+                || inputType == Integer.class
+                || inputType == Long.class
+                || inputType == Float.class
+                || inputType == Double.class
+                || inputType.isPrimitive()
+                || inputType.isEnum();
     }
 
     private Map<String, Object> loadContext(String taskId) {

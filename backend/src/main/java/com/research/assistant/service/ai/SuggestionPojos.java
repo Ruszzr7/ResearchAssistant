@@ -42,6 +42,9 @@ public class SuggestionPojos {
         @Description("若建议新建文件夹，给出建议名称")
         private String newName;
 
+        @Description("若建议新建子文件夹，填写现有父文件夹 ID；根目录新建时为 null")
+        private Long parentFolderId;
+
         public Long getFolderId() { return folderId; }
         public void setFolderId(Long folderId) { this.folderId = folderId; }
 
@@ -53,6 +56,9 @@ public class SuggestionPojos {
 
         public String getNewName() { return newName; }
         public void setNewName(String newName) { this.newName = newName; }
+
+        public Long getParentFolderId() { return parentFolderId; }
+        public void setParentFolderId(Long parentFolderId) { this.parentFolderId = parentFolderId; }
     }
 
     /**

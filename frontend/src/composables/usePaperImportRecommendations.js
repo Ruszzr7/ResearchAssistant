@@ -15,7 +15,14 @@ export function usePaperImportRecommendations() {
 
   function getRec(paperId) {
     if (!recs.has(paperId)) {
-      recs.set(paperId, { taskId: null, status: null, result: null, loading: false, error: null })
+      recs.set(paperId, {
+        taskId: null,
+        status: null,
+        result: null,
+        loading: false,
+        error: null,
+        importError: null
+      })
     }
     return recs.get(paperId)
   }
@@ -25,14 +32,16 @@ export function usePaperImportRecommendations() {
     rec.taskId = taskId
     rec.loading = true
     rec.error = null
+    rec.importError = null
     try {
       const result = await waitForTask(api.get.bind(api), taskId, null, stage => {
         rec.status = stage
       })
-      rec.result = result
+      rec.result = { ...(rec.result || {}), ...(result || {}) }
       rec.status = '已完成'
     } catch (e) {
-      rec.error = e.message || '导入流水线失败'
+      // 导入流水线失败不应覆盖详情面板的元数据/标签/文件夹推荐结果。
+      rec.importError = e.message || '导入流水线失败'
       rec.status = '失败'
     } finally {
       rec.loading = false
@@ -41,7 +50,7 @@ export function usePaperImportRecommendations() {
 
   async function applyTags(paperId, tagNames) {
     if (!tagNames || tagNames.length === 0) return
-    // 已有标签 ID 直接应用，新字符串标签先创建
+    // 已有标签 ID 直接应用；同名标签复用，避免推荐应用时重复创建。
     const existingIds = tagNames
       .filter(v => typeof v === 'number' || /^\d+$/.test(v))
       .map(v => Number(v))
@@ -50,10 +59,21 @@ export function usePaperImportRecommendations() {
       .map(v => String(v).trim())
       .filter(Boolean)
 
+    const tagsResponse = await api.get('/tags')
+    const existingTags = tagsResponse.data || []
+    const tagByName = new Map(existingTags.map(tag => [String(tag.name).trim().toLowerCase(), tag.id]))
+    const reusableIds = []
+    const namesToCreate = []
+    for (const name of newNames) {
+      const knownId = tagByName.get(name.toLowerCase())
+      if (knownId != null) reusableIds.push(knownId)
+      else namesToCreate.push(name)
+    }
+
     const created = await Promise.all(
-      newNames.map(name => api.post('/tags', { name }).then(r => r.data.id))
+      namesToCreate.map(name => api.post('/tags', { name }).then(r => r.data.id))
     )
-    const tagIds = [...existingIds, ...created]
+    const tagIds = [...new Set([...existingIds, ...reusableIds, ...created])]
     await api.post(`/tags/papers/${paperId}/tags`, { tagIds })
     ElMessage.success('标签已应用')
   }
@@ -61,14 +81,6 @@ export function usePaperImportRecommendations() {
   async function applyFolder(paperId, folderId) {
     await api.post('/papers/batch/move', { ids: [paperId], folderId })
     ElMessage.success('文件夹已应用')
-  }
-
-  async function applyReadingStatus(paperId, status) {
-    const r = await api.get(`/papers/${paperId}`)
-    const paper = r.data
-    paper.readingStatus = status
-    await api.put(`/papers/${paperId}`, paper)
-    ElMessage.success('阅读状态已应用')
   }
 
   async function applyMetadata(paperId, metadata) {
@@ -90,10 +102,10 @@ export function usePaperImportRecommendations() {
 
   return {
     recs,
+    ensureRec: getRec,
     watchImport,
     applyTags,
     applyFolder,
-    applyReadingStatus,
     applyMetadata
   }
 }

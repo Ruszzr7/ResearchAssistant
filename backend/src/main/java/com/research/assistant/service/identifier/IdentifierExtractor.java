@@ -14,12 +14,18 @@ import java.util.regex.Pattern;
 public class IdentifierExtractor {
 
     /**
-     * DOI 正则（用于已去除空白的紧凑文本）。
+     * DOI 正则。
      * <p>
+     * 只允许 DOI 结构内部的空白（例如 PDF 把 "10. 1109 /" 分成多段），
+     * 不再把整篇 PDF 文本压成一行，否则 DOI 后面的正文会被误吞进 DOI。
      * 负向回顾确保不被数字或点号误匹配。
      */
     private static final Pattern DOI_PATTERN = Pattern.compile(
-            "(?i)(?<![\\d.])10\\.\\d{4,}(?:\\.\\d+)*/[^\\s<>\"{}|\\\\^`\\[\\]]+");
+            "(?i)(?<![\\d.])10\\s*\\.\\s*\\d{4,}(?:\\s*\\.\\s*\\d+)*\\s*/\\s*[^\\s<>\"{}|\\\\^`\\[\\]]+");
+
+    /** DOI 标签被 PDF 按字符拆开时的定位模式，例如 D\nO\nI: 10\n.1\n109/。 */
+    private static final Pattern DOI_LABEL_PATTERN = Pattern.compile(
+            "(?is)\\bD\\s*O\\s*I\\s*[:：]?\\s*");
 
     /**
      * arXiv ID 正则。
@@ -46,23 +52,86 @@ public class IdentifierExtractor {
             return new IdentifierResult(null, arxivId);
         }
 
-        // PDF 文本提取可能在 DOI 中插入空格，先移除所有空白再匹配
-        String compact = text.replaceAll("\\s+", "");
-        String doi = extractDoi(compact);
+        // 在原始文本中匹配，避免把 DOI 后面的正文拼接到 DOI 末尾。
+        String doi = extractDoi(text);
         return new IdentifierResult(doi, null);
     }
 
     private String extractDoi(String text) {
-        Matcher matcher = DOI_PATTERN.matcher(text);
-        if (!matcher.find()) {
-            return null;
+        // IEEE 会议论文的 DOI 常在页脚被拆成多个短行，先从 DOI 标签后的连续短行拼接。
+        Matcher labelMatcher = DOI_LABEL_PATTERN.matcher(text);
+        boolean fragmentedLabel = false;
+        while (labelMatcher.find()) {
+            String[] lines = text.substring(labelMatcher.end()).split("\\R", 24);
+            StringBuilder candidate = new StringBuilder();
+            boolean firstFragment = true;
+            for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+                String line = lines[lineIndex];
+                String compact = line.replaceAll("\\s+", "");
+                if (compact.isBlank()) continue;
+                if (isDoiTextTerminator(compact) || !looksLikeDoiFragment(compact)) break;
+                if (firstFragment) {
+                    fragmentedLabel = compact.startsWith("10") && !compact.contains("/");
+                    firstFragment = false;
+                }
+                candidate.append(compact);
+                String normalized = normalizeDoi(candidate.toString());
+                if (!compact.endsWith(".") && isCompleteDoi(normalized)) {
+                    if (hasDoiContinuation(lines, lineIndex)) continue;
+                    return normalized;
+                }
+            }
         }
-        String doi = matcher.group();
-        // 去除内部可能存在的换行/空格
-        doi = doi.replaceAll("\\s+", "");
-        // 去除末尾常见标点
-        doi = doi.replaceAll("[.,;:)\\\\\\]}+>\"']+$", "");
-        return doi.isBlank() ? null : doi;
+
+        // 非拆行 DOI 保留完整的标准匹配，兼容较短但合法的 DOI 后缀。
+        if (!fragmentedLabel) {
+            Matcher matcher = DOI_PATTERN.matcher(text);
+            if (matcher.find()) return normalizeDoi(matcher.group());
+        }
+        return null;
+    }
+
+    private boolean hasDoiContinuation(String[] lines, int currentIndex) {
+        for (int i = currentIndex + 1; i < lines.length; i++) {
+            String next = lines[i].replaceAll("\\s+", "");
+            if (next.isBlank()) continue;
+            return looksLikeDoiFragment(next) && !isDoiTextTerminator(next);
+        }
+        return false;
+    }
+
+    private String normalizeDoi(String raw) {
+        if (raw == null) return null;
+        String doi = raw.replaceAll("\\s+", "")
+                .replaceAll("[.,;:)\\\\\\]}+>\"']+$", "");
+        if (doi.isBlank()) return null;
+        Matcher matcher = DOI_PATTERN.matcher(doi);
+        return matcher.find() && matcher.group().equals(doi) ? doi : null;
+    }
+
+    private boolean looksLikeDoiFragment(String value) {
+        return value.length() <= 32
+                && value.matches("(?i)[0-9a-z./:_()\\-]+");
+    }
+
+    private boolean isCompleteDoi(String doi) {
+        if (doi == null) return false;
+        int slash = doi.indexOf('/');
+        if (slash < 0 || doi.length() - slash - 1 < 8) return false;
+        String suffix = doi.substring(slash + 1);
+        String lastSegment = suffix.substring(suffix.lastIndexOf('.') + 1);
+        // 竖排 IEEE 页脚有时会把 DOI 后缀拆成“10.1109/VTC2023-F”这样的
+        // 半截首行。仅凭长度会过早返回，必须等到后缀足够完整或出现正式的
+        // 数字版本段（例如 .2023.10333373）。
+        return (!suffix.contains(".")
+                && suffix.length() >= 12
+                && !suffix.contains("-"))
+                || lastSegment.matches("\\d{6,}");
+    }
+
+    private boolean isDoiTextTerminator(String value) {
+        return value.matches("(?i)(authorized|licensed|downloaded|restrictions|copyright|from|abstract|index|keywords).*")
+                || value.length() > 48;
     }
 
     private String extractArxivId(String text) {

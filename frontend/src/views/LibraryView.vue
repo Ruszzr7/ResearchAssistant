@@ -224,10 +224,6 @@
         <span class="label">AI · 方法概述</span>
         <p class="extracted-text">{{ paperAnalysis.methodSummary }}</p>
       </div>
-      <div class="detail-item" v-if="currentPaper.aiSummary && !paperAnalysis">
-        <span class="label">PDF 提取文本</span>
-        <p class="extracted-text">{{ currentPaper.aiSummary.slice(0, 500) }}{{ currentPaper.aiSummary.length > 500 ? '…' : '' }}</p>
-      </div>
       <div class="detail-item"><span class="label">关键词</span>{{ currentPaper.keywords }}</div>
       <div class="detail-item"><span class="label">获取方式</span>{{ acquisitionLabel(currentPaper.acquisitionMethod) }}</div>
       <div class="detail-item"><span class="label">arXiv ID</span>{{ currentPaper.arxivId || '--' }}</div>
@@ -242,19 +238,14 @@
         <span v-else>暂无</span>
       </div>
       <div class="detail-item" v-if="currentPaper.pdfPath">
-        <span class="label">阅读进度</span>
-        <span v-if="currentPaper.pageCount">
-          {{ currentPaper.currentPage > 0 ? currentPaper.currentPage : 0 }} / {{ currentPaper.pageCount }} 页
-          <span v-if="currentPaper.readSeconds"> · 已读 {{ formatReadDuration(currentPaper.readSeconds) }}</span>
-        </span>
-        <span v-else class="text-muted">未检测</span>
+        <span class="label">阅读时间</span>
+        <span>{{ formatReadDuration(currentPaper.readSeconds || 0) }}</span>
       </div>
       <div class="detail-item">
         <span class="label">阅读状态</span>
-        <el-select v-model="currentPaper.readingStatus" size="small" @change="savePaper(currentPaper)" style="flex:1">
+        <el-select v-model="currentPaper.readingStatus" size="small" @change="setPaperStatus(currentPaper, $event)" style="flex:1">
           <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
-        <el-button size="small" text type="primary" :loading="recommendingStatus" @click="recommendReadingStatus" :disabled="!currentPaper">AI 推荐</el-button>
       </div>
       <div class="detail-item">
         <span class="label">标签</span>
@@ -274,33 +265,113 @@
         </el-select>
       </div>
 
-      <!-- AI 入库推荐 -->
-      <div class="detail-item" v-if="currentImportRec">
-        <span class="label">AI · 入库推荐</span>
+      <!-- 推荐 -->
+      <div class="detail-item" v-if="currentPaper">
+        <span class="label">推荐</span>
         <div class="rec-block" style="flex:1">
-          <div v-if="currentImportRec.loading" class="stage-text">{{ currentImportRec.status || '排队中…' }}</div>
-          <div v-else-if="currentImportRec.error" class="error-text">{{ currentImportRec.error }}</div>
-          <template v-else-if="currentImportRec.result">
-            <div v-if="currentImportRec.result.metadata?.found" class="rec-row">
-              <span>补全元数据</span>
-              <el-button size="small" text type="primary" @click="applyRecommendedMetadata(currentPaper.id, currentImportRec.result.metadata)">应用</el-button>
+          <div v-if="currentImportRec?.loading" class="stage-text">{{ currentImportRec.status || '处理中…' }}</div>
+          <div v-else-if="currentImportRec?.error && !currentImportRec?.result" class="error-text">{{ currentImportRec.error }}</div>
+          <template v-else>
+            <div class="rec-row">
+              <span>元数据</span>
+              <el-button v-if="currentImportRec?.result?.metadata" size="small" text type="primary" @click="openMetadataRecommendationDialog">查看</el-button>
+              <el-button v-else size="small" text type="primary" @click="recommendDetailMetadata">分析</el-button>
             </div>
-            <div v-if="currentImportRec.result.tags?.length" class="rec-row">
-              <span>标签：{{ currentImportRec.result.tags.join(', ') }}</span>
-              <el-button size="small" text type="primary" @click="applyRecommendedTags(currentPaper.id, currentImportRec.result.tags)">应用</el-button>
+            <div class="rec-row">
+              <span>标签</span>
+              <el-button v-if="currentImportRec?.result?.tags?.length" size="small" text type="primary" @click="openTagRecommendationDialog">选择</el-button>
+              <el-button v-else size="small" text type="primary" @click="recommendDetailTags">推荐</el-button>
             </div>
-            <div v-if="currentImportRec.result.folder?.recommended != null" class="rec-row">
-              <span>文件夹：{{ folderName(currentImportRec.result.folder.recommended) }}</span>
-              <el-button size="small" text type="primary" @click="applyRecommendedFolder(currentPaper.id, currentImportRec.result.folder.recommended)">应用</el-button>
-            </div>
-            <div v-if="currentImportRec.result.readingStatus?.status" class="rec-row">
-              <span>阅读状态：{{ statusLabel(currentImportRec.result.readingStatus.status) }}</span>
-              <el-button size="small" text type="primary" @click="applyRecommendedStatus(currentPaper.id, currentImportRec.result.readingStatus.status)">应用</el-button>
+            <div class="rec-row">
+              <span>文件夹</span>
+              <el-button v-if="currentImportRec?.result?.folder" size="small" text type="primary" @click="openFolderRecommendationDialog">查看</el-button>
+              <el-button v-else size="small" text type="primary" @click="recommendDetailFolder">推荐</el-button>
             </div>
           </template>
         </div>
       </div>
     </div>
+
+    <!-- 元数据识别预览：分析与应用分开，避免未确认就改写论文信息。 -->
+    <el-dialog v-model="metadataRecommendDialogVisible" title="元数据识别结果" width="560px">
+      <p v-if="metadataRecommendation?.message" class="recommend-dialog-tip">
+        {{ metadataRecommendation.message }}
+      </p>
+      <div v-if="metadataRecommendation" class="metadata-preview-grid">
+        <div v-for="field in metadataPreviewFields" :key="field.key" class="metadata-preview-row">
+          <span class="metadata-preview-label">{{ field.label }}</span>
+          <span class="metadata-preview-value" :class="{ empty: !metadataRecommendation[field.key] }">
+            {{ formatMetadataValue(field.key, metadataRecommendation[field.key]) || '未识别到' }}
+          </span>
+        </div>
+      </div>
+      <p v-else class="recommend-dialog-tip">暂无识别结果</p>
+      <template #footer>
+        <el-button @click="metadataRecommendDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!hasMetadataRecommendation" @click="confirmRecommendedMetadata">应用</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 导入前的新文件夹建议：只在用户确认后创建，避免 Agent 直接改动文件夹树。 -->
+    <el-dialog v-model="importFolderRecommendDialogVisible" title="推荐文件夹" width="460px">
+      <p class="recommend-dialog-tip">{{ importFolderRecommendation?.reason || '没有合适的现有文件夹，建议新建子文件夹' }}</p>
+      <el-form label-width="80px">
+        <el-form-item label="父文件夹">
+          <el-tree-select v-model="importNewFolderParentId" :data="folderTreeWithRoot" :props="treeProps"
+            node-key="id" check-strictly clearable placeholder="我的文库" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="新文件夹">
+          <el-input v-model="importNewFolderName" placeholder="例如：AAoI" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="importFolderRecommendDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importFolderSaving" @click="confirmImportFolderRecommendation">确认新建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 推荐标签 -->
+    <el-dialog v-model="tagRecommendDialogVisible" title="推荐标签" width="420px">
+      <p class="recommend-dialog-tip">请选择要应用的标签</p>
+      <el-checkbox-group v-model="tagRecommendSelected" class="recommend-tag-list">
+        <el-checkbox v-for="tag in (currentImportRec?.result?.tags || [])" :key="tag" :label="tag">
+          {{ tag }}
+        </el-checkbox>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button @click="tagRecommendDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmRecommendedTags">应用</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 推荐文件夹 -->
+    <el-dialog v-model="folderRecommendDialogVisible" title="推荐文件夹" width="460px">
+      <template v-if="currentImportRec?.result?.folder?.recommended != null">
+        <p>推荐文件夹：{{ folderPath(currentImportRec.result.folder.recommended) }}</p>
+        <p v-if="currentPaper.folderId === currentImportRec.result.folder.recommended" class="folder-recommend-ok">当前文件夹已合适</p>
+        <p v-else class="recommend-dialog-tip">确认后将论文移动到该文件夹。</p>
+      </template>
+      <template v-else-if="currentImportRec?.result?.folder?.suggestNew">
+        <p class="recommend-dialog-tip">没有合适的现有文件夹，建议新建文件夹：</p>
+        <el-form label-width="80px">
+          <el-form-item label="父文件夹">
+            <el-tree-select v-model="recommendNewFolderParentId" :data="folderTreeWithRoot" :props="treeProps"
+              node-key="id" check-strictly clearable placeholder="我的文库" style="width:100%" />
+          </el-form-item>
+          <el-form-item label="新文件夹">
+            <el-input v-model="recommendNewFolderName" placeholder="例如：B 方法" />
+          </el-form-item>
+        </el-form>
+      </template>
+      <span v-else class="recommend-dialog-tip">暂无合适的文件夹建议</span>
+      <template #footer>
+        <el-button @click="folderRecommendDialogVisible = false">取消</el-button>
+        <el-button
+          v-if="currentImportRec?.result?.folder?.recommended != null && currentPaper.folderId !== currentImportRec.result.folder.recommended"
+          type="primary" @click="confirmFolderRecommendation">确认移动</el-button>
+        <el-button v-else-if="currentImportRec?.result?.folder?.suggestNew" type="primary" :loading="recommendFolderSaving" @click="confirmFolderRecommendation">新建并归档</el-button>
+      </template>
+    </el-dialog>
 
     <!-- ==================== 编辑文件夹弹窗 ==================== -->
     <el-dialog v-model="showEditFoldersDialog" title="编辑文件夹" width="500px">
@@ -371,7 +442,6 @@
       </el-select>
       <template #footer>
         <el-button @click="tagDialogVisible = false">取消</el-button>
-        <el-button :loading="suggestingTags" @click="suggestTagsForDialog" :disabled="!tagDialogPaper">AI 推荐标签</el-button>
         <el-button type="primary" @click="saveTagDialog">保存</el-button>
       </template>
     </el-dialog>
@@ -391,15 +461,25 @@
           <div class="doi-input-wrap">
             <el-input v-model="doiInput" placeholder="如 10.1038/nature14539" size="small" @keyup.enter="fetchDoi" clearable />
             <el-button size="small" type="primary" @click="fetchDoi" :loading="fetchingDoi">获取</el-button>
-            <el-button size="small" :type="enriching ? 'info' : 'success'" @click="autoIdentify" :loading="enriching" :disabled="!uploadFile">
-              {{ enriching ? '识别中…' : '自动识别' }}
-            </el-button>
+            <el-tooltip content="从 PDF 识别 DOI 或 arXiv ID，并从对应服务获取论文元数据" placement="top">
+              <span>
+                <el-button size="small" :type="enriching ? 'info' : 'success'" @click="autoIdentify" :loading="enriching" :disabled="!uploadFile">
+                  {{ enriching ? '识别中…' : '自动填充元数据' }}
+                </el-button>
+              </span>
+            </el-tooltip>
           </div>
         </div>
-        <div class="import-preview" v-if="form.title">
+        <div v-if="!isEditing && form.doi && form.sourceUrl" class="doi-source-hint">
+          <a :href="form.sourceUrl" target="_blank" rel="noopener">打开来源页</a>
+          <a v-if="doiPdfUrl" :href="doiPdfUrl" target="_blank" rel="noopener">打开公开 PDF</a>
+          <span v-else>PDF 需要手动上传，出版社权限可能限制下载</span>
+        </div>
+        <div class="import-preview" v-if="form.title || uploadFile">
           <div class="preview-title">识别结果</div>
+          <p class="import-helper">自动填充会从 PDF 识别 DOI/arXiv ID，再获取标题、作者、年份、来源和摘要；摘要最多填充 3000 字，也可以继续手动修改。</p>
           <el-form label-width="70px" size="small">
-            <el-form-item label="标题"><el-input v-model="form.title" /></el-form-item>
+            <el-form-item label="标题"><el-input v-model="form.title" placeholder="自动填充或手动输入论文标题" /></el-form-item>
             <el-form-item label="作者"><el-input v-model="form.authors" placeholder="自动识别或手动输入" /></el-form-item>
             <el-form-item label="年份"><el-input-number v-model="form.year" :min="1900" :max="2030" style="width:120px" /></el-form-item>
             <el-form-item label="来源"><el-input v-model="form.source" /></el-form-item>
@@ -439,7 +519,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitPaper" :disabled="!isEditing && !form.title && !uploadFile">
+        <el-button type="primary" @click="submitPaper" :disabled="!isEditing && !form.title">
           {{ isEditing ? '保存' : '导入论文' }}
         </el-button>
       </template>
@@ -453,13 +533,13 @@
         @close="showPdfOverlay = false"
       >
         <template #toolbar-extra>
-          <ReadingProgressPanel :paper="currentPaper" @updated="refreshCurrentPaper" />
+          <ReadingTimePanel :paper="currentPaper" @updated="onReadingTimeUpdated" />
         </template>
       </PdfViewer>
       <template v-else>
         <div class="pdf-toolbar">
           <span class="pdf-toolbar-title">{{ currentPaper.title }}</span>
-          <ReadingProgressPanel :paper="currentPaper" @updated="refreshCurrentPaper" />
+          <ReadingTimePanel :paper="currentPaper" @updated="onReadingTimeUpdated" />
           <el-button size="small" text @click="showPdfOverlay = false" style="padding:2px 4px;min-width:auto">
             <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
           </el-button>
@@ -497,7 +577,7 @@ import api from '@/api'
 import { waitForAnalysis } from '@/utils/analysis.js'
 import { useGlobalTask } from '@/composables/useGlobalTask.js'
 import { usePaperImportRecommendations } from '@/composables/usePaperImportRecommendations.js'
-import ReadingProgressPanel from '@/components/ReadingProgressPanel.vue'
+import ReadingTimePanel from '@/components/ReadingTimePanel.vue'
 import LibraryBatchSelectionBar from '@/components/library/LibraryBatchSelectionBar.vue'
 import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
 import { listReadingPlans, addPlanItem } from '@/api/readingPlan'
@@ -554,6 +634,7 @@ const addToPlanId = ref(null)
 const addToPlanDeadline = ref(null)
 const addToPlanPriority = ref(1)
 const doiInput = ref('')
+const doiPdfUrl = ref('')
 const fetchingDoi = ref(false)
 const enriching = ref(false)
 const showPdfOverlay = ref(false)
@@ -575,8 +656,8 @@ const {
   watchImport,
   applyTags: applyRecTags,
   applyFolder: applyRecFolder,
-  applyReadingStatus: applyRecStatus,
-  applyMetadata: applyRecMetadata
+  applyMetadata: applyRecMetadata,
+  ensureRec
 } = usePaperImportRecommendations()
 const paperAnalysis = ref(null)
 const currentPaperTagIds = ref([])
@@ -589,8 +670,19 @@ const batchMoving = ref(false)
 const tagDialogVisible = ref(false)
 const tagDialogPaper = ref(null)
 const tagDialogSelectedIds = ref([])
-const suggestingTags = ref(false)
-const recommendingStatus = ref(false)
+const tagRecommendDialogVisible = ref(false)
+const tagRecommendSelected = ref([])
+const metadataRecommendDialogVisible = ref(false)
+const metadataRecommendation = ref(null)
+const folderRecommendDialogVisible = ref(false)
+const recommendNewFolderName = ref('')
+const recommendNewFolderParentId = ref(null)
+const recommendFolderSaving = ref(false)
+const importFolderRecommendDialogVisible = ref(false)
+const importFolderRecommendation = ref(null)
+const importNewFolderName = ref('')
+const importNewFolderParentId = ref(null)
+const importFolderSaving = ref(false)
 
 const statusTagType = computed(() => {
   const s = currentPaper.value?.processingStatus
@@ -604,7 +696,21 @@ const currentImportRec = computed(() => {
   return currentPaper.value ? importRecs.get(currentPaper.value.id) : null
 })
 
-const DEFAULT_YEAR = 2025
+const metadataPreviewFields = [
+  { key: 'title', label: '标题' },
+  { key: 'authors', label: '作者' },
+  { key: 'year', label: '年份' },
+  { key: 'source', label: '来源' },
+  { key: 'doi', label: 'DOI' },
+  { key: 'abstractText', label: '摘要' },
+  { key: 'keywords', label: '关键词' }
+]
+
+const hasMetadataRecommendation = computed(() => {
+  const metadata = metadataRecommendation.value
+  return !!metadata && metadataPreviewFields.some(field => metadata[field.key] != null && metadata[field.key] !== '')
+})
+
 const treeProps = { children: 'children', label: 'name' }
 const statusOptions = [
   { label: '未读', value: 'UNREAD', type: 'info' },
@@ -624,8 +730,29 @@ function folderName(id) {
   return all.find(f => f.id === id)?.name || id
 }
 
+function folderPath(id) {
+  if (id == null) return '我的文库'
+  const all = flattenTree(folders.value)
+  const byId = new Map(all.map(folder => [folder.id, folder]))
+  const parts = []
+  const visited = new Set()
+  let current = byId.get(Number(id)) || byId.get(id)
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id)
+    if (current.name) parts.unshift(current.name)
+    current = byId.get(current.parentId)
+  }
+  return parts.join(' / ') || folderName(id)
+}
+
+function findFolderIdByPath(path) {
+  if (!path) return null
+  const target = path.split('/').map(part => part.trim()).filter(Boolean).join(' / ')
+  return flattenTree(folders.value).find(folder => folderPath(folder.id) === target)?.id ?? null
+}
+
 function makeEmptyForm() {
-  return { title: '', authors: '', year: DEFAULT_YEAR, source: '', doi: '',
+  return { title: '', authors: '', year: null, source: '', doi: '',
     arxivId: '', sourceUrl: '',
     abstractText: '', keywords: '', folderId: null, readingStatus: 'UNREAD' }
 }
@@ -651,8 +778,16 @@ function sortFolders(nodes) {
 }
 
 function formatAuthors(json) {
-  try { return (typeof json==='string'?JSON.parse(json):json||[]).map(a=>(a.name||'')+(a.role==='corresponding'?'*':'')).join(', ') }
-  catch { return json||'' }
+  try {
+    const parsed = typeof json === 'string' ? JSON.parse(json) : json
+    if (Array.isArray(parsed)) return parsed.map(a => (a?.name || '') + (a?.role === 'corresponding' ? '*' : '')).filter(Boolean).join(', ')
+    if (parsed && typeof parsed === 'object' && parsed.name) return parsed.name
+    return typeof json === 'string' ? json : ''
+  } catch { return json || '' }
+}
+function formatMetadataValue(key, value) {
+  if (key === 'authors') return formatAuthors(value)
+  return typeof value === 'string' ? decodeHtmlEntities(value) : value
 }
 function formatDate(d) { return d?.substring(0,7)||'' }
 function acquisitionLabel(v) { const m={OA:'开放获取',BROWSER_DOWNLOAD:'浏览器下载',MANUAL_UPLOAD:'手动上传'}; return m[v]||v||'--' }
@@ -686,6 +821,14 @@ async function loadPapers() {
     const d = r.data; papers.value = d.records; pagination.value.total = d.total; pagination.value.page = d.current
   } finally {
     tableLoading.value = false
+  }
+}
+
+function syncPaperInList(paper) {
+  const index = papers.value.findIndex(row => row.id === paper?.id)
+  if (index >= 0) {
+    const merged = { ...papers.value[index], ...paper }
+    papers.value = papers.value.map((row, rowIndex) => rowIndex === index ? merged : row)
   }
 }
 function onTablePageChange(page) { pagination.value.page = page; loadPapers() }
@@ -740,36 +883,6 @@ function openTagDialog(paper) {
   tagDialogVisible.value = true
 }
 
-async function suggestTagsForDialog() {
-  if (!tagDialogPaper.value) return
-  suggestingTags.value = true
-  try {
-    const names = await api.post('/agent/tag-suggestions', { paperId: tagDialogPaper.value.id }).then(r => r.data || [])
-    const ids = []
-    for (const name of names) {
-      const trimmed = name.trim()
-      if (!trimmed) continue
-      const existing = allTags.value.find(t => t.name === trimmed)
-      if (existing) {
-        ids.push(existing.id)
-      } else {
-        try {
-          const created = await api.post('/tags', { name: trimmed }).then(r => r.data)
-          allTags.value.push(created)
-          ids.push(created.id)
-        } catch (e) {
-          console.warn('创建标签失败:', trimmed, e)
-        }
-      }
-    }
-    tagDialogSelectedIds.value = [...new Set([...tagDialogSelectedIds.value, ...ids])]
-  } catch (e) {
-    ElMessage.error('AI 标签建议失败：' + (e.response?.data?.message || e.message))
-  } finally {
-    suggestingTags.value = false
-  }
-}
-
 async function saveTagDialog() {
   if (!tagDialogPaper.value) return
   await saveTagsForPaper(tagDialogPaper.value.id, tagDialogSelectedIds.value)
@@ -791,33 +904,32 @@ async function deleteTag(tag) {
 }
 
 async function setPaperStatus(paper, status) {
+  const previousStatus = paper.readingStatus
+  paper.readingStatus = status
+  syncPaperInList(paper)
+  if (currentPaper.value?.id === paper.id) {
+    currentPaper.value.readingStatus = status
+  }
   try {
-    paper.readingStatus = status
-    await api.put(`/papers/${paper.id}`, paper)
+    // 状态变更只提交必要字段，避免把 PDF 提取文本等大字段一并提交。
+    const response = await api.put(`/papers/${paper.id}`, {
+      title: paper.title,
+      readingStatus: status
+    })
+    const saved = response?.data || response
+    if (saved && typeof saved === 'object') {
+      Object.assign(paper, saved)
+      if (currentPaper.value?.id === paper.id) Object.assign(currentPaper.value, saved)
+      syncPaperInList(paper)
+    }
     ElMessage.success('状态已更新')
-    await loadPapers()
   } catch (e) {
+    paper.readingStatus = previousStatus
+    syncPaperInList(paper)
+    if (currentPaper.value?.id === paper.id) currentPaper.value.readingStatus = previousStatus
     ElMessage.error('状态更新失败：' + (e.response?.data?.message || e.message))
   }
 }
-
-async function recommendReadingStatus() {
-  if (!currentPaper.value) return
-  recommendingStatus.value = true
-  try {
-    const result = await api.post('/agent/reading-status-suggest', { paperId: currentPaper.value.id }).then(r => r.data)
-    if (result && result.status) {
-      currentPaper.value.readingStatus = result.status
-      await savePaper(currentPaper.value)
-      ElMessage.success(`AI 推荐阅读状态：${statusLabel(result.status)}`)
-    }
-  } catch (e) {
-    ElMessage.error('阅读状态推荐失败：' + (e.response?.data?.message || e.message))
-  } finally {
-    recommendingStatus.value = false
-  }
-}
-
 
 let paperSearchTimer=null
 function onPaperSearch() { clearTimeout(paperSearchTimer); paperSearchTimer=setTimeout(()=>loadPapers(),300) }
@@ -1039,16 +1151,38 @@ function stopResize(){
   resizing.value=null
 }
 
-function openImportDialog(){isEditing.value=false;editPaperId.value=null;uploadFile.value=null;doiInput.value='';form.value={...makeEmptyForm(),folderId:selectedFolderId.value};dialogVisible.value=true}
+function openImportDialog(){isEditing.value=false;editPaperId.value=null;uploadFile.value=null;doiInput.value='';doiPdfUrl.value='';form.value={...makeEmptyForm(),folderId:selectedFolderId.value};dialogVisible.value=true}
 function openEditDialog(paper){isEditing.value=true;editPaperId.value=paper.id;uploadFile.value=null;form.value={...paper};dialogVisible.value=true}
-function onFileChange(e){const f=e.target.files?.[0];if(f){uploadFile.value=f;autoSetTitle(f.name)}}
-function onDropFile(e){const f=e.dataTransfer?.files?.[0];if(f?.name?.endsWith('.pdf')){uploadFile.value=f;autoSetTitle(f.name)}}
-function autoSetTitle(name){const t=name.replace(/\.pdf$/i,'').replace(/[_-]/g,' ').trim();if(t&&!form.value.title)form.value.title=t}
+function resetImportMetadataForNewFile(){
+  form.value={
+    ...form.value,
+    title:'', authors:'', year:null, source:'', doi:'', arxivId:'', sourceUrl:'',
+    abstractText:'', keywords:''
+  }
+  doiInput.value=''
+  doiPdfUrl.value=''
+}
+function setUploadFile(file){
+  if(!file)return
+  resetImportMetadataForNewFile()
+  uploadFile.value=file
+}
+function onFileChange(e){
+  const f=e.target.files?.[0]
+  if(f)setUploadFile(f)
+  // 允许用户移除后再次选择同一个 PDF。
+  e.target.value=''
+}
+function onDropFile(e){
+  const f=e.dataTransfer?.files?.[0]
+  if(f?.name?.toLowerCase().endsWith('.pdf'))setUploadFile(f)
+}
 
 /** Crossref DOI → 自动提取元数据 */
 async function fetchDoi(){
   if(!doiInput.value.trim())return
   fetchingDoi.value=true
+  doiPdfUrl.value=''
   try{
     const res=await fetch(`https://api.crossref.org/works/${encodeURIComponent(doiInput.value.trim())}`)
     if(!res.ok) throw new Error('DOI 未找到')
@@ -1056,12 +1190,14 @@ async function fetchDoi(){
     const d=r.message
     if(!d)throw new Error('DOI 未找到')
     form.value.doi=doiInput.value.trim()
-    if(!form.value.title&&d.title&&d.title[0])form.value.title=d.title[0]
-    if(!form.value.source&&d['container-title']&&d['container-title'][0])form.value.source=d['container-title'][0]
+    if(!form.value.title&&d.title&&d.title[0])form.value.title=decodeHtmlEntities(d.title[0])
+    if(!form.value.source&&d['container-title']&&d['container-title'][0])form.value.source=decodeHtmlEntities(d['container-title'][0])
     if(d.author)form.value.authors=d.author.map(a=>(a.given||'')+' '+(a.family||'')).join(', ')
     if(d['published-print']?.dateParts)form.value.year=d['published-print'].dateParts[0][0]
     else if(d['created']?.dateParts)form.value.year=d['created'].dateParts[0][0]
-    if(!form.value.abstractText&&d.abstract)form.value.abstractText=d.abstract.replace(/<[^>]+>/g,'').slice(0,2000)
+    if(!form.value.sourceUrl&&d.URL)form.value.sourceUrl=d.URL
+    doiPdfUrl.value=(d.link||[]).find(link => /application\/pdf/i.test(link['content-type']||''))?.URL || ''
+    if(!form.value.abstractText&&d.abstract)form.value.abstractText=decodeHtmlEntities(d.abstract.replace(/<[^>]+>/g,'')).slice(0,2000)
     ElMessage.success('DOI 元数据获取成功')
   }catch(e){ElMessage.error('DOI 获取失败：'+(e.message))}
   finally{fetchingDoi.value=false}
@@ -1091,41 +1227,72 @@ async function autoIdentify() {
   }
 }
 
+function decodeHtmlEntities(value) {
+  if (!value || typeof document === 'undefined' || !String(value).includes('&')) return value
+  const textarea = document.createElement('textarea')
+  textarea.innerHTML = String(value)
+  return textarea.value
+}
+
 function fillFormFromEnrichment(data) {
   const empty = v => v == null || v === '' || (typeof v === 'string' && v.trim() === '')
-  if (empty(form.value.title) && data.title) form.value.title = data.title
+  if (empty(form.value.title) && data.title) form.value.title = decodeHtmlEntities(data.title)
   if (empty(form.value.authors) && data.authors) form.value.authors = formatAuthors(data.authors)
-  if ((form.value.year == null || form.value.year === DEFAULT_YEAR) && data.year) form.value.year = data.year
-  if (empty(form.value.source) && data.source) form.value.source = data.source
-  if (empty(form.value.doi) && data.doi) form.value.doi = data.doi
-  if (empty(form.value.arxivId) && data.arxivId) form.value.arxivId = data.arxivId
+  if (empty(form.value.year) && data.year) form.value.year = data.year
+  if (empty(form.value.source) && data.source) form.value.source = decodeHtmlEntities(data.source)
+  if (empty(form.value.doi) && (data.doi || data.foundDoi)) form.value.doi = data.doi || data.foundDoi
+  if (empty(form.value.arxivId) && (data.arxivId || data.foundArxivId)) form.value.arxivId = data.arxivId || data.foundArxivId
   if (empty(form.value.sourceUrl) && data.sourceUrl) form.value.sourceUrl = data.sourceUrl
-  if (empty(form.value.abstractText) && data.abstractText) form.value.abstractText = data.abstractText
+  if (empty(form.value.abstractText) && data.abstractText) form.value.abstractText = decodeHtmlEntities(data.abstractText)
   if (empty(form.value.keywords) && data.keywords) form.value.keywords = data.keywords
 }
 
 async function submitPaper() {
   try{
+    if (!isEditing.value && !form.value.title?.trim()) {
+      ElMessage.warning('请先点击“自动填充元数据”或手动填写论文标题')
+      return
+    }
     if(isEditing.value){
       await api.put(`/papers/${editPaperId.value}`,form.value)
       ElMessage.success('论文已保存')
     } else {
-      const fd=new FormData()
-      if(uploadFile.value) fd.append('file',uploadFile.value)
-      Object.entries(form.value).forEach(([k,v])=>{if(v!=null&&v!=='')fd.append(k,v)})
-      const res = await api.post('/papers/upload', fd)
-      ElMessage.success('论文导入成功')
-      const paper = res.data.paper
-      const taskId = res.data.taskId
-      if (paper?.id && taskId) {
-        watchImport(paper.id, taskId)
-      }
+      await uploadPaper(false)
     }
     dialogVisible.value=false;uploadFile.value=null;await loadPapers()
   }catch(e){
     console.error('导入/保存失败', e)
-    alert('操作失败：'+(e.response?.data?.message||e.message))
+    const duplicate = e.response?.status === 409 || e.response?.data?.code === 409
+    if (!isEditing.value && duplicate) {
+      try {
+        await ElMessageBox.confirm('文献已存在，是否覆盖？', '文献已存在', {
+          confirmButtonText: '覆盖', cancelButtonText: '取消', type: 'warning'
+        })
+        await uploadPaper(true)
+        dialogVisible.value = false
+        uploadFile.value = null
+        await loadPapers()
+      } catch (confirmError) {
+        if (confirmError !== 'cancel' && confirmError !== 'close') {
+          ElMessage.error('覆盖失败：' + (confirmError.response?.data?.message || confirmError.message))
+        }
+      }
+      return
+    }
+    ElMessage.error('操作失败：' + (e.response?.data?.message || e.message))
   }
+}
+
+async function uploadPaper(overwrite) {
+  const fd = new FormData()
+  if (uploadFile.value) fd.append('file', uploadFile.value)
+  Object.entries(form.value).forEach(([k, v]) => { if (v != null && v !== '') fd.append(k, v) })
+  if (overwrite) fd.append('overwrite', 'true')
+  const res = await api.post('/papers/upload', fd)
+  ElMessage.success(overwrite ? '文献已覆盖' : '论文导入成功')
+  const paper = res.data.paper
+  const taskId = res.data.taskId
+  if (paper?.id && taskId) watchImport(paper.id, taskId)
 }
 async function triggerAiAnalysis() {
   const paperId = currentPaper.value?.id
@@ -1153,7 +1320,181 @@ async function loadAnalysis(paperId) {
   try { const r = await api.get(`/agent/analysis/${paperId}`); if (r.data) paperAnalysis.value = r.data } catch (e) {}
 }
 
-async function savePaper(p){await api.put(`/papers/${p.id}`,p)}
+async function savePaper(p) {
+  try {
+    const saved = await api.put(`/papers/${p.id}`, p)
+    const updated = saved?.data || saved
+    if (updated && typeof updated === 'object') {
+      Object.assign(p, updated)
+    }
+    syncPaperInList(p)
+    return saved
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e.response?.data?.message || e.message))
+    throw e
+  }
+}
+
+function onReadingTimeUpdated(seconds) {
+  if (!currentPaper.value) return
+  currentPaper.value.readSeconds = seconds
+  syncPaperInList(currentPaper.value)
+}
+
+function currentRecommendation() {
+  return currentPaper.value ? ensureRec(currentPaper.value.id) : null
+}
+
+async function recommendDetailMetadata() {
+  const paper = currentPaper.value
+  const rec = currentRecommendation()
+  if (!paper || !rec) return
+  rec.loading = true
+  rec.error = null
+  rec.status = '正在识别元数据'
+  try {
+    const response = await api.post(`/papers/${paper.id}/enrich-metadata`)
+    rec.result = { ...(rec.result || {}), metadata: response.data }
+    metadataRecommendation.value = response.data
+    metadataRecommendDialogVisible.value = true
+    rec.status = '已完成'
+  } catch (e) {
+    rec.error = e.response?.data?.message || e.message || '元数据识别失败'
+  } finally {
+    rec.loading = false
+  }
+}
+
+function openMetadataRecommendationDialog() {
+  metadataRecommendation.value = currentImportRec.value?.result?.metadata || null
+  metadataRecommendDialogVisible.value = true
+}
+
+async function confirmRecommendedMetadata() {
+  const paper = currentPaper.value
+  const metadata = metadataRecommendation.value
+  if (!paper || !metadata || !hasMetadataRecommendation.value) return
+  try {
+    await applyRecommendedMetadata(paper.id, metadata)
+    metadataRecommendDialogVisible.value = false
+  } catch (e) {
+    ElMessage.error('元数据应用失败：' + (e.response?.data?.message || e.message))
+  }
+}
+
+async function recommendDetailTags() {
+  const paper = currentPaper.value
+  const rec = currentRecommendation()
+  if (!paper || !rec) return
+  rec.loading = true
+  rec.error = null
+  rec.status = '正在推荐标签'
+  try {
+    const response = await api.post('/agent/tag-suggestions', { paperId: paper.id })
+    rec.result = { ...(rec.result || {}), tags: response.data || [] }
+    rec.status = '已完成'
+  } catch (e) {
+    rec.error = e.response?.data?.message || e.message || '标签推荐失败'
+  } finally {
+    rec.loading = false
+  }
+}
+
+async function recommendDetailFolder() {
+  const paper = currentPaper.value
+  const rec = currentRecommendation()
+  if (!paper || !rec) return
+  rec.loading = true
+  rec.error = null
+  rec.status = '正在推荐文件夹'
+  try {
+    const response = await api.post('/agent/folder-suggest', { paperId: paper.id })
+    rec.result = { ...(rec.result || {}), folder: response.data }
+    rec.status = '已完成'
+  } catch (e) {
+    rec.error = e.response?.data?.message || e.message || '文件夹推荐失败'
+  } finally {
+    rec.loading = false
+  }
+}
+
+function openTagRecommendationDialog() {
+  tagRecommendSelected.value = [...(currentImportRec.value?.result?.tags || [])]
+  tagRecommendDialogVisible.value = true
+}
+
+async function confirmRecommendedTags() {
+  if (!currentPaper.value) return
+  try {
+    await applyRecommendedTags(currentPaper.value.id, tagRecommendSelected.value)
+    tagRecommendDialogVisible.value = false
+  } catch (e) {
+    ElMessage.error('标签应用失败：' + (e.response?.data?.message || e.message))
+  }
+}
+
+function openFolderRecommendationDialog() {
+  const suggestion = currentImportRec.value?.result?.folder
+  if (!suggestion) return
+
+  const rawName = String(suggestion.newName || '')
+  const parts = rawName.split(/\s*(?:->|\/|>|下的)\s*/).map(part => part.trim()).filter(Boolean)
+  recommendNewFolderName.value = parts.at(-1) || ''
+
+  const hasParentValue = Object.prototype.hasOwnProperty.call(suggestion, 'parentFolderId')
+  const directParent = suggestion.parentFolderId
+  if (directParent != null && directParent !== '') {
+    recommendNewFolderParentId.value = Number(directParent)
+  } else if (parts.length > 1) {
+    recommendNewFolderParentId.value = findFolderIdByPath(parts.slice(0, -1).join(' / '))
+  } else if (hasParentValue) {
+    recommendNewFolderParentId.value = null
+  } else {
+    recommendNewFolderParentId.value = currentPaper.value?.folderId ?? null
+  }
+  folderRecommendDialogVisible.value = true
+}
+
+async function confirmFolderRecommendation() {
+  const paper = currentPaper.value
+  const suggestion = currentImportRec.value?.result?.folder
+  if (!paper || !suggestion) return
+
+  if (suggestion.recommended != null) {
+    if (Number(paper.folderId) === Number(suggestion.recommended)) {
+      folderRecommendDialogVisible.value = false
+      return
+    }
+    try {
+      await applyRecommendedFolder(paper.id, suggestion.recommended)
+      folderRecommendDialogVisible.value = false
+    } catch (e) {
+      ElMessage.error('文件夹移动失败：' + (e.response?.data?.message || e.message))
+    }
+    return
+  }
+
+  const name = recommendNewFolderName.value.trim()
+  if (!suggestion.suggestNew || !name) {
+    ElMessage.warning('请填写新文件夹名称')
+    return
+  }
+  recommendFolderSaving.value = true
+  try {
+    const response = await api.post('/folders', {
+      name,
+      parentId: recommendNewFolderParentId.value ?? null
+    })
+    const folderId = response.data?.id
+    if (folderId == null) throw new Error('未返回文件夹 ID')
+    await applyRecommendedFolder(paper.id, folderId)
+    folderRecommendDialogVisible.value = false
+  } catch (e) {
+    ElMessage.error('文件夹创建失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    recommendFolderSaving.value = false
+  }
+}
 
 async function applyRecommendedMetadata(paperId, metadata) {
   await applyRecMetadata(paperId, metadata)
@@ -1162,16 +1503,13 @@ async function applyRecommendedMetadata(paperId, metadata) {
 }
 async function applyRecommendedTags(paperId, tags) {
   await applyRecTags(paperId, tags)
+  await loadAllTags()
   await selectPaper(paperId)
   await loadPapers()
 }
 async function applyRecommendedFolder(paperId, folderId) {
   await applyRecFolder(paperId, folderId)
-  await selectPaper(paperId)
-  await loadPapers()
-}
-async function applyRecommendedStatus(paperId, status) {
-  await applyRecStatus(paperId, status)
+  await loadFolders()
   await selectPaper(paperId)
   await loadPapers()
 }
@@ -1316,18 +1654,55 @@ async function recommendFolder() {
   if (!form.value.title) return
   recommending.value = true
   try {
-    const res = await api.post('/agent/folder-suggest', { title: form.value.title })
+    const res = await api.post('/agent/folder-suggest', {
+      title: form.value.title,
+      abstractText: form.value.abstractText || ''
+    })
     const data = res.data
     if (data.recommended) {
       form.value.folderId = data.recommended
-      ElMessage.success(`已推荐文件夹${data.reason ? '：' + data.reason : ''}`)
+      ElMessage.success('已推荐文件夹')
     } else if (data.suggestNew) {
-      ElMessage.info(`建议新建文件夹「${data.newName}」${data.reason ? '：' + data.reason : ''}`)
+      importFolderRecommendation.value = data
+      const rawName = String(data.newName || '')
+      const parts = rawName.split(/\s*(?:->|\/|>|下的)\s*/).map(part => part.trim()).filter(Boolean)
+      importNewFolderName.value = parts.at(-1) || ''
+      importNewFolderParentId.value = data.parentFolderId != null
+        ? Number(data.parentFolderId)
+        : parts.length > 1 ? findFolderIdByPath(parts.slice(0, -1).join(' / ')) : form.value.folderId ?? null
+      importFolderRecommendDialogVisible.value = true
+    } else {
+      ElMessage.info('暂无文件夹推荐')
     }
   } catch (e) {
-    ElMessage.error('推荐失败：' + (e.response?.data?.message || e.message))
+    ElMessage.error('文件夹推荐失败')
   } finally {
     recommending.value = false
+  }
+}
+
+async function confirmImportFolderRecommendation() {
+  const name = importNewFolderName.value.trim()
+  if (!name) {
+    ElMessage.warning('请填写新文件夹名称')
+    return
+  }
+  importFolderSaving.value = true
+  try {
+    const response = await api.post('/folders', {
+      name,
+      parentId: importNewFolderParentId.value ?? null
+    })
+    const folderId = response.data?.id
+    if (folderId == null) throw new Error('未返回文件夹 ID')
+    form.value.folderId = folderId
+    await loadFolders()
+    importFolderRecommendDialogVisible.value = false
+    ElMessage.success('已推荐文件夹')
+  } catch (e) {
+    ElMessage.error('文件夹创建失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    importFolderSaving.value = false
   }
 }
 
@@ -1430,6 +1805,14 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .detail-ai-status .error-text { color:#f56c6c; }
 .stage-text { font-size:12px; color:var(--ra-link); margin-left:4px; }
 .error-text { font-size:12px; color:#f56c6c; margin-left:4px; }
+.recommend-dialog-tip { color:var(--ra-text-tertiary); font-size:12px; line-height:1.5; }
+.recommend-tag-list { display:flex; flex-direction:column; gap:8px; }
+.folder-recommend-ok { color:var(--el-color-success); }
+.metadata-preview-grid { max-height:420px; overflow-y:auto; border-top:1px solid var(--ra-border-light); }
+.metadata-preview-row { display:grid; grid-template-columns:64px minmax(0,1fr); gap:12px; padding:8px 0; border-bottom:1px solid var(--ra-border-light); font-size:13px; line-height:1.5; }
+.metadata-preview-label { color:var(--ra-text-tertiary); }
+.metadata-preview-value { white-space:pre-wrap; word-break:break-word; }
+.metadata-preview-value.empty { color:var(--ra-text-tertiary); }
 .title-input { font-size:18px; font-weight:600; width:100%; }
 .title-input :deep(.el-textarea__inner) { border:1px solid var(--ra-link); border-radius:3px; padding:2px 6px; font-size:18px; font-weight:600; line-height:1.4; resize:none; min-height:32px; }
 .detail-divider { height:1px; background:var(--ra-border-light); margin:10px 4px 14px; }
@@ -1448,6 +1831,9 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .doi-row { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
 .doi-or { font-size:12px; color:var(--ra-text-tertiary); white-space:nowrap; flex-shrink:0; }
 .doi-input-wrap { display:flex; gap:6px; flex:1; flex-wrap:wrap; }
+.doi-source-hint { display:flex; align-items:center; gap:10px; margin:-4px 0 10px 70px; color:var(--ra-text-tertiary); font-size:12px; line-height:1.5; flex-wrap:wrap; }
+.doi-source-hint a { color:var(--ra-link); }
+.import-helper { margin: -2px 0 8px 70px; color:var(--ra-text-tertiary); font-size:12px; line-height:1.5; }
 
 /** 识别结果 */
 .import-preview { border-top:1px solid var(--ra-border-light); padding-top:10px; }

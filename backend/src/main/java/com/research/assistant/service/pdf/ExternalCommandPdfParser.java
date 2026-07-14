@@ -54,6 +54,19 @@ public class ExternalCommandPdfParser implements PdfParser {
         return parseWithFallback(file, maxPages);
     }
 
+    @Override
+    public PdfParseResult parseFirstPagesForMetadata(File file, int maxPages) {
+        if (!useExternal()) {
+            return fallback.parseFirstPagesForMetadata(file, maxPages);
+        }
+        PdfParseResult result = parseExternal(file, maxPages);
+        if (result.success()) {
+            return result;
+        }
+        log.warn("外部 PDF 元数据解析失败，回退到 PDFBox: {}", result.error());
+        return fallback.parseFirstPagesForMetadata(file, maxPages);
+    }
+
     private PdfParseResult parseWithFallback(File file, Integer maxPages) {
         if (!useExternal()) {
             return maxPages != null ? fallback.parseFirstPages(file, maxPages) : fallback.parse(file);

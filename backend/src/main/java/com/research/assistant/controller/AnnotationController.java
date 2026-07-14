@@ -2,10 +2,10 @@ package com.research.assistant.controller;
 
 import com.research.assistant.dto.AnnotationDto;
 import com.research.assistant.dto.AnnotationRequest;
+import com.research.assistant.common.Result;
 import com.research.assistant.service.annotation.AiAnnotationService;
 import com.research.assistant.service.annotation.AnnotationService;
 import jakarta.validation.Valid;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -27,32 +27,32 @@ public class AnnotationController {
     }
 
     @GetMapping
-    public ResponseEntity<List<AnnotationDto>> list(@PathVariable Long paperId) {
-        return ResponseEntity.ok(annotationService.listByPaper(paperId));
+    public Result<List<AnnotationDto>> list(@PathVariable Long paperId) {
+        return Result.ok(annotationService.listByPaper(paperId));
     }
 
     @PostMapping
-    public ResponseEntity<AnnotationDto> create(
+    public Result<AnnotationDto> create(
             @PathVariable Long paperId,
             @RequestBody @Valid AnnotationRequest request) {
-        return ResponseEntity.ok(annotationService.create(paperId, request));
+        return Result.ok(annotationService.create(paperId, request));
     }
 
     @PutMapping("/{annotationId}")
-    public ResponseEntity<AnnotationDto> update(
+    public Result<AnnotationDto> update(
             @PathVariable Long annotationId,
             @RequestBody @Valid AnnotationRequest request) {
-        return ResponseEntity.ok(annotationService.update(annotationId, request));
+        return Result.ok(annotationService.update(annotationId, request));
     }
 
     @DeleteMapping("/{annotationId}")
-    public ResponseEntity<Void> delete(@PathVariable Long annotationId) {
+    public Result<Void> delete(@PathVariable Long annotationId) {
         annotationService.delete(annotationId);
-        return ResponseEntity.ok().build();
+        return Result.ok();
     }
 
     @PostMapping("/ai-generate")
-    public ResponseEntity<List<AnnotationDto>> aiGenerate(@PathVariable Long paperId) {
-        return ResponseEntity.ok(aiAnnotationService.generateAndSave(paperId));
+    public Result<List<AnnotationDto>> aiGenerate(@PathVariable Long paperId) {
+        return Result.ok(aiAnnotationService.generateAndSave(paperId));
     }
 }

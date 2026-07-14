@@ -70,12 +70,23 @@ public class CrossrefFetcher {
         Map<String, String> meta = new LinkedHashMap<>();
         meta.put("doi", doi);
         meta.put("title", extractFirstText(message.path("title")));
-        meta.put("source", extractFirstText(message.path("container-title")));
+        meta.put("source", extractSource(message));
         meta.put("year", extractYear(message));
         meta.put("authors", extractAuthors(message.path("author")));
         meta.put("sourceUrl", message.path("URL").asText(""));
         meta.put("abstractText", cleanAbstract(message.path("abstract").asText("")));
         return meta;
+    }
+
+    private String extractSource(JsonNode message) {
+        String source = extractFirstText(message.path("container-title"));
+        if (source.isBlank()) {
+            source = extractFirstText(message.path("short-container-title"));
+        }
+        if (source.isBlank()) {
+            source = message.path("event").path("name").asText("");
+        }
+        return source;
     }
 
     private String extractFirstText(JsonNode node) {

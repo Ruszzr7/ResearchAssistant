@@ -62,9 +62,32 @@ public class PdfExtractor {
     }
 
     /**
+     * 提取供元数据识别使用的前 N 页文本，保留首页页眉、页脚和版面顺序。
+     */
+    public String extractFirstPagesForMetadata(String pdfPath, int maxPages) {
+        File file = resolveFile(pdfPath);
+        if (file == null) {
+            return "";
+        }
+        PdfParseResult result = pdfParser.parseFirstPagesForMetadata(file, maxPages);
+        return result.success() ? result.text() : "";
+    }
+
+    /**
      * 直接从上传的 MultipartFile 中提取前 N 页文本。
      */
     public String extractFromMultipartFile(MultipartFile file, int maxPages) {
+        return extractFromMultipartFile(file, maxPages, false);
+    }
+
+    /**
+     * 直接从上传的 MultipartFile 中提取供元数据识别使用的文本。
+     */
+    public String extractMetadataFromMultipartFile(MultipartFile file, int maxPages) {
+        return extractFromMultipartFile(file, maxPages, true);
+    }
+
+    private String extractFromMultipartFile(MultipartFile file, int maxPages, boolean metadataMode) {
         if (file == null || file.isEmpty()) {
             return "";
         }
@@ -73,7 +96,9 @@ public class PdfExtractor {
             file.transferTo(temp.toFile());
             PdfParseResult result = maxPages <= 0
                     ? pdfParser.parse(temp.toFile())
-                    : pdfParser.parseFirstPages(temp.toFile(), maxPages);
+                    : metadataMode
+                            ? pdfParser.parseFirstPagesForMetadata(temp.toFile(), maxPages)
+                            : pdfParser.parseFirstPages(temp.toFile(), maxPages);
             Files.deleteIfExists(temp);
             return result.success() ? result.text() : "";
         } catch (Exception e) {
