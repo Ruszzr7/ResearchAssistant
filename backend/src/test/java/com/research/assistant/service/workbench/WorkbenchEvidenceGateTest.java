@@ -72,10 +72,42 @@ class WorkbenchEvidenceGateTest {
         assertThat(result.issues()).contains("evidence set is empty", "grounded claims are required");
     }
 
+    @Test
+    void selectionMustCiteTheSelectedPassage() {
+        WorkbenchEvidenceGate.AnswerDraft draft = new WorkbenchEvidenceGate.AnswerDraft(
+                "answer", List.of(new WorkbenchEvidenceGate.GroundedClaim("claim", List.of("lay_context"))));
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                draft,
+                List.of(evidence("lay_selected", 7L, true), evidence("lay_context", 7L, false)),
+                WorkbenchEvidenceGate.GatePolicy.selection(1));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.REJECT);
+        assertThat(result.issues()).contains("answer does not cite the selected passage");
+    }
+
+    @Test
+    void comparisonMustCiteEveryRequestedPaper() {
+        WorkbenchEvidenceGate.AnswerDraft draft = new WorkbenchEvidenceGate.AnswerDraft(
+                "answer", List.of(new WorkbenchEvidenceGate.GroundedClaim("only paper seven", List.of("lay_a"))));
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                draft,
+                List.of(evidence("lay_a", 7L, false), evidence("lay_b", 8L, false)),
+                WorkbenchEvidenceGate.GatePolicy.comparison(1, java.util.Set.of(7L, 8L)));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.REJECT);
+        assertThat(result.issues()).contains("answer does not cite every required paper");
+    }
+
     private LayoutEvidence evidence(String id) {
-        return new LayoutEvidence(id, 1L, "p1-b0001", 1,
+        return evidence(id, 1L, true);
+    }
+
+    private LayoutEvidence evidence(String id, Long paperId, boolean selected) {
+        return new LayoutEvidence(id, paperId, "p1-b0001", 1,
                 new NormalizedBoundingBox(0.1, 0.2, 0.3, 0.04),
                 DocumentBlockRole.BODY, 1, List.of("Introduction"), "evidence text",
-                0.9, true, 0.9, "a".repeat(64), "parser-v1");
+                0.9, selected, 0.9, "a".repeat(64), "parser-v1");
     }
 }

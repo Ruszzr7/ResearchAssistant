@@ -92,14 +92,15 @@ public class PaperLayoutEvidenceService {
                 .sorted(Comparator.comparingInt(item -> item.block().readingOrder()))
                 .toList();
         List<LayoutEvidence> evidence = chosen.stream()
-                .map(item -> toEvidence(artifact, item))
+                .map(item -> toEvidence(artifact, item.block(), item.score(), item.selected()))
                 .toList();
         return new LocalEvidenceResult(
                 resolvedAnchor, evidence, resolvedAnchor.kind() == SelectionAnchorKind.REGION);
     }
 
-    private LayoutEvidence toEvidence(PaperLayoutArtifact artifact, ScoredBlock item) {
-        DocumentBlock block = item.block();
+    /** Shared stable evidence projection used by local and whole-paper workbench retrieval. */
+    public LayoutEvidence toEvidence(PaperLayoutArtifact artifact, DocumentBlock block,
+                                     double score, boolean selected) {
         return new LayoutEvidence(
                 evidenceId(artifact, block),
                 artifact.paperId(),
@@ -110,8 +111,8 @@ public class PaperLayoutEvidenceService {
                 block.readingOrder(),
                 block.sectionPath(),
                 block.text(),
-                item.score(),
-                item.selected(),
+                score,
+                selected,
                 block.confidence(),
                 artifact.documentHash(),
                 artifact.parserVersion()

@@ -1,6 +1,6 @@
 # PDF 精确选取与论文工作台规格
 
-状态：P0、P1-A、P1-B、P2-A 已完成（2026-07-16）。下一小步是 P2-B 四条固定 Workflow 的真实执行；工作台 Agent 尚未接入 UI。
+状态：P0、P1-A、P1-B、P2-A、P2-B 已完成（2026-07-16）。下一小步是 P2-C PDF 右侧论文助手、运行 trace 与证据跳转。
 
 ## 1. 产品目标：做“有证据的论文 Agent”，不是再做一个 PDF 编辑器
 
@@ -254,6 +254,12 @@ Flyway V15 新增 `paper_workbench_run / paper_workbench_step`。run 保存论�
 
 规则路由只允许 `SELECTION_QA / PAPER_ANALYSIS / ANNOTATION_SUGGESTION / PAPER_COMPARISON`，最多 8 篇、6 步和一次 repair；allowed skills 必须与固定步骤集合严格相等。Evidence Gate 以结构化 claim 验证本次 evidence IDs 和 100% claim 覆盖率，未知引用首次返回 `REPAIR`，repairAttempt=1 后返回 `REJECT`。路由、门禁、持久化状态机和 Controller 定向 15 项通过，后端全量 350 项通过（3 项可选真实样例跳过）。真实 MySQL 已迁移至 v15；论文 175 的 `TEXT` anchor 在线生成并回读 `SELECTION_QA / SELECTION / 4 steps` trace，artifact hash 与 `pdfbox-layout-v1+semantic-v1` 一致。
 
+### 8.7 P2-B 固定 Workflow 执行验收
+
+四条计划已接入同一可恢复执行引擎：选区问答和批注建议使用锚点局部证据，全文分析按版面顺序检索论文证据，多篇对比为每篇论文保留独立证据配额。模型响应被约束为结构化 JSON；质量门禁先验证 Workflow 所需字段，再由 Evidence Gate 校验证据白名单、逐 claim 覆盖率、选区引用和对比论文覆盖，失败最多 repair 一次。
+
+门禁通过的规范化结果先写入 run checkpoint，进程中断后可跳过重复模型调用；全文分析随后写入 `paper_analysis`，同时保存 evidence IDs、workbench run ID、PDF hash 和 parser version。外部模型与数据库短暂错误由可恢复任务重试，最后一次失败会把 run 同步置为安全终态。真实论文 175 已在线完成选区问答、批注建议和全文分析，其中全文分析使用 48 条可回链证据生成 11 条 claim，三条运行均不需要 repair；开发库仅有一篇论文，多篇对比以双论文集成测试覆盖。后端全量 375 项通过（3 项可选真实样例跳过），Flyway V16 在真实 MySQL 迁移成功。
+
 ## 9. 分阶段实施
 
 | 阶段 | 交付 | 验收 |
@@ -265,8 +271,8 @@ Flyway V15 新增 `paper_workbench_run / paper_workbench_step`。run 保存论�
 | P1-B3a（已完成） | `SelectionAnchor` 后端映射、区域降级与当前论文局部证据检索 | 真实选区可映射块；旧版本 409；evidence 只含允许角色 |
 | P1-B3b（已完成） | 前端选区锚点接入、证据预览与页码/坐标跳转 | 真实 PDF 选区可显示映射状态并从 evidence 返回原文 |
 | P2-A（已完成） | 工作台 run/step 持久化、规则路由、Evidence Gate 与一次 repair 上限 | 固定计划可审计；越权 Skill/未知引用被拒绝；终态可恢复读取 |
-| P2-B（下一步） | 选区问答、全文分析、批注建议、多篇对比四条固定 Workflow | 每条 Workflow 只调用允许 Skill，并返回可回链 evidence |
-| P2-C | PDF 右侧论文助手、运行 trace 与证据跳转 | 用户可在同一页面发起固定 Workflow 并检查每步证据 |
+| P2-B（已完成） | 选区问答、全文分析、批注建议、多篇对比四条固定 Workflow | 每条 Workflow 只调用允许 Skill，并返回可回链 evidence |
+| P2-C（下一步） | PDF 右侧论文助手、运行 trace 与证据跳转 | 用户可在同一页面发起固定 Workflow 并检查每步证据 |
 | P3 | 多论文对比、外部解析适配器、评测集和指标面板 | 复杂页安全降级；比较结果保留每篇证据归属 |
 
 ## 10. 可提炼为简历亮点的技术叙事

@@ -10,6 +10,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
@@ -68,6 +69,7 @@ public class LLMServiceImpl implements LLMService {
                     .messages(SystemMessage.from(systemPrompt), UserMessage.from(userMessage));
             if (policy != null) {
                 requestBuilder.maxOutputTokens(policy.maxOutputTokens());
+                if (policy.jsonOutput()) requestBuilder.responseFormat(ResponseFormat.JSON);
             }
             ChatRequest request = requestBuilder.build();
             ChatResponse response = model.chat(request);

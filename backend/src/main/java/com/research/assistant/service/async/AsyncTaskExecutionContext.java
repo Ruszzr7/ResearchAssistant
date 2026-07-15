@@ -9,8 +9,15 @@ public record AsyncTaskExecutionContext(
         String taskType,
         Map<String, Object> arguments,
         Consumer<String> stageUpdater,
-        Consumer<Object> pendingUserUpdater
+        Consumer<Object> pendingUserUpdater,
+        int attemptCount,
+        int maxAttempts
 ) {
+
+    public AsyncTaskExecutionContext {
+        attemptCount = Math.max(1, attemptCount);
+        maxAttempts = Math.max(attemptCount, maxAttempts);
+    }
 
     public void stage(String text) {
         if (stageUpdater != null) {
@@ -22,5 +29,9 @@ public record AsyncTaskExecutionContext(
         if (pendingUserUpdater != null) {
             pendingUserUpdater.accept(partialResult);
         }
+    }
+
+    public boolean isLastAttempt() {
+        return attemptCount >= maxAttempts;
     }
 }

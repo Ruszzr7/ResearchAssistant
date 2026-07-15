@@ -111,6 +111,7 @@ public class WorkbenchRunTraceService {
     public void markQueued(String runId, String taskId) {
         PaperWorkbenchRunRecord run = requireRun(runId);
         requireRunStatus(run, WorkbenchRunStatus.PLANNED);
+        if (taskId == null || taskId.isBlank()) throw new IllegalArgumentException("taskId is required");
         run.setTaskId(taskId);
         run.setStatus(WorkbenchRunStatus.QUEUED.name());
         run.setUpdatedAt(LocalDateTime.now());
@@ -130,6 +131,57 @@ public class WorkbenchRunTraceService {
         run.setStartedAt(now);
         run.setUpdatedAt(now);
         runMapper.updateById(run);
+    }
+
+    /** Starts a queued run or repairs an interrupted task attempt without replaying completed deterministic steps. */
+    @Transactional
+    public WorkbenchRunTrace prepareExecutionAttempt(String runId, String taskId) {
+        PaperWorkbenchRunRecord run = requireRun(runId);
+        WorkbenchRunStatus status = WorkbenchRunStatus.valueOf(run.getStatus());
+        if (status == WorkbenchRunStatus.COMPLETED) return toTrace(run, stepMapper.findByRunId(runId));
+        if (status == WorkbenchRunStatus.FAILED || status == WorkbenchRunStatus.CANCELLED) {
+            throw new IllegalStateException("terminal run cannot resume");
+        }
+        if (run.getTaskId() != null && taskId != null && !run.getTaskId().equals(taskId)) {
+            throw new IllegalStateException("run is already bound to another task");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (status == WorkbenchRunStatus.PLANNED || status == WorkbenchRunStatus.QUEUED) {
+            run.setStatus(WorkbenchRunStatus.RUNNING.name());
+            run.setStartedAt(run.getStartedAt() == null ? now : run.getStartedAt());
+        }
+        if (taskId != null) run.setTaskId(taskId);
+        run.setUpdatedAt(now);
+        runMapper.updateById(run);
+
+        List<PaperWorkbenchStepRecord> steps = stepMapper.findByRunId(runId);
+        for (PaperWorkbenchStepRecord step : steps) {
+            WorkbenchStepStatus stepStatus = WorkbenchStepStatus.valueOf(step.getStatus());
+            if (stepStatus == WorkbenchStepStatus.RUNNING || stepStatus == WorkbenchStepStatus.FAILED) {
+                resetStepForTaskRetry(step);
+            }
+        }
+        PaperWorkbenchStepRecord gate = steps.stream()
+                .filter(step -> WorkbenchPlan.Skill.VALIDATE_EVIDENCE_ANSWER.name().equals(step.getSkillName()))
+                .findFirst().orElse(null);
+        if (gate != null) {
+            WorkbenchStepStatus gateStatus = WorkbenchStepStatus.valueOf(gate.getStatus());
+            boolean hasApprovedCheckpoint = run.getResultJson() != null && !run.getResultJson().isBlank();
+            if (gateStatus != WorkbenchStepStatus.COMPLETED
+                    || gateStatus == WorkbenchStepStatus.COMPLETED && !hasApprovedCheckpoint) {
+                steps.stream()
+                        .filter(step -> WorkbenchPlan.StepKind.LLM.name().equals(step.getStepKind()))
+                        .filter(step -> WorkbenchStepStatus.valueOf(step.getStatus()) == WorkbenchStepStatus.COMPLETED)
+                        .findFirst()
+                        .ifPresent(this::resetStepForTaskRetry);
+            }
+            // A process can stop after the gate row commits but before the approved result checkpoint commits.
+            // Raw model output is intentionally not persisted, so that narrow crash window must replay model + gate.
+            if (gateStatus == WorkbenchStepStatus.COMPLETED && !hasApprovedCheckpoint) {
+                resetStepForTaskRetry(gate);
+            }
+        }
+        return requireTrace(runId);
     }
 
     @Transactional
@@ -158,11 +210,11 @@ public class WorkbenchRunTraceService {
         LocalDateTime now = LocalDateTime.now();
         step.setStatus(WorkbenchStepStatus.COMPLETED.name());
         step.setOutputSummaryJson(writeNullable(outputSummary));
-        step.setEvidenceCount(nonNegative(evidenceCount));
-        step.setPromptTokens(nonNegative(promptTokens));
-        step.setCompletionTokens(nonNegative(completionTokens));
-        step.setTotalTokens(nonNegative(promptTokens) + nonNegative(completionTokens));
-        step.setLatencyMs(Math.max(0, latencyMs));
+        step.setEvidenceCount(Math.max(value(step.getEvidenceCount()), nonNegative(evidenceCount)));
+        step.setPromptTokens(value(step.getPromptTokens()) + nonNegative(promptTokens));
+        step.setCompletionTokens(value(step.getCompletionTokens()) + nonNegative(completionTokens));
+        step.setTotalTokens(value(step.getTotalTokens()) + nonNegative(promptTokens) + nonNegative(completionTokens));
+        step.setLatencyMs(longValue(step.getLatencyMs()) + Math.max(0, latencyMs));
         step.setCompletedAt(now);
         step.setUpdatedAt(now);
         stepMapper.updateById(step);
@@ -177,7 +229,7 @@ public class WorkbenchRunTraceService {
         step.setStatus(WorkbenchStepStatus.FAILED.name());
         step.setErrorCode(normalizeCode(errorCode));
         step.setErrorMessage(truncate(safeErrorMessage, 1_000));
-        step.setLatencyMs(Math.max(0, latencyMs));
+        step.setLatencyMs(longValue(step.getLatencyMs()) + Math.max(0, latencyMs));
         step.setCompletedAt(now);
         step.setUpdatedAt(now);
         stepMapper.updateById(step);
@@ -214,7 +266,7 @@ public class WorkbenchRunTraceService {
         }
         LocalDateTime now = LocalDateTime.now();
         run.setStatus(WorkbenchRunStatus.COMPLETED.name());
-        run.setResultJson(writeNullable(result));
+        if (result != null) run.setResultJson(writeNullable(result));
         run.setEvidenceCount(nonNegative(evidenceCount));
         run.setPromptTokens(steps.stream().mapToInt(step -> value(step.getPromptTokens())).sum());
         run.setCompletionTokens(steps.stream().mapToInt(step -> value(step.getCompletionTokens())).sum());
@@ -222,6 +274,16 @@ public class WorkbenchRunTraceService {
         run.setLatencyMs(elapsed(run.getStartedAt(), now));
         run.setCompletedAt(now);
         run.setUpdatedAt(now);
+        runMapper.updateById(run);
+    }
+
+    /** Stores only a normalized, gate-approved product result for crash recovery. */
+    @Transactional
+    public void checkpointResult(String runId, Object result) {
+        PaperWorkbenchRunRecord run = requireRun(runId);
+        requireRunStatus(run, WorkbenchRunStatus.RUNNING);
+        run.setResultJson(writeNullable(result));
+        run.setUpdatedAt(LocalDateTime.now());
         runMapper.updateById(run);
     }
 
@@ -318,6 +380,19 @@ public class WorkbenchRunTraceService {
     private void resetStepForRepair(PaperWorkbenchStepRecord step) {
         step.setStatus(WorkbenchStepStatus.PENDING.name());
         step.setRetryCount(value(step.getRetryCount()) + 1);
+        step.setOutputSummaryJson(null);
+        step.setErrorCode(null);
+        step.setErrorMessage(null);
+        step.setStartedAt(null);
+        step.setCompletedAt(null);
+        step.setUpdatedAt(LocalDateTime.now());
+        stepMapper.updateById(step);
+    }
+
+    private void resetStepForTaskRetry(PaperWorkbenchStepRecord step) {
+        step.setStatus(WorkbenchStepStatus.PENDING.name());
+        step.setRetryCount(value(step.getRetryCount()) + 1);
+        step.setInputSummaryJson(null);
         step.setOutputSummaryJson(null);
         step.setErrorCode(null);
         step.setErrorMessage(null);

@@ -90,6 +90,22 @@ public class PaperAnalysis {
     @TableField("raw_text")
     private String rawText;
 
+    /** Evidence-grounded Markdown report produced by the PDF workbench. */
+    @TableField("grounded_report")
+    private String groundedReport;
+
+    @TableField("grounded_evidence_ids_json")
+    private String groundedEvidenceIdsJson;
+
+    @TableField("workbench_run_id")
+    private String workbenchRunId;
+
+    @TableField("layout_document_hash")
+    private String layoutDocumentHash;
+
+    @TableField("layout_parser_version")
+    private String layoutParserVersion;
+
     /** 本次分析消耗的 token 数 */
     @TableField("token_used")
     private Integer tokenUsed;
@@ -141,6 +157,16 @@ public class PaperAnalysis {
     public void setFiguresJson(String figuresJson) { this.figuresJson = figuresJson; }
     public String getRawText() { return rawText; }
     public void setRawText(String rawText) { this.rawText = rawText; }
+    public String getGroundedReport() { return groundedReport; }
+    public void setGroundedReport(String groundedReport) { this.groundedReport = groundedReport; }
+    public String getGroundedEvidenceIdsJson() { return groundedEvidenceIdsJson; }
+    public void setGroundedEvidenceIdsJson(String groundedEvidenceIdsJson) { this.groundedEvidenceIdsJson = groundedEvidenceIdsJson; }
+    public String getWorkbenchRunId() { return workbenchRunId; }
+    public void setWorkbenchRunId(String workbenchRunId) { this.workbenchRunId = workbenchRunId; }
+    public String getLayoutDocumentHash() { return layoutDocumentHash; }
+    public void setLayoutDocumentHash(String layoutDocumentHash) { this.layoutDocumentHash = layoutDocumentHash; }
+    public String getLayoutParserVersion() { return layoutParserVersion; }
+    public void setLayoutParserVersion(String layoutParserVersion) { this.layoutParserVersion = layoutParserVersion; }
     public Integer getTokenUsed() { return tokenUsed; }
     public void setTokenUsed(Integer tokenUsed) { this.tokenUsed = tokenUsed; }
     public LocalDateTime getCreatedAt() { return createdAt; }

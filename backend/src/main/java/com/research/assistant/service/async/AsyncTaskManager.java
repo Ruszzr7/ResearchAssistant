@@ -408,7 +408,9 @@ public class AsyncTaskManager {
                     record.getTaskType(),
                     arguments,
                     stage -> updateStage(taskId, stage),
-                    partial -> setPendingUser(taskId, partial));
+                    partial -> setPendingUser(taskId, partial),
+                    record.getAttemptCount() == null ? 1 : record.getAttemptCount(),
+                    record.getMaxAttempts() == null ? defaultMaxAttempts : record.getMaxAttempts());
             Object result = handler.execute(context);
             if (!hasLease(taskId)) {
                 log.info("event=async_task_lease_lost taskId={} type={}", taskId, record.getTaskType());

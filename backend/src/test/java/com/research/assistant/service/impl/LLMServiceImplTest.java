@@ -9,6 +9,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.TokenUsage;
 import org.junit.jupiter.api.Test;
@@ -76,6 +77,26 @@ class LLMServiceImplTest {
                 "system", "user", new LlmCallPolicy("test", 100, 100, 123, 1));
 
         assertThat(response.getTotalTokens()).isEqualTo(3);
+    }
+
+    @Test
+    void jsonPolicyShouldRequestProviderJsonMode() {
+        ChatModel chatModel = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                assertThat(request.responseFormat()).isEqualTo(ResponseFormat.JSON);
+                return ChatResponse.builder()
+                        .aiMessage(dev.langchain4j.data.message.AiMessage.from("{}"))
+                        .tokenUsage(new TokenUsage(1, 2))
+                        .build();
+            }
+        };
+        when(modelFactory.createChatModel()).thenReturn(chatModel);
+
+        LlmResponse response = llmService.chatWithUsage(
+                "system", "user", new LlmCallPolicy("test-json", 100, 100, 123, 1, true));
+
+        assertThat(response.getContent()).isEqualTo("{}");
     }
 
     private void givenChatModelReturns(String content, Integer inputTokens, Integer outputTokens) {

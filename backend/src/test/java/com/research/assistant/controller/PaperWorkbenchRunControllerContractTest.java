@@ -5,6 +5,7 @@ import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.pdf.layout.SelectionAnchor;
 import com.research.assistant.service.pdf.layout.SelectionAnchorKind;
 import com.research.assistant.service.workbench.WorkbenchIntent;
+import com.research.assistant.service.workbench.WorkbenchExecutionService;
 import com.research.assistant.service.workbench.WorkbenchInvocation;
 import com.research.assistant.service.workbench.WorkbenchPlan;
 import com.research.assistant.service.workbench.WorkbenchRuleRouter;
@@ -34,11 +35,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PaperWorkbenchRunControllerContractTest {
 
     @Mock private WorkbenchRunTraceService service;
+    @Mock private WorkbenchExecutionService executionService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new PaperWorkbenchRunController(service))
+        mockMvc = MockMvcBuilders.standaloneSetup(new PaperWorkbenchRunController(service, executionService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -75,6 +77,18 @@ class PaperWorkbenchRunControllerContractTest {
         mockMvc.perform(get("/api/workbench/runs/missing"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(404));
+    }
+
+    @Test
+    void submitsPlannedRunForExecution() throws Exception {
+        when(executionService.submit("run-1")).thenReturn(new WorkbenchExecutionService.Submission(
+                "run-1", "task-1", WorkbenchRunStatus.QUEUED));
+
+        mockMvc.perform(post("/api/workbench/runs/run-1/execute"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.runId").value("run-1"))
+                .andExpect(jsonPath("$.data.taskId").value("task-1"))
+                .andExpect(jsonPath("$.data.status").value("QUEUED"));
     }
 
     private WorkbenchRunTrace trace() {

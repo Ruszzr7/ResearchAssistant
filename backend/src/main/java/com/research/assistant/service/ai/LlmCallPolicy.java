@@ -14,10 +14,19 @@ public record LlmCallPolicy(
         int maxInputChars,
         int maxInputTokens,
         int maxOutputTokens,
-        int maxAttempts) {
+        int maxAttempts,
+        boolean jsonOutput) {
+
+    public LlmCallPolicy(String taskType,
+                         int maxInputChars,
+                         int maxInputTokens,
+                         int maxOutputTokens,
+                         int maxAttempts) {
+        this(taskType, maxInputChars, maxInputTokens, maxOutputTokens, maxAttempts, false);
+    }
 
     public static final LlmCallPolicy PAPER_ANALYSIS_REPAIR =
-            new LlmCallPolicy("paper-analysis-repair", 10_000, 4_096, 2_048, 1);
+            new LlmCallPolicy("paper-analysis-repair", 10_000, 4_096, 2_048, 1, true);
 
     public LlmCallPolicy {
         if (taskType == null || taskType.isBlank()) {

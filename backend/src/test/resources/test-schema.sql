@@ -47,6 +47,37 @@ CREATE TABLE paper (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE paper_analysis (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id BIGINT NOT NULL UNIQUE,
+    sections_json TEXT,
+    core_contribution TEXT,
+    method_type VARCHAR(50),
+    method_summary TEXT,
+    datasets_json TEXT,
+    models_json TEXT,
+    key_findings_json TEXT,
+    limitations_json TEXT,
+    tables_summary_json TEXT,
+    figures_summary_json TEXT,
+    reproducible_artifacts_json TEXT,
+    experiment_setup_json TEXT,
+    benchmark_results_json TEXT,
+    relevance_score INT,
+    relevance_reason TEXT,
+    formulas_json TEXT,
+    figures_json TEXT,
+    raw_text TEXT,
+    grounded_report TEXT,
+    grounded_evidence_ids_json TEXT,
+    workbench_run_id VARCHAR(36),
+    layout_document_hash CHAR(64),
+    layout_parser_version VARCHAR(96),
+    token_used INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
+);
+
 CREATE TABLE paper_tag (
     paper_id BIGINT NOT NULL,
     tag_id BIGINT NOT NULL,

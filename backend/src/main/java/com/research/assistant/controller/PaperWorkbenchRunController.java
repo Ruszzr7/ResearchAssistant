@@ -2,6 +2,7 @@ package com.research.assistant.controller;
 
 import com.research.assistant.common.Result;
 import com.research.assistant.dto.workbench.WorkbenchRunPlanRequest;
+import com.research.assistant.service.workbench.WorkbenchExecutionService;
 import com.research.assistant.service.workbench.WorkbenchRunTrace;
 import com.research.assistant.service.workbench.WorkbenchRunTraceService;
 import jakarta.validation.Valid;
@@ -19,14 +20,22 @@ import org.springframework.web.bind.annotation.RestController;
 public class PaperWorkbenchRunController {
 
     private final WorkbenchRunTraceService runTraceService;
+    private final WorkbenchExecutionService executionService;
 
-    public PaperWorkbenchRunController(WorkbenchRunTraceService runTraceService) {
+    public PaperWorkbenchRunController(WorkbenchRunTraceService runTraceService,
+                                       WorkbenchExecutionService executionService) {
         this.runTraceService = runTraceService;
+        this.executionService = executionService;
     }
 
     @PostMapping("/plan")
     public Result<WorkbenchRunTrace> plan(@Valid @RequestBody WorkbenchRunPlanRequest request) {
         return Result.ok(runTraceService.plan(request.toInvocation()));
+    }
+
+    @PostMapping("/{runId}/execute")
+    public Result<WorkbenchExecutionService.Submission> execute(@PathVariable String runId) {
+        return Result.ok(executionService.submit(runId));
     }
 
     @GetMapping("/{runId}")

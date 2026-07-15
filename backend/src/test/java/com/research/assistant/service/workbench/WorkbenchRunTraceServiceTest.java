@@ -108,6 +108,52 @@ class WorkbenchRunTraceServiceTest {
                 .isInstanceOf(StaleLayoutArtifactException.class);
     }
 
+    @Test
+    void taskRetryReplaysUncheckedModelButPreservesApprovedCheckpoint() {
+        WorkbenchRunTrace planned = service.plan(selectionInvocation(anchor("a".repeat(64))));
+        service.prepareExecutionAttempt(planned.runId(), "task-recovery");
+        for (int index = 0; index < 3; index++) {
+            service.startStep(planned.runId(), index, null);
+            service.completeStep(planned.runId(), index, null, 0,
+                    index == 2 ? 10 : 0, index == 2 ? 5 : 0, 1);
+        }
+
+        WorkbenchRunTrace beforeGate = service.prepareExecutionAttempt(planned.runId(), "task-recovery");
+        assertThat(beforeGate.steps().get(0).status()).isEqualTo(WorkbenchStepStatus.COMPLETED);
+        assertThat(beforeGate.steps().get(2).status()).isEqualTo(WorkbenchStepStatus.PENDING);
+        assertThat(beforeGate.steps().get(2).retryCount()).isEqualTo(1);
+        assertThat(beforeGate.steps().get(2).totalTokens()).isEqualTo(15);
+
+        service.startStep(planned.runId(), 2, null);
+        service.completeStep(planned.runId(), 2, null, 0, 3, 2, 1);
+        service.startStep(planned.runId(), 3, null);
+        service.completeStep(planned.runId(), 3, null, 1, 0, 0, 1);
+        service.checkpointResult(planned.runId(), Map.of("answer", "approved"));
+
+        WorkbenchRunTrace approved = service.prepareExecutionAttempt(planned.runId(), "task-recovery");
+        assertThat(approved.steps().get(2).status()).isEqualTo(WorkbenchStepStatus.COMPLETED);
+        assertThat(approved.steps().get(3).status()).isEqualTo(WorkbenchStepStatus.COMPLETED);
+        assertThat(approved.result()).isEqualTo(Map.of("answer", "approved"));
+    }
+
+    @Test
+    void taskRetryReplaysGateCompletedWithoutApprovedCheckpoint() {
+        WorkbenchRunTrace planned = service.plan(selectionInvocation(anchor("a".repeat(64))));
+        service.prepareExecutionAttempt(planned.runId(), "task-crash-window");
+        for (int index = 0; index < 4; index++) {
+            service.startStep(planned.runId(), index, null);
+            service.completeStep(planned.runId(), index, null, index == 3 ? 1 : 0,
+                    index == 2 ? 10 : 0, index == 2 ? 5 : 0, 1);
+        }
+
+        WorkbenchRunTrace recovered = service.prepareExecutionAttempt(planned.runId(), "task-crash-window");
+
+        assertThat(recovered.steps().get(2).status()).isEqualTo(WorkbenchStepStatus.PENDING);
+        assertThat(recovered.steps().get(3).status()).isEqualTo(WorkbenchStepStatus.PENDING);
+        assertThat(recovered.steps().get(2).retryCount()).isEqualTo(1);
+        assertThat(recovered.steps().get(3).retryCount()).isEqualTo(1);
+    }
+
     private WorkbenchInvocation selectionInvocation(SelectionAnchor anchor) {
         return new WorkbenchInvocation(
                 List.of(7L), "解释这个选区", WorkbenchIntent.ASK_SELECTION,

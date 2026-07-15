@@ -39,6 +39,8 @@
 - PDF 工作台采用 rule-first 路由：模型不能提交 Skill 名称或任意计划。`intent + paperIds + SelectionAnchor` 只能映射到四条固定 Workflow，计划中的 allowed skills 必须与固定步骤集合严格相等，scope、最大步数、token 预算和最多一次 repair 都由后端验证。
 - 工作台回答使用结构化 claim 与 evidence IDs，而不是从 Markdown 中猜引用。Evidence Gate 只接受本次运行候选集中的稳定 ID，逐 claim 计算覆盖率；未知 ID、空证据或覆盖不足第一次返回 `REPAIR`，同一证据集修复一次仍不合格则 `REJECT`。
 - 工作台 run 必须绑定每篇 PDF 的 document hash 与组合 parser version；run/step trace 持久化状态、证据数、token、耗时和输入/输出摘要，不把原始 provider 响应或完整 prompt 写入步骤日志。这样后端重启后仍能审计计划，PDF 更新后也不会复用旧锚点。
+- 工作台模型输出使用 JSON response format，并在进入 Evidence Gate 前拒绝空内容、截断内容和只有 reasoning 没有最终答案的响应；token 预算必须按“输入 + 隐式推理 + 最终 JSON”核算，不能只提高输出上限。强制 thinking 的代码模型可完成全文分析，但延迟和 token 成本明显高于通用分析模型。
+- 选区 Workflow 必须至少引用一条 `selected=true` 的 evidence；多篇对比必须覆盖每个请求论文 ID。门禁通过后先保存规范化结果 checkpoint，再写业务报告；异步重试可复用 checkpoint 而不重复调用模型，最后一次可恢复任务失败时必须同步把绑定 run 置为终态。
 
 ## 5. 异步任务与可观测性
 

@@ -5,12 +5,12 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
-final class LayoutTextSimilarity {
+public final class LayoutTextSimilarity {
 
     private LayoutTextSimilarity() {
     }
 
-    static double queryCoverage(String query, String candidate) {
+    public static double queryCoverage(String query, String candidate) {
         String normalizedQuery = compact(query);
         String normalizedCandidate = compact(candidate);
         if (normalizedQuery.isBlank() || normalizedCandidate.isBlank()) {

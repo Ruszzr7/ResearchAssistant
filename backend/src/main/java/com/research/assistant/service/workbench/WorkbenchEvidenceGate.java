@@ -22,11 +22,16 @@ public class WorkbenchEvidenceGate {
                                GatePolicy policy) {
         GatePolicy effectivePolicy = policy == null ? GatePolicy.strict(0) : policy;
         Set<String> candidates = new LinkedHashSet<>();
+        java.util.Map<String, Long> paperByEvidenceId = new java.util.LinkedHashMap<>();
+        Set<String> selectedEvidenceIds = new LinkedHashSet<>();
         if (evidenceSet != null) {
             evidenceSet.stream()
                     .filter(item -> item != null && item.evidenceId() != null && !item.evidenceId().isBlank())
-                    .map(LayoutEvidence::evidenceId)
-                    .forEach(candidates::add);
+                    .forEach(item -> {
+                        candidates.add(item.evidenceId());
+                        paperByEvidenceId.put(item.evidenceId(), item.paperId());
+                        if (item.selected()) selectedEvidenceIds.add(item.evidenceId());
+                    });
         }
 
         List<String> issues = new ArrayList<>();
@@ -66,6 +71,15 @@ public class WorkbenchEvidenceGate {
         }
 
         if (!invalidIds.isEmpty()) issues.add("answer cites evidence outside the current run");
+        Set<Long> citedPaperIds = validIds.stream().map(paperByEvidenceId::get)
+                .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        if (!citedPaperIds.containsAll(effectivePolicy.requiredPaperIds())) {
+            issues.add("answer does not cite every required paper");
+        }
+        if (effectivePolicy.requireSelectedEvidence()
+                && validIds.stream().noneMatch(selectedEvidenceIds::contains)) {
+            issues.add("answer does not cite the selected passage");
+        }
         double coverage = evaluatedClaims == 0 ? (effectivePolicy.evidenceRequired() ? 0 : 1)
                 : groundedClaims / (double) evaluatedClaims;
         if (coverage + 1e-9 < effectivePolicy.minimumClaimCoverage()) {
@@ -105,8 +119,11 @@ public class WorkbenchEvidenceGate {
     public record GatePolicy(boolean evidenceRequired,
                              double minimumClaimCoverage,
                              int repairAttempt,
-                             int repairLimit) {
+                             int repairLimit,
+                             Set<Long> requiredPaperIds,
+                             boolean requireSelectedEvidence) {
         public GatePolicy {
+            requiredPaperIds = requiredPaperIds == null ? Set.of() : Set.copyOf(requiredPaperIds);
             if (minimumClaimCoverage < 0 || minimumClaimCoverage > 1) {
                 throw new IllegalArgumentException("minimum claim coverage must be between 0 and 1");
             }
@@ -117,7 +134,15 @@ public class WorkbenchEvidenceGate {
         }
 
         public static GatePolicy strict(int repairAttempt) {
-            return new GatePolicy(true, 1.0, repairAttempt, 1);
+            return new GatePolicy(true, 1.0, repairAttempt, 1, Set.of(), false);
+        }
+
+        public static GatePolicy selection(int repairAttempt) {
+            return new GatePolicy(true, 1.0, repairAttempt, 1, Set.of(), true);
+        }
+
+        public static GatePolicy comparison(int repairAttempt, Set<Long> paperIds) {
+            return new GatePolicy(true, 1.0, repairAttempt, 1, paperIds, false);
         }
     }
 
