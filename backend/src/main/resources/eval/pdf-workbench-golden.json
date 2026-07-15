@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "layoutCases": [
+    {
+      "id": "ieee-semantic-roles-and-reading-order",
+      "artifact": {
+        "paperId": 7001,
+        "documentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "parserVersion": "fixture-layout-v1",
+        "layoutConfidence": 0.91,
+        "pageCount": 2,
+        "blocks": [
+          {"id":"raw-00","page":1,"bbox":{"x":0.08,"y":0.03,"width":0.84,"height":0.015},"role":"BODY","readingOrder":0,"text":"IEEE TRANSACTIONS ON WIRELESS COMMUNICATIONS, VOL. 25, 2026","confidence":0.92},
+          {"id":"raw-01","page":1,"bbox":{"x":0.13,"y":0.09,"width":0.74,"height":0.026},"role":"BODY","readingOrder":1,"text":"Layout-Aware Evidence for Research Assistants","confidence":0.94},
+          {"id":"raw-02","page":1,"bbox":{"x":0.24,"y":0.135,"width":0.52,"height":0.016},"role":"BODY","readingOrder":2,"text":"Alice Smith and Bob Chen","confidence":0.94},
+          {"id":"raw-03","page":1,"bbox":{"x":0.08,"y":0.20,"width":0.40,"height":0.014},"role":"BODY","readingOrder":3,"text":"Abstract—This paper introduces a layout-aware evidence","confidence":0.92},
+          {"id":"raw-04","page":1,"bbox":{"x":0.08,"y":0.218,"width":0.40,"height":0.014},"role":"BODY","readingOrder":4,"text":"pipeline for grounded PDF question answering.","confidence":0.92},
+          {"id":"raw-05","page":1,"bbox":{"x":0.55,"y":0.20,"width":0.34,"height":0.016},"role":"BODY","readingOrder":5,"text":"I. INTRODUCTION","confidence":0.93},
+          {"id":"raw-06","page":1,"bbox":{"x":0.55,"y":0.23,"width":0.37,"height":0.014},"role":"BODY","readingOrder":6,"text":"Reliable research assistants must preserve local evidence.","confidence":0.91},
+          {"id":"raw-07","page":1,"bbox":{"x":0.55,"y":0.248,"width":0.37,"height":0.014},"role":"BODY","readingOrder":7,"text":"They must also exclude repeated page furniture.","confidence":0.91},
+          {"id":"raw-08","page":1,"bbox":{"x":0.08,"y":0.77,"width":0.40,"height":0.014},"role":"BODY","readingOrder":8,"text":"This work was supported by Example Grant 123.","confidence":0.9},
+          {"id":"raw-09","page":1,"bbox":{"x":0.49,"y":0.965,"width":0.02,"height":0.012},"role":"BODY","readingOrder":9,"text":"1","confidence":0.95},
+          {"id":"raw-10","page":2,"bbox":{"x":0.08,"y":0.03,"width":0.84,"height":0.015},"role":"BODY","readingOrder":10,"text":"IEEE TRANSACTIONS ON WIRELESS COMMUNICATIONS, VOL. 25, 2026","confidence":0.92},
+          {"id":"raw-11","page":2,"bbox":{"x":0.08,"y":0.10,"width":0.30,"height":0.016},"role":"BODY","readingOrder":11,"text":"II. METHOD","confidence":0.93},
+          {"id":"raw-12","page":2,"bbox":{"x":0.08,"y":0.13,"width":0.40,"height":0.014},"role":"BODY","readingOrder":12,"text":"The proposed method builds stable selection anchors.","confidence":0.91},
+          {"id":"raw-13","page":2,"bbox":{"x":0.08,"y":0.148,"width":0.40,"height":0.014},"role":"BODY","readingOrder":13,"text":"Each anchor is linked to page-addressable evidence.","confidence":0.91},
+          {"id":"raw-14","page":2,"bbox":{"x":0.55,"y":0.10,"width":0.25,"height":0.016},"role":"BODY","readingOrder":14,"text":"REFERENCES","confidence":0.93},
+          {"id":"raw-15","page":2,"bbox":{"x":0.55,"y":0.13,"width":0.37,"height":0.014},"role":"BODY","readingOrder":15,"text":"[1] A. Author, Grounded evidence systems, 2025.","confidence":0.91},
+          {"id":"raw-16","page":2,"bbox":{"x":0.55,"y":0.148,"width":0.37,"height":0.014},"role":"BODY","readingOrder":16,"text":"[2] B. Author, Document layout analysis, 2024.","confidence":0.91},
+          {"id":"raw-17","page":2,"bbox":{"x":0.49,"y":0.965,"width":0.02,"height":0.012},"role":"BODY","readingOrder":17,"text":"2","confidence":0.95}
+        ]
+      },
+      "hints": {
+        "title": "Layout-Aware Evidence for Research Assistants",
+        "authors": "Alice Smith; Bob Chen",
+        "abstractText": "This paper introduces a layout-aware evidence pipeline for grounded PDF question answering."
+      },
+      "expected": {
+        "roleMinimums": {"TITLE":1,"AUTHOR":1,"ABSTRACT":1,"HEADING":2,"BODY":2,"REFERENCE":1,"HEADER":2,"FOOTER":2},
+        "minimumValidGeometryRatio": 1.0,
+        "forbiddenEvidenceRoles": ["TITLE","AUTHOR","REFERENCE","HEADER","FOOTER","MARGIN_METADATA"]
+      }
+    }
+  ],
+  "selectionCases": [
+    {
+      "id": "double-column-body-selection",
+      "artifact": {
+        "paperId": 7101,
+        "documentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "parserVersion": "fixture-semantic-v1",
+        "layoutConfidence": 0.93,
+        "pageCount": 2,
+        "blocks": [
+          {"id":"header","page":1,"bbox":{"x":0.08,"y":0.02,"width":0.84,"height":0.02},"role":"HEADER","readingOrder":0,"text":"IEEE journal header","confidence":0.95,"contentMode":"TEXT"},
+          {"id":"body-left","page":1,"bbox":{"x":0.08,"y":0.20,"width":0.40,"height":0.12},"role":"BODY","readingOrder":1,"sectionPath":["I. INTRODUCTION"],"text":"Rate-splitting improves the achievable sum rate in high-mobility short-packet systems while preserving reliable decoding.","confidence":0.94,"contentMode":"TEXT"},
+          {"id":"body-left-next","page":1,"bbox":{"x":0.08,"y":0.34,"width":0.40,"height":0.10},"role":"BODY","readingOrder":2,"sectionPath":["I. INTRODUCTION"],"text":"The common stream is decoded before each user's private stream.","confidence":0.93,"contentMode":"TEXT"},
+          {"id":"body-right","page":1,"bbox":{"x":0.54,"y":0.20,"width":0.38,"height":0.12},"role":"BODY","readingOrder":3,"sectionPath":["I. INTRODUCTION"],"text":"The right column contains a separate paragraph and must not merge geometrically with the left column.","confidence":0.93,"contentMode":"TEXT"},
+          {"id":"reference","page":2,"bbox":{"x":0.08,"y":0.20,"width":0.40,"height":0.12},"role":"REFERENCE","readingOrder":4,"text":"[1] Reference text must never enter evidence.","confidence":0.94,"contentMode":"TEXT"}
+        ]
+      },
+      "selection":{"page":1,"boxes":[{"x":0.08,"y":0.20,"width":0.40,"height":0.12}],"anchorText":"Rate-splitting improves the achievable sum rate","preferredKind":"TEXT"},
+      "query":"What does rate-splitting improve?",
+      "expected":{"anchorKind":"TEXT","minimumConfidence":0.8,"anchorBlockIds":["body-left"],"evidenceBlockIds":["body-left"],"regionFallback":false,"forbiddenEvidenceRoles":["HEADER","REFERENCE"]}
+    },
+    {
+      "id": "header-selection-is-not-text-evidence",
+      "artifact": {
+        "paperId":7102,"documentHash":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","parserVersion":"fixture-semantic-v1","layoutConfidence":0.91,"pageCount":1,
+        "blocks":[
+          {"id":"header-only","page":1,"bbox":{"x":0.08,"y":0.02,"width":0.84,"height":0.025},"role":"HEADER","readingOrder":0,"text":"Proceedings of the IEEE 2026","confidence":0.95,"contentMode":"TEXT"},
+          {"id":"body-far","page":1,"bbox":{"x":0.08,"y":0.25,"width":0.40,"height":0.10},"role":"BODY","readingOrder":1,"text":"Actual body evidence is geometrically separate from the header.","confidence":0.93,"contentMode":"TEXT"}
+        ]
+      },
+      "selection":{"page":1,"boxes":[{"x":0.08,"y":0.02,"width":0.84,"height":0.025}],"anchorText":"Proceedings of the IEEE 2026","preferredKind":"TEXT"},
+      "expected":{"anchorKind":"REGION","anchorBlockIds":["header-only"],"regionFallback":true,"evidenceEmpty":true,"forbiddenEvidenceRoles":["HEADER"]}
+    },
+    {
+      "id": "reference-selection-is-not-text-evidence",
+      "artifact": {
+        "paperId":7103,"documentHash":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","parserVersion":"fixture-semantic-v1","layoutConfidence":0.91,"pageCount":1,
+        "blocks":[
+          {"id":"reference-only","page":1,"bbox":{"x":0.08,"y":0.40,"width":0.40,"height":0.10},"role":"REFERENCE","readingOrder":0,"text":"[8] A. Author, Untrusted citation context.","confidence":0.93,"contentMode":"TEXT"}
+        ]
+      },
+      "selection":{"page":1,"boxes":[{"x":0.08,"y":0.40,"width":0.40,"height":0.10}],"anchorText":"Untrusted citation context","preferredKind":"TEXT"},
+      "expected":{"anchorKind":"REGION","anchorBlockIds":["reference-only"],"regionFallback":true,"evidenceEmpty":true,"forbiddenEvidenceRoles":["REFERENCE"]}
+    },
+    {
+      "id": "unstructured-formula-degrades-to-safe-region",
+      "artifact": {
+        "paperId":7104,"documentHash":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","parserVersion":"fixture-semantic-v1","layoutConfidence":0.9,"pageCount":1,
+        "blocks":[
+          {"id":"formula-region","page":1,"bbox":{"x":0.12,"y":0.30,"width":0.34,"height":0.07},"role":"FORMULA","readingOrder":0,"text":"R_k = broken raw glyph stream","confidence":0.72,"contentMode":"REGION"}
+        ]
+      },
+      "selection":{"page":1,"boxes":[{"x":0.12,"y":0.30,"width":0.34,"height":0.07}],"anchorText":"R_k","preferredKind":"FORMULA"},
+      "expected":{"anchorKind":"REGION","anchorBlockIds":["formula-region"],"evidenceBlockIds":["formula-region"],"regionFallback":true,"evidenceModes":{"formula-region":"REGION"},"forbiddenEvidenceText":["broken raw glyph stream"]}
+    },
+    {
+      "id": "structured-formula-preserves-latex",
+      "artifact": {
+        "paperId":7105,"documentHash":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","parserVersion":"fixture-external-v1","layoutConfidence":0.94,"pageCount":1,
+        "blocks":[
+          {"id":"formula-structured","page":1,"bbox":{"x":0.12,"y":0.30,"width":0.34,"height":0.07},"role":"FORMULA","readingOrder":0,"text":"R sum expression","latex":"R=\\sum_{k=1}^{K} R_k","confidence":0.95,"contentMode":"STRUCTURED"}
+        ]
+      },
+      "selection":{"page":1,"boxes":[{"x":0.12,"y":0.30,"width":0.34,"height":0.07}],"anchorText":"R sum expression","preferredKind":"FORMULA"},
+      "expected":{"anchorKind":"FORMULA","minimumConfidence":0.8,"anchorBlockIds":["formula-structured"],"evidenceBlockIds":["formula-structured"],"regionFallback":false,"evidenceModes":{"formula-structured":"STRUCTURED"},"structuredContentContains":{"formula-structured":"\\sum"}}
+    },
+    {
+      "id": "unstructured-table-degrades-to-safe-region",
+      "artifact": {
+        "paperId":7106,"documentHash":"1111111111111111111111111111111111111111111111111111111111111111","parserVersion":"fixture-semantic-v1","layoutConfidence":0.9,"pageCount":1,
+        "blocks":[
+          {"id":"table-region","page":1,"bbox":{"x":0.10,"y":0.42,"width":0.80,"height":0.18},"role":"TABLE","readingOrder":0,"text":"misordered table cell text","confidence":0.75,"contentMode":"REGION"}
+        ]
+      },
+      "selection":{"page":1,"boxes":[{"x":0.10,"y":0.42,"width":0.80,"height":0.18}],"anchorText":"table results","preferredKind":"TABLE"},
+      "expected":{"anchorKind":"REGION","anchorBlockIds":["table-region"],"evidenceBlockIds":["table-region"],"regionFallback":true,"evidenceModes":{"table-region":"REGION"},"forbiddenEvidenceText":["misordered table cell text"]}
+    }
+  ]
+}

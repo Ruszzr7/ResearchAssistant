@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "wy-rsma-sum-rate-layout",
+      "pathEnvironment": "RA_LAYOUT_SAMPLE",
+      "expected": {
+        "minimumPageCount": 16,
+        "minimumQuality": 0.90,
+        "requiredRoles": ["TITLE", "AUTHOR", "ABSTRACT", "HEADING", "BODY", "FORMULA", "REFERENCE"],
+        "forbiddenEvidenceRoles": ["TITLE", "AUTHOR", "REFERENCE", "HEADER", "FOOTER", "MARGIN_METADATA"]
+      },
+      "selection": {
+        "page": 13,
+        "boxes": [{"x":0.080,"y":0.094,"width":0.410,"height":0.189}],
+        "anchorText": "In this work, we have investigated the ergodic sum-rate performance of RSMA in high-mobility",
+        "preferredKind": "TEXT"
+      },
+      "selectionExpected": {
+        "anchorKind": "TEXT",
+        "minimumConfidence": 0.70,
+        "evidenceBlockIds": ["p13-b0003"],
+        "regionFallback": false,
+        "forbiddenEvidenceRoles": ["REFERENCE", "HEADER", "FOOTER", "MARGIN_METADATA"]
+      }
+    },
+    {
+      "id": "vertical-margin-metadata-layout",
+      "pathEnvironment": "RA_LAYOUT_MARGIN_SAMPLE",
+      "expected": {
+        "minimumPageCount": 1,
+        "minimumQuality": 0.65,
+        "requiredRoles": ["BODY"],
+        "forbiddenEvidenceRoles": ["HEADER", "FOOTER", "MARGIN_METADATA", "REFERENCE"]
+      }
+    },
+    {
+      "id": "formula-heavy-layout",
+      "pathEnvironment": "RA_LAYOUT_FORMULA_SAMPLE",
+      "expected": {
+        "minimumPageCount": 1,
+        "minimumQuality": 0.65,
+        "requiredRoles": ["BODY", "FORMULA"],
+        "forbiddenEvidenceRoles": ["HEADER", "FOOTER", "MARGIN_METADATA", "REFERENCE"]
+      }
+    },
+    {
+      "id": "scan-fallback-layout",
+      "pathEnvironment": "RA_LAYOUT_SCAN_SAMPLE",
+      "expected": {
+        "minimumPageCount": 1,
+        "minimumQuality": 0.60,
+        "requiredRoles": ["BODY"],
+        "forbiddenEvidenceRoles": ["HEADER", "FOOTER", "MARGIN_METADATA", "REFERENCE"]
+      }
+    }
+  ]
+}

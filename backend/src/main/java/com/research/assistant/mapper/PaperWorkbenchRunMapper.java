@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 @Mapper
 public interface PaperWorkbenchRunMapper extends BaseMapper<PaperWorkbenchRunRecord> {
@@ -26,4 +27,10 @@ public interface PaperWorkbenchRunMapper extends BaseMapper<PaperWorkbenchRunRec
             + "WHERE status IN ('PLANNED','QUEUED','RUNNING') AND task_id IS NOT NULL "
             + "ORDER BY updated_at ASC, id ASC LIMIT #{limit}")
     List<PaperWorkbenchRunRecord> selectActive(@Param("limit") int limit);
+
+    /** Bounded, newest-first window for restart-stable aggregate metrics. */
+    @Select("SELECT " + COLUMNS + " FROM paper_workbench_run "
+            + "WHERE created_at >= #{since} ORDER BY created_at DESC, id DESC LIMIT #{limit}")
+    List<PaperWorkbenchRunRecord> selectForMetrics(@Param("since") LocalDateTime since,
+                                                   @Param("limit") int limit);
 }

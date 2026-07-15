@@ -272,6 +272,14 @@ PDF 右侧助手固定展示四个 Workflow 入口，并复用 P1-B3b 的选区�
 
 Flyway V17 将 `primaryParser/selectedParser/fallbackAttempted/fallbackAccepted/primaryQuality/fallbackQuality/issues/failureCode` 与 artifact 一起持久化。`DocumentBlock` 和 `LayoutEvidence` 增加 `TEXT/STRUCTURED/REGION` 内容模式：公式没有可信 LaTeX、表格没有可信结构时强制生成 `REGION` anchor，返回可回链 bbox 与核对提示，不向模型暴露损坏文本；区域块可服务选区工作流，但从全文分析和多篇对比的文本采样中排除。WY 真实论文保持 16 页、2236 行，质量分 0.956、91,430 字符、坐标有效率 100%、无回退告警。后端全量 393 项（4 项可选样例跳过）、真实样例定向 12 项、前端 35 项及生产构建通过。
 
+### 8.10 P3-B1 评测集与聚合指标验收
+
+仓库内 `pdf-workbench-golden.json` 是无版权内容、无模型调用的确定性微型评测集。当前 7 个 case 覆盖 IEEE 风格语义角色和连续 reading order、双栏正文选区、页眉/参考文献证据隔离、非结构化公式/表格 `REGION` 降级，以及外部解析器结构化公式的 LaTeX 保留。`PdfWorkbenchEvalService` 直接运行生产使用的 semantic enricher、anchor resolver、evidence policy/service 和质量评估器；任何 case 的失败会返回稳定 case ID 与低敏 issue code。
+
+真实论文不提交仓库。`pdf-workbench-real-manifest.json` 只记录环境变量别名、最小页数/质量、必需角色、禁止证据角色和代表性归一化选区；配置 `RA_LAYOUT_SAMPLE` 后会对 WY 论文执行 adaptive parser、语义增强、质量门禁、选区锚定与 evidence 回链。评测结果按环境配置和文件大小/修改时间缓存 10 分钟，API 只暴露 case 别名、状态、issue code 和耗时，不暴露本机路径或论文内容。当前 WY case 为 16 页、质量高于 0.90，页 13 结论段映射为 `TEXT` 并命中 `p13-b0003`。
+
+`GET /api/workbench/metrics?days=30` 从持久化数据生成重启稳定的聚合快照：每篇论文仅统计最新 READY artifact，run 时间窗限制为 1–365 天且最多 5000 条。指标包含版面平均质量、低质量数、回退资格/尝试/采用和平均收益、`TEXT/STRUCTURED/REGION` 块数、选区锚点类型/平均置信度/区域降级率、claim 证据覆盖、无证据与门禁拒绝、repair、多篇逐论文引用覆盖，以及四条固定 Workflow 的完成率、token、证据和耗时。坏 JSON 与窗口截断会单独计数，论文文本、问题和路径不进入响应。确定性评测 7/7、WY 真实 manifest 1/1、后端全量 400 项通过。
+
 ## 9. 分阶段实施
 
 | 阶段 | 交付 | 验收 |
@@ -286,7 +294,8 @@ Flyway V17 将 `primaryParser/selectedParser/fallbackAttempted/fallbackAccepted/
 | P2-B（已完成） | 选区问答、全文分析、批注建议、多篇对比四条固定 Workflow | 每条 Workflow 只调用允许 Skill，并返回可回链 evidence |
 | P2-C（已完成） | PDF 右侧论文助手、运行 trace 与证据跳转 | 用户可在同一页面发起固定 Workflow 并检查每步证据 |
 | P3-A（已完成） | 低置信度外部解析适配器、公式/表格区域模式 | 复杂页显式回退或区域降级，不伪造精确文本 |
-| P3-B（下一步） | 真实评测集、指标面板与多论文对比完善 | 选择/证据/门禁/对比指标可重复运行并查看 |
+| P3-B1（已完成） | 可提交评测集、可选真实 PDF manifest、可重复评测器与聚合指标 API | 确定性 7/7、WY 真实 case 通过；指标不泄露论文内容 |
+| P3-B2（下一步） | 产品指标面板与多论文对比选择/覆盖呈现 | 可查看质量趋势；对比前校验论文集合并按论文展示证据覆盖 |
 
 ## 10. 可提炼为简历亮点的技术叙事
 
