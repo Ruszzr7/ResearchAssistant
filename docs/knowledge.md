@@ -99,6 +99,9 @@
 - `SelectionAnchor` 的块身份不能由前端提供或信任：前端只提交页码、左上角归一化选区框和可选文本，后端基于当前 artifact 的几何覆盖率与文本一致性重新匹配。锚点必须携带 PDF hash 和组合解析版本；版本不一致返回 409，不能把旧坐标静默套到新 PDF。
 - 局部 evidence 应与普通向量 RAG 分开：先从锚点块建立有界 reading-order 邻域，再用问题做轻量排序，并在返回前执行角色白名单。页眉/页脚/参考文献区域若没有相交的合法正文块，应返回空 evidence 的 `REGION` 降级，而不是擅自抓取附近正文制造依据。
 - Layout evidence ID 应由论文、PDF hash、解析版本和块 ID 稳定派生，同时返回页码、归一化坐标和块置信度；这样答案引用既可确定性校验，也可在前端直接跳回并高亮原页。
+- 前端向后端提交选区时，应把 PDF.js viewport quads 按视觉行合并后转换为左上角归一化 boxes；不要提交屏幕绝对坐标，也不要依赖前端推断的块 ID。后端 evidence bbox 反向乘以当前 viewport 后即可实现缩放无关的页内回链。
+- 拖选期间不能挂载会改变 PDF 可用宽度的证据侧栏，否则指针坐标、文字层和 canvas 会在 `pointerup` 前发生重排。侧栏应在选择结束后显示，并用窗口级 `pointerup` 作为 pointer capture 失效或鼠标拖出文字层时的兜底。
+- Vite 代理不能掩盖浏览器 `Origin` 与后端 CORS 白名单的差异；启动脚本绑定并展示 `http://127.0.0.1:5173`，默认白名单必须同时覆盖 localhost、IPv4 loopback 与 IPv6 loopback，否则带 Origin 的 POST 会得到 403 并被误判为业务接口失败。
 
 ## 8. 安全、部署与验证
 

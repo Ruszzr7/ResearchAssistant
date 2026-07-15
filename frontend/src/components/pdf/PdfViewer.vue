@@ -117,6 +117,16 @@
               fill-opacity="0.32"
             />
           </g>
+          <g v-if="evidenceFocusForPage(page.pageNum)" class="evidence-focus-preview">
+            <polygon
+              :points="quadPoints(evidenceFocusForPage(page.pageNum), page, viewportCoordinates)"
+              fill="#ff9800"
+              fill-opacity="0.18"
+              stroke="#ff9800"
+              stroke-width="2"
+              stroke-dasharray="6 3"
+            />
+          </g>
           <g v-for="ann in pageAnnotations(page.pageNum)" :key="ann.localId"
             @pointerdown.stop="beginAnnotationPointerDown($event, ann)"
             @click.stop="onAnnotationClick(ann)"
@@ -232,6 +242,44 @@
         <div class="virtual-spacer" :style="{ height: bottomSpacerHeight + 'px' }" aria-hidden="true"></div>
       </div>
 
+      <aside v-if="selectionPanelVisible && pendingTextSelection" class="selection-evidence-panel" aria-label="选区证据">
+        <div class="selection-evidence-panel__header">
+          <div>
+            <strong>选区证据</strong>
+            <span v-if="selectionAnchor" class="selection-anchor-status" :class="`is-${selectionAnchor.kind.toLowerCase()}`">
+              {{ selectionAnchorLabel }}
+            </span>
+          </div>
+          <button type="button" class="selection-evidence-panel__close" aria-label="清除选区" @click="clearPendingTextSelection">×</button>
+        </div>
+        <p class="selection-evidence-panel__text">{{ pendingTextSelection.text }}</p>
+        <div v-if="selectionContextLoading" class="selection-evidence-panel__empty">正在建立证据锚点…</div>
+        <div v-else-if="selectionContextError" class="selection-evidence-panel__error">{{ selectionContextError }}</div>
+        <template v-else-if="selectionAnchor">
+          <div class="selection-evidence-panel__meta">
+            置信度 {{ Math.round(selectionAnchor.confidence * 100) }}%
+            · 第 {{ selectionAnchor.page }} 页
+          </div>
+          <div v-if="localEvidence.length" class="selection-evidence-list">
+            <button
+              v-for="item in localEvidence"
+              :key="item.evidenceId"
+              type="button"
+              class="selection-evidence-item"
+              :class="{ selected: item.selected }"
+              @click="jumpToEvidence(item)"
+            >
+              <span class="selection-evidence-item__meta">
+                第 {{ item.page }} 页 · {{ evidenceRoleLabel(item.role) }}
+                <span v-if="item.selected">选中</span>
+              </span>
+              <span class="selection-evidence-item__text">{{ item.text }}</span>
+            </button>
+          </div>
+          <div v-else class="selection-evidence-panel__empty">该区域没有可安全引用的正文证据</div>
+        </template>
+      </aside>
+
     <NoteLinkPanel
       v-if="showNotePanel"
       :notes="notes"
@@ -321,6 +369,8 @@ import NoteEditor from '@/components/notes/NoteEditor.vue'
 import { resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
 import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
+import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
+import { resolveSelectionAnchor, retrieveLocalEvidence } from '@/api/workbench.js'
 import { ElMessage } from 'element-plus'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
@@ -357,6 +407,12 @@ const currentTool = ref('select')
 const currentColor = ref('#ffeb3b')
 const aiGenerating = ref(false)
 const pendingTextSelection = ref(null)
+const selectionAnchor = ref(null)
+const localEvidence = ref([])
+const selectionContextLoading = ref(false)
+const selectionContextError = ref('')
+const evidenceFocus = ref(null)
+const selectionPanelVisible = ref(false)
 
 const noteDialogVisible = ref(false)
 const noteEditText = ref('')
@@ -385,21 +441,38 @@ let draggingNote = null
 let resizingAnnotation = null
 let suppressAnnotationClickId = null
 let layoutSelectionDrag = null
+let selectionContextRequestId = 0
+let evidenceFocusTimer = null
 
 const pageAnnotations = computed(() => (pageNum) => annotations.value.filter(a => a.page === pageNum))
 const selectionGroupForPage = computed(() => (pageNum) => (
   pendingTextSelection.value?.groups?.find(group => group.pageNum === pageNum) || null
+))
+const evidenceFocusForPage = computed(() => (pageNum) => (
+  evidenceFocus.value?.page === pageNum
+    ? boundingBoxToViewportQuad(evidenceFocus.value.bbox)
+    : null
 ))
 const visiblePages = computed(() => renderedPages.value.slice(
   Math.max(0, visiblePageStart.value - 1), visiblePageEnd.value
 ))
 const selectionHint = computed(() => {
   const text = pendingTextSelection.value?.text || ''
+  if (text && selectionContextLoading.value) return '正在建立证据锚点…'
+  if (text && selectionAnchor.value) return selectionAnchor.value.kind === 'REGION'
+    ? '该选区将按区域理解'
+    : `${selectionAnchorLabel.value} · ${Math.round(selectionAnchor.value.confidence * 100)}%`
   if (text) return `已选中“${text.slice(0, 18)}${text.length > 18 ? '…' : ''}”，可添加高亮、下划线或关联便签`
   if (currentTool.value === 'note') return '点击页面放置便签；先选中文本再点“便签”可建立关联'
   if (currentTool.value === 'edit') return '点击批注后可编辑或删除；拖动高亮/下划线两端可调整范围'
   return '先拖动选择文本，再点高亮、下划线或便签'
 })
+const selectionAnchorLabel = computed(() => ({
+  TEXT: '正文已映射',
+  FORMULA: '公式已映射',
+  TABLE: '表格已映射',
+  REGION: '区域理解'
+}[selectionAnchor.value?.kind] || '已建立锚点'))
 
 function pageHeight(page) {
   return page?.height || estimatedPageHeight.value
@@ -426,6 +499,8 @@ onMounted(() => {
   document.documentElement.classList.add('pdf-viewer-open')
   document.body.classList.add('pdf-viewer-open')
   window.addEventListener('click', onWindowClick)
+  window.addEventListener('pointerup', finishTextSelectionFromWindow, true)
+  window.addEventListener('pointercancel', cancelTextSelection, true)
   loadDocument()
 })
 onUnmounted(() => {
@@ -434,7 +509,10 @@ onUnmounted(() => {
   cancelAllPageRenders()
   pdfDoc.value?.destroy()
   pageLayoutIndexes.clear()
+  if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
   window.removeEventListener('click', onWindowClick)
+  window.removeEventListener('pointerup', finishTextSelectionFromWindow, true)
+  window.removeEventListener('pointercancel', cancelTextSelection, true)
   document.documentElement.classList.remove('pdf-viewer-open')
   document.body.classList.remove('pdf-viewer-open')
 })
@@ -901,6 +979,17 @@ function finishTextSelection(event, pageNum) {
   updateTextSelection(event, pageNum)
   drag.layer.releasePointerCapture?.(event.pointerId)
   layoutSelectionDrag = null
+  const selection = pendingTextSelection.value
+  if (selection?.groups?.length) {
+    selectionPanelVisible.value = true
+    void resolvePendingSelectionContext(selection)
+  }
+}
+
+function finishTextSelectionFromWindow(event) {
+  const drag = layoutSelectionDrag
+  if (!drag || drag.pointerId !== event.pointerId) return
+  finishTextSelection(event, drag.pageNum)
 }
 
 function cancelTextSelection(event) {
@@ -950,6 +1039,62 @@ function applyLayoutSelection(drag, selection) {
     groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
     text: selection.text
   }
+}
+
+async function resolvePendingSelectionContext(selection) {
+  const payload = selectionToAnchorPayload(selection)
+  const requestId = ++selectionContextRequestId
+  selectionAnchor.value = null
+  localEvidence.value = []
+  selectionContextError.value = ''
+  evidenceFocus.value = null
+  if (!payload) {
+    selectionContextError.value = '选区坐标无效，请重新选择'
+    return
+  }
+
+  selectionContextLoading.value = true
+  try {
+    const anchor = await resolveSelectionAnchor(props.paper.id, payload)
+    if (requestId !== selectionContextRequestId) return
+    selectionAnchor.value = anchor
+    const result = await retrieveLocalEvidence(
+      props.paper.id,
+      anchor,
+      String(selection.text || '').slice(0, 2000),
+      6
+    )
+    if (requestId !== selectionContextRequestId) return
+    selectionAnchor.value = result.anchor || anchor
+    localEvidence.value = result.evidence || []
+  } catch (error) {
+    if (requestId !== selectionContextRequestId) return
+    selectionContextError.value = error.response?.data?.message || error.message || '证据锚点建立失败'
+  } finally {
+    if (requestId === selectionContextRequestId) selectionContextLoading.value = false
+  }
+}
+
+async function jumpToEvidence(item) {
+  if (!item?.page || !item?.bbox) return
+  await goToPage(item.page)
+  evidenceFocus.value = { page: item.page, bbox: item.bbox }
+  if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
+  evidenceFocusTimer = window.setTimeout(() => {
+    evidenceFocus.value = null
+    evidenceFocusTimer = null
+  }, 3200)
+}
+
+function evidenceRoleLabel(role) {
+  return {
+    ABSTRACT: '摘要',
+    HEADING: '标题',
+    BODY: '正文',
+    CAPTION: '图表说明',
+    FORMULA: '公式',
+    TABLE: '表格'
+  }[role] || role
 }
 
 function selectionSegmentsToViewportQuads(segments, layoutIndex, layer, pageElement) {
@@ -1030,8 +1175,19 @@ async function applyTextAnnotation(type) {
 }
 
 function clearPendingTextSelection() {
+  selectionContextRequestId += 1
   layoutSelectionDrag = null
   pendingTextSelection.value = null
+  selectionAnchor.value = null
+  localEvidence.value = []
+  selectionContextLoading.value = false
+  selectionContextError.value = ''
+  evidenceFocus.value = null
+  selectionPanelVisible.value = false
+  if (evidenceFocusTimer != null) {
+    window.clearTimeout(evidenceFocusTimer)
+    evidenceFocusTimer = null
+  }
   window.getSelection()?.removeAllRanges()
 }
 
@@ -1679,6 +1835,112 @@ function colorName(color) {
   font-size: 12px;
   color: var(--ra-text-secondary);
 }
+.selection-evidence-panel {
+  flex: 0 0 310px;
+  min-width: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 14px;
+  border-left: 1px solid var(--ra-border);
+  background: var(--ra-panel-bg);
+}
+.selection-evidence-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--ra-text);
+}
+.selection-evidence-panel__header > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.selection-evidence-panel__close {
+  border: 0;
+  padding: 2px 5px;
+  color: var(--ra-text-secondary);
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.selection-anchor-status {
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #1d6d3a;
+  background: rgba(76, 175, 80, 0.14);
+  font-size: 11px;
+  font-weight: 500;
+}
+.selection-anchor-status.is-region {
+  color: #9a5b00;
+  background: rgba(255, 152, 0, 0.16);
+}
+.selection-evidence-panel__text {
+  max-height: 88px;
+  overflow: auto;
+  margin: 0 0 10px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--ra-link);
+  background: var(--ra-hover-bg);
+  color: var(--ra-text);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.selection-evidence-panel__meta {
+  margin-bottom: 8px;
+  color: var(--ra-text-tertiary);
+  font-size: 11px;
+}
+.selection-evidence-panel__empty,
+.selection-evidence-panel__error {
+  padding: 18px 4px;
+  color: var(--ra-text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+.selection-evidence-panel__error { color: var(--el-color-danger); }
+.selection-evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.selection-evidence-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid var(--ra-border);
+  border-radius: 6px;
+  color: var(--ra-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.selection-evidence-item:hover,
+.selection-evidence-item.selected {
+  border-color: var(--ra-link);
+  background: var(--ra-hover-bg);
+}
+.selection-evidence-item__meta {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ra-text-tertiary);
+  font-size: 11px;
+}
+.selection-evidence-item__meta > span { color: var(--ra-link); }
+.selection-evidence-item__text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 12px;
+  line-height: 1.45;
+}
 .zoom-menu-button { min-width: 72px; }
 .zoom-menu { position: relative; }
 .zoom-option-list {
@@ -1819,6 +2081,9 @@ function colorName(color) {
 .annotation-overlay .selected {
   filter: drop-shadow(0 0 2px var(--ra-link));
 }
+.annotation-overlay .evidence-focus-preview {
+  pointer-events: none;
+}
 .annotation-overlay .note-anchor-outline {
   fill: none;
   stroke-width: 1.5;
@@ -1920,5 +2185,8 @@ function colorName(color) {
 }
 .context-menu-item:hover {
   background: var(--ra-hover-bg);
+}
+@media (max-width: 1100px) {
+  .selection-evidence-panel { flex-basis: 270px; }
 }
 </style>
