@@ -1,6 +1,6 @@
 # PDF 精确选取与论文工作台规格
 
-状态：P0、P1-A、P1-B1 已完成；P1-B2 版本化语义版面制品已实现并待用户验收（2026-07-16）。下一小步是 P1-B3 `SelectionAnchor` 与当前论文局部证据检索；工作台 Agent 尚未开始。
+状态：P0、P1-A、P1-B1、P1-B2、P1-B3a 已完成（2026-07-16）。下一小步是 P1-B3b 前端选区接入与证据跳转；工作台 Agent 尚未开始。
 
 ## 1. 产品目标：做“有证据的论文 Agent”，不是再做一个 PDF 编辑器
 
@@ -234,6 +234,14 @@ Flyway V14 新增 `paper_layout_artifact`，唯一键由 `paper_id + document_ha
 
 WY 真实论文验收结果：16 页、2236 个视觉行收敛为 1079 个语义块，其中 841 个满足 evidence 白名单；角色分布为 `TITLE 1 / AUTHOR 1 / ABSTRACT 1 / HEADING 30 / BODY 627 / CAPTION 12 / FORMULA 171 / REFERENCE 79 / HEADER 71 / FOOTER 54 / MARGIN_METADATA 32`。首次强制重建 1289 ms，第二次缓存读取 82 ms，PDF hash、组合版本、生成时间和块数严格一致；后端健康检查为 `UP`，Flyway 已迁移至 v14。
 
+### 8.4 P1-B3a SelectionAnchor 与局部证据验收
+
+前端选区请求只包含页码、左上角归一化 boxes、选中文本和可选区域类型。`SelectionAnchorResolver` 使用选区覆盖率、文本 token 覆盖率和块置信度重新匹配当前 artifact；可靠正文、公式和表格分别生成 `TEXT/FORMULA/TABLE`，非证据角色或匹配不足时生成 `REGION`。客户端不能指定可信块 ID，越界 boxes 和超量锚点会被拒绝。
+
+`PaperLayoutEvidenceService` 校验论文、PDF hash 与组合解析版本，从已命中块建立最多四个 reading-order 距离的有界邻域，只返回 `ABSTRACT/HEADING/BODY/CAPTION/FORMULA/TABLE`。每条 evidence 由论文、hash、版本和块 ID 生成稳定 `lay_*` 身份，并保留页码、bbox、章节路径、角色、分数与块置信度；旧锚点返回 HTTP 409，页眉等非法区域没有相交正文时返回空 evidence，而不是抓取附近文字。
+
+WY 论文在线验收：正文块 `p1-b0063` 映射为 `TEXT`，置信度 0.964、hash/版本一致；局部检索返回 5 条证据，均为白名单角色且选中块可回链，伪造 `obsolete-parser` 被 409 拒绝。证据入口会忽略伪造 `blockIds` 并按 boxes/text 再解析。定向 13 项和后端全量 332 项通过；其中 3 项仅因全量测试未设置本机真实 PDF 环境变量而跳过，真实样例定向执行已通过。
+
 ## 9. 分阶段实施
 
 | 阶段 | 交付 | 验收 |
@@ -241,8 +249,9 @@ WY 真实论文验收结果：16 页、2236 个视觉行收敛为 1079 个语义
 | P0（已完成） | PDF.js 文字层缩放对齐、归一化批注、缩放、自动保存、批注编辑与几何范围调整 | 选择不被 SVG 遮挡；缩放后批注对齐；批注可编辑/删除 |
 | P1-A（已完成） | 前端 viewport 版面索引、单双栏/视觉行/候选段落、同页同栏受控选取 | 真实双栏样本不串栏；页边空白、竖排边注和全宽标题不触发文本扩张 |
 | P1-B1（已完成） | 后端版面契约、PDFBox 坐标提取、单双栏行级 reading order | 合成样例与 WY 真实双栏正文顺序稳定；旋转边注不混入正文 |
-| P1-B2（待验收） | `PaperLayoutArtifact` 版本化持久化、段落合并与正文角色识别 | 同一 PDF/解析器命中缓存；页眉/页脚/参考文献可确定性排除 |
-| P1-B3（下一步） | `SelectionAnchor` 解析与当前论文局部证据检索 | 选区可映射块并回链页码/坐标；evidence 只含允许角色 |
+| P1-B2（已完成） | `PaperLayoutArtifact` 版本化持久化、段落合并与正文角色识别 | 同一 PDF/解析器命中缓存；页眉/页脚/参考文献可确定性排除 |
+| P1-B3a（已完成） | `SelectionAnchor` 后端映射、区域降级与当前论文局部证据检索 | 真实选区可映射块；旧版本 409；evidence 只含允许角色 |
+| P1-B3b（下一步） | 前端选区锚点接入、证据预览与页码/坐标跳转 | 真实 PDF 选区可显示映射状态并从 evidence 返回原文 |
 | P2 | 右侧论文助手、四条固定 Workflow、Evidence Gate、run trace | 每个回答均可跳回页码/块；不合格回答只 repair 一次 |
 | P3 | 多论文对比、外部解析适配器、评测集和指标面板 | 复杂页安全降级；比较结果保留每篇证据归属 |
 

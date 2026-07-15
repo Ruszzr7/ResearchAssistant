@@ -2,6 +2,7 @@ package com.research.assistant.common;
 
 import com.research.assistant.service.async.AsyncTaskCapacityException;
 import com.research.assistant.service.async.AsyncTaskIdempotencyConflictException;
+import com.research.assistant.service.pdf.layout.StaleLayoutArtifactException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -41,6 +42,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Void>> handleIdempotencyConflict(AsyncTaskIdempotencyConflictException e) {
         log.warn("async_idempotency_conflict type={}", typeOf(e));
         return response(HttpStatus.CONFLICT, "幂等键与请求参数不匹配");
+    }
+
+    @ExceptionHandler(StaleLayoutArtifactException.class)
+    public ResponseEntity<Result<Void>> handleStaleLayoutArtifact(StaleLayoutArtifactException e) {
+        log.warn("stale_layout_artifact");
+        return response(HttpStatus.CONFLICT, "PDF 已更新，请重新选择内容");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
