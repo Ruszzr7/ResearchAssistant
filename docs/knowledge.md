@@ -36,6 +36,9 @@
 - API Key 可由环境变量覆盖；配置 `RA_MASTER_KEY` 后使用 AES-GCM 保存，否则仅适合本地临时开发。
 - `ResearchAiConfig` 使用编程式 AI Service，因为模型配置来自数据库；结构化输出先映射 POJO，失败时走受门禁约束的 JSON fallback/repair。
 - Skill Registry 管理原子能力，Planner 只生成计划，PlanExecutor 负责校验和顺序执行；普通对话记忆不与工具 Agent 共享。
+- PDF 工作台采用 rule-first 路由：模型不能提交 Skill 名称或任意计划。`intent + paperIds + SelectionAnchor` 只能映射到四条固定 Workflow，计划中的 allowed skills 必须与固定步骤集合严格相等，scope、最大步数、token 预算和最多一次 repair 都由后端验证。
+- 工作台回答使用结构化 claim 与 evidence IDs，而不是从 Markdown 中猜引用。Evidence Gate 只接受本次运行候选集中的稳定 ID，逐 claim 计算覆盖率；未知 ID、空证据或覆盖不足第一次返回 `REPAIR`，同一证据集修复一次仍不合格则 `REJECT`。
+- 工作台 run 必须绑定每篇 PDF 的 document hash 与组合 parser version；run/step trace 持久化状态、证据数、token、耗时和输入/输出摘要，不把原始 provider 响应或完整 prompt 写入步骤日志。这样后端重启后仍能审计计划，PDF 更新后也不会复用旧锚点。
 
 ## 5. 异步任务与可观测性
 

@@ -4,6 +4,7 @@
 
 ## 当前状态
 
+- 2026-07-16，PDF 工作台 P2-A（已完成）：Flyway V15 新增 `paper_workbench_run / paper_workbench_step`，持久化固定计划、artifact 版本、步骤状态、证据/repair/token/耗时与安全错误码；规则路由只生成四条编译期 Skill 白名单计划，限制 1–8 篇论文、最多 6 步、token 预算和一次 repair，scope 冲突或隐式扩权直接拒绝。`WorkbenchEvidenceGate` 以本次 evidence set 校验逐条 claim 引用与覆盖率，未知引用第一次进入 repair、第二次明确 reject。真实 MySQL 已迁移至 v15，论文 175 在线创建并回读 `SELECTION_QA / TEXT / 4 steps` 的版本绑定 trace；定向 15 项与后端全量 350 项通过（3 项可选真实样例跳过），后端重启后 `UP`。下一增量为 P2-B 四条固定 Workflow 的真实执行。
 - 2026-07-16，PDF 工作台 P1-B3b（已完成）：PDF.js 受控选区现在会转换为左上角归一化 line boxes，调用后端生成版本绑定的 `SelectionAnchor` 并拉取有界局部证据；右侧证据面板展示锚点类型、置信度、页码和白名单证据，点击证据可跳页并按 bbox 临时高亮。窗口级 `pointerup` 兜底覆盖拖出文字层后松开的结束路径，证据侧栏只在拖选完成后挂载，避免中途改变 PDF 宽度；默认 CORS 同步覆盖启动脚本使用的 IPv4 loopback。WY 真实论文浏览器验收得到 `TEXT` 锚点、98% 置信度和 5 条局部证据，回链框可见；前端 30 项单测、生产构建和后端全量 335 项通过（3 项可选真实样例跳过）。下一增量为 P2-A 工作台 run/step 持久化、规则路由与 Evidence Gate。
 - 2026-07-16，PDF 工作台 P1-B3a（已完成）：新增版本绑定的 `SelectionAnchor`、几何/文本联合块映射、`TEXT/FORMULA/TABLE` 精确锚点与 `REGION` 安全降级；局部检索会再次按 boxes/text 规范化客户端锚点，只返回 evidence 白名单角色，并为每条证据保留稳定 ID、页码、块 ID、坐标和解析版本。WY 论文在线验证命中 `p1-b0063`，`TEXT` 置信度 0.964，返回 5 条证据且无非法角色；旧解析器锚点返回 HTTP 409。定向 13 项和后端全量 332 项通过（3 项未配置真实样例时跳过），后端已重启并保持 `UP`。下一增量为 P1-B3b 前端选区接入与证据跳转。
 - 2026-07-16，PDF 工作台 P1-B2（已完成）：在 B1 行级版面制品上增加确定性语义角色、同页同栏保守段落合并、章节路径和正文 evidence 白名单；Flyway V14 将制品按论文、PDF SHA-256 和 `pdfbox-layout-v1+semantic-v1` 版本化持久化，并提供按需重建/缓存读取 API。WY 真实论文由 2236 个视觉行收敛为 1079 个语义块，其中 841 个可作为证据；首次重建 1289 ms、二次缓存读取 82 ms，身份字段与内容严格一致。后端全量 319 项通过，时间精度回读修正的定向 3 项通过。

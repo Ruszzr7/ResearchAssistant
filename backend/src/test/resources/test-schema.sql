@@ -230,6 +230,61 @@ CREATE TABLE workflow_step (
     UNIQUE(task_id, step_index)
 );
 
+CREATE TABLE paper_workbench_run (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    run_id VARCHAR(36) NOT NULL UNIQUE,
+    task_id VARCHAR(36),
+    workflow VARCHAR(48) NOT NULL,
+    scope VARCHAR(24) NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'PLANNED',
+    paper_ids_json TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    plan_json TEXT NOT NULL,
+    artifact_versions_json TEXT NOT NULL,
+    evidence_required BOOLEAN NOT NULL DEFAULT TRUE,
+    max_steps INT NOT NULL,
+    token_budget INT NOT NULL,
+    repair_count INT NOT NULL DEFAULT 0,
+    evidence_count INT NOT NULL DEFAULT 0,
+    prompt_tokens INT NOT NULL DEFAULT 0,
+    completion_tokens INT NOT NULL DEFAULT 0,
+    total_tokens INT NOT NULL DEFAULT 0,
+    latency_ms BIGINT NOT NULL DEFAULT 0,
+    result_json TEXT,
+    error_code VARCHAR(64),
+    error_message VARCHAR(1000),
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE paper_workbench_step (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    run_id VARCHAR(36) NOT NULL,
+    step_index INT NOT NULL,
+    step_name VARCHAR(128) NOT NULL,
+    skill_name VARCHAR(96) NOT NULL,
+    step_kind VARCHAR(24) NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
+    evidence_count INT NOT NULL DEFAULT 0,
+    retry_count INT NOT NULL DEFAULT 0,
+    prompt_tokens INT NOT NULL DEFAULT 0,
+    completion_tokens INT NOT NULL DEFAULT 0,
+    total_tokens INT NOT NULL DEFAULT 0,
+    latency_ms BIGINT NOT NULL DEFAULT 0,
+    input_summary_json TEXT,
+    output_summary_json TEXT,
+    error_code VARCHAR(64),
+    error_message VARCHAR(1000),
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(run_id, step_index),
+    FOREIGN KEY (run_id) REFERENCES paper_workbench_run(run_id) ON DELETE CASCADE
+);
+
 CREATE TABLE rag_consistency_audit (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id BIGINT,

@@ -26,5 +26,7 @@
 - `POST /api/search/execute` 只接受已定义的 `keywords_en` 和提取字段，关键词限制为 1–50 项。
 - `POST /api/search/import` 最多接收 500 条类型化论文记录，每条必须有非空标题。
 - `POST /api/agent/workflow/{taskId}/confirm` 只接受 `selected` 和 `folderId`；未知字段忽略以保持前后端兼容。
+- `POST /api/workbench/runs/plan` 接受 1–8 个 `paperIds`、可选 intent/scope、最多 4000 字的问题、SelectionAnchor、1–6 步和 256–60000 token 预算；服务端只生成固定白名单计划，不接受客户端 Skill 列表。
+- `GET /api/workbench/runs/{runId}` 返回 artifact 版本、计划、run/step 状态和低敏摘要；未知 run 使用 HTTP 404。SelectionAnchor 的 hash/parser 过期使用 HTTP 409。
 
 契约测试位于后端 Controller 测试目录，更新字段时应同步更新 Vue 请求和 MockMvc 场景。

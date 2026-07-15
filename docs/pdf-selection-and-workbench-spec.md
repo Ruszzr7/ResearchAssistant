@@ -1,6 +1,6 @@
 # PDF 精确选取与论文工作台规格
 
-状态：P0、P1-A、P1-B 已完成（2026-07-16）。下一小步是 P2-A 工作台 run/step 持久化、规则路由与 Evidence Gate；工作台 Agent 尚未接入 UI。
+状态：P0、P1-A、P1-B、P2-A 已完成（2026-07-16）。下一小步是 P2-B 四条固定 Workflow 的真实执行；工作台 Agent 尚未接入 UI。
 
 ## 1. 产品目标：做“有证据的论文 Agent”，不是再做一个 PDF 编辑器
 
@@ -248,6 +248,12 @@ WY 论文在线验收：正文块 `p1-b0063` 映射为 `TEXT`，置信度 0.964�
 
 WY 真实论文浏览器验收：选取首页 Introduction 正文后得到 `TEXT` 锚点、98% 置信度和 5 条有界证据，点击当前选中证据后页码保持第 1 页并出现回链定位框。窗口级 `pointerup` 兜底覆盖拖出文字层后松开的路径；前端 7 个测试文件共 30 项、生产构建和后端全量 335 项通过（3 项可选真实样例跳过）。
 
+### 8.6 P2-A 可审计编排内核验收
+
+Flyway V15 新增 `paper_workbench_run / paper_workbench_step`。run 保存论文集合、scope、固定计划、artifact hash/parser 版本、最大步骤、token 预算、repair/证据/token/耗时和终态；step 只保存输入输出摘要、Skill 白名单身份、状态与安全错误码。`POST /api/workbench/runs/plan` 在创建 trace 前确保每篇 artifact 已存在，并拒绝版本过期的 SelectionAnchor；`GET /api/workbench/runs/{runId}` 可在重启后回读完整计划和步骤状态。
+
+规则路由只允许 `SELECTION_QA / PAPER_ANALYSIS / ANNOTATION_SUGGESTION / PAPER_COMPARISON`，最多 8 篇、6 步和一次 repair；allowed skills 必须与固定步骤集合严格相等。Evidence Gate 以结构化 claim 验证本次 evidence IDs 和 100% claim 覆盖率，未知引用首次返回 `REPAIR`，repairAttempt=1 后返回 `REJECT`。路由、门禁、持久化状态机和 Controller 定向 15 项通过，后端全量 350 项通过（3 项可选真实样例跳过）。真实 MySQL 已迁移至 v15；论文 175 的 `TEXT` anchor 在线生成并回读 `SELECTION_QA / SELECTION / 4 steps` trace，artifact hash 与 `pdfbox-layout-v1+semantic-v1` 一致。
+
 ## 9. 分阶段实施
 
 | 阶段 | 交付 | 验收 |
@@ -258,8 +264,8 @@ WY 真实论文浏览器验收：选取首页 Introduction 正文后得到 `TEXT
 | P1-B2（已完成） | `PaperLayoutArtifact` 版本化持久化、段落合并与正文角色识别 | 同一 PDF/解析器命中缓存；页眉/页脚/参考文献可确定性排除 |
 | P1-B3a（已完成） | `SelectionAnchor` 后端映射、区域降级与当前论文局部证据检索 | 真实选区可映射块；旧版本 409；evidence 只含允许角色 |
 | P1-B3b（已完成） | 前端选区锚点接入、证据预览与页码/坐标跳转 | 真实 PDF 选区可显示映射状态并从 evidence 返回原文 |
-| P2-A（下一步） | 工作台 run/step 持久化、规则路由、Evidence Gate 与一次 repair 上限 | 固定计划可审计；越权 Skill/未知引用被拒绝；终态可恢复读取 |
-| P2-B | 选区问答、全文分析、批注建议、多篇对比四条固定 Workflow | 每条 Workflow 只调用允许 Skill，并返回可回链 evidence |
+| P2-A（已完成） | 工作台 run/step 持久化、规则路由、Evidence Gate 与一次 repair 上限 | 固定计划可审计；越权 Skill/未知引用被拒绝；终态可恢复读取 |
+| P2-B（下一步） | 选区问答、全文分析、批注建议、多篇对比四条固定 Workflow | 每条 Workflow 只调用允许 Skill，并返回可回链 evidence |
 | P2-C | PDF 右侧论文助手、运行 trace 与证据跳转 | 用户可在同一页面发起固定 Workflow 并检查每步证据 |
 | P3 | 多论文对比、外部解析适配器、评测集和指标面板 | 复杂页安全降级；比较结果保留每篇证据归属 |
 
