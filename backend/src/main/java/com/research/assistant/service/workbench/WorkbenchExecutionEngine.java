@@ -172,6 +172,8 @@ public class WorkbenchExecutionEngine {
         if (evidence == null || evidence.isEmpty()) {
             throw new StepFailure("NO_EVIDENCE", "该范围没有可安全引用的论文证据", false);
         }
+        regionFallback = regionFallback || evidence.stream().anyMatch(item ->
+                item.contentMode() == com.research.assistant.service.pdf.layout.DocumentBlockContentMode.REGION);
         WorkbenchRunTrace trace = traceService.requireTrace(initialTrace.runId());
         if (stepStatus(trace, gateStepIndex) == WorkbenchStepStatus.COMPLETED && trace.result() != null) {
             return resultFromTrace(trace);

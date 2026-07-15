@@ -1,6 +1,7 @@
 package com.research.assistant.service.workbench;
 
 import com.research.assistant.service.pdf.layout.DocumentBlock;
+import com.research.assistant.service.pdf.layout.DocumentBlockContentMode;
 import com.research.assistant.service.pdf.layout.DocumentBlockRole;
 import com.research.assistant.service.pdf.layout.LayoutEvidence;
 import com.research.assistant.service.pdf.layout.LayoutTextSimilarity;
@@ -36,7 +37,13 @@ public class WorkbenchEvidenceRetrievalService {
                                               int maxCharacters) {
         int safeMax = Math.max(1, Math.min(80, maxEvidence));
         int safeCharacters = Math.max(2_000, Math.min(60_000, maxCharacters));
-        List<DocumentBlock> allowed = evidencePolicy.selectAllowed(artifact);
+        // Region-only formula/table blocks carry geometry but no trustworthy
+        // content. They remain available to local selection workflows, while
+        // whole-paper analysis skips them instead of spending context on visual
+        // placeholders that the text-only model cannot inspect.
+        List<DocumentBlock> allowed = evidencePolicy.selectAllowed(artifact).stream()
+                .filter(block -> block.contentMode() != DocumentBlockContentMode.REGION)
+                .toList();
         if (allowed.isEmpty()) return List.of();
 
         Map<String, Candidate> candidateById = new LinkedHashMap<>();

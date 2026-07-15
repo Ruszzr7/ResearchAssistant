@@ -20,10 +20,13 @@ public class PaperLayoutEvidencePolicy {
     );
 
     public boolean isAllowed(DocumentBlock block) {
-        return block != null
-                && ALLOWED_ROLES.contains(block.role())
-                && block.text() != null
-                && !block.text().isBlank();
+        if (block == null || !ALLOWED_ROLES.contains(block.role())) return false;
+        if (block.contentMode() == DocumentBlockContentMode.REGION
+                && (block.role() == DocumentBlockRole.FORMULA
+                || block.role() == DocumentBlockRole.TABLE)) {
+            return block.bbox() != null && block.bbox().width() > 0 && block.bbox().height() > 0;
+        }
+        return block.text() != null && !block.text().isBlank();
     }
 
     public List<DocumentBlock> selectAllowed(PaperLayoutArtifact artifact) {

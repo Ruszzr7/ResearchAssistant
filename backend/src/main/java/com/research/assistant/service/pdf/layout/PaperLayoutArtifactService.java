@@ -90,6 +90,7 @@ public class PaperLayoutArtifactService {
         record.setLayoutConfidence(artifact.layoutConfidence());
         record.setPageCount(artifact.pageCount());
         record.setBlocksJson(writeBlocks(artifact.blocks()));
+        record.setProvenanceJson(writeProvenance(artifact.provenance()));
         record.setGeneratedAt(toLocalDateTime(artifact.generatedAt()));
         record.setUpdatedAt(now);
 
@@ -114,6 +115,11 @@ public class PaperLayoutArtifactService {
     private PaperLayoutArtifact fromRecord(PaperLayoutArtifactRecord record) {
         try {
             List<DocumentBlock> blocks = objectMapper.readValue(record.getBlocksJson(), BLOCK_LIST);
+            LayoutArtifactProvenance provenance = record.getProvenanceJson() == null
+                    || record.getProvenanceJson().isBlank()
+                    ? LayoutArtifactProvenance.direct(record.getParserVersion(),
+                            record.getLayoutConfidence() == null ? 0 : record.getLayoutConfidence())
+                    : objectMapper.readValue(record.getProvenanceJson(), LayoutArtifactProvenance.class);
             return new PaperLayoutArtifact(
                     record.getPaperId(),
                     record.getDocumentHash(),
@@ -121,7 +127,8 @@ public class PaperLayoutArtifactService {
                     record.getLayoutConfidence() == null ? 0 : record.getLayoutConfidence(),
                     toInstant(record.getGeneratedAt()),
                     record.getPageCount() == null ? 0 : record.getPageCount(),
-                    blocks
+                    blocks,
+                    provenance
             );
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("版面制品缓存无法读取", e);
@@ -133,6 +140,14 @@ public class PaperLayoutArtifactService {
             return objectMapper.writeValueAsString(blocks);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("版面制品无法序列化", e);
+        }
+    }
+
+    private String writeProvenance(LayoutArtifactProvenance provenance) {
+        try {
+            return objectMapper.writeValueAsString(provenance);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("版面解析来源无法序列化", e);
         }
     }
 

@@ -65,7 +65,7 @@ class PaperLayoutArtifactServiceTest {
         DocumentBlock block = block("cached evidence");
         PaperLayoutArtifactRecord cached = record(11L, 5L, hash, List.of(block));
         when(paperMapper.selectById(5L)).thenReturn(paper);
-        when(artifactMapper.selectReady(5L, hash, "pdfbox-layout-v1+semantic-v1"))
+        when(artifactMapper.selectReady(5L, hash, "pdfbox-layout-v1+semantic-v2"))
                 .thenReturn(cached);
 
         PaperLayoutArtifact artifact = service.ensureArtifact(5L, false);
@@ -88,7 +88,7 @@ class PaperLayoutArtifactServiceTest {
                 21L, 7L, hash, List.of(block("A Test Paper")));
         persisted.setGeneratedAt(LocalDateTime.ofInstant(
                 persistedInstant, ZoneId.systemDefault()));
-        when(artifactMapper.selectReady(7L, hash, "pdfbox-layout-v1+semantic-v1"))
+        when(artifactMapper.selectReady(7L, hash, "pdfbox-layout-v1+semantic-v2"))
                 .thenReturn(null, persisted);
         PaperLayoutArtifact raw = new PaperLayoutArtifact(
                 7L, hash, "pdfbox-layout-v1", 0.85, Instant.now(), 1,
@@ -102,15 +102,16 @@ class PaperLayoutArtifactServiceTest {
 
         PaperLayoutArtifact artifact = service.ensureArtifact(7L, false);
 
-        assertThat(artifact.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v1");
+        assertThat(artifact.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v2");
         assertThat(artifact.generatedAt()).isEqualTo(persistedInstant);
         ArgumentCaptor<PaperLayoutArtifactRecord> captor =
                 ArgumentCaptor.forClass(PaperLayoutArtifactRecord.class);
         verify(artifactMapper).insert(captor.capture());
         assertThat(captor.getValue().getDocumentHash()).isEqualTo(hash);
         assertThat(captor.getValue().getParserVersion())
-                .isEqualTo("pdfbox-layout-v1+semantic-v1");
+                .isEqualTo("pdfbox-layout-v1+semantic-v2");
         assertThat(captor.getValue().getBlocksJson()).contains("A Test Paper");
+        assertThat(captor.getValue().getProvenanceJson()).contains("primaryParser");
         assertThat(captor.getValue().getStatus()).isEqualTo("READY");
     }
 
@@ -145,7 +146,7 @@ class PaperLayoutArtifactServiceTest {
         record.setId(id);
         record.setPaperId(paperId);
         record.setDocumentHash(hash);
-        record.setParserVersion("pdfbox-layout-v1+semantic-v1");
+        record.setParserVersion("pdfbox-layout-v1+semantic-v2");
         record.setStatus("READY");
         record.setLayoutConfidence(0.9);
         record.setPageCount(1);

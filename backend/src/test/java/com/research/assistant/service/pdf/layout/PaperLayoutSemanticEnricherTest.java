@@ -58,7 +58,7 @@ class PaperLayoutSemanticEnricherTest {
                 "This paper introduces a grounded workflow."
         ));
 
-        assertThat(enriched.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v1");
+        assertThat(enriched.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v2");
         assertThat(enriched.blocks()).extracting(DocumentBlock::readingOrder)
                 .containsExactlyElementsOf(java.util.stream.IntStream
                         .range(0, enriched.blocks().size()).boxed().toList());

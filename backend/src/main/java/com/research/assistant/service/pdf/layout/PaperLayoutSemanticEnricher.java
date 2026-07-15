@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 @Component
 public class PaperLayoutSemanticEnricher {
 
-    static final String VERSION = "semantic-v1";
+    static final String VERSION = "semantic-v2";
 
     private static final Pattern ABSTRACT_START = Pattern.compile(
             "(?i)^\\s*(?:abstract|summary)\\b[\\s.:-]*");
@@ -79,7 +79,8 @@ public class PaperLayoutSemanticEnricher {
                 raw.layoutConfidence(),
                 raw.generatedAt(),
                 raw.pageCount(),
-                blocks
+                blocks,
+                raw.provenance()
         );
     }
 
@@ -222,30 +223,54 @@ public class PaperLayoutSemanticEnricher {
                     }
                 } else if (inReferences) {
                     role = DocumentBlockRole.REFERENCE;
+                } else if (block.role() == DocumentBlockRole.REFERENCE) {
+                    role = DocumentBlockRole.REFERENCE;
                 } else if (REFERENCES.matcher(text).matches()) {
                     role = DocumentBlockRole.HEADING;
                     inReferences = true;
                     sectionPath = List.of(text);
+                } else if (block.role() == DocumentBlockRole.TITLE) {
+                    role = DocumentBlockRole.TITLE;
+                } else if (block.role() == DocumentBlockRole.AUTHOR) {
+                    role = DocumentBlockRole.AUTHOR;
                 } else if (titleBlockIds.contains(block.id())) {
                     role = DocumentBlockRole.TITLE;
                 } else if (authorBlockIds.contains(block.id())) {
                     role = DocumentBlockRole.AUTHOR;
+                } else if (block.role() == DocumentBlockRole.ABSTRACT) {
+                    role = DocumentBlockRole.ABSTRACT;
+                    inAbstract = true;
+                    sectionPath = List.of("Abstract");
                 } else if (ABSTRACT_START.matcher(text).find()) {
                     role = DocumentBlockRole.ABSTRACT;
                     inAbstract = true;
                     sectionPath = List.of("Abstract");
                 } else if (inAbstract && KEYWORDS.matcher(text).find()) {
                     role = DocumentBlockRole.ABSTRACT;
+                } else if (!inAbstract && (block.role() == DocumentBlockRole.TABLE
+                        || block.tableText() != null && !block.tableText().isBlank())) {
+                    role = DocumentBlockRole.TABLE;
                 } else if (!inAbstract && TABLE_HEADING.matcher(text).matches()) {
                     role = DocumentBlockRole.TABLE;
+                } else if (!inAbstract && block.role() == DocumentBlockRole.FIGURE) {
+                    role = DocumentBlockRole.FIGURE;
+                } else if (!inAbstract && block.role() == DocumentBlockRole.CAPTION) {
+                    role = DocumentBlockRole.CAPTION;
                 } else if (!inAbstract && CAPTION.matcher(text).matches()) {
                     role = DocumentBlockRole.CAPTION;
+                } else if (block.role() == DocumentBlockRole.HEADING) {
+                    inAbstract = false;
+                    role = DocumentBlockRole.HEADING;
+                    sectionPath = List.of(text);
                 } else if (isHeading(text)) {
                     inAbstract = false;
                     role = DocumentBlockRole.HEADING;
                     sectionPath = List.of(text);
                 } else if (inAbstract) {
                     role = DocumentBlockRole.ABSTRACT;
+                } else if (block.role() == DocumentBlockRole.FORMULA
+                        || block.latex() != null && !block.latex().isBlank()) {
+                    role = DocumentBlockRole.FORMULA;
                 } else if (looksLikeFormula(text)) {
                     role = DocumentBlockRole.FORMULA;
                 } else {
@@ -353,7 +378,8 @@ public class PaperLayoutSemanticEnricher {
                 joinText(first.text(), second.text()),
                 first.latex() != null ? first.latex() : second.latex(),
                 first.tableText() != null ? first.tableText() : second.tableText(),
-                Math.min(first.confidence(), second.confidence())
+                Math.min(first.confidence(), second.confidence()),
+                contentMode(first.role(), first.latex(), first.tableText())
         );
     }
 
@@ -380,8 +406,24 @@ public class PaperLayoutSemanticEnricher {
                 block.text(),
                 block.latex(),
                 block.tableText(),
-                block.confidence()
+                block.confidence(),
+                contentMode(role, block.latex(), block.tableText())
         );
+    }
+
+    private DocumentBlockContentMode contentMode(DocumentBlockRole role,
+                                                 String latex,
+                                                 String tableText) {
+        if (role == DocumentBlockRole.FORMULA) {
+            return latex == null || latex.isBlank()
+                    ? DocumentBlockContentMode.REGION : DocumentBlockContentMode.STRUCTURED;
+        }
+        if (role == DocumentBlockRole.TABLE) {
+            return tableText == null || tableText.isBlank()
+                    ? DocumentBlockContentMode.REGION : DocumentBlockContentMode.STRUCTURED;
+        }
+        if (role == DocumentBlockRole.FIGURE) return DocumentBlockContentMode.REGION;
+        return DocumentBlockContentMode.TEXT;
     }
 
     private boolean isHeading(String text) {

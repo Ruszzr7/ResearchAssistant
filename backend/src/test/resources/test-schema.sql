@@ -113,6 +113,7 @@ CREATE TABLE paper_layout_artifact (
     layout_confidence DOUBLE NOT NULL DEFAULT 0,
     page_count INT NOT NULL DEFAULT 0,
     blocks_json CLOB NOT NULL,
+    provenance_json CLOB,
     generated_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

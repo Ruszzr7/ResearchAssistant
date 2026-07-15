@@ -19,6 +19,7 @@ public class PaperLayoutArtifactRecord {
     private Double layoutConfidence;
     private Integer pageCount;
     private String blocksJson;
+    private String provenanceJson;
     private LocalDateTime generatedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -39,6 +40,8 @@ public class PaperLayoutArtifactRecord {
     public void setPageCount(Integer pageCount) { this.pageCount = pageCount; }
     public String getBlocksJson() { return blocksJson; }
     public void setBlocksJson(String blocksJson) { this.blocksJson = blocksJson; }
+    public String getProvenanceJson() { return provenanceJson; }
+    public void setProvenanceJson(String provenanceJson) { this.provenanceJson = provenanceJson; }
     public LocalDateTime getGeneratedAt() { return generatedAt; }
     public void setGeneratedAt(LocalDateTime generatedAt) { this.generatedAt = generatedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }

@@ -110,13 +110,31 @@ public class PaperLayoutEvidenceService {
                 block.role(),
                 block.readingOrder(),
                 block.sectionPath(),
-                block.text(),
+                evidenceText(block),
                 score,
                 selected,
                 block.confidence(),
                 artifact.documentHash(),
-                artifact.parserVersion()
+                artifact.parserVersion(),
+                block.contentMode(),
+                structuredContent(block)
         );
+    }
+
+    private String evidenceText(DocumentBlock block) {
+        if (block.contentMode() != DocumentBlockContentMode.REGION) return block.text();
+        return switch (block.role()) {
+            case FORMULA -> "[公式区域：未获得可信 LaTeX，仅可按页面区域定位和核对]";
+            case TABLE -> "[表格区域：未获得可信单元格结构，仅可按页面区域定位和核对]";
+            default -> "[视觉区域：没有可安全引用的精确文本]";
+        };
+    }
+
+    private String structuredContent(DocumentBlock block) {
+        if (block.contentMode() != DocumentBlockContentMode.STRUCTURED) return "";
+        if (block.role() == DocumentBlockRole.FORMULA) return block.latex() == null ? "" : block.latex();
+        if (block.role() == DocumentBlockRole.TABLE) return block.tableText() == null ? "" : block.tableText();
+        return "";
     }
 
     private boolean sameSection(DocumentBlock candidate, List<DocumentBlock> selected) {

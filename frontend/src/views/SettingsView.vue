@@ -100,6 +100,31 @@
           />
         </el-form-item>
 
+        <el-form-item label="版面低置信度回退">
+          <el-switch v-model="pdfLayoutFallbackEnabled" active-text="开启" inactive-text="关闭" />
+        </el-form-item>
+
+        <el-form-item v-if="pdfLayoutFallbackEnabled" label="回退格式">
+          <el-select v-model="pdfLayoutFallbackProvider" size="large" style="width: 100%;">
+            <el-option label="自动识别" value="AUTO" />
+            <el-option label="GROBID TEI（需坐标）" value="GROBID" />
+            <el-option label="MinerU Layout JSON" value="MINERU" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item v-if="pdfLayoutFallbackEnabled" label="版面回退命令">
+          <el-input
+            v-model="pdfLayoutFallbackCommand"
+            type="textarea"
+            :rows="2"
+            placeholder="命令可使用 {input} 与 {output}，例如 ra-mineru-adapter --input {input} --output {output}"
+            size="large"
+          />
+          <p class="field-hint">
+            仅当 PDFBox 版面质量低于门槛时执行；输出无页码/坐标或质量没有提升时仍保留 PDFBox 结果。
+          </p>
+        </el-form-item>
+
         <el-form-item label="PDF 阅读器">
           <el-switch v-model="pdfJsViewerEnabled" active-text="PDF.js（支持批注）" inactive-text="浏览器原生 iframe" />
         </el-form-item>
@@ -210,6 +235,9 @@ const savedAcmDlApiKey = ref('')
 
 const pdfParserProvider = ref('PDFBOX')
 const pdfParserExternalCommand = ref('')
+const pdfLayoutFallbackEnabled = ref(false)
+const pdfLayoutFallbackProvider = ref('AUTO')
+const pdfLayoutFallbackCommand = ref('')
 const pdfJsViewerEnabled = ref(true)
 
 const formulaExtractorEnabled = ref(false)
@@ -250,6 +278,9 @@ async function loadSettings() {
       }
       if (item.keyName === 'pdf_parser_provider') pdfParserProvider.value = item.value || 'PDFBOX'
       if (item.keyName === 'pdf_parser_external_command') pdfParserExternalCommand.value = item.value || ''
+      if (item.keyName === 'pdf_layout_fallback_enabled') pdfLayoutFallbackEnabled.value = item.value === 'true'
+      if (item.keyName === 'pdf_layout_fallback_provider') pdfLayoutFallbackProvider.value = item.value || 'AUTO'
+      if (item.keyName === 'pdf_layout_fallback_command') pdfLayoutFallbackCommand.value = item.value || ''
       if (item.keyName === 'pdf_js_viewer_enabled') pdfJsViewerEnabled.value = item.value === 'true'
       if (item.keyName === 'formula_extractor_enabled') formulaExtractorEnabled.value = item.value === 'true'
       if (item.keyName === 'formula_extractor_command') formulaExtractorCommand.value = item.value || ''
@@ -323,6 +354,11 @@ async function doSave() {
   payload.push({ keyName: 'pdf_parser_provider', value: pdfParserProvider.value })
   if (pdfParserExternalCommand.value.trim()) {
     payload.push({ keyName: 'pdf_parser_external_command', value: pdfParserExternalCommand.value.trim() })
+  }
+  payload.push({ keyName: 'pdf_layout_fallback_enabled', value: String(pdfLayoutFallbackEnabled.value) })
+  payload.push({ keyName: 'pdf_layout_fallback_provider', value: pdfLayoutFallbackProvider.value })
+  if (pdfLayoutFallbackCommand.value.trim()) {
+    payload.push({ keyName: 'pdf_layout_fallback_command', value: pdfLayoutFallbackCommand.value.trim() })
   }
   payload.push({ keyName: 'pdf_js_viewer_enabled', value: String(pdfJsViewerEnabled.value) })
   payload.push({ keyName: 'formula_extractor_enabled', value: String(formulaExtractorEnabled.value) })

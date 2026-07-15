@@ -12,7 +12,8 @@ public record PaperLayoutArtifact(Long paperId,
                                   double layoutConfidence,
                                   Instant generatedAt,
                                   int pageCount,
-                                  List<DocumentBlock> blocks) {
+                                  List<DocumentBlock> blocks,
+                                  LayoutArtifactProvenance provenance) {
 
     public PaperLayoutArtifact {
         documentHash = documentHash == null ? "" : documentHash;
@@ -20,5 +21,20 @@ public record PaperLayoutArtifact(Long paperId,
         layoutConfidence = Math.max(0, Math.min(1, layoutConfidence));
         generatedAt = generatedAt == null ? Instant.now() : generatedAt;
         blocks = blocks == null ? List.of() : List.copyOf(blocks);
+        provenance = provenance == null
+                ? LayoutArtifactProvenance.direct(parserVersion, layoutConfidence)
+                : provenance;
+    }
+
+    /** Compatibility constructor for parsers and tests created before P3-A. */
+    public PaperLayoutArtifact(Long paperId,
+                               String documentHash,
+                               String parserVersion,
+                               double layoutConfidence,
+                               Instant generatedAt,
+                               int pageCount,
+                               List<DocumentBlock> blocks) {
+        this(paperId, documentHash, parserVersion, layoutConfidence, generatedAt,
+                pageCount, blocks, null);
     }
 }

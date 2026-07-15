@@ -1,6 +1,7 @@
 package com.research.assistant.service.workbench;
 
 import com.research.assistant.service.pdf.layout.DocumentBlock;
+import com.research.assistant.service.pdf.layout.DocumentBlockContentMode;
 import com.research.assistant.service.pdf.layout.DocumentBlockRole;
 import com.research.assistant.service.pdf.layout.LayoutEvidence;
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
@@ -69,6 +70,26 @@ class WorkbenchEvidenceRetrievalServiceTest {
         assertThat(result).extracting(LayoutEvidence::paperId).contains(7L, 8L);
         assertThat(result.stream().filter(item -> item.paperId().equals(7L))).isNotEmpty();
         assertThat(result.stream().filter(item -> item.paperId().equals(8L))).isNotEmpty();
+    }
+
+    @Test
+    void wholePaperSkipsRegionOnlyMathButKeepsStructuredMath() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                new DocumentBlock("region-formula", 1,
+                        new NormalizedBoundingBox(0.1, 0.2, 0.4, 0.05),
+                        DocumentBlockRole.FORMULA, 0, List.of("Method"), "broken glyphs",
+                        null, null, 0.5, DocumentBlockContentMode.REGION),
+                new DocumentBlock("structured-formula", 1,
+                        new NormalizedBoundingBox(0.1, 0.3, 0.4, 0.05),
+                        DocumentBlockRole.FORMULA, 1, List.of("Method"), "x = y + 1",
+                        "x = y + 1", null, 0.9, DocumentBlockContentMode.STRUCTURED),
+                block("body", DocumentBlockRole.BODY, 2, List.of("Method"), "Method context")));
+
+        List<LayoutEvidence> result = service.retrievePaper(artifact, "formula", 6, 8_000);
+
+        assertThat(result).extracting(LayoutEvidence::blockId)
+                .contains("structured-formula", "body")
+                .doesNotContain("region-formula");
     }
 
     private PaperLayoutArtifact artifact(Long paperId, List<DocumentBlock> blocks) {

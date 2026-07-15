@@ -101,6 +101,11 @@ public class SelectionAnchorResolver {
         boolean hasAllowed = blocks.stream().anyMatch(evidencePolicy::isAllowed);
         boolean hasFormula = blocks.stream().anyMatch(block -> block.role() == DocumentBlockRole.FORMULA);
         boolean hasTable = blocks.stream().anyMatch(block -> block.role() == DocumentBlockRole.TABLE);
+        boolean hasRegionOnly = blocks.stream().anyMatch(block ->
+                block.contentMode() == DocumentBlockContentMode.REGION);
+        if (hasRegionOnly && (hasFormula || hasTable)) {
+            return SelectionAnchorKind.REGION;
+        }
         if (preferredKind == SelectionAnchorKind.FORMULA) {
             return hasFormula && geometryAgreement >= 0.30
                     ? SelectionAnchorKind.FORMULA : SelectionAnchorKind.REGION;

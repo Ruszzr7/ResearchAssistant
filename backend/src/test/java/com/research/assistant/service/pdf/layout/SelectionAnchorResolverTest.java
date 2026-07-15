@@ -113,6 +113,8 @@ class SelectionAnchorResolverTest {
                                 NormalizedBoundingBox bbox,
                                 String text) {
         return new DocumentBlock(id, page, bbox, role, order,
-                List.of("I. INTRODUCTION"), text, null, null, 0.9);
+                List.of("I. INTRODUCTION"), text,
+                role == DocumentBlockRole.FORMULA ? text : null,
+                null, 0.9);
     }
 }

@@ -31,7 +31,9 @@
             :class="{ selected: item.selected }"
             @click="jump(item)"
           >
-            <span>p.{{ item.page }} · {{ roleLabel(item.role) }}</span>
+            <span>
+              p.{{ item.page }} · {{ roleLabel(item.role) }} · {{ contentModeLabel(item.contentMode) }}
+            </span>
             <b>{{ item.text }}</b>
           </button>
           <div v-if="!localEvidence.length" class="muted-state">该区域没有可安全引用的正文证据</div>
@@ -357,6 +359,10 @@ function anchorLabel(kind) {
 
 function roleLabel(role) {
   return { ABSTRACT: '摘要', HEADING: '标题', BODY: '正文', CAPTION: '图表说明', FORMULA: '公式', TABLE: '表格' }[role] || role
+}
+
+function contentModeLabel(mode) {
+  return { TEXT: '精确文本', STRUCTURED: '结构化', REGION: '仅区域' }[mode] || '精确文本'
 }
 
 function annotationTypeLabel(type) {

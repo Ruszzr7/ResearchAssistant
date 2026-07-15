@@ -30,6 +30,7 @@ public final class SettingsPolicy {
             "acm_dl_enabled", "acm_dl_api_url", "acm_dl_api_key",
             "semantic_scholar_api_key",
             "pdf_parser_provider", "pdf_parser_external_enabled", "pdf_parser_external_command",
+            "pdf_layout_fallback_enabled", "pdf_layout_fallback_provider", "pdf_layout_fallback_command",
             "pdf_js_viewer_enabled", "formula_extractor_enabled", "formula_extractor_command",
             "figure_extractor_enabled", "figure_extractor_command",
             "obsidian_vault_path", "zotero_user_id", "zotero_api_key", "zotero_collection_key",
@@ -42,12 +43,14 @@ public final class SettingsPolicy {
     private static final Set<String> BOOLEAN_KEYS = Set.of(
             "openalex_enabled", "ieee_xplore_enabled", "acm_dl_enabled",
             "pdf_parser_external_enabled", "pdf_js_viewer_enabled",
+            "pdf_layout_fallback_enabled",
             "formula_extractor_enabled", "figure_extractor_enabled",
             "qdrant_use_tls", "rag_enabled", "rag_rerank_enabled"
     );
 
     private static final Set<String> COMMAND_KEYS = Set.of(
-            "pdf_parser_external_command", "formula_extractor_command", "figure_extractor_command"
+            "pdf_parser_external_command", "pdf_layout_fallback_command",
+            "formula_extractor_command", "figure_extractor_command"
     );
 
     private static final Set<String> URL_KEYS = Set.of("base_url", "embedding_base_url", "acm_dl_api_url");
@@ -124,6 +127,10 @@ public final class SettingsPolicy {
         if ("pdf_parser_provider".equals(key)
                 && !Set.of("PDFBOX", "EXTERNAL").contains(value.toUpperCase(Locale.ROOT))) {
             throw new IllegalArgumentException("不支持的 PDF 解析器: " + value);
+        }
+        if ("pdf_layout_fallback_provider".equals(key)
+                && !Set.of("AUTO", "GROBID", "MINERU").contains(value.toUpperCase(Locale.ROOT))) {
+            throw new IllegalArgumentException("不支持的版面回退解析器: " + value);
         }
         if (URL_KEYS.contains(key)) {
             try {

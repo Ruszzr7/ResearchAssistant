@@ -18,6 +18,9 @@
 ## 3. 文件、PDF 与外部服务
 
 - PDF 通过 `PdfParser` 抽象，PDFBox 是 fallback；Marker/MinerU/Grobid 等外部命令必须有超时和失败回退。
+- 工作台版面解析不能把“已配置外部命令”直接等同于“外部结果更好”：应先对 PDFBox 制品检查文本密度、乱码率、坐标有效率、块置信度和 reading order，仅低置信度时执行外部适配器；外部结果必须有页码/坐标并达到最小绝对质量和相对增益，解析器选择、失败码和质量增益随 artifact 持久化。
+- GROBID/MinerU 回退要先归一化为内部版面契约：MinerU JSON 的绝对 bbox 必须结合页宽高归一化，GROBID TEI 必须携带 `coords`；XML 解析禁用 DTD 与外部实体。外部命令不经 shell，使用参数模板、独立 stdout/stderr 文件、输出大小上限和强制超时，错误只保存稳定代码。
+- 公式/表格角色不代表内容已被精确识别。块必须额外标记 `TEXT/STRUCTURED/REGION`：只有可信 LaTeX/表格结构才能作为结构化证据；`REGION` 只允许局部定位和回原页核对，不进入全文文本采样，模型也不得据此声称精确符号或单元格内容。
 - DOI 提取必须在原始 PDF 文本中匹配，并只允许 DOI 结构内部的空白；不能把整篇文本去空白后再匹配，否则会将 DOI 后面的正文拼入标识符并导致 Crossref 404。
 - DOI 只代表论文标识符；Crossref 默认提供元数据和来源页，不保证出版社 PDF 可公开下载。导入界面应显示来源页，并仅在 Crossref 返回公开 PDF 链接时提供打开入口，不能绕过订阅权限。
 - PDF 导入的元数据补全不能只依赖 DOI/Crossref：会议论文的 `container-title` 或 `event.name` 可能为空，但首页页眉通常包含会议名称。应在外部元数据为空时，从前几页文本中按 `Proceedings`、`Conference`、`Symposium`、`Workshop` 及常见会议缩写提取出版来源。
