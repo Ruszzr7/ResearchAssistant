@@ -109,6 +109,17 @@ class WorkbenchRunTraceServiceTest {
     }
 
     @Test
+    void listsNewestRunsForPaperWithBoundedLimit() {
+        WorkbenchRunTrace first = service.plan(selectionInvocation(anchor("a".repeat(64))));
+        WorkbenchRunTrace second = service.plan(selectionInvocation(anchor("a".repeat(64))));
+
+        List<WorkbenchRunTrace> recent = service.listRecentForPaper(7L, 1);
+
+        assertThat(recent).extracting(WorkbenchRunTrace::runId).containsExactly(second.runId());
+        assertThat(recent).extracting(WorkbenchRunTrace::runId).doesNotContain(first.runId());
+    }
+
+    @Test
     void taskRetryReplaysUncheckedModelButPreservesApprovedCheckpoint() {
         WorkbenchRunTrace planned = service.plan(selectionInvocation(anchor("a".repeat(64))));
         service.prepareExecutionAttempt(planned.runId(), "task-recovery");

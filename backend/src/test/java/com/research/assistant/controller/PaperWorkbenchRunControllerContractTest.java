@@ -80,6 +80,15 @@ class PaperWorkbenchRunControllerContractTest {
     }
 
     @Test
+    void listsRecentRunsForPaper() throws Exception {
+        when(service.listRecentForPaper(7L, 3)).thenReturn(List.of(trace()));
+
+        mockMvc.perform(get("/api/workbench/runs").param("paperId", "7").param("limit", "3"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].runId").value("run-1"));
+    }
+
+    @Test
     void submitsPlannedRunForExecution() throws Exception {
         when(executionService.submit("run-1")).thenReturn(new WorkbenchExecutionService.Submission(
                 "run-1", "task-1", WorkbenchRunStatus.QUEUED));

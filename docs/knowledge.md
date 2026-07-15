@@ -61,6 +61,9 @@
 ## 7. Vue、PDF.js 与前端任务
 
 - 前端通过 Vite 代理 `/api`；页面状态使用 Vue refs/reactive 和 composables，长任务轮询统一收敛到任务 API。
+- PDF 论文助手只暴露四个固定产品入口，客户端根据模式构造 `intent + scope + paperIds + SelectionAnchor`，不暴露 Skill 列表。运行结果以持久化 workbench trace 为真源，任务 API 只负责阶段与终态；刷新页面通过按论文查询最近运行恢复结果。
+- 模型报告不能直接以 `v-html` 渲染原始 Markdown。当前只在 HTML 转义后支持标题、列表、粗体和行内代码；批注建议以 `workbenchRunId` 写入批注坐标，刷新后可识别已应用运行并阻止重复确认。
+- 可恢复任务和 workbench run 是两个持久化状态机；除执行器最后重试同步终态外，还应在应用启动和固定周期对账活跃 run 与任务终态。状态修复不应依赖 GET 请求的副作用。
 - 导入 PDF 时文件名只作为文件展示，不作为论文标题；标题优先取 DOI/arXiv 元数据，其次从 PDF 首屏排版提取，最后要求用户手动填写。元数据已补全时，文件夹推荐同时传递标题、关键词、摘要和完整目录树，并只进行一次结构化 Agent 决策，不再额外走 RAG 召回；先匹配一级主题，再按同级的指标/场景/方法习惯匹配或新建最深层子目录。
 - PDF.js 批注保存归一化坐标，渲染时按 viewport 换算；可见页窗口加上下占位高度控制长文档渲染成本。
 - PDF.js 的 `PDFDocumentProxy`/`PDFPageProxy` 含有 JavaScript 私有字段，必须放在 Vue `shallowRef` 中，不能使用深度代理；阅读器通过可见页计算和防抖回传当前页，详情字段保存后要同步更新表格行。

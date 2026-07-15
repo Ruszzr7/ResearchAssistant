@@ -6,6 +6,8 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.util.List;
+
 @Mapper
 public interface PaperWorkbenchRunMapper extends BaseMapper<PaperWorkbenchRunRecord> {
 
@@ -16,4 +18,12 @@ public interface PaperWorkbenchRunMapper extends BaseMapper<PaperWorkbenchRunRec
 
     @Select("SELECT " + COLUMNS + " FROM paper_workbench_run WHERE run_id = #{runId} LIMIT 1")
     PaperWorkbenchRunRecord selectByRunId(@Param("runId") String runId);
+
+    @Select("SELECT " + COLUMNS + " FROM paper_workbench_run ORDER BY created_at DESC, id DESC LIMIT #{limit}")
+    List<PaperWorkbenchRunRecord> selectRecent(@Param("limit") int limit);
+
+    @Select("SELECT " + COLUMNS + " FROM paper_workbench_run "
+            + "WHERE status IN ('PLANNED','QUEUED','RUNNING') AND task_id IS NOT NULL "
+            + "ORDER BY updated_at ASC, id ASC LIMIT #{limit}")
+    List<PaperWorkbenchRunRecord> selectActive(@Param("limit") int limit);
 }

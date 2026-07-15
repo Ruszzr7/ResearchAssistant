@@ -11,3 +11,19 @@ export function retrieveLocalEvidence(paperId, anchor, query = '', maxResults = 
     maxResults
   }).then(r => r.data)
 }
+
+export function planWorkbenchRun(request) {
+  return api.post('/workbench/runs/plan', request).then(r => r.data)
+}
+
+export function executeWorkbenchRun(runId) {
+  return api.post(`/workbench/runs/${runId}/execute`).then(r => r.data)
+}
+
+export function getWorkbenchRun(runId, config = {}) {
+  return api.get(`/workbench/runs/${runId}`, config).then(r => r.data)
+}
+
+export function listPaperWorkbenchRuns(paperId, limit = 5) {
+  return api.get('/workbench/runs', { params: { paperId, limit } }).then(r => r.data)
+}

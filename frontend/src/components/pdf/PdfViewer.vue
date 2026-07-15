@@ -59,6 +59,9 @@
         <el-color-picker v-model="currentColor" size="small" :predefine="predefineColors" show-alpha />
 
         <el-button size="small" :loading="aiGenerating" @click="generateAiAnnotationsLocal">AI 批注</el-button>
+        <el-button size="small" :type="workbenchPanelVisible ? 'primary' : 'default'" @click="workbenchPanelVisible = !workbenchPanelVisible">
+          论文助手
+        </el-button>
         <el-button size="small" :type="showNotePanel ? 'info' : 'default'" @click="showNotePanel = !showNotePanel">笔记</el-button>
         <el-button size="small" :type="currentTool === 'edit' ? 'info' : 'default'" @click="toggleAnnotationEditMode">
           {{ currentTool === 'edit' ? '完成编辑' : '编辑批注' }}
@@ -242,43 +245,19 @@
         <div class="virtual-spacer" :style="{ height: bottomSpacerHeight + 'px' }" aria-hidden="true"></div>
       </div>
 
-      <aside v-if="selectionPanelVisible && pendingTextSelection" class="selection-evidence-panel" aria-label="选区证据">
-        <div class="selection-evidence-panel__header">
-          <div>
-            <strong>选区证据</strong>
-            <span v-if="selectionAnchor" class="selection-anchor-status" :class="`is-${selectionAnchor.kind.toLowerCase()}`">
-              {{ selectionAnchorLabel }}
-            </span>
-          </div>
-          <button type="button" class="selection-evidence-panel__close" aria-label="清除选区" @click="clearPendingTextSelection">×</button>
-        </div>
-        <p class="selection-evidence-panel__text">{{ pendingTextSelection.text }}</p>
-        <div v-if="selectionContextLoading" class="selection-evidence-panel__empty">正在建立证据锚点…</div>
-        <div v-else-if="selectionContextError" class="selection-evidence-panel__error">{{ selectionContextError }}</div>
-        <template v-else-if="selectionAnchor">
-          <div class="selection-evidence-panel__meta">
-            置信度 {{ Math.round(selectionAnchor.confidence * 100) }}%
-            · 第 {{ selectionAnchor.page }} 页
-          </div>
-          <div v-if="localEvidence.length" class="selection-evidence-list">
-            <button
-              v-for="item in localEvidence"
-              :key="item.evidenceId"
-              type="button"
-              class="selection-evidence-item"
-              :class="{ selected: item.selected }"
-              @click="jumpToEvidence(item)"
-            >
-              <span class="selection-evidence-item__meta">
-                第 {{ item.page }} 页 · {{ evidenceRoleLabel(item.role) }}
-                <span v-if="item.selected">选中</span>
-              </span>
-              <span class="selection-evidence-item__text">{{ item.text }}</span>
-            </button>
-          </div>
-          <div v-else class="selection-evidence-panel__empty">该区域没有可安全引用的正文证据</div>
-        </template>
-      </aside>
+      <PaperWorkbenchPanel
+        v-if="workbenchPanelVisible"
+        :paper="paper"
+        :selection="pendingTextSelection"
+        :selection-anchor="selectionAnchor"
+        :local-evidence="localEvidence"
+        :selection-loading="selectionContextLoading"
+        :selection-error="selectionContextError"
+        :apply-annotation="applyWorkbenchAnnotationSuggestion"
+        :applied-annotation-run-ids="appliedWorkbenchRunIds"
+        @clear-selection="clearPendingTextSelection"
+        @jump-evidence="jumpToEvidence"
+      />
 
     <NoteLinkPanel
       v-if="showNotePanel"
@@ -366,7 +345,9 @@ import { listAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, 
 import { listNotesByPaper, deleteNote, unlinkNote } from '@/api/notes'
 import NoteLinkPanel from '@/components/notes/NoteLinkPanel.vue'
 import NoteEditor from '@/components/notes/NoteEditor.vue'
+import PaperWorkbenchPanel from '@/components/pdf/PaperWorkbenchPanel.vue'
 import { resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
+import { appliedWorkbenchRunIds as collectAppliedWorkbenchRunIds } from '@/utils/workbenchRun.js'
 import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
@@ -412,7 +393,7 @@ const localEvidence = ref([])
 const selectionContextLoading = ref(false)
 const selectionContextError = ref('')
 const evidenceFocus = ref(null)
-const selectionPanelVisible = ref(false)
+const workbenchPanelVisible = ref(true)
 
 const noteDialogVisible = ref(false)
 const noteEditText = ref('')
@@ -445,6 +426,7 @@ let selectionContextRequestId = 0
 let evidenceFocusTimer = null
 
 const pageAnnotations = computed(() => (pageNum) => annotations.value.filter(a => a.page === pageNum))
+const appliedWorkbenchRunIds = computed(() => collectAppliedWorkbenchRunIds(annotations.value))
 const selectionGroupForPage = computed(() => (pageNum) => (
   pendingTextSelection.value?.groups?.find(group => group.pageNum === pageNum) || null
 ))
@@ -981,7 +963,7 @@ function finishTextSelection(event, pageNum) {
   layoutSelectionDrag = null
   const selection = pendingTextSelection.value
   if (selection?.groups?.length) {
-    selectionPanelVisible.value = true
+    workbenchPanelVisible.value = true
     void resolvePendingSelectionContext(selection)
   }
 }
@@ -1083,18 +1065,56 @@ async function jumpToEvidence(item) {
   evidenceFocusTimer = window.setTimeout(() => {
     evidenceFocus.value = null
     evidenceFocusTimer = null
-  }, 3200)
+  }, 8000)
 }
 
-function evidenceRoleLabel(role) {
-  return {
-    ABSTRACT: '摘要',
-    HEADING: '标题',
-    BODY: '正文',
-    CAPTION: '图表说明',
-    FORMULA: '公式',
-    TABLE: '表格'
-  }[role] || role
+async function applyWorkbenchAnnotationSuggestion({ trace, suggestion, evidence }) {
+  const traceAnchor = trace?.invocation?.selectionAnchor
+  const currentGroup = pendingTextSelection.value?.groups?.[0]
+  const currentAnchorMatches = currentGroup && selectionAnchor.value && traceAnchor
+    && selectionAnchor.value.documentHash === traceAnchor.documentHash
+    && selectionAnchor.value.parserVersion === traceAnchor.parserVersion
+
+  let pageNum = currentAnchorMatches ? currentGroup.pageNum : null
+  let quads = currentAnchorMatches ? currentGroup.quads : []
+  let anchorText = currentAnchorMatches ? pendingTextSelection.value.text : ''
+  if (!quads?.length) {
+    const candidates = (evidence || []).filter(item => Number(item.paperId) === Number(props.paper.id) && item.bbox)
+    const first = candidates.find(item => item.selected) || candidates[0]
+    if (!first) throw new Error('批注建议没有可回链的当前论文证据')
+    pageNum = first.page
+    quads = candidates.filter(item => item.page === pageNum).map(item => boundingBoxToViewportQuad(item.bbox)).filter(Boolean)
+    anchorText = candidates.filter(item => item.page === pageNum).map(item => item.text).join(' ').slice(0, 500)
+  }
+
+  await goToPage(pageNum)
+  const pageState = renderedPages.value.find(page => page.pageNum === pageNum)
+  if (!pageState?.viewport || !quads.length) throw new Error('未能恢复批注锚点，请重新选择内容')
+  const annotation = {
+    localId: nextLocalId++,
+    paperId: props.paper.id,
+    type: 'NOTE',
+    page: pageNum,
+    color: currentColor.value,
+    note: suggestion.content,
+    coordinates: {
+      coordinateSpace: 'viewport',
+      pageWidth: pageState.viewport.width,
+      pageHeight: pageState.viewport.height,
+      rotation: pageState.viewport.rotation,
+      scale: pageState.viewport.scale,
+      quads,
+      anchorQuads: quads,
+      notePosition: notePositionNearAnchor(quads),
+      anchorText,
+      workbenchRunId: trace.runId
+    }
+  }
+  await persistNewAnnotation(annotation)
+  selectedAnnotation.value = annotation
+  notePreview.value = annotation
+  ElMessage.success('批注已添加')
+  return annotation
 }
 
 function selectionSegmentsToViewportQuads(segments, layoutIndex, layer, pageElement) {
@@ -1183,7 +1203,6 @@ function clearPendingTextSelection() {
   selectionContextLoading.value = false
   selectionContextError.value = ''
   evidenceFocus.value = null
-  selectionPanelVisible.value = false
   if (evidenceFocusTimer != null) {
     window.clearTimeout(evidenceFocusTimer)
     evidenceFocusTimer = null
@@ -1835,112 +1854,6 @@ function colorName(color) {
   font-size: 12px;
   color: var(--ra-text-secondary);
 }
-.selection-evidence-panel {
-  flex: 0 0 310px;
-  min-width: 0;
-  overflow-y: auto;
-  box-sizing: border-box;
-  padding: 14px;
-  border-left: 1px solid var(--ra-border);
-  background: var(--ra-panel-bg);
-}
-.selection-evidence-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-  color: var(--ra-text);
-}
-.selection-evidence-panel__header > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.selection-evidence-panel__close {
-  border: 0;
-  padding: 2px 5px;
-  color: var(--ra-text-secondary);
-  background: transparent;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-}
-.selection-anchor-status {
-  padding: 2px 6px;
-  border-radius: 999px;
-  color: #1d6d3a;
-  background: rgba(76, 175, 80, 0.14);
-  font-size: 11px;
-  font-weight: 500;
-}
-.selection-anchor-status.is-region {
-  color: #9a5b00;
-  background: rgba(255, 152, 0, 0.16);
-}
-.selection-evidence-panel__text {
-  max-height: 88px;
-  overflow: auto;
-  margin: 0 0 10px;
-  padding: 9px 10px;
-  border-left: 3px solid var(--ra-link);
-  background: var(--ra-hover-bg);
-  color: var(--ra-text);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-}
-.selection-evidence-panel__meta {
-  margin-bottom: 8px;
-  color: var(--ra-text-tertiary);
-  font-size: 11px;
-}
-.selection-evidence-panel__empty,
-.selection-evidence-panel__error {
-  padding: 18px 4px;
-  color: var(--ra-text-tertiary);
-  font-size: 12px;
-  text-align: center;
-}
-.selection-evidence-panel__error { color: var(--el-color-danger); }
-.selection-evidence-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-.selection-evidence-item {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  width: 100%;
-  padding: 8px 9px;
-  border: 1px solid var(--ra-border);
-  border-radius: 6px;
-  color: var(--ra-text);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-.selection-evidence-item:hover,
-.selection-evidence-item.selected {
-  border-color: var(--ra-link);
-  background: var(--ra-hover-bg);
-}
-.selection-evidence-item__meta {
-  display: flex;
-  justify-content: space-between;
-  color: var(--ra-text-tertiary);
-  font-size: 11px;
-}
-.selection-evidence-item__meta > span { color: var(--ra-link); }
-.selection-evidence-item__text {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  font-size: 12px;
-  line-height: 1.45;
-}
 .zoom-menu-button { min-width: 72px; }
 .zoom-menu { position: relative; }
 .zoom-option-list {
@@ -2185,8 +2098,5 @@ function colorName(color) {
 }
 .context-menu-item:hover {
   background: var(--ra-hover-bg);
-}
-@media (max-width: 1100px) {
-  .selection-evidence-panel { flex-basis: 270px; }
 }
 </style>

@@ -28,6 +28,7 @@
 - `POST /api/agent/workflow/{taskId}/confirm` 只接受 `selected` 和 `folderId`；未知字段忽略以保持前后端兼容。
 - `POST /api/workbench/runs/plan` 接受 1–8 个 `paperIds`、可选 intent/scope、最多 4000 字的问题、SelectionAnchor、1–6 步和 256–60000 token 预算；服务端只生成固定白名单计划，不接受客户端 Skill 列表。
 - `POST /api/workbench/runs/{runId}/execute` 只执行已持久化的 `PLANNED` run，返回绑定的可恢复 `taskId`；重复提交已排队、执行中或已完成的 run 时返回同一任务身份，不重复调用模型。
+- `GET /api/workbench/runs?paperId={id}&limit={1..20}` 返回该论文参与的最近运行，按 `created_at DESC, id DESC` 确定性排序；用于 PDF 助手刷新恢复，不触发新分析。
 - `GET /api/workbench/runs/{runId}` 返回 artifact 版本、计划、run/step 状态和低敏摘要；未知 run 使用 HTTP 404。SelectionAnchor 的 hash/parser 过期使用 HTTP 409。
 - 工作台客户端通过既有异步任务查询接口轮询 `taskId`，并以 run trace 为结果真源。只有 Evidence Gate 通过的结构化 claims/evidence 才会进入 run result；全文分析报告额外绑定 run ID、PDF hash 和 parser version，便于审计和失效处理。
 

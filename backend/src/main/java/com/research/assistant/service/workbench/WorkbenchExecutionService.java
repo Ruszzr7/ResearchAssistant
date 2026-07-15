@@ -3,6 +3,8 @@ package com.research.assistant.service.workbench;
 import com.research.assistant.service.async.AsyncTaskHandlerRegistry;
 import com.research.assistant.service.async.AsyncTaskManager;
 import com.research.assistant.service.async.AsyncTaskExecutionException;
+import com.research.assistant.service.async.AsyncTaskResult;
+import com.research.assistant.service.async.AsyncTaskStatus;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -75,6 +77,30 @@ public class WorkbenchExecutionService {
             }
             throw e;
         }
+    }
+
+    /** Repairs a trace left active after its recoverable task has already reached a terminal state. */
+    public WorkbenchRunTrace reconcile(WorkbenchRunTrace trace) {
+        if (trace == null || trace.taskId() == null
+                || trace.status() == WorkbenchRunStatus.COMPLETED
+                || trace.status() == WorkbenchRunStatus.FAILED
+                || trace.status() == WorkbenchRunStatus.CANCELLED) {
+            return trace;
+        }
+        AsyncTaskResult<?> task = asyncTaskManager.get(trace.taskId());
+        if (task == null || !task.getStatus().isTerminal()) return trace;
+        if (task.getStatus() == AsyncTaskStatus.CANCELLED) {
+            traceService.cancelRun(trace.runId(), "任务已取消");
+        } else if (task.getStatus() == AsyncTaskStatus.COMPLETED) {
+            traceService.failRun(trace.runId(), "TASK_TRACE_INCONSISTENT", "任务已完成但运行结果缺失，请重新执行");
+        } else {
+            traceService.failRun(trace.runId(), "TASK_TERMINATED", safeTaskError(task));
+        }
+        return traceService.requireTrace(trace.runId());
+    }
+
+    private String safeTaskError(AsyncTaskResult<?> task) {
+        return task.getError() == null || task.getError().isBlank() ? "论文助手任务执行失败" : task.getError();
     }
 
     private String title(WorkbenchPlan.Workflow workflow) {

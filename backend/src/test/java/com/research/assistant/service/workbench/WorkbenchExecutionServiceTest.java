@@ -4,6 +4,7 @@ import com.research.assistant.service.async.AsyncTaskExecutionContext;
 import com.research.assistant.service.async.AsyncTaskExecutionException;
 import com.research.assistant.service.async.AsyncTaskHandlerRegistry;
 import com.research.assistant.service.async.AsyncTaskManager;
+import com.research.assistant.service.async.AsyncTaskResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -99,6 +100,18 @@ class WorkbenchExecutionServiceTest {
                 .isInstanceOf(AsyncTaskExecutionException.class);
 
         verify(traceService).failRun("run-1", "MODEL_CALL_FAILED", "模型服务暂时不可用");
+    }
+
+    @Test
+    void reconcilesAnActiveRunWhoseTaskIsAlreadyDeadLettered() {
+        WorkbenchRunTrace running = trace(WorkbenchRunStatus.RUNNING, "task-1");
+        WorkbenchRunTrace failed = trace(WorkbenchRunStatus.FAILED, "task-1");
+        when(asyncTaskManager.get("task-1"))
+                .thenReturn(AsyncTaskResult.pending("task-1", "处理中").deadLetter("模型服务暂时不可用"));
+        when(traceService.requireTrace("run-1")).thenReturn(failed);
+
+        assertThat(service.reconcile(running)).isSameAs(failed);
+        verify(traceService).failRun("run-1", "TASK_TERMINATED", "模型服务暂时不可用");
     }
 
     private WorkbenchRunTrace trace(WorkbenchRunStatus status, String taskId) {

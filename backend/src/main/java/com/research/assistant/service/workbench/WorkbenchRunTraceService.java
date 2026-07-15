@@ -25,6 +25,7 @@ import java.util.UUID;
 public class WorkbenchRunTraceService {
 
     private static final TypeReference<List<WorkbenchPlan.ArtifactVersion>> ARTIFACT_LIST = new TypeReference<>() { };
+    private static final TypeReference<List<Long>> PAPER_ID_LIST = new TypeReference<>() { };
 
     private final PaperWorkbenchRunMapper runMapper;
     private final PaperWorkbenchStepMapper stepMapper;
@@ -105,6 +106,25 @@ public class WorkbenchRunTraceService {
         WorkbenchRunTrace trace = findTrace(runId);
         if (trace == null) throw new IllegalArgumentException("workbench run does not exist");
         return trace;
+    }
+
+    /** Returns a bounded, newest-first history so the PDF reader can recover after a reload. */
+    public List<WorkbenchRunTrace> listRecentForPaper(long paperId, int limit) {
+        if (paperId <= 0) throw new IllegalArgumentException("paperId must be positive");
+        int boundedLimit = Math.max(1, Math.min(limit, 20));
+        int scanLimit = Math.min(200, Math.max(40, boundedLimit * 10));
+        return runMapper.selectRecent(scanLimit).stream()
+                .filter(run -> read(run.getPaperIdsJson(), PAPER_ID_LIST).contains(paperId))
+                .limit(boundedLimit)
+                .map(run -> toTrace(run, stepMapper.findByRunId(run.getRunId())))
+                .toList();
+    }
+
+    public List<WorkbenchRunTrace> listActive(int limit) {
+        int boundedLimit = Math.max(1, Math.min(limit, 200));
+        return runMapper.selectActive(boundedLimit).stream()
+                .map(run -> toTrace(run, stepMapper.findByRunId(run.getRunId())))
+                .toList();
     }
 
     @Transactional
@@ -300,6 +320,29 @@ public class WorkbenchRunTraceService {
         run.setStatus(WorkbenchRunStatus.FAILED.name());
         run.setErrorCode(normalizeCode(errorCode));
         run.setErrorMessage(truncate(safeErrorMessage, 1_000));
+        run.setEvidenceCount(steps.stream().mapToInt(step -> value(step.getEvidenceCount())).max().orElse(0));
+        run.setPromptTokens(steps.stream().mapToInt(step -> value(step.getPromptTokens())).sum());
+        run.setCompletionTokens(steps.stream().mapToInt(step -> value(step.getCompletionTokens())).sum());
+        run.setTotalTokens(steps.stream().mapToInt(step -> value(step.getTotalTokens())).sum());
+        run.setLatencyMs(elapsed(run.getStartedAt(), now));
+        run.setCompletedAt(now);
+        run.setUpdatedAt(now);
+        runMapper.updateById(run);
+    }
+
+    @Transactional
+    public void cancelRun(String runId, String safeMessage) {
+        PaperWorkbenchRunRecord run = requireRun(runId);
+        WorkbenchRunStatus status = WorkbenchRunStatus.valueOf(run.getStatus());
+        if (status == WorkbenchRunStatus.COMPLETED || status == WorkbenchRunStatus.CANCELLED
+                || status == WorkbenchRunStatus.FAILED) {
+            return;
+        }
+        List<PaperWorkbenchStepRecord> steps = stepMapper.findByRunId(runId);
+        LocalDateTime now = LocalDateTime.now();
+        run.setStatus(WorkbenchRunStatus.CANCELLED.name());
+        run.setErrorCode("TASK_CANCELLED");
+        run.setErrorMessage(truncate(safeMessage == null ? "任务已取消" : safeMessage, 1_000));
         run.setEvidenceCount(steps.stream().mapToInt(step -> value(step.getEvidenceCount())).max().orElse(0));
         run.setPromptTokens(steps.stream().mapToInt(step -> value(step.getPromptTokens())).sum());
         run.setCompletionTokens(steps.stream().mapToInt(step -> value(step.getCompletionTokens())).sum());
