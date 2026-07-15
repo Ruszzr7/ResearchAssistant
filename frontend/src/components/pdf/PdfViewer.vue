@@ -27,6 +27,21 @@
           <el-button size="small" :disabled="zoomPercent >= zoomOptions[zoomOptions.length - 1]" @click="changeZoom(1)">+</el-button>
         </div>
 
+        <label class="page-navigation" title="输入页码后按 Enter 跳转">
+          <span class="sr-only">跳转页码</span>
+          <input
+            v-model.number="currentPage"
+            type="number"
+            min="1"
+            :max="renderedPages.length || 1"
+            inputmode="numeric"
+            aria-label="跳转页码"
+            @keydown.enter.prevent="goToPage()"
+            @blur="goToPage()"
+          />
+          <span aria-label="总页数">/ {{ renderedPages.length || 0 }}</span>
+        </label>
+
         <div class="annotation-color-palette" aria-label="批注颜色">
           <button
             v-for="color in annotationColors"
@@ -67,6 +82,9 @@
           :style="pageWrapStyle(page)"
           @contextmenu.prevent="onContextMenu"
         >
+          <div v-if="!page.canvasReady" class="pdf-page-loading" aria-hidden="true">
+            正在渲染第 {{ page.pageNum }} 页…
+          </div>
           <canvas :ref="el => setCanvasRef(el, page.pageNum)" />
           <div
             :ref="el => setTextLayerRef(el, page.pageNum)"
@@ -326,6 +344,7 @@ const pdfDoc = shallowRef(null)
 const renderedPages = ref([])
 const visiblePageStart = ref(1)
 const visiblePageEnd = ref(1)
+const currentPage = ref(1)
 const baseEstimatedPageHeight = 900
 const zoomPercent = ref(100)
 const renderedZoomPercent = ref(100)
@@ -404,18 +423,26 @@ const bottomSpacerHeight = computed(() => Math.max(
 ))
 
 onMounted(() => {
+  document.documentElement.classList.add('pdf-viewer-open')
+  document.body.classList.add('pdf-viewer-open')
   window.addEventListener('click', onWindowClick)
   loadDocument()
 })
 onUnmounted(() => {
+  renderQueueRequested = false
+  if (renderFrame != null) window.cancelAnimationFrame(renderFrame)
+  cancelAllPageRenders()
   pdfDoc.value?.destroy()
   pageLayoutIndexes.clear()
-  clearTimeout(scrollTimer)
   window.removeEventListener('click', onWindowClick)
+  document.documentElement.classList.remove('pdf-viewer-open')
+  document.body.classList.remove('pdf-viewer-open')
 })
 
 async function loadDocument() {
   try {
+    cancelAllPageRenders()
+    renderQueueRequested = false
     pageLayoutIndexes.clear()
     const url = `/api/papers/${props.paper.id}/pdf`
     const loading = pdfjsLib.getDocument(url)
@@ -425,10 +452,15 @@ async function loadDocument() {
       pageNum: i + 1,
       viewport: null,
       width: 0,
-      height: 0
+      height: 0,
+      rendered: false,
+      canvasReady: false,
+      renderFailed: false,
+      surfaceVersion: 0
     }))
     visiblePageStart.value = 1
     visiblePageEnd.value = Math.min(count, 3)
+    currentPage.value = 1
     await nextTick()
     updateVisiblePageRange()
     await renderVisiblePages()
@@ -438,14 +470,94 @@ async function loadDocument() {
   }
 }
 
+let renderQueuePromise = null
+let renderQueueRequested = false
+let renderFrame = null
+const activePageRenderTasks = new Map()
+
 async function renderVisiblePages() {
-  if (!containerRef.value || !pdfDoc.value) return
-  updateVisiblePageRange()
-  await nextTick()
-  for (const page of visiblePages.value) {
-    if (page.rendered) continue
-    await renderPage(page)
+  renderQueueRequested = true
+  if (renderQueuePromise) return renderQueuePromise
+  return drainRenderQueue()
+}
+
+function scheduleVisiblePageRender() {
+  renderQueueRequested = true
+  if (renderQueuePromise || renderFrame != null) return
+  renderFrame = window.requestAnimationFrame(() => {
+    renderFrame = null
+    void drainRenderQueue()
+  })
+}
+
+async function drainRenderQueue() {
+  if (renderQueuePromise) return renderQueuePromise
+
+  renderQueuePromise = (async () => {
+    try {
+      while (renderQueueRequested) {
+        renderQueueRequested = false
+        if (!containerRef.value || !pdfDoc.value) break
+
+        updateVisiblePageRange()
+        await nextTick()
+        const nextPage = pendingVisiblePagesByPriority()[0]
+        if (!nextPage) continue
+
+        await renderPage(nextPage)
+        if (pendingVisiblePagesByPriority().length) renderQueueRequested = true
+      }
+    } finally {
+      renderQueuePromise = null
+      if (renderQueueRequested) scheduleVisiblePageRender()
+    }
+  })()
+
+  return renderQueuePromise
+}
+
+function pendingVisiblePagesByPriority() {
+  const container = containerRef.value
+  if (!container) return []
+  const viewportCenter = container.scrollTop + container.clientHeight / 2
+
+  return visiblePages.value
+    .filter(page => !page.rendered && !page.renderFailed && hasMountedRenderSurface(page.pageNum))
+    .sort((left, right) => {
+      const leftCurrent = left.pageNum === currentPage.value ? 0 : 1
+      const rightCurrent = right.pageNum === currentPage.value ? 0 : 1
+      if (leftCurrent !== rightCurrent) return leftCurrent - rightCurrent
+      const leftDistance = Math.abs(pageOffset(left.pageNum) + pageHeight(left) / 2 - viewportCenter)
+      const rightDistance = Math.abs(pageOffset(right.pageNum) + pageHeight(right) / 2 - viewportCenter)
+      return leftDistance - rightDistance || left.pageNum - right.pageNum
+    })
+}
+
+function hasMountedRenderSurface(pageNum) {
+  const canvas = canvasRefs.value[pageNum]
+  const textLayer = textLayerRefs.value[pageNum]
+  return Boolean(canvas?.isConnected && textLayer?.isConnected)
+}
+
+function isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef) {
+  return pdfDoc.value === documentRef
+    && pageState.surfaceVersion === surfaceVersion
+    && canvasRefs.value[pageState.pageNum] === canvas
+    && textLayerRefs.value[pageState.pageNum] === textLayer
+    && canvas.isConnected
+    && textLayer.isConnected
+}
+
+function cancelStalePageRenders() {
+  const desired = new Set(visiblePages.value.map(page => page.pageNum))
+  for (const [pageNum, task] of activePageRenderTasks) {
+    if (!desired.has(pageNum)) task.cancel()
   }
+}
+
+function cancelAllPageRenders() {
+  for (const task of activePageRenderTasks.values()) task.cancel()
+  activePageRenderTasks.clear()
 }
 
 function updateVisiblePageRange() {
@@ -474,13 +586,66 @@ function updateVisiblePageRange() {
   }
   visiblePageStart.value = Math.max(1, first)
   visiblePageEnd.value = Math.min(count, Math.max(visiblePageStart.value, last))
+  updateCurrentPage()
+}
+
+function updateCurrentPage() {
+  const container = containerRef.value
+  const count = renderedPages.value.length
+  if (!container || !count) return
+
+  // The page occupying the upper quarter of the viewport is less jumpy than
+  // using a single pixel at the page boundary, while still matching what the
+  // reader is actually looking at.
+  const focusOffset = container.scrollTop + Math.min(container.clientHeight * 0.25, 180)
+  let cursor = 0
+  for (let index = 0; index < count; index += 1) {
+    const pageBottom = cursor + pageHeight(renderedPages.value[index])
+    if (focusOffset <= pageBottom + 16 || index === count - 1) {
+      currentPage.value = index + 1
+      return
+    }
+    cursor = pageBottom + 16
+  }
+}
+
+async function goToPage(requestedPage = currentPage.value) {
+  const container = containerRef.value
+  const count = renderedPages.value.length
+  if (!container || !count) return
+
+  const numericPage = Number(requestedPage)
+  const targetPage = Math.min(count, Math.max(1, Number.isFinite(numericPage) ? Math.round(numericPage) : currentPage.value || 1))
+  currentPage.value = targetPage
+
+  // Materialise a small local window before changing scrollTop. The virtual
+  // spacer keeps the position exact even for pages that have not been painted
+  // yet, so direct jumping does not force the full document to render.
+  visiblePageStart.value = Math.max(1, targetPage - 1)
+  visiblePageEnd.value = Math.min(count, targetPage + 1)
+  await nextTick()
+  container.scrollTop = pageOffset(targetPage)
+  updateVisiblePageRange()
+  cancelStalePageRenders()
+  await renderVisiblePages()
 }
 
 async function renderPage(pageState) {
   const canvas = canvasRefs.value[pageState.pageNum]
   const textLayer = textLayerRefs.value[pageState.pageNum]
-  if (!canvas || !textLayer) return
-  const page = await pdfDoc.value.getPage(pageState.pageNum)
+  const documentRef = pdfDoc.value
+  if (!canvas || !textLayer || !documentRef || !hasMountedRenderSurface(pageState.pageNum)) return false
+  const surfaceVersion = pageState.surfaceVersion
+
+  let page
+  try {
+    page = await documentRef.getPage(pageState.pageNum)
+  } catch (e) {
+    pageState.renderFailed = true
+    return false
+  }
+  if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
+
   const dpr = window.devicePixelRatio || 1
   const baseViewport = page.getViewport({ scale: 1.5 * zoomPercent.value / 100 })
   const viewport = baseViewport
@@ -495,7 +660,20 @@ async function renderPage(pageState) {
   const ctx = canvas.getContext('2d')
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-  await page.render({ canvasContext: ctx, viewport }).promise
+  const renderTask = page.render({ canvasContext: ctx, viewport })
+  activePageRenderTasks.set(pageState.pageNum, renderTask)
+  try {
+    await renderTask.promise
+  } catch (e) {
+    if (e?.name !== 'RenderingCancelledException') pageState.renderFailed = true
+    return false
+  } finally {
+    if (activePageRenderTasks.get(pageState.pageNum) === renderTask) {
+      activePageRenderTasks.delete(pageState.pageNum)
+    }
+  }
+  if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
+  pageState.canvasReady = true
 
   textLayer.replaceChildren()
   textLayer.style.width = viewport.width + 'px'
@@ -508,12 +686,14 @@ async function renderPage(pageState) {
   delete textLayer.dataset.layoutColumns
   try {
     const textContent = await page.getTextContent()
+    if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
     const tl = new pdfjsLib.TextLayer({
       textContentSource: textContent,
       container: textLayer,
       viewport
     })
     await tl.render()
+    if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
     const layoutIndex = buildRenderedPageLayoutIndex(textLayer, pageState, viewport)
     pageLayoutIndexes.set(pageState.pageNum, layoutIndex)
     // 仅作为开发期可见的只读诊断，不参与样式或交互。它让真实 PDF 的
@@ -524,7 +704,9 @@ async function renderPage(pageState) {
   } catch (e) {
     // 某些 PDF 没有文本层，忽略
   }
+  if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
   pageState.rendered = true
+  return true
 }
 
 function pageWrapStyle(page) {
@@ -545,9 +727,49 @@ function layerStyle(page) {
   }
 }
 
-function setCanvasRef(el, pageNum) { if (el) canvasRefs.value[pageNum] = el }
-function setTextLayerRef(el, pageNum) { if (el) textLayerRefs.value[pageNum] = el }
-function setOverlayRef(el, pageNum) { if (el) overlayRefs.value[pageNum] = el }
+function setCanvasRef(el, pageNum) {
+  if (!el) return releasePageSurfaceRef(canvasRefs, pageNum)
+  if (canvasRefs.value[pageNum] === el) return
+  canvasRefs.value[pageNum] = el
+  invalidatePageSurface(pageNum)
+  scheduleVisiblePageRender()
+}
+
+function setTextLayerRef(el, pageNum) {
+  if (!el) return releasePageSurfaceRef(textLayerRefs, pageNum)
+  if (textLayerRefs.value[pageNum] === el) return
+  textLayerRefs.value[pageNum] = el
+  invalidatePageSurface(pageNum)
+  scheduleVisiblePageRender()
+}
+
+function setOverlayRef(el, pageNum) {
+  if (el) overlayRefs.value[pageNum] = el
+  else releasePageSurfaceRef(overlayRefs, pageNum, false)
+}
+
+function releasePageSurfaceRef(refs, pageNum, invalidate = true) {
+  const surface = refs.value[pageNum]
+  if (!surface) return
+  queueMicrotask(() => {
+    // Function refs run on every Vue update. Only clear the map after the old
+    // element is genuinely detached, not when its callback identity changes.
+    if (refs.value[pageNum] !== surface || surface.isConnected) return
+    delete refs.value[pageNum]
+    if (invalidate) invalidatePageSurface(pageNum)
+  })
+}
+
+function invalidatePageSurface(pageNum) {
+  const pageState = renderedPages.value[pageNum - 1]
+  if (!pageState) return
+  pageState.surfaceVersion += 1
+  pageState.rendered = false
+  pageState.canvasReady = false
+  pageState.renderFailed = false
+  pageLayoutIndexes.delete(pageNum)
+  activePageRenderTasks.get(pageNum)?.cancel()
+}
 
 function buildRenderedPageLayoutIndex(textLayer, pageState, viewport) {
   const layerRect = textLayer.getBoundingClientRect()
@@ -570,11 +792,10 @@ function buildRenderedPageLayoutIndex(textLayer, pageState, viewport) {
   })
 }
 
-let scrollTimer = null
 function onScroll() {
   updateVisiblePageRange()
-  clearTimeout(scrollTimer)
-  scrollTimer = setTimeout(renderVisiblePages, 100)
+  cancelStalePageRenders()
+  scheduleVisiblePageRender()
 }
 
 async function changeZoom(direction) {
@@ -605,10 +826,15 @@ async function renderAtCurrentZoom() {
   const ratio = zoomPercent.value / renderedZoomPercent.value
   const previousTop = container?.scrollTop || 0
   clearPendingTextSelection()
+  cancelAllPageRenders()
+  renderQueueRequested = false
   pageLayoutIndexes.clear()
 
   for (const page of renderedPages.value) {
+    page.surfaceVersion += 1
     page.rendered = false
+    page.canvasReady = false
+    page.renderFailed = false
     page.viewport = null
     page.width = 0
     page.height = 0
@@ -1339,13 +1565,7 @@ async function deleteNoteLocal(note) {
 
 async function jumpToNote(note) {
   selectedNote.value = note
-  if (note.page > 0 && containerRef.value) {
-    visiblePageStart.value = Math.max(1, note.page - 1)
-    visiblePageEnd.value = Math.min(renderedPages.value.length, note.page + 1)
-    await nextTick()
-    const el = containerRef.value.querySelector(`[data-page="${note.page}"]`)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
+  if (note.page > 0) await goToPage(note.page)
 }
 
 function onWindowClick() {
@@ -1370,11 +1590,14 @@ function colorName(color) {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   background: var(--ra-bg);
 }
 .viewer-body {
   display: flex;
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 .pdf-toolbar {
@@ -1400,10 +1623,53 @@ function colorName(color) {
   flex-wrap: wrap;
   justify-content: center;
 }
-.pdf-tool-group, .zoom-controls {
+.pdf-tool-group, .zoom-controls, .page-navigation {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.page-navigation {
+  min-height: 28px;
+  box-sizing: border-box;
+  padding-left: 8px;
+  border-left: 1px solid var(--ra-border);
+  color: var(--ra-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.page-navigation input {
+  width: 42px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 3px 4px;
+  border: 1px solid var(--ra-border);
+  border-radius: 4px;
+  outline: none;
+  color: var(--ra-text);
+  background: var(--ra-panel-bg);
+  font: inherit;
+  text-align: center;
+  appearance: textfield;
+}
+.page-navigation input:focus {
+  border-color: var(--ra-link);
+  box-shadow: 0 0 0 1px var(--ra-link);
+}
+.page-navigation input::-webkit-inner-spin-button,
+.page-navigation input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .selection-hint {
   max-width: 180px;
@@ -1454,7 +1720,11 @@ function colorName(color) {
 }
 .pdf-pages {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1472,7 +1742,21 @@ function colorName(color) {
   overflow: hidden;
   flex-shrink: 0;
 }
+.pdf-page-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ra-text-tertiary);
+  background: linear-gradient(110deg, var(--ra-panel-bg) 30%, var(--ra-hover-bg) 48%, var(--ra-panel-bg) 66%);
+  font-size: 12px;
+  pointer-events: none;
+}
 .pdf-page canvas {
+  position: relative;
+  z-index: 0;
   display: block;
 }
 .text-layer {

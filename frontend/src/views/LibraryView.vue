@@ -1873,7 +1873,7 @@ onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.remove
 .preview-title { font-size:13px; font-weight:600; color:var(--ra-text); margin-bottom:8px; }
 
 /** PDF 全屏预览 */
-.pdf-overlay { position:fixed; top:61px; left:0; right:0; bottom:0; z-index:9999; background:var(--ra-bg); display:flex; flex-direction:column; }
+.pdf-overlay { position:fixed; top:61px; left:0; right:0; bottom:0; z-index:9999; background:var(--ra-bg); display:flex; flex-direction:column; min-height:0; overflow:hidden; overscroll-behavior:contain; }
 .pdf-toolbar { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:var(--ra-hover-bg); flex-shrink:0; border-bottom:1px solid var(--ra-border); }
 .pdf-toolbar-title { color:var(--ra-text); font-size:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .pdf-frame { flex:1; border:none; width:100%; }

@@ -260,6 +260,11 @@ body {
   background: var(--ra-bg);
   color: var(--ra-text);
 }
+html.pdf-viewer-open,
+body.pdf-viewer-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 
 /* Element Plus 暗色模式全局覆盖：保留语义色标签的辨识度 */
 html.dark .el-tag--info { --el-tag-bg-color: #3a3c42; --el-tag-text-color: #b8bac1; --el-tag-border-color: #4c4e55; }

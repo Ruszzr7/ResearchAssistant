@@ -90,18 +90,25 @@ function locateRun(index, runById, endpoint) {
   const run = runById.get(endpoint?.runId)
   if (!run || run.orientation !== 'horizontal') return null
   const line = (index?.lines || []).find(candidate => candidate.runIds?.includes(run.id))
-  if (!line?.columnId) return null
+  // A run that spans a detected column gutter is usually a display equation,
+  // caption or page furniture. It must not be used as a bridge that pulls a
+  // neighbouring prose column into the current selection.
+  if (!line?.columnId || line.columnId === 'ambiguous') return null
   return { run, columnId: line.columnId }
 }
 
 function orderedColumnRuns(index, runById, columnId) {
   return (index?.lines || [])
     .filter(line => line.columnId === columnId)
-    .sort((a, b) => a.centerY - b.centerY || a.x - b.x)
     .flatMap(line => (line.runIds || [])
       .map(id => runById.get(id))
       .filter(Boolean)
-      .sort((a, b) => a.x - b.x || a.centerY - b.centerY))
+      .map(run => ({
+        run,
+        selectionOrderY: Number.isFinite(Number(line.selectionOrderY)) ? Number(line.selectionOrderY) : line.centerY
+      })))
+    .sort((a, b) => a.selectionOrderY - b.selectionOrderY || a.run.x - b.run.x || a.run.centerY - b.run.centerY)
+    .map(item => item.run)
 }
 
 function endpointForRun(run, offset) {

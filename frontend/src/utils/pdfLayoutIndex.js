@@ -21,7 +21,11 @@ export function buildPdfPageLayoutIndex({ pageNum, pageWidth, pageHeight, textIt
   const horizontalRuns = runs.filter(run => run.orientation === 'horizontal')
   const verticalRuns = runs.filter(run => run.orientation === 'vertical')
   const lines = clusterTextRunsIntoLines(horizontalRuns, { pageWidth: width })
-  const columnResult = detectLayoutColumns(lines, { pageWidth: width })
+  const columnResult = detectLayoutColumns(lines, {
+    pageWidth: width,
+    pageHeight: height,
+    runs
+  })
   const paragraphs = groupParagraphCandidates(columnResult.lines, { columns: columnResult.columns })
 
   return {
@@ -233,19 +237,38 @@ function detectStableColumnGutter(rowBands, { pageWidth, medianHeight }) {
  * a centered title, author row or a one-off formula cannot create a false
  * second column.
  */
-export function detectLayoutColumns(lines, { pageWidth = MIN_PAGE_SIZE } = {}) {
+export function detectLayoutColumns(lines, {
+  pageWidth = MIN_PAGE_SIZE,
+  pageHeight = MIN_PAGE_SIZE,
+  runs = []
+} = {}) {
   if (!Array.isArray(lines) || !lines.length) return { lines: [], columns: [] }
 
   const width = positiveNumber(pageWidth, MIN_PAGE_SIZE)
+  const height = positiveNumber(pageHeight, MIN_PAGE_SIZE)
   const medianHeight = median(lines.map(line => line.height)) || 1
   const fullWidthThreshold = width * 0.72
   const anchorThreshold = Math.max(width * 0.12, medianHeight * 5)
-  const candidateLines = lines.filter(line => line.width < fullWidthThreshold && line.text.length >= 2)
+  const candidateLines = lines.filter(line => (
+    line.width < fullWidthThreshold
+    && line.text.length >= 2
+    && !isCenteredMastheadLine(line, { pageWidth: width, pageHeight: height, medianHeight })
+  ))
   const anchorGroups = groupLineAnchors(candidateLines, anchorThreshold)
   const pair = bestColumnPair(anchorGroups, width)
 
   if (!pair) {
-    const singleColumnLines = lines.map(line => ({ ...line, columnId: 'column-0' }))
+    const singleColumnLines = assignSelectionRowOrder(lines.map(line => ({
+      ...line,
+      // A paper title can span several centred lines while the rest of the
+      // page is single-column. Keep those lines in one explicit lane so a
+      // drag across the title never turns into unrelated body text.
+      columnId: isCenteredMastheadLine(line, {
+        pageWidth: width,
+        pageHeight: height,
+        medianHeight
+      }) ? 'full' : 'column-0'
+    })), { fallbackHeight: medianHeight })
     return {
       lines: singleColumnLines,
       columns: [createColumn('column-0', 0, singleColumnLines)]
@@ -253,23 +276,218 @@ export function detectLayoutColumns(lines, { pageWidth = MIN_PAGE_SIZE } = {}) {
   }
 
   const selectedGroups = [...pair].sort((a, b) => a.anchor - b.anchor)
-  const assignmentLimit = Math.max(width * 0.1, medianHeight * 6)
-  const assignedLines = lines.map(line => {
-    if (line.width >= fullWidthThreshold) return { ...line, columnId: 'full' }
-    const nearest = selectedGroups
-      .map((group, index) => ({ index, distance: Math.abs(line.x - group.anchor) }))
-      .sort((a, b) => a.distance - b.distance)[0]
-    return {
-      ...line,
-      columnId: nearest && nearest.distance <= assignmentLimit ? `column-${nearest.index}` : 'full'
-    }
-  })
+  const columnBoundary = estimateColumnBoundary(selectedGroups, width)
+  const splitTolerance = Math.max(2, medianHeight * 0.22)
+  const localLines = splitLinesAtColumnBoundary(lines, runs, columnBoundary, splitTolerance)
+    .sort((a, b) => a.centerY - b.centerY || a.x - b.x)
+    .map((line, index) => ({ ...line, id: `line-${index}` }))
+  const assignedLines = assignSelectionRowOrder(localLines.map(line => ({
+    ...line,
+    columnId: classifyLineLane(line, {
+      pageWidth: width,
+      pageHeight: height,
+      medianHeight,
+      columnBoundary,
+      splitTolerance
+    })
+  })), { fallbackHeight: medianHeight })
   const columns = selectedGroups.map((_, index) => {
     const id = `column-${index}`
     return createColumn(id, index, assignedLines.filter(line => line.columnId === id))
   })
 
   return { lines: assignedLines, columns }
+}
+
+/**
+ * A page-wide column model is insufficient for IEEE layouts: biography text
+ * can wrap around a portrait, and appendix equations can occupy only one side
+ * of an otherwise two-column page.  When PDF.js happened to group both sides
+ * onto one baseline, split the run list at the detected gutter *before*
+ * selection assigns a lane. A formula glyph can visually spill a few pixels
+ * into that gutter because of italic slant, radicals or super/subscripts. If
+ * the rest of its baseline has prose on only one side, keep that formula in
+ * the same lane; only a fragment that actually sits between both columns is
+ * marked ambiguous rather than contaminating either prose column.
+ */
+function splitLinesAtColumnBoundary(lines, runs, columnBoundary, tolerance) {
+  const runById = new Map((runs || []).map(run => [run.id, run]))
+  return lines.flatMap(line => {
+    const lineRuns = (line.runIds || []).map(id => runById.get(id)).filter(Boolean)
+    if (lineRuns.length < 2) return [line]
+
+    const left = []
+    const right = []
+    const crossing = []
+    for (const run of lineRuns) {
+      if (run.right <= columnBoundary + tolerance) left.push(run)
+      else if (run.x >= columnBoundary - tolerance) right.push(run)
+      else crossing.push(run)
+    }
+
+    // A normal row has all runs on one side. Do not recreate it: preserving
+    // its original object avoids needless id churn in ordinary one-column
+    // paragraphs.
+    const occupiedSides = [left, crossing, right].filter(part => part.length).length
+    if (occupiedSides < 2) return [line]
+
+    // Mathematical glyph bounds often overhang the central gutter even when
+    // the surrounding sentence belongs entirely to one column. Treat that as
+    // an inline formula, not as a cross-column bridge. A true bridge has
+    // trusted content on *both* sides and remains split below.
+    if (crossing.length && left.length && !right.length) {
+      return [createSplitLine([...left, ...crossing], 'column-0')]
+    }
+    if (crossing.length && right.length && !left.length) {
+      return [createSplitLine([...crossing, ...right], 'column-1')]
+    }
+
+    const split = []
+    if (left.length) split.push(createSplitLine(left, 'column-0'))
+    if (crossing.length) split.push(createSplitLine(crossing, 'ambiguous'))
+    if (right.length) split.push(createSplitLine(right, 'column-1'))
+    return split.length ? split : [line]
+  })
+}
+
+function createSplitLine(runs, laneHint) {
+  return {
+    ...createLine([...runs].sort((a, b) => a.x - b.x || a.centerY - b.centerY || a.sourceIndex - b.sourceIndex)),
+    laneHint
+  }
+}
+
+function classifyLineLane(line, {
+  pageWidth,
+  pageHeight,
+  medianHeight,
+  columnBoundary,
+  splitTolerance
+}) {
+  if (isCenteredMastheadLine(line, { pageWidth, pageHeight, medianHeight })) return 'full'
+  if (line.laneHint) return line.laneHint
+
+  // Figure captions, page furniture and display equations may legitimately
+  // cross the gutter. They are not safe candidates for a prose drag. Keeping
+  // a dedicated lane lets the selector reject them instead of silently
+  // borrowing runs from both columns.
+  if (line.x < columnBoundary - splitTolerance && line.right > columnBoundary + splitTolerance) {
+    return 'ambiguous'
+  }
+
+  // Start x alone fails beside an embedded portrait: the text begins farther
+  // right than the column anchor above the image, but its centre still belongs
+  // to the left column. Classifying by centre keeps the paragraph continuous
+  // above and below the image.
+  return line.centerX < columnBoundary ? 'column-0' : 'column-1'
+}
+
+/**
+ * PDF.js can expose the accent, base glyph and subscript of one inline formula
+ * as separate visual fragments. Their bounding-box centres differ, even though
+ * they sit on the same prose baseline. Give nearby fragments one row-order key
+ * so selection can sort all of their runs by x before advancing to the next
+ * line. This is deliberately a selection-only order; semantic reading order
+ * continues to use the conservative line model below.
+ */
+function assignSelectionRowOrder(lines, { fallbackHeight = 1 } = {}) {
+  const laneGroups = new Map()
+  for (const line of lines) {
+    const laneId = line.columnId || 'unassigned'
+    if (!laneGroups.has(laneId)) laneGroups.set(laneId, [])
+    laneGroups.get(laneId).push(line)
+  }
+
+  const selectionOrderById = new Map()
+  for (const laneLines of laneGroups.values()) {
+    const medianHeight = median(laneLines.map(line => line.height)) || fallbackHeight || 1
+    // 8px covers the vertical offset of normal superscripts/subscripts at the
+    // viewer's common scales, while remaining well below a normal IEEE line
+    // spacing (about 18px at 100%).
+    const baselineTolerance = clamp(medianHeight * 0.55, 3, 8)
+    const ordered = [...laneLines].sort((a, b) => selectionBaseline(a) - selectionBaseline(b) || a.x - b.x)
+    const rows = []
+
+    for (const line of ordered) {
+      const baseline = selectionBaseline(line)
+      let row = rows[rows.length - 1]
+      if (!row || Math.abs(baseline - row.baseline) > baselineTolerance) {
+        row = { baselines: [], lines: [], baseline }
+        rows.push(row)
+      }
+      row.baselines.push(baseline)
+      row.lines.push(line)
+      row.baseline = median(row.baselines)
+    }
+
+    for (const row of rows) {
+      for (const line of row.lines) selectionOrderById.set(line.id, row.baseline)
+    }
+  }
+
+  return lines.map(line => ({
+    ...line,
+    selectionOrderY: selectionOrderById.get(line.id) ?? selectionBaseline(line)
+  }))
+}
+
+function selectionBaseline(line) {
+  const baseline = finiteNumber(line?.baselineY)
+  if (baseline != null) return baseline
+  const bottom = finiteNumber(line?.bottom)
+  if (bottom != null) return bottom
+  return finiteNumber(line?.centerY) ?? 0
+}
+
+function isCenteredDisplayHeader(line, { pageWidth, pageHeight, medianHeight }) {
+  const width = positiveNumber(pageWidth, MIN_PAGE_SIZE)
+  const height = positiveNumber(pageHeight, MIN_PAGE_SIZE)
+  const lineHeight = positiveNumber(line?.height, 0)
+  const lineWidth = positiveNumber(line?.width, 0)
+  const centreX = finiteNumber(line?.x) == null ? null : line.x + lineWidth / 2
+  if (centreX == null) return false
+
+  return line.y <= height * 0.42
+    && lineHeight >= Math.max(medianHeight * 1.45, 16)
+    && lineWidth >= Math.max(width * 0.12, medianHeight * 5)
+    && Math.abs(centreX - width / 2) <= width * 0.08
+}
+
+function isCenteredMastheadLine(line, context) {
+  if (isCenteredDisplayHeader(line, context)) return true
+
+  const width = positiveNumber(context?.pageWidth, MIN_PAGE_SIZE)
+  const height = positiveNumber(context?.pageHeight, MIN_PAGE_SIZE)
+  const medianHeight = positiveNumber(context?.medianHeight, 1)
+  const lineHeight = positiveNumber(line?.height, 0)
+  const lineWidth = positiveNumber(line?.width, 0)
+  const centreX = finiteNumber(line?.x) == null ? null : line.x + lineWidth / 2
+  if (centreX == null) return false
+
+  // IEEE author rows are commonly smaller than the title but still centred
+  // and page-wide. Treat them as masthead content so the reading order keeps
+  // them between the title and the two-column body instead of assigning the
+  // row to whichever column happens to be geometrically closest.
+  return line.y <= height * 0.28
+    && lineHeight >= Math.max(medianHeight * 0.8, 10)
+    && lineWidth >= width * 0.35
+    && Math.abs(centreX - width / 2) <= width * 0.08
+}
+
+function estimateColumnBoundary(groups, pageWidth) {
+  const [leftGroup, rightGroup] = groups || []
+  if (!leftGroup || !rightGroup) return positiveNumber(pageWidth, MIN_PAGE_SIZE) / 2
+
+  // The x anchors are column *starts*, so their midpoint sits inside the left
+  // column on a conventional two-column IEEE page. Estimate the actual gutter
+  // from the right edge of stable left lines and the left edge of stable right
+  // lines instead. It also handles local text that starts after a portrait.
+  const leftEdge = percentile(leftGroup.lines.map(line => line.right), 0.75)
+  const rightEdge = percentile(rightGroup.lines.map(line => line.x), 0.25)
+  if (Number.isFinite(leftEdge) && Number.isFinite(rightEdge) && rightEdge > leftEdge) {
+    return (leftEdge + rightEdge) / 2
+  }
+  return (leftGroup.anchor + rightGroup.anchor) / 2
 }
 
 /**
@@ -386,7 +604,11 @@ function createLine(runs) {
     height: bottom - y,
     right,
     bottom,
-    centerY: (y + bottom) / 2
+    centerX: (x + right) / 2,
+    centerY: (y + bottom) / 2,
+    // A median of run bottoms is stable when an inline formula contributes a
+    // small accent or subscript outside the regular line box.
+    baselineY: median(runs.map(run => run.bottom))
   }
 }
 
@@ -442,6 +664,14 @@ function median(values) {
   const sorted = [...values].sort((a, b) => a - b)
   const middle = Math.floor(sorted.length / 2)
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+}
+
+function percentile(values, fraction) {
+  if (!values.length) return Number.NaN
+  const sorted = [...values].sort((a, b) => a - b)
+  const normalized = clamp(finiteNumber(fraction) ?? 0.5, 0, 1)
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * normalized) - 1))
+  return sorted[index]
 }
 
 function average(values) {
