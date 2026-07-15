@@ -15,6 +15,8 @@ import com.research.assistant.service.PaperService;
 import com.research.assistant.service.ReadingProgressService;
 import com.research.assistant.service.ai.workflow.WorkflowService;
 import com.research.assistant.service.metadata.MetadataEnrichmentService;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifactService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -46,6 +48,7 @@ public class PaperController {
     private final ReadingProgressService readingProgressService;
     private final MetadataEnrichmentService metadataEnrichmentService;
     private final WorkflowService workflowService;
+    private final PaperLayoutArtifactService layoutArtifactService;
 
     @Value("${app.storage.pdf-dir:./data/papers}")
     private String pdfStorageDir;
@@ -53,11 +56,13 @@ public class PaperController {
     public PaperController(PaperService paperService,
                            ReadingProgressService readingProgressService,
                            MetadataEnrichmentService metadataEnrichmentService,
-                           WorkflowService workflowService) {
+                           WorkflowService workflowService,
+                           PaperLayoutArtifactService layoutArtifactService) {
         this.paperService = paperService;
         this.readingProgressService = readingProgressService;
         this.metadataEnrichmentService = metadataEnrichmentService;
         this.workflowService = workflowService;
+        this.layoutArtifactService = layoutArtifactService;
     }
 
     /** GET /api/papers?folder=1,2 或 folder=uncategorized 或 folder=recent */
@@ -99,6 +104,17 @@ public class PaperController {
             return Result.error(404, "论文不存在");
         }
         return Result.ok(paper);
+    }
+
+    /** GET /api/papers/:id/layout-artifact — 获取或按需重建版本化 PDF 版面制品。 */
+    @GetMapping("/{id}/layout-artifact")
+    public Result<PaperLayoutArtifact> getLayoutArtifact(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "false") boolean refresh) {
+        if (paperService.getById(id) == null) {
+            return Result.error(404, "论文不存在");
+        }
+        return Result.ok(layoutArtifactService.ensureArtifact(id, refresh));
     }
 
     /** POST /api/papers — 手动导入论文 */

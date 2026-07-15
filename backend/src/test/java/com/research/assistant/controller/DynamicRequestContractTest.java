@@ -10,6 +10,11 @@ import com.research.assistant.service.ReadingProgressService;
 import com.research.assistant.service.metadata.MetadataEnrichmentService;
 import com.research.assistant.service.source.CitationNetworkExpansionService;
 import com.research.assistant.service.ai.workflow.WorkflowService;
+import com.research.assistant.service.pdf.layout.DocumentBlock;
+import com.research.assistant.service.pdf.layout.DocumentBlockRole;
+import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifactService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +27,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -30,6 +36,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -40,6 +47,7 @@ class DynamicRequestContractTest {
     @Mock private ReadingProgressService readingProgressService;
     @Mock private MetadataEnrichmentService metadataEnrichmentService;
     @Mock private WorkflowService workflowService;
+    @Mock private PaperLayoutArtifactService layoutArtifactService;
     @Mock private SearchService searchService;
     @Mock private ArxivFetcher arxivFetcher;
     @Mock private AsyncTaskService asyncTaskService;
@@ -53,13 +61,42 @@ class DynamicRequestContractTest {
     void setUp() {
         GlobalExceptionHandler advice = new GlobalExceptionHandler();
         paperMvc = MockMvcBuilders.standaloneSetup(new PaperController(
-                paperService, readingProgressService, metadataEnrichmentService, workflowService))
+                paperService, readingProgressService, metadataEnrichmentService, workflowService,
+                layoutArtifactService))
                 .setControllerAdvice(advice).build();
         searchMvc = MockMvcBuilders.standaloneSetup(new SearchController(
                 searchService, paperService, arxivFetcher, asyncTaskService, expansionService))
                 .setControllerAdvice(advice).build();
         workflowMvc = MockMvcBuilders.standaloneSetup(new WorkflowController(workflowService))
                 .setControllerAdvice(advice).build();
+    }
+
+    @Test
+    void paperLayoutArtifactKeepsVersionAndBlockLocatorContract() throws Exception {
+        Paper paper = new Paper();
+        paper.setId(42L);
+        paper.setTitle("A paper");
+        when(paperService.getById(42L)).thenReturn(paper);
+        when(layoutArtifactService.ensureArtifact(42L, false)).thenReturn(new PaperLayoutArtifact(
+                42L,
+                "a".repeat(64),
+                "pdfbox-layout-v1+semantic-v1",
+                0.9,
+                Instant.parse("2026-07-16T00:00:00Z"),
+                1,
+                List.of(new DocumentBlock(
+                        "p1-b0001", 1, new NormalizedBoundingBox(0.1, 0.2, 0.3, 0.04),
+                        DocumentBlockRole.BODY, 0, List.of("I. INTRODUCTION"),
+                        "Evidence text", null, null, 0.9))
+        ));
+
+        paperMvc.perform(get("/api/papers/42/layout-artifact"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.parserVersion")
+                        .value("pdfbox-layout-v1+semantic-v1"))
+                .andExpect(jsonPath("$.data.blocks[0].page").value(1))
+                .andExpect(jsonPath("$.data.blocks[0].role").value("BODY"));
     }
 
     @Test

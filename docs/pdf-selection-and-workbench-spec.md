@@ -1,6 +1,6 @@
 # PDF 精确选取与论文工作台规格
 
-状态：P0、P1-A 已完成；P1-B1 后端版面解析内核已实现并待用户验收（2026-07-16）。`PaperLayoutArtifact` 持久化、语义角色细化、`SelectionAnchor`、局部证据链和工作台 Agent 尚未开始。
+状态：P0、P1-A、P1-B1 已完成；P1-B2 版本化语义版面制品已实现并待用户验收（2026-07-16）。下一小步是 P1-B3 `SelectionAnchor` 与当前论文局部证据检索；工作台 Agent 尚未开始。
 
 ## 1. 产品目标：做“有证据的论文 Agent”，不是再做一个 PDF 编辑器
 
@@ -224,7 +224,15 @@ paper_workbench_step: run_id, step_name, skill_name, status,
 
 后端已定义 `PaperLayoutArtifact`、`DocumentBlock`、`DocumentBlockRole` 和左上角归一化坐标契约。`pdfbox-layout-v1` 从 `TextPosition` 建立行级块：用跨多行稳定中缝判定双栏，以跨栏块为纵向分段锚点，并在每段内按左栏、右栏生成阅读顺序；旋转页边文字使用真实页面坐标并单独标记为 `MARGIN_METADATA`。
 
-自动化样例覆盖单栏、双栏、页眉页脚和旋转边注。WY 真实论文本地验收（2026-07-16）生成 16 页、2236 个块，整体置信度 0.900，首页与第 13 页抽查未发生左右栏同基线串读。当前块仍以“视觉行”为粒度，除几何页眉/页脚/边注外暂未细分标题、摘要、章节、公式和参考文献；这些语义角色及持久化属于 B2。
+自动化样例覆盖单栏、双栏、页眉页脚和旋转边注。WY 真实论文本地验收（2026-07-16）生成 16 页、2236 个视觉行，整体置信度 0.900，首页与第 13 页抽查未发生左右栏同基线串读。该几何解析内核已完成并作为 B2 的输入，不直接暴露为最终检索证据。
+
+### 8.3 P1-B2 语义制品与缓存验收
+
+`semantic-v1` 在 B1 视觉行之上确定性识别标题、作者、摘要、章节、正文、公式、表格、图注、参考文献、页眉页脚和页边元数据；段落仅在同页、同栏、角色兼容且几何连续时合并，并只清理字母断行产生的软连字符。正文证据采用白名单：`ABSTRACT/HEADING/BODY/CAPTION/FORMULA/TABLE`，其他角色不可进入局部检索上下文。
+
+Flyway V14 新增 `paper_layout_artifact`，唯一键由 `paper_id + document_hash + parser_version` 构成，其中解析器版本已组合几何与语义版本。`GET /api/papers/{id}/layout-artifact?refresh=false` 在 PDF SHA-256 或版本变化时重建，否则直接读取缓存；写入后回读数据库中的规范化制品，保证首次与缓存响应完全一致。
+
+WY 真实论文验收结果：16 页、2236 个视觉行收敛为 1079 个语义块，其中 841 个满足 evidence 白名单；角色分布为 `TITLE 1 / AUTHOR 1 / ABSTRACT 1 / HEADING 30 / BODY 627 / CAPTION 12 / FORMULA 171 / REFERENCE 79 / HEADER 71 / FOOTER 54 / MARGIN_METADATA 32`。首次强制重建 1289 ms，第二次缓存读取 82 ms，PDF hash、组合版本、生成时间和块数严格一致；后端健康检查为 `UP`，Flyway 已迁移至 v14。
 
 ## 9. 分阶段实施
 
@@ -232,9 +240,9 @@ paper_workbench_step: run_id, step_name, skill_name, status,
 | --- | --- | --- |
 | P0（已完成） | PDF.js 文字层缩放对齐、归一化批注、缩放、自动保存、批注编辑与几何范围调整 | 选择不被 SVG 遮挡；缩放后批注对齐；批注可编辑/删除 |
 | P1-A（已完成） | 前端 viewport 版面索引、单双栏/视觉行/候选段落、同页同栏受控选取 | 真实双栏样本不串栏；页边空白、竖排边注和全宽标题不触发文本扩张 |
-| P1-B1（待验收） | 后端版面契约、PDFBox 坐标提取、单双栏行级 reading order | 合成样例与 WY 真实双栏正文顺序稳定；旋转边注不混入正文 |
-| P1-B2（下一步） | `PaperLayoutArtifact` 版本化持久化、段落合并与正文角色识别 | 同一 PDF/解析器命中缓存；页眉/页脚/参考文献可确定性排除 |
-| P1-B3 | `SelectionAnchor` 解析与当前论文局部证据检索 | 选区可映射块并回链页码/坐标；evidence 只含允许角色 |
+| P1-B1（已完成） | 后端版面契约、PDFBox 坐标提取、单双栏行级 reading order | 合成样例与 WY 真实双栏正文顺序稳定；旋转边注不混入正文 |
+| P1-B2（待验收） | `PaperLayoutArtifact` 版本化持久化、段落合并与正文角色识别 | 同一 PDF/解析器命中缓存；页眉/页脚/参考文献可确定性排除 |
+| P1-B3（下一步） | `SelectionAnchor` 解析与当前论文局部证据检索 | 选区可映射块并回链页码/坐标；evidence 只含允许角色 |
 | P2 | 右侧论文助手、四条固定 Workflow、Evidence Gate、run trace | 每个回答均可跳回页码/块；不合格回答只 repair 一次 |
 | P3 | 多论文对比、外部解析适配器、评测集和指标面板 | 复杂页安全降级；比较结果保留每篇证据归属 |
 

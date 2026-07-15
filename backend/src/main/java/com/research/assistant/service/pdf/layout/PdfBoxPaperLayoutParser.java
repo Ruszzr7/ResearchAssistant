@@ -9,13 +9,9 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -35,11 +31,17 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
 
     @Override
     public PaperLayoutArtifact parse(Long paperId, File file) {
+        return parse(paperId, file, PdfDocumentFingerprint.sha256(file));
+    }
+
+    @Override
+    public PaperLayoutArtifact parse(Long paperId, File file, String documentHash) {
         if (file == null || !file.isFile()) {
             throw new IllegalArgumentException("PDF 文件不存在");
         }
-
-        String documentHash = sha256(file);
+        if (documentHash == null || !documentHash.matches("[0-9a-fA-F]{64}")) {
+            throw new IllegalArgumentException("PDF 指纹不合法");
+        }
         try (PDDocument document = Loader.loadPDF(file)) {
             GlyphCollector collector = new GlyphCollector();
             List<PageGlyphs> pages = collector.collect(document);
@@ -451,22 +453,6 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
             return 0.72;
         }
         return doubleColumn ? 0.88 : 0.82;
-    }
-
-    private String sha256(File file) {
-        try (InputStream input = Files.newInputStream(file.toPath())) {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) >= 0) {
-                if (read > 0) {
-                    digest.update(buffer, 0, read);
-                }
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (Exception e) {
-            throw new IllegalStateException("无法计算 PDF 指纹", e);
-        }
     }
 
     private static double average(List<Double> values) {
