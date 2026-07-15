@@ -34,6 +34,7 @@ docker compose --profile qdrant up -d --build
 
 ```text
 scripts\backup-mysql.bat
+scripts\restore-mysql.bat backups\research_assistant_YYYYMMDD_HHMMSS.sql
 scripts/backup-mysql.sh
 scripts/restore-mysql.sh backups/research_assistant_YYYYMMDD_HHMMSS.sql
 ```
@@ -44,6 +45,7 @@ MySQL 备份不能替代 PDF 目录备份。使用以下脚本备份或恢复命
 scripts/backup-volumes.sh
 scripts/backup-volumes.bat
 scripts/restore-volume.sh research-assistant-papers-data backups/research-assistant-papers-data_YYYYMMDD_HHMMSS.tar.gz
+scripts\restore-volume.bat research-assistant-papers-data backups\research-assistant-papers-data_YYYYMMDD_HHMMSS.tar.gz
 ```
 
 恢复数据卷前停止后端和前端容器；恢复后重新启动并依次检查 `/actuator/health`、Flyway 状态和 `/api/rag/consistency`。Qdrant 数据卷只在启用 Qdrant profile 时需要恢复。

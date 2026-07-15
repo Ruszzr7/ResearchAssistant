@@ -71,6 +71,7 @@
 - 本机 Vite 可能使用 `http://[::1]:5173` 访问，后端 CORS 默认白名单需同时覆盖 IPv4 localhost 和 IPv6 loopback，否则带 Origin 的 POST 会被返回 403。
 - vxe-table 的动态 DOM 需要 `:deep()` 或全局选择器；大表格和 PDF 查看器使用异步组件。
 - PDF.js 文本选择的矩形来自浏览器 viewport，而 AI 批注锚点通常来自 PDF 坐标；手动选择应按页面分组并保存 `coordinateSpace=viewport`，渲染旧批注时再依据 `pageWidth/pageHeight/viewBox` 转换，不能把屏幕像素和 PDF 单位混用。
+- 直接实例化 PDF.js `TextLayer` 时，容器必须设置 `--scale-factor = viewport.scale`，并具备其文字层的 `text-size-adjust`、`forced-color-adjust` 与选择样式；否则内部 `calc(var(--scale-factor) * …)` 失效，span 回退为浏览器默认 16px，造成文字选区与 canvas 字形错位。
 - 左侧竖排 IEEE 出版信息在 PDFBox 内容流中可能缺失，需对首页做 `sortByPosition=true` 的辅助解析；DOI 标签后的拆行识别必须检查后续片段，不能在 `10.1109/VTC2023-Fall6` 等中间片段处提前返回。
 - 文件夹新建建议属于有副作用的操作：Agent 只返回建议和父目录，前端应弹窗展示名称并提供确认/取消，确认后才创建并把导入论文放入该目录。
 - PDF 导入重复判定应优先使用 DOI，其次比较已存 PDF 的 SHA-256；冲突用 HTTP 409 返回，前端确认覆盖后重试同一上传请求并带 `overwrite=true`。
@@ -82,6 +83,10 @@
 - PDF 提取后的连字符不能全局删除：仅可移除软连字符和“字母-换行-字母”造成的断词，必须保留 cell-free、rate-splitting、end-to-end 等术语中的正常连字符。
 - Element Plus 树在局部删除后不应通过递增 `key` 强制重建；这会丢失所有展开状态。应直接修改响应式树数据并按 node key 跟踪展开节点，删除子节点时仅剔除被删除子树的展开 key，保留父目录展开。
 - 高亮/下划线的首尾范围调整应作为纯函数测试：跨行选择仅更新首个 quad 的左边界或末个 quad 的右边界，保留中间行，并设置最小宽度，避免拖拽产生反向或零宽标记。
+- PDF 原生选择的起点要基于 PDF.js 真实 text span 的屏幕矩形命中，而不是整张 text layer：空白页边距/段首缩进应 `preventDefault` 并清空旧选择，文字边缘仅保留少量像素容错；公式仍需单独的区域选择与版面上下文方案，不能把 native span 选区当作公式语义选择。
+- PDF.js 文字层可在渲染完成后按实际 DOM 矩形建立前端 viewport 版面索引：保留 text run、视觉行、单双栏和候选段落，先作为自定义命中/选区的几何输入。该轻量索引不替代后端持久化的 `PaperLayoutArtifact`，也不应在此阶段改写原生 Selection；同一基线的左右栏必须先按 x 间隙拆成两行，避免再次串栏。
+- 双栏 PDF 的批注选区不能依赖浏览器原生 `Selection` 的 DOM 顺序。应从渲染文字层的真实 run 矩形建立视觉版面索引，只接受严格命中到水平文字 run 的起止点，并限定同页同栏；有效的 run 片段再转换为 DOM `Range.getClientRects()` 和 viewport 归一化 quads。这样端点落在空白、另一栏或边栏竖排信息时不会把无关文字吸入选区。跨栏、跨页连续段落和公式需要后续显式的阅读顺序/区域语义层，不能靠放宽命中范围猜测。
+- PDF.js 把每个词拆为 span 时，双栏中央白缝可能只有约一个字高；不能仅凭“x 间隙大于字体高度倍数”拆行，否则会把左右栏合成为全宽行并在选择时交错吸入另一栏。应在多个视觉基线上寻找位置稳定、重复出现的中央白缝，以其作为优先拆分边界；普通词间空隙仍沿用保守的大间隙规则。
 
 ## 8. 安全、部署与验证
 
@@ -89,3 +94,4 @@
 - API 使用 `{ code, message, data }` 包络，并通过 HTTP 状态表达校验、冲突、容量和外部服务错误；请求 ID 用于排查。
 - 默认拓扑为 MySQL + Spring Boot + Nginx/Vue，Qdrant 通过 Compose profile 可选启用；Docker 启动前注入 `.env` 并通过 healthcheck 验证。
 - 验证顺序：后端 `mvnw.cmd test`，前端 `npm.cmd run test:unit`、`npm.cmd run build`，部署环境再执行 Compose、备份恢复和健康检查。
+- Windows 本地启动不能仅依据 PID 或端口占用判断成功：数据库以 3306 监听、后端以 `/actuator/health`、前端以固定 `127.0.0.1:5173` 的 HTTP 响应为就绪标准；一键脚本应按数据库 → 后端 → 前端顺序调用各独立入口，并在未知进程占端口时拒绝自动结束进程。

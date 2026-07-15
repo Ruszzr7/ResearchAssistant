@@ -14,7 +14,7 @@ Redis 和 Pinia 当前不在实际运行链路中；异步任务使用 Spring �
 
 ## 代码结构
 
-`frontend/` 为 Vue 页面与组件；`backend/` 按 Controller → Service → Mapper / Entity 分层，并包含 `service/ai/skill`、`service/ai/workflow`、`service/rag`；`scripts/` 提供 Windows 与 Bash 启动脚本；`docs/` 保存规格、进度和知识总结。
+`frontend/` 为 Vue 页面与组件；`backend/` 按 Controller → Service → Mapper / Entity 分层，并包含 `service/ai/skill`、`service/ai/workflow`、`service/rag`；`scripts/` 提供四个 Windows 本地开发启动入口，以及 Docker 部署、备份与恢复脚本；`docs/` 保存规格、进度和知识总结。
 
 ## 工作约定
 

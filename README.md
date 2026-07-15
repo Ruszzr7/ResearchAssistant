@@ -10,7 +10,14 @@
 4. 在 `frontend` 目录运行 `npm.cmd install` 和 `npm.cmd run dev`。
 5. 打开 `http://localhost:5173`，在设置页填写 OpenAI 兼容 API 的 Base URL、模型和 API Key。
 
-Windows 用户也可以运行 `scripts/start-dev.bat`；Bash 环境可使用对应的 `.sh` 脚本。
+Windows 下可直接使用以下启动入口：
+
+- `scripts\start-database.bat`：仅启动 MySQL/MariaDB，并等待 3306 端口就绪。
+- `scripts\start-backend.bat`：仅启动后端；数据库必须已就绪。
+- `scripts\start-frontend.bat`：仅启动前端，地址固定为 `http://127.0.0.1:5173`。
+- `scripts\start-all.bat`：按数据库 → 后端 → 前端的顺序启动全部开发服务。
+
+脚本会在后台启动服务、等待实际可访问后返回；运行日志分别位于 `runtime/`、`backend/` 和 `frontend/`，均不纳入 Git。
 
 生产或本地交付环境可复制 `.env.example` 为 `.env`，再运行 `scripts/deploy-up.bat`（或 `scripts/deploy-up.sh`）通过 Docker Compose 一键启动 MySQL、后端和前端。完整流程见 [docs/deployment.md](docs/deployment.md)。
 

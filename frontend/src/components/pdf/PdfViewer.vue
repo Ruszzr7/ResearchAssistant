@@ -1,5 +1,5 @@
 <template>
-  <div class="pdf-viewer" @mouseup="captureTextSelection">
+  <div class="pdf-viewer">
     <div class="pdf-toolbar">
       <div class="pdf-toolbar-left">
         <span class="pdf-title">{{ paper?.title }}</span>
@@ -72,6 +72,10 @@
             :ref="el => setTextLayerRef(el, page.pageNum)"
             class="text-layer"
             :style="layerStyle(page)"
+            @pointerdown.capture="beginTextSelection($event, page.pageNum)"
+            @pointermove.capture="updateTextSelection($event, page.pageNum)"
+            @pointerup.capture="finishTextSelection($event, page.pageNum)"
+            @pointercancel="cancelTextSelection($event)"
           />
           <svg
             :ref="el => setOverlayRef(el, page.pageNum)"
@@ -86,6 +90,15 @@
             @pointercancel="onOverlayPointerUp"
             @click="onOverlayClick"
           >
+          <g v-if="selectionGroupForPage(page.pageNum)" class="text-selection-preview">
+            <polygon
+              v-for="(q, i) in selectionGroupForPage(page.pageNum).quads"
+              :key="`selection-${i}`"
+              :points="quadPoints(q, page, viewportCoordinates)"
+              fill="#409eff"
+              fill-opacity="0.32"
+            />
+          </g>
           <g v-for="ann in pageAnnotations(page.pageNum)" :key="ann.localId"
             @pointerdown.stop="beginAnnotationPointerDown($event, ann)"
             @click.stop="onAnnotationClick(ann)"
@@ -288,6 +301,8 @@ import { listNotesByPaper, deleteNote, unlinkNote } from '@/api/notes'
 import NoteLinkPanel from '@/components/notes/NoteLinkPanel.vue'
 import NoteEditor from '@/components/notes/NoteEditor.vue'
 import { resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
+import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
+import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import { ElMessage } from 'element-plus'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
@@ -302,6 +317,9 @@ const containerRef = ref(null)
 const canvasRefs = ref({})
 const textLayerRefs = ref({})
 const overlayRefs = ref({})
+// 非响应式的本地索引：它只为后续自定义选区提供几何事实，不改变当前原生
+// Selection 或后端的 PaperLayoutArtifact 持久化链路。
+const pageLayoutIndexes = new Map()
 // PDF.js 的文档对象包含私有字段，不能被 Vue 深层代理，否则调用 getPage/render
 // 时会报 "Cannot read from private field"。
 const pdfDoc = shallowRef(null)
@@ -341,13 +359,18 @@ const contextMenu = ref({ visible: false, x: 0, y: 0 })
 
 const annotationColors = ['#f44336', '#ffeb3b', '#2196f3', '#4caf50', '#000000']
 const predefineColors = [...annotationColors, '#ff9800', '#9c27b0']
+const viewportCoordinates = Object.freeze({ coordinateSpace: 'viewport' })
 
 let nextLocalId = 1
 let draggingNote = null
 let resizingAnnotation = null
 let suppressAnnotationClickId = null
+let layoutSelectionDrag = null
 
 const pageAnnotations = computed(() => (pageNum) => annotations.value.filter(a => a.page === pageNum))
+const selectionGroupForPage = computed(() => (pageNum) => (
+  pendingTextSelection.value?.groups?.find(group => group.pageNum === pageNum) || null
+))
 const visiblePages = computed(() => renderedPages.value.slice(
   Math.max(0, visiblePageStart.value - 1), visiblePageEnd.value
 ))
@@ -386,12 +409,14 @@ onMounted(() => {
 })
 onUnmounted(() => {
   pdfDoc.value?.destroy()
+  pageLayoutIndexes.clear()
   clearTimeout(scrollTimer)
   window.removeEventListener('click', onWindowClick)
 })
 
 async function loadDocument() {
   try {
+    pageLayoutIndexes.clear()
     const url = `/api/papers/${props.paper.id}/pdf`
     const loading = pdfjsLib.getDocument(url)
     pdfDoc.value = await loading.promise
@@ -475,6 +500,12 @@ async function renderPage(pageState) {
   textLayer.replaceChildren()
   textLayer.style.width = viewport.width + 'px'
   textLayer.style.height = viewport.height + 'px'
+  // PDF.js TextLayer 会用 CSS 变量计算每个 span 的字体大小。缺少该变量时，
+  // 浏览器会把 calc(...) 视为无效并回退到 16px，造成可选文字与 canvas 字形错位。
+  textLayer.style.setProperty('--scale-factor', String(viewport.scale))
+  textLayer.dataset.layoutIndexed = 'false'
+  delete textLayer.dataset.layoutLines
+  delete textLayer.dataset.layoutColumns
   try {
     const textContent = await page.getTextContent()
     const tl = new pdfjsLib.TextLayer({
@@ -483,6 +514,13 @@ async function renderPage(pageState) {
       viewport
     })
     await tl.render()
+    const layoutIndex = buildRenderedPageLayoutIndex(textLayer, pageState, viewport)
+    pageLayoutIndexes.set(pageState.pageNum, layoutIndex)
+    // 仅作为开发期可见的只读诊断，不参与样式或交互。它让真实 PDF 的
+    // layout index 挂接可被自动化验收，同时避免把完整文本暴露到 dataset。
+    textLayer.dataset.layoutIndexed = 'true'
+    textLayer.dataset.layoutLines = String(layoutIndex.stats.lineCount)
+    textLayer.dataset.layoutColumns = String(layoutIndex.stats.columnCount)
   } catch (e) {
     // 某些 PDF 没有文本层，忽略
   }
@@ -498,15 +536,39 @@ function pageWrapStyle(page) {
 }
 
 function layerStyle(page) {
+  const scale = Number(page?.viewport?.scale)
   return {
     width: page.width ? page.width + 'px' : '100%',
-    height: page.height ? page.height + 'px' : '100%'
+    height: page.height ? page.height + 'px' : '100%',
+    // 与 PDF.js TextLayer 的内部字体/坐标计算保持同一个缩放比例。
+    '--scale-factor': Number.isFinite(scale) && scale > 0 ? String(scale) : '1'
   }
 }
 
 function setCanvasRef(el, pageNum) { if (el) canvasRefs.value[pageNum] = el }
 function setTextLayerRef(el, pageNum) { if (el) textLayerRefs.value[pageNum] = el }
 function setOverlayRef(el, pageNum) { if (el) overlayRefs.value[pageNum] = el }
+
+function buildRenderedPageLayoutIndex(textLayer, pageState, viewport) {
+  const layerRect = textLayer.getBoundingClientRect()
+  const textItems = Array.from(textLayer.querySelectorAll('span')).map((span, index) => {
+    const rect = span.getBoundingClientRect()
+    return {
+      id: `span-${index}`,
+      text: span.textContent || '',
+      x: rect.left - layerRect.left,
+      y: rect.top - layerRect.top,
+      width: rect.width,
+      height: rect.height
+    }
+  })
+  return buildPdfPageLayoutIndex({
+    pageNum: pageState.pageNum,
+    pageWidth: viewport.width,
+    pageHeight: viewport.height,
+    textItems
+  })
+}
 
 let scrollTimer = null
 function onScroll() {
@@ -543,6 +605,7 @@ async function renderAtCurrentZoom() {
   const ratio = zoomPercent.value / renderedZoomPercent.value
   const previousTop = container?.scrollTop || 0
   clearPendingTextSelection()
+  pageLayoutIndexes.clear()
 
   for (const page of renderedPages.value) {
     page.rendered = false
@@ -574,19 +637,131 @@ async function loadNotes() {
   }
 }
 
-function captureTextSelection() {
-  if (currentTool.value !== 'select') return
-  // 浏览器在 mouseup 后才最终提交 Selection，放到下一帧读取可避免拿到旧范围。
-  requestAnimationFrame(() => {
-    const selection = window.getSelection()
-    if (!selection || selection.isCollapsed) return
-    const range = selection.getRangeAt(0)
-    const groups = selectionGeometry(range)
-    const text = selection.toString().replace(/\s+/g, ' ').trim()
-    if (groups.length && text) {
-      pendingTextSelection.value = { groups, text }
-    }
+function beginTextSelection(event, pageNum) {
+  if (currentTool.value !== 'select' || event.button !== 0) return
+
+  const layer = event.currentTarget
+  const layoutIndex = pageLayoutIndexes.get(pageNum)
+  const anchor = layoutSelectionEndpointAtPoint(layoutIndex, layer, event.clientX, event.clientY)
+  event.preventDefault()
+  clearPendingTextSelection()
+  if (!anchor) return
+
+  const pageState = renderedPages.value.find(page => page.pageNum === pageNum)
+  if (!pageState?.viewport) return
+  layoutSelectionDrag = { pageNum, pageState, pointerId: event.pointerId, layer, layoutIndex, anchor, focus: anchor }
+  layer.setPointerCapture?.(event.pointerId)
+}
+
+function updateTextSelection(event, pageNum) {
+  const drag = layoutSelectionDrag
+  if (!drag || drag.pointerId !== event.pointerId || drag.pageNum !== pageNum || currentTool.value !== 'select') return
+
+  event.preventDefault()
+  const focus = layoutSelectionEndpointAtPoint(drag.layoutIndex, drag.layer, event.clientX, event.clientY)
+  if (!focus) return
+  const selection = createSameColumnSelection(drag.layoutIndex, drag.anchor, focus)
+  // 拖到空白、另一栏或全文标题时不猜测新范围，保留上一次有效选区。
+  if (!selection) return
+
+  drag.focus = focus
+  applyLayoutSelection(drag, selection)
+}
+
+function finishTextSelection(event, pageNum) {
+  const drag = layoutSelectionDrag
+  if (!drag || drag.pointerId !== event.pointerId || drag.pageNum !== pageNum) return
+
+  updateTextSelection(event, pageNum)
+  drag.layer.releasePointerCapture?.(event.pointerId)
+  layoutSelectionDrag = null
+}
+
+function cancelTextSelection(event) {
+  if (layoutSelectionDrag?.pointerId === event.pointerId) layoutSelectionDrag = null
+}
+
+function layoutSelectionEndpointAtPoint(layoutIndex, layer, clientX, clientY) {
+  if (!layoutIndex || !layer) return null
+  const layerRect = layer.getBoundingClientRect()
+  const run = findLayoutRunAtPoint(layoutIndex, clientX - layerRect.left, clientY - layerRect.top)
+  if (!run) return null
+  const span = layer.querySelectorAll('span')[run.sourceIndex]
+  const offset = textOffsetAtPoint(span, run, clientX, clientY)
+  return offset == null ? null : { runId: run.id, offset }
+}
+
+function textOffsetAtPoint(span, run, clientX, clientY) {
+  const textNode = textNodeIn(span)
+  if (!textNode) return null
+  const rect = span.getBoundingClientRect()
+  if (!rect.width || !rect.height) return null
+
+  const pointX = clamp(clientX, rect.left + 0.5, rect.right - 0.5)
+  const pointY = clamp(clientY, rect.top + 0.5, rect.bottom - 0.5)
+  let domOffset = null
+  if (document.caretPositionFromPoint) {
+    const position = document.caretPositionFromPoint(pointX, pointY)
+    if (position && span.contains(position.offsetNode)) domOffset = position.offset
+  } else if (document.caretRangeFromPoint) {
+    const range = document.caretRangeFromPoint(pointX, pointY)
+    if (range && span.contains(range.startContainer)) domOffset = range.startOffset
+  }
+  if (!Number.isFinite(domOffset)) {
+    domOffset = Math.round((pointX - rect.left) / rect.width * textNode.data.length)
+  }
+
+  const logicalOffset = domOffset - (run.textStartOffset || 0)
+  return clamp(logicalOffset, 0, run.text.length)
+}
+
+function applyLayoutSelection(drag, selection) {
+  const pageElement = findPageElement(drag.layer)
+  if (!pageElement) return
+  const quads = selectionSegmentsToViewportQuads(selection.segments, drag.layoutIndex, drag.layer, pageElement)
+  if (!quads.length) return
+  pendingTextSelection.value = {
+    groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
+    text: selection.text
+  }
+}
+
+function selectionSegmentsToViewportQuads(segments, layoutIndex, layer, pageElement) {
+  const runById = new Map(layoutIndex.runs.map(run => [run.id, run]))
+  const pageRect = pageElement.getBoundingClientRect()
+  return segments.flatMap(segment => {
+    const run = runById.get(segment.runId)
+    const span = run ? layer.querySelectorAll('span')[run.sourceIndex] : null
+    const textNode = textNodeIn(span)
+    if (!run || !textNode) return []
+
+    const start = clamp((run.textStartOffset || 0) + segment.startOffset, 0, textNode.data.length)
+    const end = clamp((run.textStartOffset || 0) + segment.endOffset, 0, textNode.data.length)
+    if (end <= start) return []
+    const range = document.createRange()
+    range.setStart(textNode, start)
+    range.setEnd(textNode, end)
+    return clientRectsToViewportQuads(range.getClientRects(), pageRect)
   })
+}
+
+function textNodeIn(span) {
+  if (!span) return null
+  return [...span.childNodes].find(node => node.nodeType === Node.TEXT_NODE) || null
+}
+
+function clientRectsToViewportQuads(rects, pageRect) {
+  const quads = []
+  for (const rect of Array.from(rects)) {
+    const left = Math.max(rect.left, pageRect.left)
+    const right = Math.min(rect.right, pageRect.right)
+    const top = Math.max(rect.top, pageRect.top)
+    const bottom = Math.min(rect.bottom, pageRect.bottom)
+    if (right > left && bottom > top) {
+      quads.push(rectToViewportQuad({ left, right, top, bottom }, pageRect))
+    }
+  }
+  return quads
 }
 
 async function applyTextAnnotation(type) {
@@ -629,6 +804,7 @@ async function applyTextAnnotation(type) {
 }
 
 function clearPendingTextSelection() {
+  layoutSelectionDrag = null
   pendingTextSelection.value = null
   window.getSelection()?.removeAllRanges()
 }
@@ -651,35 +827,6 @@ function activateNote() {
     return
   }
   setTool(currentTool.value === 'note' ? 'select' : 'note')
-}
-
-function selectionGeometry(range) {
-  const grouped = new Map()
-  for (const rect of Array.from(range.getClientRects())) {
-    if (rect.width <= 0 || rect.height <= 0) continue
-    const pageEl = pageElementAt(rect.left + rect.width / 2, rect.top + rect.height / 2)
-    if (!pageEl) continue
-    const pageNum = Number(pageEl.dataset.page)
-    const pageState = renderedPages.value.find(p => p.pageNum === pageNum)
-    if (!pageState?.viewport) continue
-    const pageRect = pageEl.getBoundingClientRect()
-    const left = Math.max(rect.left, pageRect.left)
-    const right = Math.min(rect.right, pageRect.right)
-    const top = Math.max(rect.top, pageRect.top)
-    const bottom = Math.min(rect.bottom, pageRect.bottom)
-    if (right <= left || bottom <= top) continue
-    if (!grouped.has(pageNum)) grouped.set(pageNum, { pageNum, pageState, quads: [] })
-    grouped.get(pageNum).quads.push(rectToViewportQuad({ left, right, top, bottom }, pageRect))
-  }
-  return [...grouped.values()]
-}
-
-function pageElementAt(x, y) {
-  const pages = containerRef.value?.querySelectorAll('.pdf-page') || []
-  return [...pages].find(page => {
-    const rect = page.getBoundingClientRect()
-    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
-  }) || null
 }
 
 function findPageElement(node) {
@@ -1136,21 +1283,18 @@ function notePreviewStyle(annotation, page) {
 }
 
 function onContextMenu(e) {
-  const selection = window.getSelection()
-  if (!selection || selection.isCollapsed) return
+  if (!pendingTextSelection.value?.groups?.length) return
   contextMenu.value = { visible: true, x: e.clientX, y: e.clientY }
 }
 
 function createNoteFromSelection() {
   contextMenu.value.visible = false
-  const selection = window.getSelection()
-  if (!selection || selection.isCollapsed) return
-  const range = selection.getRangeAt(0)
-  const group = selectionGeometry(range)[0]
+  const selection = pendingTextSelection.value
+  const group = selection?.groups?.[0]
   if (!group) return
   const pageNum = group.pageNum
   const pageState = renderedPages.value.find(p => p.pageNum === pageNum)
-  const anchorText = selection.toString().slice(0, 200)
+  const anchorText = selection.text.slice(0, 200)
   let coordinates = null
   if (pageState?.viewport) {
     coordinates = {
@@ -1170,7 +1314,7 @@ function createNoteFromSelection() {
     coordinates
   }
   noteEditorVisible.value = true
-  selection.removeAllRanges()
+  clearPendingTextSelection()
 }
 
 function openNoteEditor(note = null) {
@@ -1335,17 +1479,33 @@ function colorName(color) {
   position: absolute;
   top: 0;
   left: 0;
+  overflow: hidden;
+  opacity: 1;
+  text-align: initial;
   line-height: 1;
+  -webkit-text-size-adjust: none;
+  -moz-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
   user-select: text;
-  cursor: text;
+  cursor: default;
   z-index: 1;
 }
-.text-layer ::v-deep(span) {
+.text-layer :deep(span),
+.text-layer :deep(br) {
   color: transparent;
   position: absolute;
   white-space: pre;
-  cursor: text;
   transform-origin: 0% 0%;
+}
+.text-layer :deep(span) {
+  cursor: text;
+}
+.text-layer ::selection {
+  background: rgba(0, 0, 255, 0.25);
+  background: color-mix(in srgb, AccentColor, transparent 75%);
 }
 .annotation-overlay {
   position: absolute;
