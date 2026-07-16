@@ -534,8 +534,12 @@
         :key="currentPaper.id"
         :paper="currentPaper"
         :initial-evidence="pendingPdfEvidence"
+        :initial-workbench-mode="workbenchRouteMode"
+        :initial-workbench-paper-ids="workbenchRoutePaperIds"
         @close="closePdfOverlay"
         @open-paper-evidence="openPaperEvidence"
+        @workbench-mode-change="onWorkbenchModeChange"
+        @workbench-paper-ids-change="onWorkbenchPaperIdsChange"
       >
         <template #toolbar-extra>
           <ReadingTimePanel :paper="currentPaper" @updated="onReadingTimeUpdated" />
@@ -577,7 +581,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, defineAsyncComponent, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
 import { waitForAnalysis } from '@/utils/analysis.js'
 import { useGlobalTask } from '@/composables/useGlobalTask.js'
@@ -586,10 +590,17 @@ import ReadingTimePanel from '@/components/ReadingTimePanel.vue'
 import LibraryBatchSelectionBar from '@/components/library/LibraryBatchSelectionBar.vue'
 import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
 import { listReadingPlans, addPlanItem } from '@/api/readingPlan'
+import {
+  normalizeWorkbenchRouteMode,
+  positivePaperId,
+  workbenchModeQueryValue,
+  workbenchPaperIds,
+} from '@/router/workbenchRoute.js'
 
 defineOptions({ name: 'LibraryView' })
 
 const router = useRouter()
+const route = useRoute()
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 // PDF 与大型表格只在资料库页面真正使用时加载，避免进入首页就下载大体积依赖。
@@ -647,6 +658,12 @@ const enriching = ref(false)
 const showPdfOverlay = ref(false)
 const pendingPdfEvidence = ref(null)
 const pdfJsViewerEnabled = ref(true)
+const libraryInitialized = ref(false)
+const isWorkbenchRoute = computed(() => route.path === '/workbench')
+const workbenchRouteMode = computed(() => isWorkbenchRoute.value
+  ? normalizeWorkbenchRouteMode(route.query.mode) : '')
+const workbenchRoutePaperIds = computed(() => isWorkbenchRoute.value
+  ? workbenchPaperIds(route.query) : [])
 
 // ===== 全局后台任务：论文库 AI 分析切换页面不取消 =====
 const {
@@ -1652,7 +1669,10 @@ async function handleExport(cmd) {
 
 function goToAnalysis(paperId, mode) {
   if (!paperId) return
-  router.push({ path: '/analysis', query: { paperId, mode } })
+  router.push({ path: '/workbench', query: {
+    paperId,
+    mode: workbenchModeQueryValue(normalizeWorkbenchRouteMode(mode)),
+  } })
 }
 
 function showPaperInfo(paperId) {
@@ -1676,6 +1696,63 @@ function openCurrentPaperPdf() {
 function closePdfOverlay() {
   showPdfOverlay.value = false
   pendingPdfEvidence.value = null
+  if (isWorkbenchRoute.value) router.push('/library')
+}
+
+function onWorkbenchModeChange(nextMode) {
+  if (!isWorkbenchRoute.value) return
+  const mode = workbenchModeQueryValue(nextMode)
+  if (route.query.mode === mode) return
+  router.replace({ path: '/workbench', query: { ...route.query, mode } })
+}
+
+function onWorkbenchPaperIdsChange(paperIds) {
+  if (!isWorkbenchRoute.value) return
+  const normalized = [...new Set((paperIds || []).map(Number))]
+    .filter(id => Number.isInteger(id) && id > 0)
+  const serialized = normalized.join(',')
+  if (String(route.query.paperIds || '') === serialized) return
+  router.replace({ path: '/workbench', query: {
+    ...route.query,
+    paperId: normalized[0] || currentPaper.value?.id,
+    ...(serialized ? { paperIds: serialized } : {}),
+  } })
+}
+
+async function ensureWorkbenchRouteOpen() {
+  if (!libraryInitialized.value || !isWorkbenchRoute.value) return
+  const requestedPaperId = positivePaperId(route.query.paperId)
+    || workbenchRoutePaperIds.value[0] || null
+  let target = requestedPaperId && Number(currentPaper.value?.id) === requestedPaperId
+    ? currentPaper.value : null
+  try {
+    if (!target && requestedPaperId) {
+      await selectPaper(requestedPaperId)
+      target = currentPaper.value
+    }
+    if (!target) target = currentPaper.value?.pdfPath ? currentPaper.value : papers.value.find(item => item.pdfPath)
+    if (!target) {
+      ElMessage.info('请先在文库中导入一篇 PDF')
+      return
+    }
+    if (Number(currentPaper.value?.id) !== Number(target.id)) await selectPaper(target.id)
+    if (!currentPaper.value?.pdfPath) {
+      ElMessage.warning('该论文没有可打开的 PDF')
+      return
+    }
+    showPdfOverlay.value = true
+    const mode = workbenchModeQueryValue(workbenchRouteMode.value)
+    if (String(route.query.paperId || '') !== String(currentPaper.value.id) || route.query.mode !== mode) {
+      await router.replace({ path: '/workbench', query: {
+        ...route.query,
+        paperId: currentPaper.value.id,
+        mode,
+      } })
+    }
+  } catch (error) {
+    showPdfOverlay.value = false
+    ElMessage.error(error?.response?.data?.message || error?.message || '无法打开论文研究工作台')
+  }
 }
 
 async function openPaperEvidence(item) {
@@ -1688,6 +1765,9 @@ async function openPaperEvidence(item) {
     }
     if (!currentPaper.value?.pdfPath) throw new Error('目标论文没有 PDF')
     showPdfOverlay.value = true
+    if (isWorkbenchRoute.value) {
+      await router.replace({ path: '/workbench', query: { ...route.query, paperId } })
+    }
   } catch (error) {
     showPdfOverlay.value = false
     pendingPdfEvidence.value = null
@@ -1809,8 +1889,20 @@ function detachLibraryEvents() {
   window.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('click', handleDocClick)
 }
-onMounted(()=>{initLibrary();attachLibraryEvents()})
-onActivated(attachLibraryEvents)
+watch(() => route.fullPath, () => { void ensureWorkbenchRouteOpen() })
+onMounted(async () => {
+  try {
+    await initLibrary()
+    libraryInitialized.value = true
+    await ensureWorkbenchRouteOpen()
+  } finally {
+    attachLibraryEvents()
+  }
+})
+onActivated(() => {
+  attachLibraryEvents()
+  void ensureWorkbenchRouteOpen()
+})
 onDeactivated(detachLibraryEvents)
 onUnmounted(detachLibraryEvents)
 </script>

@@ -2,13 +2,17 @@
  * Vue Router 配置 —— SPA 路由表，全部使用懒加载（代码分割）。
  */
 import { createRouter, createWebHistory } from 'vue-router'
+import { legacyWorkbenchRedirect } from '@/router/workbenchRoute.js'
+
+const loadLibraryView = () => import('@/views/LibraryView.vue')
 
 const routes = [
   { path: '/',          name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
-  { path: '/library',   name: 'library',   component: () => import('@/views/LibraryView.vue') },
+  { path: '/library',   name: 'library',   component: loadLibraryView },
   { path: '/search',    name: 'search',    component: () => import('@/views/SearchView.vue') },
-  { path: '/analysis',  name: 'analysis',  component: () => import('@/views/AnalysisView.vue') },
-  { path: '/gap',       name: 'gap',       component: () => import('@/views/GapView.vue') },
+  { path: '/workbench', name: 'workbench', component: loadLibraryView },
+  { path: '/analysis',  redirect: to => legacyWorkbenchRedirect(to, 'analysis') },
+  { path: '/gap',       redirect: to => legacyWorkbenchRedirect(to, 'gap') },
   { path: '/tasks',     name: 'tasks',     component: () => import('@/views/TaskCenterView.vue') },
   { path: '/reading-plans', name: 'reading-plans', component: () => import('@/views/ReadingPlanView.vue') },
   { path: '/writing',     name: 'writing',     component: () => import('@/views/WritingView.vue') },

@@ -1,8 +1,8 @@
 <template>
-  <aside class="paper-workbench" aria-label="论文助手">
+  <aside class="paper-workbench" aria-label="论文研究工作台">
     <header class="paper-workbench__header">
       <div>
-        <strong>论文助手</strong>
+        <strong>论文研究工作台</strong>
       </div>
       <el-tag v-if="trace" size="small" :type="runTagType(trace.status)" effect="plain">
         {{ runStatusLabel(trace.status) }}
@@ -38,14 +38,14 @@
       </div>
 
       <el-select
-        v-if="mode === WORKBENCH_MODES.PAPER_COMPARISON"
+        v-if="isMultiPaperMode"
         v-model="comparisonPaperIds"
         class="paper-selector"
         multiple
         filterable
         collapse-tags
         collapse-tags-tooltip
-        placeholder="至少再选择一篇论文"
+        :placeholder="paperSelectorPlaceholder"
         :loading="papersLoading"
       >
         <el-option
@@ -53,11 +53,11 @@
           :key="item.id"
           :label="item.title || `论文 #${item.id}`"
           :value="Number(item.id)"
-          :disabled="comparisonOptionDisabled(item.id)"
+          :disabled="comparisonOptionDisabled(item)"
         />
       </el-select>
 
-      <div v-if="mode === WORKBENCH_MODES.PAPER_COMPARISON" class="comparison-config">
+      <div v-if="isMultiPaperMode" class="comparison-config">
         <div class="comparison-base">
           <div>
             <small>基准论文</small>
@@ -70,7 +70,7 @@
         <div class="comparison-hint" :class="{ ready: comparisonState.canStart }">
           {{ comparisonSelectionHint }}
         </div>
-        <div class="dimension-picker" aria-label="比较维度">
+        <div class="dimension-picker" :aria-label="mode === WORKBENCH_MODES.RESEARCH_GAP ? 'Gap 分析维度' : '比较维度'">
           <button
             v-for="dimension in comparisonDimensionOptions"
             :key="dimension"
@@ -139,7 +139,7 @@
       <div class="section-heading"><span>分析结果</span></div>
       <div class="answer-text" v-html="answerHtml" />
 
-      <div v-if="isComparisonResult && comparisonCoverage.total" class="comparison-coverage">
+      <div v-if="isMultiPaperResult && comparisonCoverage.total" class="comparison-coverage">
         <div class="coverage-heading">
           <b>逐论文证据覆盖</b>
           <el-tag
@@ -236,9 +236,11 @@ const props = defineProps({
   selectionError: { type: String, default: '' },
   applyAnnotation: { type: Function, default: null },
   appliedAnnotationRunIds: { type: Array, default: () => [] },
+  initialMode: { type: String, default: '' },
+  initialPaperIds: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['clear-selection', 'jump-evidence'])
+const emit = defineEmits(['clear-selection', 'jump-evidence', 'mode-change', 'paper-ids-change'])
 const {
   trace,
   recentRuns,
@@ -249,14 +251,15 @@ const {
   selectRun,
 } = usePaperWorkbench()
 
-const mode = ref(WORKBENCH_MODES.PAPER_ANALYSIS)
+const mode = ref(normalizeInitialMode(props.initialMode))
 const questions = reactive({
   [WORKBENCH_MODES.SELECTION_QA]: '',
   [WORKBENCH_MODES.PAPER_ANALYSIS]: '请从研究问题、核心方法、实验结果、主要结论与局限五个方面分析这篇论文。',
   [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: '请为选中内容生成一条有价值的学术批注。',
   [WORKBENCH_MODES.PAPER_COMPARISON]: '比较这些论文的研究问题、方法、关键结论与局限，并指出异同。',
+  [WORKBENCH_MODES.RESEARCH_GAP]: '结合所选论文识别可检验的候选研究空白，并说明证据边界与下一步验证方案。',
 })
-const comparisonPaperIds = ref([])
+const comparisonPaperIds = ref(normalizeInitialPaperIds(props.initialPaperIds))
 const comparisonDimensions = ref(['研究问题', '核心方法', '实验与指标', '主要结论', '局限'])
 const availablePapers = ref([])
 const papersLoading = ref(false)
@@ -268,6 +271,7 @@ const modeOptions = [
   { value: WORKBENCH_MODES.PAPER_ANALYSIS, label: '全文分析' },
   { value: WORKBENCH_MODES.ANNOTATION_SUGGESTION, label: '批注建议', needsSelection: true },
   { value: WORKBENCH_MODES.PAPER_COMPARISON, label: '多篇对比' },
+  { value: WORKBENCH_MODES.RESEARCH_GAP, label: '研究 Gap' },
 ]
 const comparisonDimensionOptions = ['研究问题', '核心方法', '实验与指标', '主要结论', '局限', '适用场景']
 const question = computed({
@@ -279,12 +283,14 @@ const questionPlaceholder = computed(() => ({
   [WORKBENCH_MODES.PAPER_ANALYSIS]: '可补充你关注的研究问题；留空也可使用默认分析要求',
   [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: '说明希望得到总结、质疑、问题或批判性批注',
   [WORKBENCH_MODES.PAPER_COMPARISON]: '说明比较维度，例如方法、指标、场景或结论',
+  [WORKBENCH_MODES.RESEARCH_GAP]: '说明希望检验的方向，例如假设边界、指标缺口或场景覆盖',
 }[mode.value]))
 const actionLabel = computed(() => ({
   [WORKBENCH_MODES.SELECTION_QA]: '基于选区回答',
   [WORKBENCH_MODES.PAPER_ANALYSIS]: '分析全文',
   [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: '生成批注建议',
   [WORKBENCH_MODES.PAPER_COMPARISON]: '开始对比',
+  [WORKBENCH_MODES.RESEARCH_GAP]: '识别候选 Gap',
 }[mode.value]))
 const resultEvidenceIndex = computed(() => evidenceIndex(trace.value))
 const annotationEvidence = computed(() => (trace.value?.result?.annotationSuggestion?.evidenceIds || [])
@@ -300,17 +306,31 @@ const historyOptions = computed(() => {
 const answerHtml = computed(() => workbenchMarkdownToHtml(trace.value?.result?.answer))
 const tracePhases = computed(() => compactTracePhases(trace.value))
 const paperCatalog = computed(() => [props.paper, ...availablePapers.value])
+const eligibleComparisonPapers = computed(() => availablePapers.value.filter(item => item.pdfPath))
+const isMultiPaperMode = computed(() => mode.value === WORKBENCH_MODES.PAPER_COMPARISON
+  || mode.value === WORKBENCH_MODES.RESEARCH_GAP)
+const minimumPaperCount = computed(() => mode.value === WORKBENCH_MODES.RESEARCH_GAP ? 3 : 2)
 const comparisonState = computed(() => comparisonSelectionState(
-  props.paper.id, comparisonPaperIds.value))
+  props.paper.id, comparisonPaperIds.value, minimumPaperCount.value))
+const paperSelectorPlaceholder = computed(() => mode.value === WORKBENCH_MODES.RESEARCH_GAP
+  ? '至少再选择两篇论文' : '至少再选择一篇论文')
 const comparisonSelectionHint = computed(() => {
-  if (!availablePapers.value.length) return '文库中暂无其他论文，至少再导入一篇才能对比'
-  if (!comparisonState.value.canStart) return '请至少再选择一篇论文'
+  const requiredAdditional = minimumPaperCount.value - 1
+  if (eligibleComparisonPapers.value.length < requiredAdditional) {
+    return mode.value === WORKBENCH_MODES.RESEARCH_GAP
+      ? '文库中至少需要三篇带 PDF 的论文才能识别 Gap'
+      : '文库中至少需要两篇带 PDF 的论文才能对比'
+  }
+  if (!comparisonState.value.canStart) return `请至少再选择 ${requiredAdditional} 篇论文`
   if (comparisonState.value.atLimit) return '已达到单次对比上限'
-  return `已选择 ${comparisonState.value.total} 篇论文，可以开始对比`
+  return `已选择 ${comparisonState.value.total} 篇论文，可以开始${mode.value === WORKBENCH_MODES.RESEARCH_GAP ? '识别候选 Gap' : '对比'}`
 })
 const actionDisabled = computed(() => running.value
-  || (mode.value === WORKBENCH_MODES.PAPER_COMPARISON && !comparisonState.value.canStart))
-const isComparisonResult = computed(() => trace.value?.plan?.workflow === WORKBENCH_MODES.PAPER_COMPARISON)
+  || (isMultiPaperMode.value && !comparisonState.value.canStart))
+const isMultiPaperResult = computed(() => [
+  WORKBENCH_MODES.PAPER_COMPARISON,
+  WORKBENCH_MODES.RESEARCH_GAP,
+].includes(trace.value?.plan?.workflow))
 const comparisonCoverage = computed(() => buildComparisonCoverage(trace.value, paperCatalog.value))
 
 watch(() => props.selectionAnchor, next => {
@@ -318,16 +338,33 @@ watch(() => props.selectionAnchor, next => {
 })
 watch(() => trace.value?.runId, () => { annotationAppliedRunId.value = '' })
 watch(mode, nextMode => {
+  emit('mode-change', nextMode)
+  if (nextMode === WORKBENCH_MODES.PAPER_COMPARISON || nextMode === WORKBENCH_MODES.RESEARCH_GAP) {
+    emit('paper-ids-change', [Number(props.paper.id), ...normalizeInitialPaperIds(comparisonPaperIds.value)])
+  }
   if (running.value || trace.value?.plan?.workflow === nextMode) return
   const matchingRun = recentRuns.value.find(item => item.plan?.workflow === nextMode)
   selectRun(matchingRun || null)
 })
+watch(() => props.initialMode, nextMode => {
+  const normalized = normalizeInitialMode(nextMode)
+  if (!running.value && normalized !== mode.value) mode.value = normalized
+})
+watch(() => props.initialPaperIds, nextIds => {
+  comparisonPaperIds.value = normalizeInitialPaperIds(nextIds)
+}, { deep: true })
+watch(comparisonPaperIds, nextIds => {
+  if (!isMultiPaperMode.value) return
+  emit('paper-ids-change', [Number(props.paper.id), ...normalizeInitialPaperIds(nextIds)])
+}, { deep: true })
 
 onMounted(async () => {
   papersLoading.value = true
   try {
     const papers = await listPapers()
     availablePapers.value = papers.filter(item => Number(item.id) !== Number(props.paper.id))
+    const eligibleIds = new Set(eligibleComparisonPapers.value.map(item => Number(item.id)))
+    comparisonPaperIds.value = comparisonPaperIds.value.filter(id => eligibleIds.has(Number(id)))
   } catch {
     availablePapers.value = []
   } finally {
@@ -335,14 +372,21 @@ onMounted(async () => {
   }
   try {
     await loadRecent(props.paper.id)
-    const restoredMode = trace.value?.plan?.workflow
-    if (modeOptions.some(item => item.value === restoredMode)) mode.value = restoredMode
+    if (props.initialMode) {
+      const requestedMode = normalizeInitialMode(props.initialMode)
+      mode.value = requestedMode
+      const matchingRun = recentRuns.value.find(item => item.plan?.workflow === requestedMode)
+      if (trace.value?.plan?.workflow !== requestedMode) selectRun(matchingRun || null)
+    } else {
+      const restoredMode = trace.value?.plan?.workflow
+      if (modeOptions.some(item => item.value === restoredMode)) mode.value = restoredMode
+    }
   } catch { /* history is optional */ }
 })
 
 async function startRun() {
   try {
-    const effectiveQuestion = mode.value === WORKBENCH_MODES.PAPER_COMPARISON
+    const effectiveQuestion = isMultiPaperMode.value
       ? buildComparisonQuestion(question.value, comparisonDimensions.value)
       : question.value
     const request = buildWorkbenchPlanRequest({
@@ -362,8 +406,9 @@ async function startRun() {
   }
 }
 
-function comparisonOptionDisabled(paperId) {
-  const normalizedId = Number(paperId)
+function comparisonOptionDisabled(paper) {
+  if (!paper?.pdfPath) return true
+  const normalizedId = Number(paper.id)
   return comparisonState.value.atLimit
     && !comparisonState.value.additionalIds.includes(normalizedId)
 }
@@ -414,7 +459,18 @@ function workflowLabel(workflow) {
     PAPER_ANALYSIS: '全文分析',
     ANNOTATION_SUGGESTION: '批注建议',
     PAPER_COMPARISON: '多篇对比',
+    RESEARCH_GAP: '研究 Gap',
   }[workflow] || '论文助手运行'
+}
+
+function normalizeInitialMode(value) {
+  return Object.values(WORKBENCH_MODES).includes(value)
+    ? value : WORKBENCH_MODES.PAPER_ANALYSIS
+}
+
+function normalizeInitialPaperIds(values) {
+  return [...new Set((values || []).map(Number))]
+    .filter(id => Number.isInteger(id) && id > 0 && id !== Number(props.paper.id))
 }
 
 function runStatusLabel(status) {
@@ -469,7 +525,7 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .section-heading button { border: 0; color: var(--ra-text-secondary); background: transparent; cursor: pointer; font-size: 18px; }
 .selection-card p { max-height: 76px; overflow: auto; margin: 0 0 8px; padding: 8px; border-left: 3px solid var(--ra-link); background: var(--ra-hover-bg); font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
 .selection-meta { color: var(--ra-text-tertiary); font-size: 11px; }
-.workflow-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-bottom: 9px; }
+.workflow-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-bottom: 9px; }
 .workflow-tabs button { min-width: 0; padding: 7px 4px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-text-secondary); background: transparent; cursor: pointer; }
 .workflow-tabs button.active { border-color: var(--ra-link); color: var(--ra-link); background: var(--ra-hover-bg); }
 .workflow-tabs button:disabled { opacity: .45; cursor: not-allowed; }

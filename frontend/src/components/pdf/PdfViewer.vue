@@ -274,8 +274,12 @@
         :selection-error="selectionContextError"
         :apply-annotation="applyWorkbenchAnnotationSuggestion"
         :applied-annotation-run-ids="appliedWorkbenchRunIds"
+        :initial-mode="initialWorkbenchMode"
+        :initial-paper-ids="initialWorkbenchPaperIds"
         @clear-selection="clearPendingTextSelection"
         @jump-evidence="jumpToEvidence"
+        @mode-change="$emit('workbench-mode-change', $event)"
+        @paper-ids-change="$emit('workbench-paper-ids-change', $event)"
       />
 
     <NoteLinkPanel
@@ -386,10 +390,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
 const props = defineProps({
   paper: { type: Object, required: true },
-  initialEvidence: { type: Object, default: null }
+  initialEvidence: { type: Object, default: null },
+  initialWorkbenchMode: { type: String, default: '' },
+  initialWorkbenchPaperIds: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['close', 'open-paper-evidence'])
+const emit = defineEmits([
+  'close', 'open-paper-evidence', 'workbench-mode-change', 'workbench-paper-ids-change',
+])
 
 const containerRef = ref(null)
 const viewerBodyRef = ref(null)

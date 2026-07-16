@@ -76,6 +76,28 @@ class WorkbenchRuleRouterTest {
                 .hasMessageContaining("at least two");
     }
 
+    @Test
+    void researchGapUsesFixedGroundedWorkflowAndRequiresThreePapers() {
+        WorkbenchPlan plan = router.route(new WorkbenchInvocation(
+                List.of(1L, 2L, 3L), "识别仍需验证的候选研究空白",
+                WorkbenchIntent.FIND_RESEARCH_GAPS, null, null, 6, 0));
+
+        assertThat(plan.workflow()).isEqualTo(WorkbenchPlan.Workflow.RESEARCH_GAP);
+        assertThat(plan.scope()).isEqualTo(WorkbenchPlan.Scope.COMPARISON);
+        assertThat(plan.steps()).extracting(WorkbenchPlan.Step::skill).containsExactly(
+                WorkbenchPlan.Skill.ENSURE_LAYOUT_ARTIFACT,
+                WorkbenchPlan.Skill.RETRIEVE_COMPARISON_EVIDENCE,
+                WorkbenchPlan.Skill.IDENTIFY_RESEARCH_GAPS,
+                WorkbenchPlan.Skill.VALIDATE_EVIDENCE_ANSWER);
+        assertThat(plan.tokenBudget()).isEqualTo(20_000);
+
+        assertThatThrownBy(() -> router.route(new WorkbenchInvocation(
+                List.of(1L, 2L), "识别研究空白", WorkbenchIntent.FIND_RESEARCH_GAPS,
+                null, null, 6, 0)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least three");
+    }
+
     private WorkbenchInvocation invocation(List<Long> paperIds,
                                            WorkbenchIntent intent,
                                            WorkbenchPlan.Scope scope,

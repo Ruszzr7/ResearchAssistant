@@ -4,7 +4,7 @@ import com.research.assistant.service.pdf.layout.LayoutEvidence;
 
 import java.util.List;
 
-/** Evidence-grounded result shared by all four fixed workbench workflows. */
+/** Evidence-grounded result shared by all fixed workbench workflows. */
 public record WorkbenchWorkflowResult(String runId,
                                       WorkbenchPlan.Workflow workflow,
                                       WorkbenchPlan.Scope scope,

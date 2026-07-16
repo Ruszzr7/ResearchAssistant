@@ -81,7 +81,7 @@ class PdfWorkbenchMetricsServiceTest {
         assertThat(snapshot.runs().failed()).isEqualTo(2);
         assertThat(snapshot.runs().completionRate()).isEqualTo(0.5);
         assertThat(snapshot.runs().repairRate()).isEqualTo(0.25);
-        assertThat(snapshot.workflows()).hasSize(4);
+        assertThat(snapshot.workflows()).hasSize(5);
         assertThat(snapshot.evaluation().allDeterministicPassed()).isTrue();
     }
 

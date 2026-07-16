@@ -42,6 +42,16 @@ public class WorkbenchOutputQualityGate {
                     issues.add("paper comparison has too few grounded claims");
                 }
             }
+            case RESEARCH_GAP -> {
+                if (output.answer().length() < 180) issues.add("research gap analysis is too short");
+                requireMarker(lower, issues, "research gap analysis is missing candidate gaps",
+                        "候选空白", "研究空白", "research gap");
+                requireMarker(lower, issues, "research gap analysis is missing validation steps",
+                        "验证", "verify", "validation");
+                if (output.claims().size() < paperCount) {
+                    issues.add("research gap analysis has too few grounded claims");
+                }
+            }
             case ANNOTATION_SUGGESTION -> {
                 WorkbenchModelOutput.AnnotationSuggestion suggestion = output.annotationSuggestion();
                 if (suggestion == null || suggestion.content().length() < 8) {

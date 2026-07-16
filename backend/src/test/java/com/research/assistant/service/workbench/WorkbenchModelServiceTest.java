@@ -139,6 +139,21 @@ class WorkbenchModelServiceTest {
     }
 
     @Test
+    void researchGapPromptRequiresCandidateLanguageAndExternalValidation() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(new LlmResponse("""
+                        {"answer":"候选空白与验证步骤","claims":[{"text":"边界","evidenceIds":["lay_a"]}]}
+                        """, 100, 80, 180));
+
+        service.generate(WorkbenchPlan.Workflow.RESEARCH_GAP, "find gaps", Map.of(),
+                List.of(evidence("lay_a", "evidence")), 5_000, null, List.of());
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(llmService).chatWithUsage(anyString(), message.capture(), any(LlmCallPolicy.class));
+        assertThat(message.getValue()).contains("候选空白", "外部检索验证", "不得把");
+    }
+
+    @Test
     void retriesBlankTruncatedSelectionWithOnlyDirectEvidence() {
         when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
                 .thenReturn(

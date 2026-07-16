@@ -41,7 +41,8 @@ public record WorkbenchPlan(Workflow workflow,
         SELECTION_QA,
         PAPER_ANALYSIS,
         ANNOTATION_SUGGESTION,
-        PAPER_COMPARISON
+        PAPER_COMPARISON,
+        RESEARCH_GAP
     }
 
     public enum Scope {
@@ -67,6 +68,7 @@ public record WorkbenchPlan(Workflow workflow,
         ANALYZE_PAPER("analyze-paper-evidence", StepKind.LLM),
         PROPOSE_ANCHORED_ANNOTATION("propose-anchored-annotation", StepKind.LLM),
         COMPARE_EVIDENCE_SET("compare-evidence-set", StepKind.LLM),
+        IDENTIFY_RESEARCH_GAPS("identify-research-gaps", StepKind.LLM),
         VALIDATE_EVIDENCE_ANSWER("validate-evidence-answer", StepKind.DETERMINISTIC),
         PERSIST_ANALYSIS_REPORT("persist-analysis-report", StepKind.PERSISTENCE);
 

@@ -6,5 +6,6 @@ public enum WorkbenchIntent {
     ASK_SELECTION,
     ANALYZE_PAPER,
     SUGGEST_ANNOTATION,
-    COMPARE_PAPERS
+    COMPARE_PAPERS,
+    FIND_RESEARCH_GAPS
 }

@@ -59,6 +59,7 @@ public class WorkbenchRuleRouter {
             case ANALYZE_PAPER -> Workflow.PAPER_ANALYSIS;
             case SUGGEST_ANNOTATION -> Workflow.ANNOTATION_SUGGESTION;
             case COMPARE_PAPERS -> Workflow.PAPER_COMPARISON;
+            case FIND_RESEARCH_GAPS -> Workflow.RESEARCH_GAP;
             case AUTO -> invocation.paperIds().size() > 1
                     ? Workflow.PAPER_COMPARISON
                     : invocation.selectionAnchor() != null ? Workflow.SELECTION_QA : Workflow.PAPER_ANALYSIS;
@@ -68,7 +69,7 @@ public class WorkbenchRuleRouter {
     private Scope chooseScope(WorkbenchInvocation invocation, Workflow workflow) {
         return switch (workflow) {
             case PAPER_ANALYSIS -> Scope.PAPER;
-            case PAPER_COMPARISON -> Scope.COMPARISON;
+            case PAPER_COMPARISON, RESEARCH_GAP -> Scope.COMPARISON;
             case SELECTION_QA, ANNOTATION_SUGGESTION ->
                     invocation.requestedScope() == Scope.REGION
                             || invocation.selectionAnchor() != null
@@ -82,7 +83,10 @@ public class WorkbenchRuleRouter {
         if (workflow == Workflow.PAPER_COMPARISON && invocation.paperIds().size() < 2) {
             throw new IllegalArgumentException("paper comparison requires at least two papers");
         }
-        if (workflow != Workflow.PAPER_COMPARISON && invocation.paperIds().size() != 1) {
+        if (workflow == Workflow.RESEARCH_GAP && invocation.paperIds().size() < 3) {
+            throw new IllegalArgumentException("research gap analysis requires at least three papers");
+        }
+        if (!isMultiPaperWorkflow(workflow) && invocation.paperIds().size() != 1) {
             throw new IllegalArgumentException("this workflow accepts exactly one paper");
         }
         if (selectionWorkflow && invocation.selectionAnchor() == null) {
@@ -91,8 +95,8 @@ public class WorkbenchRuleRouter {
         if (selectionWorkflow && invocation.question().isBlank()) {
             throw new IllegalArgumentException("selection workflow requires a question or instruction");
         }
-        if (workflow == Workflow.PAPER_COMPARISON && invocation.question().isBlank()) {
-            throw new IllegalArgumentException("paper comparison requires a question");
+        if (isMultiPaperWorkflow(workflow) && invocation.question().isBlank()) {
+            throw new IllegalArgumentException("multi-paper workflow requires a question");
         }
         Scope requested = invocation.requestedScope();
         if (requested != null && !scopeCompatible(requested, scope, selectionWorkflow)) {
@@ -128,6 +132,11 @@ public class WorkbenchRuleRouter {
                     Step.of(1, "检索分论文证据", Skill.RETRIEVE_COMPARISON_EVIDENCE),
                     Step.of(2, "生成证据对比", Skill.COMPARE_EVIDENCE_SET),
                     Step.of(3, "证据门禁", Skill.VALIDATE_EVIDENCE_ANSWER));
+            case RESEARCH_GAP -> List.of(
+                    Step.of(0, "准备版面制品", Skill.ENSURE_LAYOUT_ARTIFACT),
+                    Step.of(1, "检索分论文证据", Skill.RETRIEVE_COMPARISON_EVIDENCE),
+                    Step.of(2, "识别候选研究空白", Skill.IDENTIFY_RESEARCH_GAPS),
+                    Step.of(3, "证据门禁", Skill.VALIDATE_EVIDENCE_ANSWER));
         };
     }
 
@@ -135,7 +144,11 @@ public class WorkbenchRuleRouter {
         return switch (workflow) {
             case SELECTION_QA, ANNOTATION_SUGGESTION -> 6_000;
             case PAPER_ANALYSIS -> 14_000;
-            case PAPER_COMPARISON -> 20_000;
+            case PAPER_COMPARISON, RESEARCH_GAP -> 20_000;
         };
+    }
+
+    private boolean isMultiPaperWorkflow(Workflow workflow) {
+        return workflow == Workflow.PAPER_COMPARISON || workflow == Workflow.RESEARCH_GAP;
     }
 }

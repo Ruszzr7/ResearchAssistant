@@ -39,6 +39,28 @@ describe('PDF workbench request boundary', () => {
     })).toThrow('至少再选择一篇')
   })
 
+  it('builds a fixed research Gap request and requires three papers', () => {
+    expect(buildWorkbenchPlanRequest({
+      mode: WORKBENCH_MODES.RESEARCH_GAP,
+      paperId: 7,
+      comparisonPaperIds: [8, 9],
+      question: '识别候选研究空白',
+    })).toEqual({
+      paperIds: [7, 8, 9],
+      question: '识别候选研究空白',
+      intent: 'FIND_RESEARCH_GAPS',
+      scope: 'COMPARISON',
+      maxSteps: 6,
+    })
+    expect(() => buildWorkbenchPlanRequest({
+      mode: WORKBENCH_MODES.RESEARCH_GAP,
+      paperId: 7,
+      comparisonPaperIds: [8],
+      question: '识别候选研究空白',
+    })).toThrow('至少需要三篇')
+    expect(comparisonSelectionState(7, [8], 3)).toMatchObject({ total: 2, canStart: false })
+  })
+
   it('enforces the shared eight-paper comparison boundary', () => {
     const state = comparisonSelectionState(1, [2, 2, 3, 4, 5, 6, 7, 8])
     expect(state).toMatchObject({ total: 8, canStart: true, atLimit: true, max: 8 })

@@ -134,6 +134,9 @@ public class WorkbenchModelService {
                     + "先解释选中文字，再说明必要上下文，不扩展到整篇论文。";
             case PAPER_ANALYSIS -> "按研究问题、方法、核心贡献、实验或理论结果、局限与可复现线索组织全文分析。";
             case PAPER_COMPARISON -> "按问题设定、方法、假设、指标、主要结论和局限比较各论文；answer 中包含清晰对比表。";
+            case RESEARCH_GAP -> "基于所选论文识别至少 3 个候选研究空白。每个候选项必须说明跨论文证据、"
+                    + "现有覆盖边界或分歧、可检验研究问题，以及下一步验证所需的数据或实验。"
+                    + "不得把本证据集中未出现的内容表述为领域中不存在；统一使用‘候选空白’，并明确仍需外部检索验证。";
             case ANNOTATION_SUGGESTION -> "生成简洁、可行动的阅读批注。annotationSuggestion 必须为 "
                     + "{\"type\":\"COMMENT|SUMMARY|QUESTION|CRITIQUE\",\"content\":\"...\",\"evidenceIds\":[\"lay_...\"]}。";
         };

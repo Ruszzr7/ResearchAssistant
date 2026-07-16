@@ -72,7 +72,7 @@ public class WorkbenchExecutionEngine {
             WorkbenchWorkflowResult result = switch (trace.plan().workflow()) {
                 case SELECTION_QA, ANNOTATION_SUGGESTION -> executeSelection(trace, stage);
                 case PAPER_ANALYSIS -> executePaperAnalysis(trace, stage);
-                case PAPER_COMPARISON -> executeComparison(trace, stage);
+                case PAPER_COMPARISON, RESEARCH_GAP -> executeComparison(trace, stage);
             };
             traceService.completeRun(runId, result, result.evidence().size());
             return result;
@@ -304,7 +304,7 @@ public class WorkbenchExecutionEngine {
         return switch (trace.plan().workflow()) {
             case SELECTION_QA, ANNOTATION_SUGGESTION ->
                     WorkbenchEvidenceGate.GatePolicy.selection(repairAttempt);
-            case PAPER_COMPARISON -> WorkbenchEvidenceGate.GatePolicy.comparison(
+            case PAPER_COMPARISON, RESEARCH_GAP -> WorkbenchEvidenceGate.GatePolicy.comparison(
                     repairAttempt, Set.copyOf(trace.invocation().paperIds()));
             case PAPER_ANALYSIS -> WorkbenchEvidenceGate.GatePolicy.strict(repairAttempt);
         };
@@ -396,12 +396,12 @@ public class WorkbenchExecutionEngine {
         }
         int numerator = switch (trace.plan().workflow()) {
             case PAPER_ANALYSIS -> 6;
-            case PAPER_COMPARISON -> 4;
+            case PAPER_COMPARISON, RESEARCH_GAP -> 4;
             case SELECTION_QA, ANNOTATION_SUGGESTION -> 1;
         };
         int denominator = switch (trace.plan().workflow()) {
             case PAPER_ANALYSIS -> 7;
-            case PAPER_COMPARISON -> 5;
+            case PAPER_COMPARISON, RESEARCH_GAP -> 5;
             case SELECTION_QA, ANNOTATION_SUGGESTION -> 1;
         };
         return Math.max(512, remaining * numerator / denominator);
@@ -416,7 +416,7 @@ public class WorkbenchExecutionEngine {
     private int evidenceCharacterBudget(WorkbenchRunTrace trace, int ceiling) {
         long budget = switch (trace.plan().workflow()) {
             case PAPER_ANALYSIS -> Math.max(6_000L, (long) trace.plan().tokenBudget() * 3 / 4);
-            case PAPER_COMPARISON -> Math.max(8_000L, (long) trace.plan().tokenBudget());
+            case PAPER_COMPARISON, RESEARCH_GAP -> Math.max(8_000L, (long) trace.plan().tokenBudget());
             case SELECTION_QA, ANNOTATION_SUGGESTION ->
                     Math.max(4_000L, (long) trace.plan().tokenBudget() * 5 / 4);
         };

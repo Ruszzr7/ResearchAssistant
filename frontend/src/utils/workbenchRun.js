@@ -3,6 +3,7 @@ export const WORKBENCH_MODES = Object.freeze({
   PAPER_ANALYSIS: 'PAPER_ANALYSIS',
   ANNOTATION_SUGGESTION: 'ANNOTATION_SUGGESTION',
   PAPER_COMPARISON: 'PAPER_COMPARISON',
+  RESEARCH_GAP: 'RESEARCH_GAP',
 })
 
 export const MAX_COMPARISON_PAPERS = 8
@@ -12,6 +13,7 @@ const MODE_CONFIG = Object.freeze({
   [WORKBENCH_MODES.PAPER_ANALYSIS]: { intent: 'ANALYZE_PAPER', scope: 'PAPER' },
   [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: { intent: 'SUGGEST_ANNOTATION', scope: 'SELECTION' },
   [WORKBENCH_MODES.PAPER_COMPARISON]: { intent: 'COMPARE_PAPERS', scope: 'COMPARISON' },
+  [WORKBENCH_MODES.RESEARCH_GAP]: { intent: 'FIND_RESEARCH_GAPS', scope: 'COMPARISON' },
 })
 
 export function buildWorkbenchPlanRequest({
@@ -35,11 +37,16 @@ export function buildWorkbenchPlanRequest({
     throw new Error('请填写问题或分析要求')
   }
 
-  const paperIds = mode === WORKBENCH_MODES.PAPER_COMPARISON
+  const multiPaperMode = mode === WORKBENCH_MODES.PAPER_COMPARISON
+    || mode === WORKBENCH_MODES.RESEARCH_GAP
+  const paperIds = multiPaperMode
     ? normalizeComparisonPaperIds(currentPaperId, comparisonPaperIds)
     : [currentPaperId]
   if (mode === WORKBENCH_MODES.PAPER_COMPARISON && paperIds.length < 2) {
     throw new Error('请至少再选择一篇论文')
+  }
+  if (mode === WORKBENCH_MODES.RESEARCH_GAP && paperIds.length < 3) {
+    throw new Error('研究 Gap 至少需要三篇论文')
   }
 
   const scope = selectionAnchor?.kind === 'REGION' && needsSelection ? 'REGION' : config.scope
@@ -63,7 +70,7 @@ export function normalizeComparisonPaperIds(paperId, comparisonPaperIds = []) {
   return ids
 }
 
-export function comparisonSelectionState(paperId, comparisonPaperIds = []) {
+export function comparisonSelectionState(paperId, comparisonPaperIds = [], minimumPaperCount = 2) {
   const currentPaperId = Number(paperId)
   const additionalIds = [...new Set(comparisonPaperIds.map(Number))]
     .filter(id => Number.isInteger(id) && id > 0 && id !== currentPaperId)
@@ -71,7 +78,7 @@ export function comparisonSelectionState(paperId, comparisonPaperIds = []) {
   return {
     additionalIds,
     total,
-    canStart: additionalIds.length >= 1 && total <= MAX_COMPARISON_PAPERS,
+    canStart: total >= minimumPaperCount && total <= MAX_COMPARISON_PAPERS,
     atLimit: total >= MAX_COMPARISON_PAPERS,
     max: MAX_COMPARISON_PAPERS,
   }

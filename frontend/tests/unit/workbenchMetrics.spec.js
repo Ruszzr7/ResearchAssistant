@@ -37,5 +37,7 @@ describe('PDF workbench metric presentation', () => {
       completionRate: 0.5, repairRate: 0.25,
       averageLatency: '1.2s', averageTokens: 1234, averageEvidence: 9.5,
     }])
+    expect(workflowMetricRows({ workflows: [{ workflow: 'RESEARCH_GAP' }] })[0].label)
+      .toBe('研究 Gap')
   })
 })

@@ -3,6 +3,7 @@ const WORKFLOW_LABELS = Object.freeze({
   PAPER_ANALYSIS: '全文分析',
   ANNOTATION_SUGGESTION: '批注建议',
   PAPER_COMPARISON: '多篇对比',
+  RESEARCH_GAP: '研究 Gap',
 })
 
 export function formatMetricPercent(value, digits = 0) {

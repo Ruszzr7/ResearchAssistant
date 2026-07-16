@@ -82,7 +82,8 @@ class WorkbenchExecutionEngineTest {
         when(wholeEvidenceService.retrievePaper(any(), anyString(), anyInt(), anyInt()))
                 .thenReturn(List.of(evidence(7L, false)));
         when(wholeEvidenceService.retrieveComparison(anyList(), anyString(), anyInt(), anyInt()))
-                .thenReturn(List.of(evidence(7L, false), evidence(8L, false)));
+                .thenAnswer(invocation -> ((List<PaperLayoutArtifact>) invocation.getArgument(0)).stream()
+                        .map(artifact -> evidence(artifact.paperId(), false)).toList());
         when(paperMapper.selectById(anyLong())).thenAnswer(invocation -> paper(invocation.getArgument(0)));
         when(modelService.generate(any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList()))
                 .thenAnswer(invocation -> modelCall(invocation.getArgument(0)));
@@ -137,6 +138,20 @@ class WorkbenchExecutionEngineTest {
         assertThat(result.workflow()).isEqualTo(WorkbenchPlan.Workflow.PAPER_COMPARISON);
         assertThat(result.claims()).extracting(claim -> claim.evidenceIds().get(0))
                 .containsExactly("lay_p7", "lay_p8");
+        assertCompleted(planned.runId(), 4);
+    }
+
+    @Test
+    void executesResearchGapOnlyWhenEveryPaperIsCited() {
+        WorkbenchRunTrace planned = traceService.plan(invocation(
+                WorkbenchIntent.FIND_RESEARCH_GAPS, List.of(7L, 8L, 9L), null,
+                "识别可检验且仍需验证的候选研究空白", 20_000));
+
+        WorkbenchWorkflowResult result = engine.execute(planned.runId(), "task-gap", null);
+
+        assertThat(result.workflow()).isEqualTo(WorkbenchPlan.Workflow.RESEARCH_GAP);
+        assertThat(result.claims()).extracting(claim -> claim.evidenceIds().get(0))
+                .containsExactly("lay_p7", "lay_p8", "lay_p9");
         assertCompleted(planned.runId(), 4);
     }
 
@@ -254,6 +269,16 @@ class WorkbenchExecutionEngineTest {
                     List.of(
                             new WorkbenchEvidenceGate.GroundedClaim("Paper 7 使用方法 A", List.of("lay_p7")),
                             new WorkbenchEvidenceGate.GroundedClaim("Paper 8 使用方法 B", List.of("lay_p8"))),
+                    null);
+            case RESEARCH_GAP -> new WorkbenchModelOutput(
+                    ("## 候选空白 1\n三篇论文在假设、优化目标和验证场景上存在尚待验证的覆盖边界。"
+                            + "该候选研究空白不能仅凭当前证据断言领域中不存在相关工作。\n"
+                            + "## 可检验问题\n可在统一数据与约束下检验跨场景泛化。\n"
+                            + "## 下一步验证\n需要扩大外部检索范围，并通过对照实验验证候选空白。\n").repeat(2),
+                    List.of(
+                            new WorkbenchEvidenceGate.GroundedClaim("Paper 7 的方法边界", List.of("lay_p7")),
+                            new WorkbenchEvidenceGate.GroundedClaim("Paper 8 的验证边界", List.of("lay_p8")),
+                            new WorkbenchEvidenceGate.GroundedClaim("Paper 9 的场景边界", List.of("lay_p9"))),
                     null);
         };
         return new WorkbenchModelService.ModelCall(output, true, 10, 5, 15);

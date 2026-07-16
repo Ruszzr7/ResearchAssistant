@@ -109,6 +109,7 @@ public class WorkbenchExecutionService {
             case PAPER_ANALYSIS -> "论文全文分析";
             case ANNOTATION_SUGGESTION -> "批注建议";
             case PAPER_COMPARISON -> "论文对比";
+            case RESEARCH_GAP -> "研究 Gap";
         };
     }
 
