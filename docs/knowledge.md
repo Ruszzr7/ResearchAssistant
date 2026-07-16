@@ -119,6 +119,8 @@
 - 多篇对比的“有证据”不能只统计检索到了多少块：应按本次 claim 中实际引用的 evidence ID 反查论文，并为每篇要求至少一条被引用 claim；结果页同时展示论文标题、证据数、引用 claim 数与页码。当前论文固定为基准，前后端共享 2–8 篇边界，不能让用户提交单篇伪对比或无限扩张上下文。
 - 跨论文证据回链不能只执行“跳到第 N 页”：证据身份包含 `paperId + page + bbox`。目标 `paperId` 与当前论文不同时，先切换并重新挂载对应 PDF，再消费 initial evidence 定位页码和坐标；关闭阅读器时清空待消费证据，避免把另一篇论文的页码或旧框套到当前文档。
 - 论文工作台的翻译应使用独立 `TranslationService`，默认 provider 为 DeepL，而不是复用论文问答 LLM。只翻译用户精确选区或用户主动切换语言的既有结果，并按 provider、语种、内容 SHA-256 和术语表版本缓存；答案和 claims 可批量翻译，但 evidence ID/链接不参与翻译。LaTeX、引用、DOI、URL、数值和缩写应先包装为 XML 忽略标签，翻译后再由安全 XML 解析器还原；翻译凭据只允许来自环境变量或加密设置，禁止进入源码、前端、日志和 Git。
+- 二维公式不能继续借用 PDF.js 文字层的线性选区语义。前端只负责提交页码和归一化矩形，可信裁剪必须由后端从当前原始 PDF 重新渲染；版面制品中的 `STRUCTURED` LaTeX 可直接复用，多模态/OCR 输出只能是可编辑候选。只有用户确认后的公式才以 `paperId + documentHash + parserVersion + regionKey` 独立持久化，并生成 `SelectionAnchor(FORMULA)` 与稳定 evidence；候选、低置信度区域和客户端截图均不能进入 Evidence Gate。
+- 推理型多模态模型可能在输出紧凑 JSON 前消耗较多隐藏推理 token，公式识别的输出预算过小会以 `finishReason=LENGTH` 截断。应为单个有界裁剪设置足够但有限的模型预算并记录真实 token/终止原因；无正文、坏 JSON 或不支持图片时降级为可手填的 `REGION`，不能因模型自报高置信度而跳过人工确认。
 - 选区问答的局部上下文应限制为全部直接选中块与前后各至多一个允许角色块；邻近证据只在执行 Workflow 时检索，不应在建立锚点后重复预取，也不能作为“当前选区”展示给用户。
 - 对强制 thinking 的模型，空正文不等于零消耗。选区生成应在同一总预算内为首次调用预留一次“仅直接证据”的精简重试，并把每次失败的 prompt/completion token、attempt count 与 provider `finishReason` 写入持久化 step；任务重试必须累计旧消耗。
 - 用户界面的 Agent 过程只聚合为范围、证据、生成、校验四个产品阶段。底层步骤名、证据数、token、耗时和错误保留在 hover/focus 提示与持久化 trace 中，不常驻占用阅读空间。

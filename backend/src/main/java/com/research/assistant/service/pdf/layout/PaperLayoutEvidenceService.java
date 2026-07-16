@@ -1,5 +1,7 @@
 package com.research.assistant.service.pdf.layout;
 
+import com.research.assistant.service.pdf.formula.region.ConfirmedFormulaRegionService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -20,11 +22,20 @@ public class PaperLayoutEvidenceService {
 
     private final PaperLayoutEvidencePolicy evidencePolicy;
     private final SelectionAnchorResolver anchorResolver;
+    private final ConfirmedFormulaRegionService confirmedFormulaRegions;
 
     public PaperLayoutEvidenceService(PaperLayoutEvidencePolicy evidencePolicy,
                                       SelectionAnchorResolver anchorResolver) {
+        this(evidencePolicy, anchorResolver, null);
+    }
+
+    @Autowired
+    public PaperLayoutEvidenceService(PaperLayoutEvidencePolicy evidencePolicy,
+                                      SelectionAnchorResolver anchorResolver,
+                                      ConfirmedFormulaRegionService confirmedFormulaRegions) {
         this.evidencePolicy = evidencePolicy;
         this.anchorResolver = anchorResolver;
+        this.confirmedFormulaRegions = confirmedFormulaRegions;
     }
 
     public LocalEvidenceResult retrieve(PaperLayoutArtifact artifact,
@@ -38,6 +49,13 @@ public class PaperLayoutEvidenceService {
                 anchor.boxes(),
                 anchor.anchorText(),
                 anchor.kind());
+        if (confirmedFormulaRegions != null) {
+            java.util.Optional<LayoutEvidence> confirmed = confirmedFormulaRegions.evidence(
+                    artifact, resolvedAnchor);
+            if (confirmed.isPresent()) {
+                return new LocalEvidenceResult(resolvedAnchor, List.of(confirmed.get()), false);
+            }
+        }
         int safeMax = Math.max(1, Math.min(20, maxResults));
         Map<String, DocumentBlock> blockById = new LinkedHashMap<>();
         for (DocumentBlock block : artifact.blocks()) {

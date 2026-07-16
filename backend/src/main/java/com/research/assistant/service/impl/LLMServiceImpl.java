@@ -7,6 +7,8 @@ import com.research.assistant.service.ai.LangChain4jModelFactory;
 import com.research.assistant.service.ai.LlmCallPolicy;
 import com.research.assistant.service.observability.ResearchMetrics;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ImageContent;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -19,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+import java.util.Base64;
 
 /**
  * DeepSeek / OpenAI 兼容 API 调用实现 —— 基于 LangChain4j。
@@ -60,13 +64,39 @@ public class LLMServiceImpl implements LLMService {
 
     @Override
     public LlmResponse chatWithUsage(String systemPrompt, String userMessage, LlmCallPolicy policy) {
+        return invoke(systemPrompt, UserMessage.from(userMessage), policy, "chat");
+    }
+
+    @Override
+    public LlmResponse chatWithImageUsage(String systemPrompt,
+                                          String userMessage,
+                                          byte[] imageBytes,
+                                          String mimeType,
+                                          LlmCallPolicy policy) {
+        if (imageBytes == null || imageBytes.length == 0) {
+            throw new IllegalArgumentException("imageBytes must not be empty");
+        }
+        if (imageBytes.length > 8 * 1024 * 1024) {
+            throw new IllegalArgumentException("image exceeds the multimodal request limit");
+        }
+        String safeMimeType = mimeType == null || mimeType.isBlank() ? "image/png" : mimeType;
+        UserMessage message = UserMessage.from(
+                TextContent.from(userMessage == null ? "" : userMessage),
+                ImageContent.from(Base64.getEncoder().encodeToString(imageBytes), safeMimeType));
+        return invoke(systemPrompt, message, policy, "chat-image");
+    }
+
+    private LlmResponse invoke(String systemPrompt,
+                               UserMessage userMessage,
+                               LlmCallPolicy policy,
+                               String operation) {
         long startedAt = metrics.startTimer();
         String outcome = "success";
         try {
             ChatModel model = modelFactory.createChatModel();
 
             ChatRequest.Builder requestBuilder = ChatRequest.builder()
-                    .messages(SystemMessage.from(systemPrompt), UserMessage.from(userMessage));
+                    .messages(SystemMessage.from(systemPrompt), userMessage);
             if (policy != null) {
                 requestBuilder.maxOutputTokens(policy.maxOutputTokens());
                 if (policy.jsonOutput()) requestBuilder.responseFormat(ResponseFormat.JSON);
@@ -94,7 +124,7 @@ public class LLMServiceImpl implements LLMService {
             log.warn("event=ai_chat_failed errorType={}", e.getClass().getSimpleName());
             throw e;
         } finally {
-            metrics.aiFinished("chat", outcome, startedAt);
+            metrics.aiFinished(operation, outcome, startedAt);
         }
     }
 

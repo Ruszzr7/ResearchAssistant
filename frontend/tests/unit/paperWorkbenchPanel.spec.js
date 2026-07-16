@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PaperWorkbenchPanel from '@/components/pdf/PaperWorkbenchPanel.vue'
+import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 
 const mocks = vi.hoisted(() => ({
   listPapers: vi.fn(),
@@ -222,6 +223,83 @@ describe('PaperWorkbenchPanel comparison result', () => {
     expect(secondRequest.conversationContext).toContain('论文助手：第一轮回答')
     expect(wrapper.text()).toContain('第二轮回答')
     expect(wrapper.findAll('.chat-message')).toHaveLength(4)
+  })
+
+  it('uses only a confirmed formula anchor for selection chat', async () => {
+    mocks.state.trace.value = null
+    mocks.state.run.mockResolvedValue({
+      runId: 'formula-turn-1',
+      result: { answer: '这是求和公式。', claims: [], evidence: [] },
+    })
+    const formulaAnchor = {
+      paperId: 1,
+      page: 3,
+      boxes: [{ x: 0.2, y: 0.3, width: 0.4, height: 0.1 }],
+      anchorText: '\\sum_{k=1}^{K} r_k',
+      blockIds: ['formula-region-9'],
+      kind: 'FORMULA',
+      confidence: 1,
+      documentHash: 'a'.repeat(64),
+      parserVersion: 'parser+semantic',
+    }
+    const wrapper = mount(PaperWorkbenchPanel, {
+      props: {
+        paper: { id: 1, title: 'Current Paper' },
+        formulaRegion: { page: 3, bbox: formulaAnchor.boxes[0] },
+        formulaRecognition: {
+          id: 9,
+          latex: '\\sum_{k=1}^{K} r_k',
+          source: 'USER',
+          status: 'CONFIRMED',
+          confirmed: true,
+          anchor: formulaAnchor,
+        },
+        initialMode: 'SELECTION_QA',
+      },
+      global: { stubs: defaultStubs },
+    })
+    await flushPromises()
+
+    expect(wrapper.findComponent(FormulaRegionCard).exists()).toBe(true)
+    expect(wrapper.find('.selection-tools').exists()).toBe(false)
+    await wrapper.get('.selection-chat textarea').setValue('这个求和项表示什么？')
+    await wrapper.get('.selection-chat__actions button').trigger('click')
+    await flushPromises()
+
+    expect(mocks.state.run).toHaveBeenCalledWith(expect.objectContaining({
+      selectionAnchor: formulaAnchor,
+      question: '这个求和项表示什么？',
+    }))
+  })
+
+  it('does not fall back to a stale text anchor while a formula is unconfirmed', async () => {
+    mocks.state.trace.value = null
+    const wrapper = mount(PaperWorkbenchPanel, {
+      props: {
+        paper: { id: 1, title: 'Current Paper' },
+        selection: { text: 'stale text selection' },
+        selectionAnchor: { kind: 'TEXT', page: 2, confidence: 0.96 },
+        formulaRegion: { page: 3, bbox: { x: 0.2, y: 0.3, width: 0.4, height: 0.1 } },
+        formulaRecognition: {
+          id: 9,
+          latex: '\\sum_{k=1}^{K} r_k',
+          source: 'MULTIMODAL',
+          status: 'CANDIDATE',
+          confirmed: false,
+          anchor: null,
+        },
+        initialMode: 'SELECTION_QA',
+      },
+      global: { stubs: defaultStubs },
+    })
+    await flushPromises()
+
+    await wrapper.get('.selection-chat textarea').setValue('解释这个公式')
+    const sendButton = wrapper.get('.selection-chat__actions button')
+    expect(sendButton.attributes()).toHaveProperty('disabled')
+    await sendButton.trigger('click')
+    await flushPromises()
+    expect(mocks.state.run).not.toHaveBeenCalled()
   })
 
   it('switches an existing answer and claims without rerunning the workflow', async () => {

@@ -27,6 +27,18 @@ public interface LLMService {
     }
 
     /**
+     * Sends one bounded image-and-text request. Implementations that do not support
+     * multimodal input fail explicitly so callers can retain a safe REGION fallback.
+     */
+    default LlmResponse chatWithImageUsage(String systemPrompt,
+                                           String userMessage,
+                                           byte[] imageBytes,
+                                           String mimeType,
+                                           LlmCallPolicy policy) {
+        throw new UnsupportedOperationException("multimodal chat is not supported");
+    }
+
+    /**
      * 流式对话 —— 通过 SSE 逐 token 返回。
      */
     StreamingResponseBody chatStream(String systemPrompt, String userMessage);

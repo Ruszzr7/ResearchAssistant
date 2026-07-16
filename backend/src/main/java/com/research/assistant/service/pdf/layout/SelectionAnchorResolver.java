@@ -1,5 +1,7 @@
 package com.research.assistant.service.pdf.layout;
 
+import com.research.assistant.service.pdf.formula.region.ConfirmedFormulaRegionService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -14,9 +16,17 @@ public class SelectionAnchorResolver {
     private static final int MAX_MATCHED_BLOCKS = 12;
 
     private final PaperLayoutEvidencePolicy evidencePolicy;
+    private final ConfirmedFormulaRegionService confirmedFormulaRegions;
 
     public SelectionAnchorResolver(PaperLayoutEvidencePolicy evidencePolicy) {
+        this(evidencePolicy, null);
+    }
+
+    @Autowired
+    public SelectionAnchorResolver(PaperLayoutEvidencePolicy evidencePolicy,
+                                   ConfirmedFormulaRegionService confirmedFormulaRegions) {
         this.evidencePolicy = evidencePolicy;
+        this.confirmedFormulaRegions = confirmedFormulaRegions;
     }
 
     public SelectionAnchor resolve(PaperLayoutArtifact artifact,
@@ -26,6 +36,11 @@ public class SelectionAnchorResolver {
                                    SelectionAnchorKind preferredKind) {
         validate(artifact, page, boxes);
         String safeText = anchorText == null ? "" : anchorText.strip();
+        if (preferredKind == SelectionAnchorKind.FORMULA && confirmedFormulaRegions != null) {
+            java.util.Optional<SelectionAnchor> confirmed = confirmedFormulaRegions.resolve(
+                    artifact, page, boxes);
+            if (confirmed.isPresent()) return confirmed.get();
+        }
         List<Match> matches = artifact.blocks().stream()
                 .filter(block -> block.page() == page)
                 .map(block -> match(block, boxes, safeText))

@@ -9,6 +9,7 @@
         <div class="pdf-tool-group" aria-label="PDF 批注工具">
           <el-button-group size="small">
             <el-button :type="currentTool === 'select' ? 'primary' : 'default'" @click="setTool('select')">选择</el-button>
+            <el-button :type="currentTool === 'formula' ? 'primary' : 'default'" @click="activateFormula">公式</el-button>
             <el-button @mousedown.prevent @click="applyTextAnnotation('HIGHLIGHT')">高亮</el-button>
             <el-button @mousedown.prevent @click="applyTextAnnotation('UNDERLINE')">下划线</el-button>
             <el-button @mousedown.prevent @click="openSelectionComment">批注</el-button>
@@ -104,8 +105,10 @@
             :style="layerStyle(page)"
             :class="{
               'note-mode': currentTool === 'note',
+              'formula-mode': currentTool === 'formula',
               'editing-annotations': currentTool === 'edit'
             }"
+            @pointerdown="beginFormulaRegionSelection($event, page)"
             @pointermove="onOverlayPointerMove"
             @pointerup="onOverlayPointerUp"
             @pointercancel="onOverlayPointerUp"
@@ -118,6 +121,15 @@
               :points="quadPoints(q, page, viewportCoordinates)"
               fill="#409eff"
               fill-opacity="0.32"
+            />
+          </g>
+          <g v-if="formulaRegionRectForPage(page)" class="formula-region-preview">
+            <rect
+              :x="formulaRegionRectForPage(page).x"
+              :y="formulaRegionRectForPage(page).y"
+              :width="formulaRegionRectForPage(page).width"
+              :height="formulaRegionRectForPage(page).height"
+              rx="3"
             />
           </g>
           <g v-if="evidenceFocusForPage(page.pageNum)" class="evidence-focus-preview">
@@ -272,9 +284,17 @@
         :selection-anchor="selectionAnchor"
         :selection-loading="selectionContextLoading"
         :selection-error="selectionContextError"
+        :formula-region="formulaRegion"
+        :formula-recognition="formulaRecognition"
+        :formula-loading="formulaRecognitionLoading"
+        :formula-confirming="formulaConfirming"
+        :formula-error="formulaRecognitionError"
         :initial-mode="initialWorkbenchMode"
         :initial-paper-ids="initialWorkbenchPaperIds"
         @clear-selection="clearPendingTextSelection"
+        @clear-formula="clearFormulaRegion"
+        @retry-formula="recognizeCurrentFormulaRegion"
+        @confirm-formula="confirmCurrentFormulaRegion"
         @jump-evidence="jumpToEvidence"
         @mode-change="$emit('workbench-mode-change', $event)"
         @paper-ids-change="$emit('workbench-paper-ids-change', $event)"
@@ -377,7 +397,12 @@ import { buildSelectionNoteDraft, resizeTextAnnotationQuads } from '@/utils/pdfA
 import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
-import { resolveSelectionAnchor } from '@/api/workbench.js'
+import { formulaRegionSvgRect, normalizedFormulaRegion } from '@/utils/formulaRegionSelection.js'
+import {
+  confirmFormulaRegion,
+  recognizeFormulaRegion,
+  resolveSelectionAnchor,
+} from '@/api/workbench.js'
 import {
   DEFAULT_WORKBENCH_RATIO,
   completePdfPaneWidth,
@@ -431,6 +456,11 @@ const pendingTextSelection = ref(null)
 const selectionAnchor = ref(null)
 const selectionContextLoading = ref(false)
 const selectionContextError = ref('')
+const formulaRegion = ref(null)
+const formulaRecognition = ref(null)
+const formulaRecognitionLoading = ref(false)
+const formulaConfirming = ref(false)
+const formulaRecognitionError = ref('')
 const evidenceFocus = ref(null)
 const workbenchPanelVisible = ref(true)
 const workbenchWidthRatio = ref(readWorkbenchRatio())
@@ -492,6 +522,7 @@ let draggingNote = null
 let resizingAnnotation = null
 let suppressAnnotationClickId = null
 let layoutSelectionDrag = null
+let formulaRegionDrag = null
 let selectionContextRequestId = 0
 let evidenceFocusTimer = null
 
@@ -504,10 +535,18 @@ const evidenceFocusForPage = computed(() => (pageNum) => (
     ? boundingBoxToViewportQuad(evidenceFocus.value.bbox)
     : null
 ))
+function formulaRegionRectForPage(page) {
+  if (!formulaRegion.value?.bbox || formulaRegion.value.page !== page?.pageNum) return null
+  return formulaRegionSvgRect(formulaRegion.value.bbox, page.width, page.height)
+}
 const visiblePages = computed(() => renderedPages.value.slice(
   Math.max(0, visiblePageStart.value - 1), visiblePageEnd.value
 ))
 const selectionHint = computed(() => {
+  if (formulaRegion.value && formulaRecognitionLoading.value) return '正在识别所框选的公式…'
+  if (formulaRecognition.value?.confirmed) return '公式已确认，可在右侧继续提问'
+  if (formulaRecognition.value) return '请在右侧核对 LaTeX，确认后才会用于问答'
+  if (currentTool.value === 'formula') return '在单页拖框圈定完整公式；松开后会在右侧识别'
   const text = pendingTextSelection.value?.text || ''
   if (text && selectionContextLoading.value) return '正在建立证据锚点…'
   if (text && selectionAnchor.value) return selectionAnchor.value.kind === 'REGION'
@@ -566,6 +605,7 @@ function detachViewerEvents() {
   window.removeEventListener('pointerup', finishTextSelectionFromWindow, true)
   window.removeEventListener('pointercancel', cancelTextSelection, true)
   workbenchResizing.value = false
+  formulaRegionDrag = null
 }
 
 function updateViewerBodyWidth() {
@@ -1081,6 +1121,7 @@ async function loadNotes() {
 function beginTextSelection(event, pageNum) {
   if (currentTool.value !== 'select' || event.button !== 0) return
 
+  if (formulaRegion.value) clearFormulaRegion()
   const layer = event.currentTarget
   const layoutIndex = pageLayoutIndexes.get(pageNum)
   const anchor = layoutSelectionEndpointAtPoint(layoutIndex, layer, event.clientX, event.clientY)
@@ -1309,11 +1350,129 @@ function clearPendingTextSelection() {
   window.getSelection()?.removeAllRanges()
 }
 
+function clearFormulaRegion() {
+  formulaRegionDrag = null
+  formulaRegion.value = null
+  formulaRecognition.value = null
+  formulaRecognitionLoading.value = false
+  formulaConfirming.value = false
+  formulaRecognitionError.value = ''
+}
+
+function beginFormulaRegionSelection(event, page) {
+  if (currentTool.value !== 'formula' || event.button !== 0) return
+  const overlay = event.currentTarget
+  const rect = overlay.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  event.preventDefault()
+  event.stopPropagation()
+  clearPendingTextSelection()
+  formulaRecognition.value = null
+  formulaRecognitionError.value = ''
+  formulaRegionDrag = {
+    pointerId: event.pointerId,
+    page: page.pageNum,
+    overlay,
+    pageRect: rect,
+    start: { x: event.clientX, y: event.clientY },
+  }
+  formulaRegion.value = { page: page.pageNum, bbox: null }
+  overlay.setPointerCapture?.(event.pointerId)
+}
+
+function updateFormulaRegionSelection(event) {
+  const drag = formulaRegionDrag
+  if (!drag || drag.pointerId !== event.pointerId || currentTool.value !== 'formula') return false
+  event.preventDefault()
+  const bbox = normalizedFormulaRegion(
+    drag.start,
+    { x: event.clientX, y: event.clientY },
+    drag.pageRect,
+    0,
+  )
+  formulaRegion.value = { page: drag.page, bbox }
+  return true
+}
+
+async function finishFormulaRegionSelection(event, cancelled = false) {
+  const drag = formulaRegionDrag
+  if (!drag || drag.pointerId !== event.pointerId) return false
+  if (!cancelled) updateFormulaRegionSelection(event)
+  if (drag.overlay.hasPointerCapture?.(event.pointerId)) {
+    drag.overlay.releasePointerCapture(event.pointerId)
+  }
+  formulaRegionDrag = null
+  if (cancelled) {
+    clearFormulaRegion()
+    return true
+  }
+  const bbox = normalizedFormulaRegion(
+    drag.start,
+    { x: event.clientX, y: event.clientY },
+    drag.pageRect,
+  )
+  if (!bbox) {
+    clearFormulaRegion()
+    ElMessage.warning('公式区域太小，请拖框圈定完整公式')
+    return true
+  }
+  formulaRegion.value = { page: drag.page, bbox }
+  currentTool.value = 'select'
+  workbenchPanelVisible.value = true
+  await recognizeCurrentFormulaRegion()
+  return true
+}
+
+async function recognizeCurrentFormulaRegion() {
+  const region = formulaRegion.value
+  if (!region?.bbox || formulaRecognitionLoading.value) return
+  formulaRecognitionLoading.value = true
+  formulaRecognitionError.value = ''
+  try {
+    const result = await recognizeFormulaRegion(props.paper.id, {
+      page: region.page,
+      bbox: region.bbox,
+    })
+    if (formulaRegion.value !== region) return
+    formulaRecognition.value = result
+  } catch (error) {
+    if (formulaRegion.value === region) {
+      formulaRecognitionError.value = requestErrorMessage(error) || '公式识别失败'
+    }
+  } finally {
+    if (formulaRegion.value === region) formulaRecognitionLoading.value = false
+  }
+}
+
+async function confirmCurrentFormulaRegion(latex) {
+  const recognition = formulaRecognition.value
+  if (!recognition?.id || formulaConfirming.value) return
+  formulaConfirming.value = true
+  formulaRecognitionError.value = ''
+  try {
+    const confirmed = await confirmFormulaRegion(props.paper.id, recognition.id, latex)
+    if (formulaRecognition.value?.id !== recognition.id) return
+    formulaRecognition.value = {
+      ...confirmed,
+      previewDataUrl: confirmed.previewDataUrl || recognition.previewDataUrl,
+    }
+    workbenchPanelVisible.value = true
+    ElMessage.success('公式已确认')
+  } catch (error) {
+    if (formulaRecognition.value?.id === recognition.id) {
+      formulaRecognitionError.value = requestErrorMessage(error) || '公式确认失败'
+    }
+  } finally {
+    formulaConfirming.value = false
+  }
+}
+
 function setTool(tool) {
   currentTool.value = tool
   selectedAnnotation.value = null
   notePreview.value = null
   if (tool !== 'select') clearPendingTextSelection()
+  if (tool !== 'formula' && tool !== 'select') clearFormulaRegion()
 }
 
 function toggleAnnotationEditMode() {
@@ -1322,6 +1481,19 @@ function toggleAnnotationEditMode() {
 
 function activateNote() {
   setTool(currentTool.value === 'note' ? 'select' : 'note')
+}
+
+function activateFormula() {
+  if (currentTool.value === 'formula') {
+    currentTool.value = 'select'
+    return
+  }
+  clearPendingTextSelection()
+  clearFormulaRegion()
+  currentTool.value = 'formula'
+  selectedAnnotation.value = null
+  notePreview.value = null
+  workbenchPanelVisible.value = true
 }
 
 function openSelectionComment() {
@@ -1448,6 +1620,7 @@ async function confirmNote() {
 }
 
 function onOverlayPointerMove(e) {
+  if (updateFormulaRegionSelection(e)) return
   if (draggingNote) {
     const { annotation, pageEl, startPosition } = draggingNote
     const rect = pageEl.getBoundingClientRect()
@@ -1470,6 +1643,10 @@ function onOverlayPointerMove(e) {
 }
 
 async function onOverlayPointerUp(e) {
+  if (formulaRegionDrag) {
+    await finishFormulaRegionSelection(e, e.type === 'pointercancel')
+    return
+  }
   if (draggingNote) {
     const drag = draggingNote
     const { captureTarget } = drag
@@ -2083,10 +2260,12 @@ function colorName(color) {
   pointer-events: none;
 }
 .annotation-overlay.note-mode,
+.annotation-overlay.formula-mode,
 .annotation-overlay.editing-annotations {
   pointer-events: auto;
 }
-.annotation-overlay.note-mode {
+.annotation-overlay.note-mode,
+.annotation-overlay.formula-mode {
   cursor: crosshair;
   touch-action: none;
 }
@@ -2099,12 +2278,22 @@ function colorName(color) {
 .annotation-overlay > g.note-annotation {
   pointer-events: all;
 }
+.annotation-overlay.formula-mode > g.note-annotation {
+  pointer-events: none;
+}
 .annotation-overlay.editing-annotations > g { pointer-events: all; }
 .annotation-overlay .selected {
   filter: drop-shadow(0 0 2px var(--ra-link));
 }
 .annotation-overlay .evidence-focus-preview {
   pointer-events: none;
+}
+.annotation-overlay .formula-region-preview rect {
+  fill: color-mix(in srgb, var(--ra-link) 10%, transparent);
+  stroke: var(--ra-link);
+  stroke-width: 2;
+  stroke-dasharray: 6 3;
+  vector-effect: non-scaling-stroke;
 }
 .annotation-overlay .note-anchor-outline {
   fill: none;

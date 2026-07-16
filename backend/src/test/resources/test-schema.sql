@@ -121,6 +121,27 @@ CREATE TABLE paper_layout_artifact (
     FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
 );
 
+CREATE TABLE paper_formula_region (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id BIGINT NOT NULL,
+    document_hash CHAR(64) NOT NULL,
+    parser_version VARCHAR(128) NOT NULL,
+    page_number INT NOT NULL,
+    region_key CHAR(64) NOT NULL,
+    box_x DOUBLE NOT NULL,
+    box_y DOUBLE NOT NULL,
+    box_width DOUBLE NOT NULL,
+    box_height DOUBLE NOT NULL,
+    latex CLOB,
+    confidence DOUBLE NOT NULL DEFAULT 0,
+    source VARCHAR(24) NOT NULL,
+    status VARCHAR(24) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (paper_id, document_hash, parser_version, page_number, region_key),
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
+);
+
 CREATE TABLE rag_index_state (
     paper_id BIGINT PRIMARY KEY,
     active_version INT,

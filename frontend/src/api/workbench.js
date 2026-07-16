@@ -4,6 +4,15 @@ export function resolveSelectionAnchor(paperId, selection) {
   return api.post(`/papers/${paperId}/workbench/selection-anchor`, selection).then(r => r.data)
 }
 
+export function recognizeFormulaRegion(paperId, request) {
+  return api.post(`/papers/${paperId}/workbench/formula-regions/recognize`, request).then(r => r.data)
+}
+
+export function confirmFormulaRegion(paperId, regionId, latex) {
+  return api.put(`/papers/${paperId}/workbench/formula-regions/${regionId}/confirm`, { latex })
+    .then(r => r.data)
+}
+
 export function planWorkbenchRun(request) {
   return api.post('/workbench/runs/plan', request).then(r => r.data)
 }

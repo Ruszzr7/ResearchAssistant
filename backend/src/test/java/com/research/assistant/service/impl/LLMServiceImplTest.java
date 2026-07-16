@@ -5,7 +5,9 @@ import com.research.assistant.service.LLMStreamService;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
 import com.research.assistant.service.ai.LlmCallPolicy;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ImageContent;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -97,6 +99,32 @@ class LLMServiceImplTest {
                 "system", "user", new LlmCallPolicy("test-json", 100, 100, 123, 1, true));
 
         assertThat(response.getContent()).isEqualTo("{}");
+    }
+
+    @Test
+    void imageChatShouldSendTextAndBase64ImageWithoutChangingUsageAccounting() {
+        ChatModel chatModel = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                assertThat(request.messages()).hasSize(2);
+                assertThat(request.messages().get(0)).isInstanceOf(SystemMessage.class);
+                UserMessage user = (UserMessage) request.messages().get(1);
+                assertThat(user.contents()).hasSize(2);
+                assertThat(user.contents().get(0)).isInstanceOf(TextContent.class);
+                assertThat(user.contents().get(1)).isInstanceOf(ImageContent.class);
+                return ChatResponse.builder()
+                        .aiMessage(dev.langchain4j.data.message.AiMessage.from("{\"latex\":\"x\"}"))
+                        .tokenUsage(new TokenUsage(7, 2))
+                        .build();
+            }
+        };
+        when(modelFactory.createChatModel()).thenReturn(chatModel);
+
+        LlmResponse response = llmService.chatWithImageUsage(
+                "system", "transcribe", new byte[]{1, 2, 3}, "image/png",
+                new LlmCallPolicy("image-test", 100, 100, 123, 1, true));
+
+        assertThat(response.getTotalTokens()).isEqualTo(9);
     }
 
     private void givenChatModelReturns(String content, Integer inputTokens, Integer outputTokens) {

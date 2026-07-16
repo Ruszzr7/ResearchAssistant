@@ -9,7 +9,19 @@
       </el-tag>
     </header>
 
-    <section v-if="selection" class="selection-card">
+    <FormulaRegionCard
+      v-if="formulaRegion"
+      :region="formulaRegion"
+      :recognition="formulaRecognition"
+      :loading="formulaLoading"
+      :confirming="formulaConfirming"
+      :error="formulaError"
+      @clear="$emit('clear-formula')"
+      @retry="$emit('retry-formula')"
+      @confirm="$emit('confirm-formula', $event)"
+    />
+
+    <section v-else-if="selection" class="selection-card">
       <div class="section-heading">
         <span>当前选区</span>
         <button type="button" class="selection-clear-action" aria-label="清除选区" @click="$emit('clear-selection')">×</button>
@@ -46,7 +58,7 @@
           :key="item.value"
           type="button"
           :class="{ active: isModeTabActive(item.value) }"
-          :disabled="running || (item.needsSelection && !selectionAnchor)"
+          :disabled="running || (item.needsSelection && !activeSelectionAnchor)"
           @click="selectProductMode(item.value)"
         >{{ item.label }}</button>
       </div>
@@ -327,6 +339,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listPapers } from '@/api/paper.js'
 import { translateTexts } from '@/api/workbench.js'
+import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
 import {
   detectTextLanguage,
@@ -351,11 +364,19 @@ const props = defineProps({
   selectionAnchor: { type: Object, default: null },
   selectionLoading: { type: Boolean, default: false },
   selectionError: { type: String, default: '' },
+  formulaRegion: { type: Object, default: null },
+  formulaRecognition: { type: Object, default: null },
+  formulaLoading: { type: Boolean, default: false },
+  formulaConfirming: { type: Boolean, default: false },
+  formulaError: { type: String, default: '' },
   initialMode: { type: String, default: '' },
   initialPaperIds: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['clear-selection', 'jump-evidence', 'mode-change', 'paper-ids-change'])
+const emit = defineEmits([
+  'clear-selection', 'clear-formula', 'retry-formula', 'confirm-formula',
+  'jump-evidence', 'mode-change', 'paper-ids-change',
+])
 const {
   trace,
   recentRuns,
@@ -451,6 +472,25 @@ const displayedClaims = computed(() => {
   }))
 })
 const answerHtml = computed(() => workbenchMarkdownToHtml(displayedAnswer.value))
+const activeSelectionAnchor = computed(() => {
+  if (props.formulaRegion) {
+    return props.formulaRecognition?.confirmed && props.formulaRecognition?.anchor
+      ? props.formulaRecognition.anchor : null
+  }
+  return props.selectionAnchor
+})
+const activeSelectionText = computed(() => (
+  props.formulaRegion
+    ? props.formulaRecognition?.latex || ''
+    : props.selection?.text || ''
+))
+const activeSelectionIdentity = computed(() => {
+  if (props.formulaRegion) {
+    const box = props.formulaRegion.bbox || {}
+    return `formula:${props.formulaRegion.page}:${box.x}:${box.y}:${box.width}:${box.height}`
+  }
+  return props.selection?.text ? `text:${props.selection.text}` : ''
+})
 const selectionTargetLanguage = computed(() => oppositeLanguage(
   detectTextLanguage(props.selection?.text)))
 const tracePhases = computed(() => compactTracePhases(trace.value))
@@ -479,7 +519,7 @@ const actionDisabled = computed(() => running.value
   || (isMultiPaperMode.value && !comparisonState.value.canStart)
   || (isFieldGapMode.value && !fieldGapSourceRunId.value))
 const selectionChatDisabled = computed(() => running.value
-  || !props.selectionAnchor
+  || !activeSelectionAnchor.value
   || !String(question.value || '').trim())
 const isMultiPaperResult = computed(() => [
   WORKBENCH_MODES.PAPER_COMPARISON,
@@ -496,10 +536,10 @@ const comparisonResultPaperIds = computed(() => {
   return [...new Set(ids.map(Number))].filter(id => Number.isInteger(id) && id > 0)
 })
 
-watch(() => props.selectionAnchor, next => {
+watch(activeSelectionAnchor, next => {
   if (next && !running.value) mode.value = WORKBENCH_MODES.SELECTION_QA
 })
-watch(() => props.selection?.text, () => {
+watch([activeSelectionIdentity, activeSelectionText], () => {
   selectionTranslation.value = null
   selectionTranslationError.value = ''
   resetSelectionConversation()
@@ -572,7 +612,7 @@ async function startRun() {
       paperId: props.paper.id,
       comparisonPaperIds: comparisonPaperIds.value,
       question: effectiveQuestion,
-      selectionAnchor: props.selectionAnchor,
+      selectionAnchor: activeSelectionAnchor.value,
       sourceRunId: isFieldGapMode.value ? fieldGapSourceRunId.value : '',
     })
     await run(request)
@@ -587,8 +627,9 @@ async function startRun() {
 
 async function sendSelectionMessage() {
   const content = String(question.value || '').trim()
-  const anchor = props.selectionAnchor
-  const selectedText = props.selection?.text || ''
+  const anchor = activeSelectionAnchor.value
+  const selectedText = activeSelectionText.value
+  const selectedIdentity = activeSelectionIdentity.value
   if (!content || !anchor || running.value) return
   if (!selectionConversationId.value) selectionConversationId.value = createConversationId()
   const conversationId = selectionConversationId.value
@@ -612,7 +653,9 @@ async function sendSelectionMessage() {
       conversationContext,
     })
     const completed = await run(request)
-    if (selectionConversationId.value !== conversationId || props.selection?.text !== selectedText) return
+    if (selectionConversationId.value !== conversationId
+        || activeSelectionIdentity.value !== selectedIdentity
+        || activeSelectionText.value !== selectedText) return
     selectionMessages.value.push({
       id: completed.runId || `assistant-${++selectionMessageSequence}`,
       role: 'assistant',
