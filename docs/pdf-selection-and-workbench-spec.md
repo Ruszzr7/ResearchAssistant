@@ -1,6 +1,6 @@
 # PDF 精确选取与论文工作台规格
 
-状态：P0、P1-A、P1-B、P2-A、P2-B、P2-C、P3-A 已完成（2026-07-16）。下一阶段是 P3-B 真实评测集、指标面板与多篇对比完善。
+状态：P0 至 P3-B2 已完成并通过最终全链路审计（2026-07-16）。验收证据与复现命令见 [PDF 工作台最终验收](pdf-workbench-acceptance.md)。
 
 ## 1. 产品目标：做“有证据的论文 Agent”，不是再做一个 PDF 编辑器
 
@@ -310,3 +310,7 @@ Flyway V17 将 `primaryParser/selectedParser/fallbackAttempted/fallbackAccepted/
 > 设计并实现面向科研论文的 evidence-grounded Agent 工作台：将 PDF 版面解析结果版本化为可回链的 layout artifact，使用受 Schema 约束的 Skill 编排与有界 Plan–Execute–Ground loop 完成选区问答、全文分析和跨论文对比；通过证据门禁、一次 repair 上限、异步可恢复任务及真实 PDF 评测集，控制双栏串读、无依据引用和工具失控问题。
 
 这段能力的前提是指标、测试样本、任务 trace 和失败降级都真实落地；不要为了“Agent”标签堆叠不可验证的多智能体概念。
+
+## 11. 最终验收
+
+P0 至 P3-B2 的代码、自动化测试、真实 WY 样本、在线接口、浏览器关键路径和四个本地启动脚本已完成统一审计。最终结论、阶段证据、已知边界及复现方法统一记录在 [PDF 工作台最终验收](pdf-workbench-acceptance.md)，本规格状态已收口。

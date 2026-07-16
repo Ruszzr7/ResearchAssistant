@@ -21,7 +21,8 @@ import java.util.Set;
  *
  * <p>This parser deliberately stops at line-level blocks. It establishes a
  * stable coordinate system and column-aware reading order; semantic paragraph
- * merging and richer role classification belong to the next P1-B slice.</p>
+ * merging and richer role classification are delegated to
+ * {@link PaperLayoutSemanticEnricher}.</p>
  */
 @Component
 public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
