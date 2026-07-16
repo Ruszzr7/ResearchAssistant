@@ -18,6 +18,7 @@ import com.research.assistant.service.pdf.layout.SelectionAnchorKind;
 import com.research.assistant.service.pdf.layout.SelectionAnchorResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -114,6 +115,28 @@ class WorkbenchExecutionEngineTest {
         assertThat(annotationResult.annotationSuggestion()).isNotNull();
         assertThat(annotationResult.annotationSuggestion().evidenceIds()).containsExactly("lay_p7");
         assertCompleted(annotation.runId(), 4);
+    }
+
+    @Test
+    void selectionFollowUpUsesTheAnchorHistoryAndWholePaperRetrieval() {
+        WorkbenchInvocation invocation = new WorkbenchInvocation(
+                List.of(7L), "它和全文实验结果有什么关系？", WorkbenchIntent.ASK_SELECTION,
+                null, anchor(7L), 6, 10_000, "", "selection-thread_1",
+                "用户：这段方法解决什么问题？\n论文助手：它处理有限块长可靠性。");
+        WorkbenchRunTrace planned = traceService.plan(invocation);
+
+        engine.execute(planned.runId(), "task-selection-follow-up", null);
+
+        ArgumentCaptor<String> retrievalQuery = ArgumentCaptor.forClass(String.class);
+        verify(wholeEvidenceService).retrievePaper(any(), retrievalQuery.capture(), eq(12), eq(8_000));
+        assertThat(retrievalQuery.getValue())
+                .contains("它和全文实验结果有什么关系？", "选区：selected", "最近追问：");
+
+        ArgumentCaptor<String> modelQuestion = ArgumentCaptor.forClass(String.class);
+        verify(modelService).generate(eq(WorkbenchPlan.Workflow.SELECTION_QA), modelQuestion.capture(),
+                anyMap(), anyList(), anyInt(), any(), anyList());
+        assertThat(modelQuestion.getValue())
+                .contains("同一选区对话的最近历史", "它处理有限块长可靠性", "当前问题：它和全文实验结果有什么关系？");
     }
 
     @Test

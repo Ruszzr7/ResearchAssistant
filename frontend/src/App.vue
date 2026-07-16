@@ -37,7 +37,14 @@
     </el-container>
 
     <!-- ====== 设置弹窗 ====== -->
-    <el-dialog v-model="showSettings" title="API 设置" width="480px" :close-on-click-modal="false">
+    <el-dialog
+      v-model="showSettings"
+      title="API 设置"
+      width="480px"
+      :close-on-click-modal="false"
+      append-to-body
+      :z-index="20020"
+    >
       <p style="font-size:12px;color:var(--ra-text-tertiary);margin:0 0 16px">
         配置大语言模型 API。支持任意兼容 OpenAI 接口的服务（DeepSeek、OpenAI、Ollama、vLLM 等）。
       </p>
@@ -71,7 +78,14 @@
     <CommandPalette v-model="showPalette" :commands="commands" @execute="onCommandExecute" />
 
     <!-- ====== 快捷键帮助 ====== -->
-    <el-dialog v-model="showShortcuts" title="键盘快捷键" width="480px" align-center>
+    <el-dialog
+      v-model="showShortcuts"
+      title="键盘快捷键"
+      width="480px"
+      align-center
+      append-to-body
+      :z-index="20020"
+    >
       <el-table :data="shortcutList" size="small" :show-header="true" border>
         <el-table-column prop="desc" label="操作" />
         <el-table-column prop="keys" label="快捷键" width="140" />

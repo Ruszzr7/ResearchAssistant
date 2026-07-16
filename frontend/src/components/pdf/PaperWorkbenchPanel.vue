@@ -12,19 +12,20 @@
     <section v-if="selection" class="selection-card">
       <div class="section-heading">
         <span>当前选区</span>
-        <div class="selection-heading-actions">
-          <button
-            type="button"
-            class="selection-translate-action"
-            :disabled="selectionTranslationLoading"
-            @click="translateSelection"
-          >{{ selectionTranslationLoading ? '翻译中…' : `译为${languageLabel(selectionTargetLanguage)}` }}</button>
-          <button type="button" class="selection-clear-action" aria-label="清除选区" @click="$emit('clear-selection')">×</button>
-        </div>
+        <button type="button" class="selection-clear-action" aria-label="清除选区" @click="$emit('clear-selection')">×</button>
       </div>
       <p>{{ selection.text }}</p>
+      <div class="selection-tools">
+        <el-button
+          type="primary"
+          plain
+          size="small"
+          :loading="selectionTranslationLoading"
+          @click="translateSelection"
+        >翻译选区为{{ languageLabel(selectionTargetLanguage) }}</el-button>
+      </div>
       <div v-if="selectionTranslation" class="selection-translation">
-        <small>{{ languageLabel(selectionTranslation.targetLanguage) }}</small>
+        <small>选区译文 · {{ languageLabel(selectionTranslation.targetLanguage) }}</small>
         <div>{{ selectionTranslation.text }}</div>
       </div>
       <div v-if="selectionTranslationError" class="error-state">{{ selectionTranslationError }}</div>
@@ -50,6 +51,80 @@
         >{{ item.label }}</button>
       </div>
 
+      <div v-if="mode === WORKBENCH_MODES.SELECTION_QA" class="selection-chat">
+        <div class="selection-chat__heading">
+          <div>
+            <b>选区对话</b>
+            <small>以当前选区为焦点，并检索整篇论文的相关证据</small>
+          </div>
+          <button type="button" :disabled="running" @click="resetSelectionConversation">新对话</button>
+        </div>
+
+        <div ref="selectionChatMessages" class="selection-chat__messages" aria-live="polite">
+          <div v-if="!selectionMessages.length" class="selection-chat__empty">
+            针对选中文字提问；后续可以继续追问。
+          </div>
+          <article
+            v-for="message in selectionMessages"
+            :key="message.id"
+            class="chat-message"
+            :class="`is-${message.role}`"
+          >
+            <div class="chat-message__role">{{ message.role === 'user' ? '你' : '论文助手' }}</div>
+            <div v-if="message.role === 'assistant'" class="answer-text" v-html="messageHtml(message)" />
+            <div v-else class="chat-message__text">{{ message.content }}</div>
+            <ol v-if="message.claims?.length" class="chat-claim-list">
+              <li v-for="(claim, claimIndex) in message.claims" :key="claimIndex">
+                <span>{{ claim.text }}</span>
+                <div class="evidence-links">
+                  <button
+                    v-for="item in messageEvidenceForClaim(message, claim)"
+                    :key="item.evidenceId"
+                    type="button"
+                    :title="item.text"
+                    @click="jump(item)"
+                  >p.{{ item.page }}</button>
+                </div>
+              </li>
+            </ol>
+          </article>
+          <div v-if="running" class="chat-message is-assistant is-pending">
+            <div class="chat-message__role">论文助手</div>
+            <div class="trace-dots" role="list" aria-label="回答进度">
+              <span
+                v-for="phase in tracePhases"
+                :key="phase.key"
+                class="trace-dot-item"
+                :class="`is-${String(phase.status).toLowerCase()}`"
+                role="listitem"
+                :title="phase.tooltip"
+              ><span class="step-dot" aria-hidden="true" /></span>
+            </div>
+          </div>
+        </div>
+
+        <el-input
+          v-model="question"
+          type="textarea"
+          :rows="3"
+          maxlength="4000"
+          show-word-limit
+          placeholder="继续询问选区内容、公式含义或与全文的关系"
+          @keydown.ctrl.enter.prevent="sendSelectionMessage"
+        />
+        <div class="compose-actions selection-chat__actions">
+          <span>Ctrl + Enter 发送</span>
+          <el-button
+            type="primary"
+            :loading="running"
+            :disabled="selectionChatDisabled"
+            @click="sendSelectionMessage"
+          >发送</el-button>
+        </div>
+        <div v-if="selectionChatError || error" class="error-state">{{ selectionChatError || error }}</div>
+      </div>
+
+      <template v-else>
       <div v-if="isFieldGapMode" class="comparison-stage-banner">
         <div>
           <b>领域研究空白</b>
@@ -120,9 +195,10 @@
         </el-button>
       </div>
       <div v-if="error" class="error-state">{{ error }}</div>
+      </template>
     </section>
 
-    <section v-if="trace" class="run-card">
+    <section v-if="mode !== WORKBENCH_MODES.SELECTION_QA && trace" class="run-card">
       <div class="section-heading">
         <span>{{ workflowLabel(trace.plan?.workflow) }}</span>
         <el-select
@@ -158,7 +234,7 @@
       <div v-if="trace.errorMessage" class="error-state">{{ trace.errorMessage }}</div>
     </section>
 
-    <section v-if="trace?.result" class="result-card">
+    <section v-if="mode !== WORKBENCH_MODES.SELECTION_QA && trace?.result" class="result-card">
       <div class="section-heading">
         <span>分析结果</span>
         <div class="result-language-switch" role="group" aria-label="结果语言">
@@ -313,6 +389,11 @@ const papersLoading = ref(false)
 const selectionTranslation = ref(null)
 const selectionTranslationLoading = ref(false)
 const selectionTranslationError = ref('')
+const selectionMessages = ref([])
+const selectionConversationId = ref('')
+const selectionChatError = ref('')
+const selectionChatMessages = ref(null)
+let selectionMessageSequence = 0
 const resultLanguage = ref(detectTextLanguage(trace.value?.result?.answer))
 const resultTranslationLoading = ref(false)
 const resultTranslationError = ref('')
@@ -397,6 +478,9 @@ const comparisonSelectionHint = computed(() => {
 const actionDisabled = computed(() => running.value
   || (isMultiPaperMode.value && !comparisonState.value.canStart)
   || (isFieldGapMode.value && !fieldGapSourceRunId.value))
+const selectionChatDisabled = computed(() => running.value
+  || !props.selectionAnchor
+  || !String(question.value || '').trim())
 const isMultiPaperResult = computed(() => [
   WORKBENCH_MODES.PAPER_COMPARISON,
   WORKBENCH_MODES.RESEARCH_GAP,
@@ -418,6 +502,7 @@ watch(() => props.selectionAnchor, next => {
 watch(() => props.selection?.text, () => {
   selectionTranslation.value = null
   selectionTranslationError.value = ''
+  resetSelectionConversation()
 })
 watch(mode, nextMode => {
   emit('mode-change', nextMode)
@@ -498,6 +583,89 @@ async function startRun() {
       ElMessage.error(reason?.response?.data?.message || reason?.message || '论文助手执行失败')
     }
   }
+}
+
+async function sendSelectionMessage() {
+  const content = String(question.value || '').trim()
+  const anchor = props.selectionAnchor
+  const selectedText = props.selection?.text || ''
+  if (!content || !anchor || running.value) return
+  if (!selectionConversationId.value) selectionConversationId.value = createConversationId()
+  const conversationId = selectionConversationId.value
+  const conversationContext = buildSelectionConversationContext()
+  const userMessage = {
+    id: `user-${++selectionMessageSequence}`,
+    role: 'user',
+    content,
+  }
+  selectionMessages.value.push(userMessage)
+  selectionChatError.value = ''
+  await scrollSelectionChat()
+
+  try {
+    const request = buildWorkbenchPlanRequest({
+      mode: WORKBENCH_MODES.SELECTION_QA,
+      paperId: props.paper.id,
+      question: content,
+      selectionAnchor: anchor,
+      conversationId,
+      conversationContext,
+    })
+    const completed = await run(request)
+    if (selectionConversationId.value !== conversationId || props.selection?.text !== selectedText) return
+    selectionMessages.value.push({
+      id: completed.runId || `assistant-${++selectionMessageSequence}`,
+      role: 'assistant',
+      content: completed.result?.answer || '',
+      claims: completed.result?.claims || [],
+      evidence: completed.result?.evidence || [],
+      regionFallback: Boolean(completed.result?.regionFallback),
+    })
+    await scrollSelectionChat()
+    questions[WORKBENCH_MODES.SELECTION_QA] = ''
+    await loadRecent(props.paper.id)
+  } catch (reason) {
+    if (selectionConversationId.value === conversationId) {
+      const index = selectionMessages.value.findIndex(item => item.id === userMessage.id)
+      if (index >= 0) selectionMessages.value.splice(index, 1)
+      selectionChatError.value = reason?.response?.data?.message || reason?.message || '选区对话失败'
+    }
+  }
+}
+
+function resetSelectionConversation() {
+  selectionConversationId.value = ''
+  selectionMessages.value = []
+  selectionChatError.value = ''
+  questions[WORKBENCH_MODES.SELECTION_QA] = ''
+  if (!running.value && mode.value === WORKBENCH_MODES.SELECTION_QA) selectRun(null)
+}
+
+function createConversationId() {
+  if (globalThis.crypto?.randomUUID) return `selection-${globalThis.crypto.randomUUID()}`
+  return `selection-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function buildSelectionConversationContext() {
+  return selectionMessages.value.slice(-8).map(message =>
+    `${message.role === 'user' ? '用户' : '论文助手'}：${message.content}`)
+    .join('\n\n')
+    .slice(-6000)
+}
+
+function messageHtml(message) {
+  return workbenchMarkdownToHtml(message?.content || '')
+}
+
+function messageEvidenceForClaim(message, claim) {
+  const index = new Map((message?.evidence || []).map(item => [item.evidenceId, item]))
+  return (claim?.evidenceIds || []).map(id => index.get(id)).filter(Boolean)
+}
+
+async function scrollSelectionChat() {
+  await nextTick()
+  const container = selectionChatMessages.value
+  if (container) container.scrollTop = container.scrollHeight
 }
 
 async function translateSelection() {
@@ -703,11 +871,9 @@ function anchorLabel(kind) {
 section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; font-size: 13px; font-weight: 600; }
 .section-heading button { border: 0; color: var(--ra-text-secondary); background: transparent; cursor: pointer; font-size: 18px; }
-.selection-heading-actions { display: flex; align-items: center; gap: 5px; }
-.section-heading .selection-translate-action { padding: 3px 7px; border: 1px solid var(--ra-border); border-radius: 999px; color: var(--ra-link); background: transparent; font-size: 10px; }
-.section-heading .selection-translate-action:disabled { cursor: wait; opacity: .65; }
 .section-heading .selection-clear-action { font-size: 18px; }
 .selection-card p { max-height: 76px; overflow: auto; margin: 0 0 8px; padding: 8px; border-left: 3px solid var(--ra-link); background: var(--ra-hover-bg); font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
+.selection-tools { display: flex; justify-content: flex-start; margin-bottom: 8px; }
 .selection-translation { margin: 0 0 8px; padding: 8px; border-radius: 6px; background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
 .selection-translation small { display: block; margin-bottom: 3px; color: var(--ra-text-tertiary); font-size: 9px; }
 .selection-meta { color: var(--ra-text-tertiary); font-size: 11px; }
@@ -715,6 +881,25 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .workflow-tabs button { min-width: 0; padding: 7px 4px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-text-secondary); background: transparent; cursor: pointer; }
 .workflow-tabs button.active { border-color: var(--ra-link); color: var(--ra-link); background: var(--ra-hover-bg); }
 .workflow-tabs button:disabled { opacity: .45; cursor: not-allowed; }
+.selection-chat { display: flex; flex-direction: column; gap: 9px; }
+.selection-chat__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.selection-chat__heading > div { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.selection-chat__heading b { font-size: 12px; }
+.selection-chat__heading small { color: var(--ra-text-tertiary); font-size: 9px; line-height: 1.4; }
+.selection-chat__heading > button { flex: 0 0 auto; padding: 3px 6px; border: 0; color: var(--ra-link); background: transparent; font-size: 10px; cursor: pointer; }
+.selection-chat__heading > button:disabled { opacity: .5; cursor: not-allowed; }
+.selection-chat__messages { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; padding: 2px; }
+.selection-chat__empty { padding: 18px 10px; border: 1px dashed var(--ra-border); border-radius: 7px; color: var(--ra-text-tertiary); font-size: 11px; line-height: 1.5; text-align: center; }
+.chat-message { max-width: 94%; padding: 9px; border: 1px solid var(--ra-border); border-radius: 8px; background: var(--ra-panel-bg); }
+.chat-message.is-user { align-self: flex-end; border-color: color-mix(in srgb, var(--ra-link) 32%, var(--ra-border)); background: color-mix(in srgb, var(--ra-link) 8%, var(--ra-panel-bg)); }
+.chat-message.is-assistant { align-self: flex-start; }
+.chat-message__role { margin-bottom: 4px; color: var(--ra-text-tertiary); font-size: 9px; }
+.chat-message__text { font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.chat-message.is-pending { width: 82%; }
+.chat-message.is-pending .trace-dots { margin: 0 4px; }
+.chat-claim-list { display: flex; flex-direction: column; gap: 7px; margin: 9px 0 0; padding-left: 17px; }
+.chat-claim-list li { font-size: 10px; line-height: 1.45; }
+.selection-chat__actions { margin-top: 0; }
 .comparison-stage-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--ra-link) 42%, var(--ra-border)); border-radius: 7px; background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); }
 .comparison-stage-banner > div { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
 .comparison-stage-banner b { color: var(--ra-link); font-size: 11px; }

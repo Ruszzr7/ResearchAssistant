@@ -25,6 +25,8 @@ export function buildWorkbenchPlanRequest({
   question = '',
   selectionAnchor = null,
   sourceRunId = '',
+  conversationId = '',
+  conversationContext = '',
 }) {
   const config = MODE_CONFIG[mode]
   if (!config) throw new Error('请选择论文助手功能')
@@ -57,12 +59,18 @@ export function buildWorkbenchPlanRequest({
   }
 
   const scope = selectionAnchor?.kind === 'REGION' && needsSelection ? 'REGION' : config.scope
+  const normalizedConversationId = String(conversationId || '').trim()
+  const normalizedConversationContext = String(conversationContext || '').trim().slice(-6000)
   return {
     paperIds,
     question: normalizedQuestion,
     intent: config.intent,
     scope,
     ...(needsSelection ? { selectionAnchor } : {}),
+    ...(mode === WORKBENCH_MODES.SELECTION_QA && normalizedConversationId
+      ? { conversationId: normalizedConversationId } : {}),
+    ...(mode === WORKBENCH_MODES.SELECTION_QA && normalizedConversationContext
+      ? { conversationContext: normalizedConversationContext } : {}),
     ...(mode === WORKBENCH_MODES.RESEARCH_GAP ? { sourceRunId: normalizedSourceRunId } : {}),
     maxSteps: 6,
   }

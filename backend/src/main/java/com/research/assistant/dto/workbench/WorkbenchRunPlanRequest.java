@@ -21,7 +21,9 @@ public record WorkbenchRunPlanRequest(
         SelectionAnchor selectionAnchor,
         @Min(1) @Max(6) Integer maxSteps,
         @Min(256) @Max(60_000) Integer tokenBudget,
-        @Size(max = 64) String sourceRunId) {
+        @Size(max = 64) String sourceRunId,
+        @Size(max = 64) String conversationId,
+        @Size(max = 6_000) String conversationContext) {
 
     public WorkbenchInvocation toInvocation() {
         return new WorkbenchInvocation(
@@ -32,6 +34,8 @@ public record WorkbenchRunPlanRequest(
                 selectionAnchor,
                 maxSteps == null ? 6 : maxSteps,
                 tokenBudget == null ? 0 : tokenBudget,
-                sourceRunId);
+                sourceRunId,
+                conversationId,
+                conversationContext);
     }
 }

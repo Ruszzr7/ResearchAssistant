@@ -29,6 +29,32 @@ describe('PDF workbench request boundary', () => {
     })
   })
 
+  it('adds bounded conversation context only to selection questions', () => {
+    const context = `旧对话-${'x'.repeat(6_100)}`
+    const selection = buildWorkbenchPlanRequest({
+      mode: WORKBENCH_MODES.SELECTION_QA,
+      paperId: 7,
+      question: '继续解释',
+      selectionAnchor: anchor,
+      conversationId: 'selection-thread_1',
+      conversationContext: context,
+    })
+
+    expect(selection.conversationId).toBe('selection-thread_1')
+    expect(selection.conversationContext).toHaveLength(6_000)
+    expect(selection.conversationContext).toBe(context.slice(-6_000))
+
+    const analysis = buildWorkbenchPlanRequest({
+      mode: WORKBENCH_MODES.PAPER_ANALYSIS,
+      paperId: 7,
+      question: '全文分析',
+      conversationId: 'ignored',
+      conversationContext: 'ignored',
+    })
+    expect(analysis).not.toHaveProperty('conversationId')
+    expect(analysis).not.toHaveProperty('conversationContext')
+  })
+
   it('requires a second distinct paper for comparison', () => {
     expect(() => buildWorkbenchPlanRequest({
       mode: WORKBENCH_MODES.PAPER_COMPARISON,

@@ -25,11 +25,16 @@ vi.mock('@/composables/usePaperWorkbench.js', () => ({
 
 const passthrough = { template: '<div><slot /></div>' }
 const buttonStub = { template: '<button :disabled="$attrs.disabled"><slot /></button>' }
+const inputStub = {
+  props: ['modelValue'],
+  emits: ['update:modelValue'],
+  template: '<textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+}
 const defaultStubs = {
   'el-tag': passthrough,
   'el-select': passthrough,
   'el-option': true,
-  'el-input': true,
+  'el-input': inputStub,
   'el-button': buttonStub,
 }
 
@@ -40,6 +45,9 @@ describe('PaperWorkbenchPanel comparison result', () => {
     mocks.state.selectRun.mockReset()
     mocks.state.run.mockReset()
     mocks.translateTexts.mockReset()
+    mocks.state.running.value = false
+    mocks.state.stageText.value = ''
+    mocks.state.error.value = ''
     mocks.state.selectRun.mockImplementation(run => { mocks.state.trace.value = run })
     mocks.listPapers.mockResolvedValue([{ id: 2, title: 'Comparison Paper' }])
     mocks.state.loadRecent.mockResolvedValue([])
@@ -97,6 +105,7 @@ describe('PaperWorkbenchPanel comparison result', () => {
   })
 
   it('shows only the exact selection and renders four compact status dots', async () => {
+    mocks.state.running.value = true
     mocks.state.trace.value = {
       runId: 'run-selection',
       status: 'RUNNING',
@@ -122,12 +131,13 @@ describe('PaperWorkbenchPanel comparison result', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('用户真正选中的句子')
+    expect(wrapper.text()).toContain('选区对话')
     expect(wrapper.find('.compact-evidence-list').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('所有结论均需通过证据门禁')
     expect(wrapper.findAll('.trace-dot-item')).toHaveLength(4)
     expect(wrapper.findAll('.trace-dot-item')[2].classes()).toContain('is-running')
     expect(wrapper.findAll('.trace-dot-item')[2].attributes('title')).toContain('生成回答：执行中')
-    expect(wrapper.find('.run-card').text()).not.toContain('证据门禁')
+    expect(wrapper.find('.run-card').exists()).toBe(false)
   })
 
   it('translates only the exact selection and preserves the original text', async () => {
@@ -147,7 +157,10 @@ describe('PaperWorkbenchPanel comparison result', () => {
     })
     await flushPromises()
 
-    await wrapper.get('.selection-translate-action').trigger('click')
+    const translateButton = wrapper.findAll('.selection-tools button')
+      .find(button => button.text().includes('翻译选区为中文'))
+    expect(translateButton).toBeTruthy()
+    await translateButton.trigger('click')
     await flushPromises()
 
     expect(mocks.translateTexts).toHaveBeenCalledWith({
@@ -157,6 +170,58 @@ describe('PaperWorkbenchPanel comparison result', () => {
     })
     expect(wrapper.get('.selection-card p').text()).toContain('finite-blocklength')
     expect(wrapper.get('.selection-translation').text()).toContain('有限块长速率')
+  })
+
+  it('keeps follow-up questions in one grounded selection conversation', async () => {
+    mocks.state.trace.value = null
+    mocks.state.run
+      .mockResolvedValueOnce({
+        runId: 'selection-turn-1',
+        result: {
+          answer: '第一轮回答',
+          claims: [{ text: '第一轮结论', evidenceIds: ['e1'] }],
+          evidence: [{ evidenceId: 'e1', paperId: 1, page: 2, text: '证据一' }],
+        },
+      })
+      .mockResolvedValueOnce({
+        runId: 'selection-turn-2',
+        result: {
+          answer: '第二轮回答',
+          claims: [{ text: '第二轮结论', evidenceIds: ['e2'] }],
+          evidence: [{ evidenceId: 'e2', paperId: 1, page: 4, text: '证据二' }],
+        },
+      })
+    const wrapper = mount(PaperWorkbenchPanel, {
+      props: {
+        paper: { id: 1, title: 'Current Paper' },
+        selection: { text: 'The selected method.' },
+        selectionAnchor: { kind: 'TEXT', page: 2, confidence: 0.96 },
+        initialMode: 'SELECTION_QA',
+      },
+      global: { stubs: defaultStubs },
+    })
+    await flushPromises()
+
+    const input = wrapper.get('.selection-chat textarea')
+    await input.setValue('这段方法解决什么问题？')
+    await wrapper.get('.selection-chat__actions button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('第一轮回答')
+    const firstRequest = mocks.state.run.mock.calls[0][0]
+    expect(firstRequest.conversationId).toMatch(/^selection-/)
+    expect(firstRequest).not.toHaveProperty('conversationContext')
+
+    await input.setValue('它和全文实验结果有什么关系？')
+    await wrapper.get('.selection-chat__actions button').trigger('click')
+    await flushPromises()
+
+    const secondRequest = mocks.state.run.mock.calls[1][0]
+    expect(secondRequest.conversationId).toBe(firstRequest.conversationId)
+    expect(secondRequest.conversationContext).toContain('用户：这段方法解决什么问题？')
+    expect(secondRequest.conversationContext).toContain('论文助手：第一轮回答')
+    expect(wrapper.text()).toContain('第二轮回答')
+    expect(wrapper.findAll('.chat-message')).toHaveLength(4)
   })
 
   it('switches an existing answer and claims without rerunning the workflow', async () => {

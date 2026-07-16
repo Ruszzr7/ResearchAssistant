@@ -29,6 +29,28 @@ class WorkbenchRuleRouterTest {
         assertThat(plan.allowedSkills()).containsExactlyInAnyOrderElementsOf(
                 plan.steps().stream().map(WorkbenchPlan.Step::skill).toList());
         assertThat(plan.repairLimit()).isEqualTo(1);
+        assertThat(plan.tokenBudget()).isEqualTo(10_000);
+    }
+
+    @Test
+    void acceptsBoundedSelectionConversationAndRejectsInvalidOrUnrelatedContext() {
+        WorkbenchInvocation followUp = new WorkbenchInvocation(
+                List.of(7L), "继续解释", WorkbenchIntent.ASK_SELECTION, null,
+                anchor(SelectionAnchorKind.TEXT), 6, 0, "", "selection-thread_1",
+                "用户：上一轮问题\n论文助手：上一轮回答");
+
+        assertThat(router.route(followUp).workflow()).isEqualTo(WorkbenchPlan.Workflow.SELECTION_QA);
+
+        assertThatThrownBy(() -> router.route(new WorkbenchInvocation(
+                List.of(7L), "继续解释", WorkbenchIntent.ASK_SELECTION, null,
+                anchor(SelectionAnchorKind.TEXT), 6, 0, "", "bad id", "历史")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("conversationId");
+        assertThatThrownBy(() -> router.route(new WorkbenchInvocation(
+                List.of(7L), "全文分析", WorkbenchIntent.ANALYZE_PAPER, null,
+                null, 6, 0, "", "selection-thread_1", "历史")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("only supported");
     }
 
     @Test

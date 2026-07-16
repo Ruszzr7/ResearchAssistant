@@ -45,6 +45,17 @@ public class WorkbenchRuleRouter {
         if (invocation.question().length() > 4_000) {
             throw new IllegalArgumentException("question exceeds 4000 characters");
         }
+        if (invocation.conversationId().length() > 64
+                || !invocation.conversationId().isEmpty()
+                && !invocation.conversationId().matches("[A-Za-z0-9_-]+")) {
+            throw new IllegalArgumentException("conversationId is invalid");
+        }
+        if (invocation.conversationContext().length() > 6_000) {
+            throw new IllegalArgumentException("conversationContext exceeds 6000 characters");
+        }
+        if (!invocation.conversationContext().isBlank() && invocation.conversationId().isBlank()) {
+            throw new IllegalArgumentException("conversationContext requires conversationId");
+        }
         if (invocation.maxSteps() < 1 || invocation.maxSteps() > MAX_STEPS) {
             throw new IllegalArgumentException("maxSteps must be between 1 and 6");
         }
@@ -81,6 +92,10 @@ public class WorkbenchRuleRouter {
 
     private void validateWorkflowInput(WorkbenchInvocation invocation, Workflow workflow, Scope scope) {
         boolean selectionWorkflow = workflow == Workflow.SELECTION_QA || workflow == Workflow.ANNOTATION_SUGGESTION;
+        if (workflow != Workflow.SELECTION_QA
+                && (!invocation.conversationId().isBlank() || !invocation.conversationContext().isBlank())) {
+            throw new IllegalArgumentException("conversation context is only supported for selection questions");
+        }
         if (workflow == Workflow.PAPER_COMPARISON && invocation.paperIds().size() < 2) {
             throw new IllegalArgumentException("paper comparison requires at least two papers");
         }
@@ -148,7 +163,8 @@ public class WorkbenchRuleRouter {
 
     private int defaultTokenBudget(Workflow workflow) {
         return switch (workflow) {
-            case SELECTION_QA, ANNOTATION_SUGGESTION -> 6_000;
+            case SELECTION_QA -> 10_000;
+            case ANNOTATION_SUGGESTION -> 6_000;
             case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> 14_000;
             case PAPER_COMPARISON, RESEARCH_GAP -> 20_000;
         };

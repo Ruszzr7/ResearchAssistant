@@ -117,7 +117,13 @@ public class WorkbenchExecutionEngine {
                         artifact, canonicalAnchor, trace.invocation().question(), 8),
                 result -> Map.of("evidenceCount", result.evidence().size(),
                         "regionFallback", result.regionFallback()));
-        return modelAndGate(trace, local.evidence(), local.regionFallback(), stage, 2, 3);
+
+        stage.accept("正在检索整篇论文的相关证据…");
+        List<LayoutEvidence> paperEvidence = wholePaperEvidenceService.retrievePaper(
+                artifact, selectionRetrievalQuery(trace.invocation(), canonicalAnchor), 12, 8_000);
+        List<LayoutEvidence> combinedEvidence = mergeSelectionEvidence(
+                local.evidence(), paperEvidence, 18, 14_000);
+        return modelAndGate(trace, combinedEvidence, local.regionFallback(), stage, 2, 3);
     }
 
     private WorkbenchWorkflowResult executePaperAnalysis(WorkbenchRunTrace trace, Consumer<String> stage) {
@@ -244,7 +250,7 @@ public class WorkbenchExecutionEngine {
         long started = System.nanoTime();
         try {
             WorkbenchModelService.ModelCall call = modelService.generate(
-                    trace.plan().workflow(), trace.invocation().question(), paperTitles(trace.invocation().paperIds()),
+                    trace.plan().workflow(), modelQuestion(trace.invocation()), paperTitles(trace.invocation().paperIds()),
                     evidence, callBudget, previous, repairIssues);
             traceService.completeStep(trace.runId(), stepIndex,
                     modelSuccessSummary(call),
@@ -255,6 +261,58 @@ public class WorkbenchExecutionEngine {
                     modelFailureSummary(e), e.promptTokens(), e.completionTokens(), elapsed(started));
             throw e;
         }
+    }
+
+    private String modelQuestion(WorkbenchInvocation invocation) {
+        if (invocation.conversationContext().isBlank()) return invocation.question();
+        return """
+                以下是同一选区对话的最近历史，仅用于理解代词和追问关系；它不是论文证据，
+                任何论文事实仍必须引用本次 evidence：
+                %s
+
+                当前问题：%s
+                """.formatted(invocation.conversationContext(), invocation.question());
+    }
+
+    private String selectionRetrievalQuery(WorkbenchInvocation invocation, SelectionAnchor anchor) {
+        String selectedText = anchor == null || anchor.anchorText() == null ? "" : anchor.anchorText().trim();
+        String history = invocation.conversationContext();
+        StringBuilder query = new StringBuilder(invocation.question());
+        if (!selectedText.isBlank()) {
+            query.append("\n选区：").append(selectedText, 0, Math.min(selectedText.length(), 1_200));
+        }
+        if (!history.isBlank()) {
+            int start = Math.max(0, history.length() - 1_200);
+            query.append("\n最近追问：").append(history.substring(start));
+        }
+        return query.toString();
+    }
+
+    private List<LayoutEvidence> mergeSelectionEvidence(List<LayoutEvidence> local,
+                                                        List<LayoutEvidence> paper,
+                                                        int maxEvidence,
+                                                        int maxCharacters) {
+        Map<String, LayoutEvidence> merged = new LinkedHashMap<>();
+        if (local != null) {
+            local.forEach(item -> merged.putIfAbsent(item.evidenceId(), item));
+        }
+        if (paper != null) {
+            paper.forEach(item -> merged.putIfAbsent(item.evidenceId(), item));
+        }
+        List<LayoutEvidence> result = new ArrayList<>();
+        int characters = 0;
+        for (LayoutEvidence item : merged.values()) {
+            if (result.size() >= maxEvidence) break;
+            int next = characters + safeLength(item.text()) + safeLength(item.structuredContent());
+            if (!result.isEmpty() && next > maxCharacters && !item.selected()) continue;
+            result.add(item);
+            characters = next;
+        }
+        return List.copyOf(result);
+    }
+
+    private int safeLength(String value) {
+        return value == null ? 0 : value.length();
     }
 
     private Map<String, Object> modelSuccessSummary(WorkbenchModelService.ModelCall call) {
