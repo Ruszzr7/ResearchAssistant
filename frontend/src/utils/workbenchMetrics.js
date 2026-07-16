@@ -1,9 +1,10 @@
 const WORKFLOW_LABELS = Object.freeze({
   SELECTION_QA: '选区问答',
   PAPER_ANALYSIS: '全文分析',
+  PAPER_IMPROVEMENT: '论文改进空间',
   ANNOTATION_SUGGESTION: '批注建议',
-  PAPER_COMPARISON: '多篇对比',
-  RESEARCH_GAP: '研究 Gap',
+  PAPER_COMPARISON: '跨论文对比',
+  RESEARCH_GAP: '领域研究空白',
 })
 
 export function formatMetricPercent(value, digits = 0) {

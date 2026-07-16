@@ -107,9 +107,10 @@ public class WorkbenchExecutionService {
         return switch (workflow) {
             case SELECTION_QA -> "选区问答";
             case PAPER_ANALYSIS -> "论文全文分析";
+            case PAPER_IMPROVEMENT -> "论文改进空间";
             case ANNOTATION_SUGGESTION -> "批注建议";
-            case PAPER_COMPARISON -> "论文对比";
-            case RESEARCH_GAP -> "研究 Gap";
+            case PAPER_COMPARISON -> "跨论文对比";
+            case RESEARCH_GAP -> "领域研究空白";
         };
     }
 

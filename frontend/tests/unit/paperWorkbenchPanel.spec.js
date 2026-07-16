@@ -23,12 +23,20 @@ vi.mock('@/composables/usePaperWorkbench.js', () => ({
 
 const passthrough = { template: '<div><slot /></div>' }
 const buttonStub = { template: '<button :disabled="$attrs.disabled"><slot /></button>' }
+const defaultStubs = {
+  'el-tag': passthrough,
+  'el-select': passthrough,
+  'el-option': true,
+  'el-input': true,
+  'el-button': buttonStub,
+}
 
 describe('PaperWorkbenchPanel comparison result', () => {
   beforeEach(() => {
     mocks.listPapers.mockReset()
     mocks.state.loadRecent.mockReset()
     mocks.state.selectRun.mockReset()
+    mocks.state.run.mockReset()
     mocks.state.selectRun.mockImplementation(run => { mocks.state.trace.value = run })
     mocks.listPapers.mockResolvedValue([{ id: 2, title: 'Comparison Paper' }])
     mocks.state.loadRecent.mockResolvedValue([])
@@ -57,13 +65,7 @@ describe('PaperWorkbenchPanel comparison result', () => {
     const wrapper = mount(PaperWorkbenchPanel, {
       props: { paper: { id: 1, title: 'Current Paper' } },
       global: {
-        stubs: {
-          'el-tag': passthrough,
-          'el-select': passthrough,
-          'el-option': true,
-          'el-input': true,
-          'el-button': buttonStub,
-        },
+        stubs: defaultStubs,
       },
     })
     await flushPromises()
@@ -75,6 +77,10 @@ describe('PaperWorkbenchPanel comparison result', () => {
     expect(wrapper.findAll('.coverage-row').every(row => row.classes().includes('covered'))).toBe(true)
     expect(wrapper.text()).not.toContain('论文 1 ·')
     expect(wrapper.text()).not.toContain('论文 2 ·')
+    expect(wrapper.findAll('.workflow-tabs button')).toHaveLength(4)
+    expect(wrapper.text()).not.toContain('批注建议')
+    expect(wrapper.text()).not.toContain('添加内容')
+    expect(wrapper.text()).not.toContain('添加选中内容')
 
     await wrapper.findAll('.coverage-row')[1].trigger('click')
     expect(wrapper.emitted('jump-evidence')?.[0]?.[0]).toMatchObject({
@@ -107,13 +113,7 @@ describe('PaperWorkbenchPanel comparison result', () => {
         selectionAnchor: { kind: 'TEXT', page: 2, confidence: 0.96 },
       },
       global: {
-        stubs: {
-          'el-tag': passthrough,
-          'el-select': passthrough,
-          'el-option': true,
-          'el-input': true,
-          'el-button': buttonStub,
-        },
+        stubs: defaultStubs,
       },
     })
     await flushPromises()
@@ -127,39 +127,67 @@ describe('PaperWorkbenchPanel comparison result', () => {
     expect(wrapper.find('.run-card').text()).not.toContain('证据门禁')
   })
 
-  it('opens the routed Gap mode and submits three papers through the fixed workflow', async () => {
+  it('starts field-gap analysis only from a completed three-paper comparison', async () => {
     mocks.listPapers.mockResolvedValue([
       { id: 2, title: 'Paper 2', pdfPath: '2.pdf' },
       { id: 3, title: 'Paper 3', pdfPath: '3.pdf' },
     ])
-    mocks.state.trace.value = null
+    mocks.state.trace.value = {
+      runId: 'run-compare-three',
+      status: 'COMPLETED',
+      invocation: { paperIds: [1, 2, 3] },
+      plan: { workflow: 'PAPER_COMPARISON' },
+      steps: [],
+      result: {
+        answer: 'Comparison result',
+        paperIds: [1, 2, 3],
+        evidence: [],
+        claims: [],
+      },
+    }
     const wrapper = mount(PaperWorkbenchPanel, {
       props: {
         paper: { id: 1, title: 'Current Paper', pdfPath: '1.pdf' },
-        initialMode: 'RESEARCH_GAP',
-        initialPaperIds: [1, 2, 3],
+        initialMode: 'PAPER_COMPARISON',
       },
       global: {
-        stubs: {
-          'el-tag': passthrough,
-          'el-select': passthrough,
-          'el-option': true,
-          'el-input': true,
-          'el-button': buttonStub,
-        },
+        stubs: defaultStubs,
       },
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.workflow-tabs button').at(-1).classes()).toContain('active')
-    expect(wrapper.text()).toContain('已选择 3 篇论文，可以开始识别候选 Gap')
-    const action = wrapper.findAll('button').find(button => button.text().includes('识别候选 Gap'))
+    expect(wrapper.text()).toContain('继续分析领域研究空白')
+    const action = wrapper.findAll('button').find(button => button.text().includes('分析领域研究空白'))
     await action.trigger('click')
     await flushPromises()
     expect(mocks.state.run).toHaveBeenCalledWith(expect.objectContaining({
       paperIds: [1, 2, 3],
       intent: 'FIND_RESEARCH_GAPS',
       scope: 'COMPARISON',
+      sourceRunId: 'run-compare-three',
+    }))
+    expect(wrapper.findAll('.workflow-tabs button')[2].classes()).toContain('active')
+  })
+
+  it('submits paper improvement as a single-paper workflow', async () => {
+    mocks.state.trace.value = null
+    const wrapper = mount(PaperWorkbenchPanel, {
+      props: { paper: { id: 1, title: 'Current Paper', pdfPath: '1.pdf' } },
+      global: { stubs: defaultStubs },
+    })
+    await flushPromises()
+
+    await wrapper.findAll('.workflow-tabs button')[3].trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.workflow-tabs button')[3].classes()).toContain('active')
+    const action = wrapper.findAll('button').find(button => button.text().includes('分析改进空间'))
+    await action.trigger('click')
+    await flushPromises()
+    expect(mocks.state.run).toHaveBeenCalledWith(expect.objectContaining({
+      paperIds: [1],
+      intent: 'IDENTIFY_PAPER_IMPROVEMENTS',
+      scope: 'PAPER',
     }))
   })
+
 })

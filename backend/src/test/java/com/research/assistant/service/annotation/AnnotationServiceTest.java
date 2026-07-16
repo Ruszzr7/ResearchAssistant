@@ -41,6 +41,9 @@ class AnnotationServiceTest {
     @Test
     void shouldCreateAnnotation() {
         AnnotationRequest request = request("NOTE", 3, "#ffeb3b", "important");
+        request.getCoordinates().put("source", "paper-workbench");
+        request.getCoordinates().put("workbenchRunId", "run-42");
+        request.getCoordinates().put("sourceEvidenceIds", List.of("e1", "e2"));
 
         AnnotationDto dto = service.create(10L, request);
 
@@ -48,6 +51,9 @@ class AnnotationServiceTest {
         assertThat(dto.getPaperId()).isEqualTo(10L);
         assertThat(dto.getType()).isEqualTo("NOTE");
         assertThat(dto.getCoordinates()).containsEntry("x", 0.1);
+        assertThat(dto.getCoordinates()).containsEntry("source", "paper-workbench");
+        assertThat(dto.getCoordinates()).containsEntry("workbenchRunId", "run-42");
+        assertThat(dto.getCoordinates().get("sourceEvidenceIds")).isEqualTo(List.of("e1", "e2"));
     }
 
     @Test

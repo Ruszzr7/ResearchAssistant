@@ -1,6 +1,7 @@
 export const WORKBENCH_MODES = Object.freeze({
   SELECTION_QA: 'SELECTION_QA',
   PAPER_ANALYSIS: 'PAPER_ANALYSIS',
+  PAPER_IMPROVEMENT: 'PAPER_IMPROVEMENT',
   ANNOTATION_SUGGESTION: 'ANNOTATION_SUGGESTION',
   PAPER_COMPARISON: 'PAPER_COMPARISON',
   RESEARCH_GAP: 'RESEARCH_GAP',
@@ -11,6 +12,7 @@ export const MAX_COMPARISON_PAPERS = 8
 const MODE_CONFIG = Object.freeze({
   [WORKBENCH_MODES.SELECTION_QA]: { intent: 'ASK_SELECTION', scope: 'SELECTION' },
   [WORKBENCH_MODES.PAPER_ANALYSIS]: { intent: 'ANALYZE_PAPER', scope: 'PAPER' },
+  [WORKBENCH_MODES.PAPER_IMPROVEMENT]: { intent: 'IDENTIFY_PAPER_IMPROVEMENTS', scope: 'PAPER' },
   [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: { intent: 'SUGGEST_ANNOTATION', scope: 'SELECTION' },
   [WORKBENCH_MODES.PAPER_COMPARISON]: { intent: 'COMPARE_PAPERS', scope: 'COMPARISON' },
   [WORKBENCH_MODES.RESEARCH_GAP]: { intent: 'FIND_RESEARCH_GAPS', scope: 'COMPARISON' },
@@ -22,6 +24,7 @@ export function buildWorkbenchPlanRequest({
   comparisonPaperIds = [],
   question = '',
   selectionAnchor = null,
+  sourceRunId = '',
 }) {
   const config = MODE_CONFIG[mode]
   if (!config) throw new Error('请选择论文助手功能')
@@ -46,7 +49,11 @@ export function buildWorkbenchPlanRequest({
     throw new Error('请至少再选择一篇论文')
   }
   if (mode === WORKBENCH_MODES.RESEARCH_GAP && paperIds.length < 3) {
-    throw new Error('研究 Gap 至少需要三篇论文')
+    throw new Error('领域研究空白至少需要三篇论文')
+  }
+  const normalizedSourceRunId = String(sourceRunId || '').trim()
+  if (mode === WORKBENCH_MODES.RESEARCH_GAP && !normalizedSourceRunId) {
+    throw new Error('请先完成跨论文对比')
   }
 
   const scope = selectionAnchor?.kind === 'REGION' && needsSelection ? 'REGION' : config.scope
@@ -56,6 +63,7 @@ export function buildWorkbenchPlanRequest({
     intent: config.intent,
     scope,
     ...(needsSelection ? { selectionAnchor } : {}),
+    ...(mode === WORKBENCH_MODES.RESEARCH_GAP ? { sourceRunId: normalizedSourceRunId } : {}),
     maxSteps: 6,
   }
 }
@@ -160,12 +168,6 @@ export function citedEvidence(trace) {
   }
   for (const id of trace?.result?.annotationSuggestion?.evidenceIds || []) ids.add(id)
   return [...ids].map(id => index.get(id)).filter(Boolean)
-}
-
-export function appliedWorkbenchRunIds(annotations) {
-  return [...new Set((annotations || [])
-    .map(item => item?.coordinates?.workbenchRunId)
-    .filter(id => typeof id === 'string' && id.trim()))]
 }
 
 export function traceIsActive(trace) {

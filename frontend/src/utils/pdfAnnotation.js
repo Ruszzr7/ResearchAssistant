@@ -40,3 +40,37 @@ export function resizeTextAnnotationQuads(quads, edge, pointerX) {
   target.x3 = next
   return { quads: nextQuads, changed: true }
 }
+
+/**
+ * 把当前 PDF 文本选区转换为用户手写批注草稿。
+ *
+ * 草稿仍使用 NOTE 类型，以复用可拖动 emoji、指向线和既有编辑/删除能力；
+ * anchorKind 用于与页面任意位置创建的自由便签区分。
+ */
+export function buildSelectionNoteDraft({ localId, paperId, color, selection, notePosition }) {
+  const group = selection?.groups?.[0]
+  const viewport = group?.pageState?.viewport
+  if (!viewport || !Array.isArray(group.quads) || group.quads.length === 0) return null
+
+  const quads = group.quads.map(quad => ({ ...quad }))
+  return {
+    localId,
+    paperId,
+    type: 'NOTE',
+    page: group.pageNum,
+    color,
+    note: '',
+    coordinates: {
+      coordinateSpace: 'viewport',
+      pageWidth: viewport.width,
+      pageHeight: viewport.height,
+      rotation: viewport.rotation,
+      scale: viewport.scale,
+      quads,
+      anchorQuads: quads.map(quad => ({ ...quad })),
+      notePosition,
+      anchorKind: 'SELECTION',
+      anchorText: String(selection.text || '').slice(0, 500),
+    },
+  }
+}

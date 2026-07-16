@@ -10,6 +10,7 @@ import { poll } from '@/utils/task.js'
 import { traceIsActive } from '@/utils/workbenchRun.js'
 
 const FAILED_TASK_STATUSES = ['FAILED', 'CANCELLED', 'EXPIRED', 'DEAD_LETTER']
+const WORKBENCH_HISTORY_LIMIT = 20
 
 export function usePaperWorkbench() {
   const trace = ref(null)
@@ -91,7 +92,9 @@ export function usePaperWorkbench() {
   async function loadRecent(paperId) {
     loadingHistory.value = true
     try {
-      recentRuns.value = await listPaperWorkbenchRuns(paperId, 5)
+      // Keep enough bounded history to restore the latest run of every product mode.
+      // A burst of selection Q&A must not hide the last full analysis/comparison result.
+      recentRuns.value = await listPaperWorkbenchRuns(paperId, WORKBENCH_HISTORY_LIMIT)
       if (!trace.value && recentRuns.value.length) trace.value = recentRuns.value[0]
       const active = recentRuns.value.find(item => traceIsActive(item) && item.taskId)
       if (active) {

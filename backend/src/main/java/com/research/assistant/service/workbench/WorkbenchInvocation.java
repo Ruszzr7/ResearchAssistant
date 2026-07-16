@@ -11,10 +11,22 @@ public record WorkbenchInvocation(List<Long> paperIds,
                                   WorkbenchPlan.Scope requestedScope,
                                   SelectionAnchor selectionAnchor,
                                   int maxSteps,
-                                  int tokenBudget) {
+                                  int tokenBudget,
+                                  String sourceRunId) {
     public WorkbenchInvocation {
         paperIds = paperIds == null ? List.of() : paperIds.stream().distinct().toList();
         question = question == null ? "" : question.trim();
         intent = intent == null ? WorkbenchIntent.AUTO : intent;
+        sourceRunId = sourceRunId == null ? "" : sourceRunId.trim();
+    }
+
+    public WorkbenchInvocation(List<Long> paperIds,
+                               String question,
+                               WorkbenchIntent intent,
+                               WorkbenchPlan.Scope requestedScope,
+                               SelectionAnchor selectionAnchor,
+                               int maxSteps,
+                               int tokenBudget) {
+        this(paperIds, question, intent, requestedScope, selectionAnchor, maxSteps, tokenBudget, "");
     }
 }

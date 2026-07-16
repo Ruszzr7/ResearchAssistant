@@ -109,6 +109,15 @@ class WorkbenchRunTraceServiceTest {
     }
 
     @Test
+    void rejectsFieldGapWithoutACompletedComparisonSource() {
+        assertThatThrownBy(() -> service.plan(new WorkbenchInvocation(
+                List.of(7L, 8L, 9L), "分析领域研究空白", WorkbenchIntent.FIND_RESEARCH_GAPS,
+                WorkbenchPlan.Scope.COMPARISON, null, 6, 20_000)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("跨论文对比");
+    }
+
+    @Test
     void listsNewestRunsForPaperWithBoundedLimit() {
         WorkbenchRunTrace first = service.plan(selectionInvocation(anchor("a".repeat(64))));
         WorkbenchRunTrace second = service.plan(selectionInvocation(anchor("a".repeat(64))));

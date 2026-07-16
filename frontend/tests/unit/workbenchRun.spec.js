@@ -5,7 +5,6 @@ import {
   buildComparisonQuestion,
   compactTracePhases,
   comparisonSelectionState,
-  appliedWorkbenchRunIds,
   citedEvidence,
   workbenchMarkdownToHtml,
   WORKBENCH_MODES,
@@ -39,17 +38,33 @@ describe('PDF workbench request boundary', () => {
     })).toThrow('至少再选择一篇')
   })
 
-  it('builds a fixed research Gap request and requires three papers', () => {
+  it('builds a single-paper improvement request', () => {
+    expect(buildWorkbenchPlanRequest({
+      mode: WORKBENCH_MODES.PAPER_IMPROVEMENT,
+      paperId: 7,
+      question: '分析可检验的改进空间',
+    })).toEqual({
+      paperIds: [7],
+      question: '分析可检验的改进空间',
+      intent: 'IDENTIFY_PAPER_IMPROVEMENTS',
+      scope: 'PAPER',
+      maxSteps: 6,
+    })
+  })
+
+  it('builds field-gap analysis only from a completed comparison source', () => {
     expect(buildWorkbenchPlanRequest({
       mode: WORKBENCH_MODES.RESEARCH_GAP,
       paperId: 7,
       comparisonPaperIds: [8, 9],
       question: '识别候选研究空白',
+      sourceRunId: 'compare-run',
     })).toEqual({
       paperIds: [7, 8, 9],
       question: '识别候选研究空白',
       intent: 'FIND_RESEARCH_GAPS',
       scope: 'COMPARISON',
+      sourceRunId: 'compare-run',
       maxSteps: 6,
     })
     expect(() => buildWorkbenchPlanRequest({
@@ -58,6 +73,12 @@ describe('PDF workbench request boundary', () => {
       comparisonPaperIds: [8],
       question: '识别候选研究空白',
     })).toThrow('至少需要三篇')
+    expect(() => buildWorkbenchPlanRequest({
+      mode: WORKBENCH_MODES.RESEARCH_GAP,
+      paperId: 7,
+      comparisonPaperIds: [8, 9],
+      question: '识别候选研究空白',
+    })).toThrow('先完成跨论文对比')
     expect(comparisonSelectionState(7, [8], 3)).toMatchObject({ total: 2, canStart: false })
   })
 
@@ -121,14 +142,6 @@ describe('PDF workbench request boundary', () => {
     expect(html).toContain('<strong>有效</strong>')
     expect(html).toContain('&lt;script&gt;')
     expect(html).not.toContain('<script>')
-  })
-
-  it('recovers already-applied annotation runs after a reload', () => {
-    expect(appliedWorkbenchRunIds([
-      { coordinates: { workbenchRunId: 'run-1' } },
-      { coordinates: { workbenchRunId: 'run-1' } },
-      { coordinates: {} },
-    ])).toEqual(['run-1'])
   })
 
   it('compresses persisted steps into four hoverable product phases', () => {

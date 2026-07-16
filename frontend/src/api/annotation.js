@@ -15,7 +15,3 @@ export function updateAnnotation(paperId, annotationId, annotation) {
 export function deleteAnnotation(paperId, annotationId) {
   return api.delete(`/papers/${paperId}/annotations/${annotationId}`)
 }
-
-export function generateAiAnnotations(paperId) {
-  return api.post(`/papers/${paperId}/annotations/ai-generate`).then(r => r.data)
-}

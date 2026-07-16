@@ -154,6 +154,21 @@ class WorkbenchModelServiceTest {
     }
 
     @Test
+    void paperImprovementPromptKeepsSinglePaperClaimsSeparateFromFieldGaps() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(new LlmResponse("""
+                        {"answer":"改进空间与验证步骤","claims":[{"text":"边界","evidenceIds":["lay_a"]}]}
+                        """, 100, 80, 180));
+
+        service.generate(WorkbenchPlan.Workflow.PAPER_IMPROVEMENT, "find improvements", Map.of(),
+                List.of(evidence("lay_a", "evidence")), 5_000, null, List.of());
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(llmService).chatWithUsage(anyString(), message.capture(), any(LlmCallPolicy.class));
+        assertThat(message.getValue()).contains("当前单篇论文", "改进空间", "研究切入点", "不得推断为整个领域");
+    }
+
+    @Test
     void retriesBlankTruncatedSelectionWithOnlyDirectEvidence() {
         when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
                 .thenReturn(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
+import { buildSelectionNoteDraft, resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
 
 const multiLineQuads = [
   { x1: 0.2, y1: 0.4, x2: 0.8, y2: 0.4, x3: 0.8, y3: 0.36, x4: 0.2, y4: 0.36 },
@@ -23,5 +23,45 @@ describe('PDF text annotation range resizing', () => {
     expect(result.changed).toBe(true)
     expect(result.quads[1].x2).toBeCloseTo(0.106)
     expect(result.quads[1].x3).toBeCloseTo(0.106)
+  })
+})
+
+describe('PDF selection comment draft', () => {
+  it('binds a manual note to the exact selected quads and text', () => {
+    const draft = buildSelectionNoteDraft({
+      localId: 12,
+      paperId: 7,
+      color: '#2196f3',
+      selection: {
+        text: 'Selected formula explanation',
+        groups: [{
+          pageNum: 3,
+          pageState: { viewport: { width: 600, height: 800, rotation: 0, scale: 1.25 } },
+          quads: multiLineQuads,
+        }],
+      },
+      notePosition: { x: 0.9, y: 0.4 },
+    })
+
+    expect(draft).toMatchObject({
+      localId: 12,
+      paperId: 7,
+      type: 'NOTE',
+      page: 3,
+      color: '#2196f3',
+      coordinates: {
+        anchorKind: 'SELECTION',
+        anchorText: 'Selected formula explanation',
+        notePosition: { x: 0.9, y: 0.4 },
+        pageWidth: 600,
+        pageHeight: 800,
+      },
+    })
+    expect(draft.coordinates.anchorQuads).toEqual(multiLineQuads)
+    expect(draft.coordinates.anchorQuads).not.toBe(multiLineQuads)
+  })
+
+  it('rejects a selection without usable geometry', () => {
+    expect(buildSelectionNoteDraft({ selection: { groups: [] } })).toBeNull()
   })
 })

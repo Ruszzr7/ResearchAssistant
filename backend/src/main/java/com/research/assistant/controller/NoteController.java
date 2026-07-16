@@ -1,10 +1,10 @@
 package com.research.assistant.controller;
 
+import com.research.assistant.common.Result;
 import com.research.assistant.dto.NoteDto;
 import com.research.assistant.dto.NoteRequest;
 import com.research.assistant.service.note.NoteService;
 import jakarta.validation.Valid;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,34 +23,34 @@ public class NoteController {
     }
 
     @GetMapping("/papers/{paperId}/notes")
-    public ResponseEntity<List<NoteDto>> listByPaper(@PathVariable Long paperId) {
-        return ResponseEntity.ok(noteService.listByPaper(paperId));
+    public Result<List<NoteDto>> listByPaper(@PathVariable Long paperId) {
+        return Result.ok(noteService.listByPaper(paperId));
     }
 
     @PostMapping("/papers/{paperId}/notes")
-    public ResponseEntity<NoteDto> create(@PathVariable Long paperId, @RequestBody @Valid NoteRequest request) {
-        return ResponseEntity.ok(noteService.create(paperId, request));
+    public Result<NoteDto> create(@PathVariable Long paperId, @RequestBody @Valid NoteRequest request) {
+        return Result.ok(noteService.create(paperId, request));
     }
 
     @PutMapping("/notes/{noteId}")
-    public ResponseEntity<NoteDto> update(@PathVariable Long noteId, @RequestBody @Valid NoteRequest request) {
-        return ResponseEntity.ok(noteService.update(noteId, request));
+    public Result<NoteDto> update(@PathVariable Long noteId, @RequestBody @Valid NoteRequest request) {
+        return Result.ok(noteService.update(noteId, request));
     }
 
     @DeleteMapping("/notes/{noteId}")
-    public ResponseEntity<Void> delete(@PathVariable Long noteId) {
+    public Result<Void> delete(@PathVariable Long noteId) {
         noteService.delete(noteId);
-        return ResponseEntity.ok().build();
+        return Result.ok();
     }
 
     @DeleteMapping("/papers/{paperId}/notes/{noteId}")
-    public ResponseEntity<Void> unlink(@PathVariable Long paperId, @PathVariable Long noteId) {
+    public Result<Void> unlink(@PathVariable Long paperId, @PathVariable Long noteId) {
         noteService.unlink(paperId, noteId);
-        return ResponseEntity.ok().build();
+        return Result.ok();
     }
 
     @GetMapping("/notes/{noteId}/papers")
-    public ResponseEntity<List<Long>> listPaperIdsByNote(@PathVariable Long noteId) {
-        return ResponseEntity.ok(noteService.listPaperIdsByNote(noteId));
+    public Result<List<Long>> listPaperIdsByNote(@PathVariable Long noteId) {
+        return Result.ok(noteService.listPaperIdsByNote(noteId));
     }
 }

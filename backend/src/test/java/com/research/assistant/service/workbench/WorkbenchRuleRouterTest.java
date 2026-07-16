@@ -77,6 +77,28 @@ class WorkbenchRuleRouterTest {
     }
 
     @Test
+    void paperImprovementUsesOnePaperAndItsOwnFixedSkill() {
+        WorkbenchPlan plan = router.route(new WorkbenchInvocation(
+                List.of(1L), "分析可检验的改进空间", WorkbenchIntent.IDENTIFY_PAPER_IMPROVEMENTS,
+                null, null, 6, 0));
+
+        assertThat(plan.workflow()).isEqualTo(WorkbenchPlan.Workflow.PAPER_IMPROVEMENT);
+        assertThat(plan.scope()).isEqualTo(WorkbenchPlan.Scope.PAPER);
+        assertThat(plan.steps()).extracting(WorkbenchPlan.Step::skill).containsExactly(
+                WorkbenchPlan.Skill.ENSURE_LAYOUT_ARTIFACT,
+                WorkbenchPlan.Skill.RETRIEVE_PAPER_EVIDENCE,
+                WorkbenchPlan.Skill.IDENTIFY_PAPER_IMPROVEMENTS,
+                WorkbenchPlan.Skill.VALIDATE_EVIDENCE_ANSWER);
+        assertThat(plan.tokenBudget()).isEqualTo(14_000);
+
+        assertThatThrownBy(() -> router.route(new WorkbenchInvocation(
+                List.of(1L, 2L), "分析改进空间", WorkbenchIntent.IDENTIFY_PAPER_IMPROVEMENTS,
+                null, null, 6, 0)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exactly one");
+    }
+
+    @Test
     void researchGapUsesFixedGroundedWorkflowAndRequiresThreePapers() {
         WorkbenchPlan plan = router.route(new WorkbenchInvocation(
                 List.of(1L, 2L, 3L), "识别仍需验证的候选研究空白",

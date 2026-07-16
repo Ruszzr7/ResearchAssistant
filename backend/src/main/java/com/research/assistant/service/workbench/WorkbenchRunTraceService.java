@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /** Persists the bounded workbench plan and its execution trace independently of model availability. */
@@ -48,6 +49,7 @@ public class WorkbenchRunTraceService {
     @Transactional
     public WorkbenchRunTrace plan(WorkbenchInvocation invocation) {
         WorkbenchPlan plan = router.route(invocation);
+        validateSourceRun(invocation, plan);
         List<WorkbenchPlan.ArtifactVersion> artifactVersions = ensureArtifacts(invocation);
         validateSelectionVersion(invocation.selectionAnchor(), artifactVersions);
 
@@ -94,6 +96,22 @@ public class WorkbenchRunTraceService {
             stepMapper.insert(step);
         }
         return requireTrace(runId);
+    }
+
+    private void validateSourceRun(WorkbenchInvocation invocation, WorkbenchPlan plan) {
+        if (plan.workflow() != WorkbenchPlan.Workflow.RESEARCH_GAP) return;
+        if (invocation.sourceRunId().isBlank()) {
+            throw new IllegalArgumentException("分析领域研究空白前请先完成跨论文对比");
+        }
+        WorkbenchRunTrace source = findTrace(invocation.sourceRunId());
+        if (source == null || source.status() != WorkbenchRunStatus.COMPLETED
+                || source.plan().workflow() != WorkbenchPlan.Workflow.PAPER_COMPARISON
+                || source.result() == null) {
+            throw new IllegalArgumentException("来源必须是已完成的跨论文对比");
+        }
+        if (!Set.copyOf(source.invocation().paperIds()).equals(Set.copyOf(invocation.paperIds()))) {
+            throw new IllegalArgumentException("领域研究空白的论文集合必须与来源对比一致");
+        }
     }
 
     public WorkbenchRunTrace findTrace(String runId) {

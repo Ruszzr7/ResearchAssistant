@@ -57,6 +57,7 @@ public class WorkbenchRuleRouter {
         return switch (invocation.intent()) {
             case ASK_SELECTION -> Workflow.SELECTION_QA;
             case ANALYZE_PAPER -> Workflow.PAPER_ANALYSIS;
+            case IDENTIFY_PAPER_IMPROVEMENTS -> Workflow.PAPER_IMPROVEMENT;
             case SUGGEST_ANNOTATION -> Workflow.ANNOTATION_SUGGESTION;
             case COMPARE_PAPERS -> Workflow.PAPER_COMPARISON;
             case FIND_RESEARCH_GAPS -> Workflow.RESEARCH_GAP;
@@ -68,7 +69,7 @@ public class WorkbenchRuleRouter {
 
     private Scope chooseScope(WorkbenchInvocation invocation, Workflow workflow) {
         return switch (workflow) {
-            case PAPER_ANALYSIS -> Scope.PAPER;
+            case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> Scope.PAPER;
             case PAPER_COMPARISON, RESEARCH_GAP -> Scope.COMPARISON;
             case SELECTION_QA, ANNOTATION_SUGGESTION ->
                     invocation.requestedScope() == Scope.REGION
@@ -122,6 +123,11 @@ public class WorkbenchRuleRouter {
                     Step.of(2, "生成全文分析", Skill.ANALYZE_PAPER),
                     Step.of(3, "证据门禁", Skill.VALIDATE_EVIDENCE_ANSWER),
                     Step.of(4, "保存分析报告", Skill.PERSIST_ANALYSIS_REPORT));
+            case PAPER_IMPROVEMENT -> List.of(
+                    Step.of(0, "准备版面制品", Skill.ENSURE_LAYOUT_ARTIFACT),
+                    Step.of(1, "检索全文证据", Skill.RETRIEVE_PAPER_EVIDENCE),
+                    Step.of(2, "识别论文改进空间", Skill.IDENTIFY_PAPER_IMPROVEMENTS),
+                    Step.of(3, "证据门禁", Skill.VALIDATE_EVIDENCE_ANSWER));
             case ANNOTATION_SUGGESTION -> List.of(
                     Step.of(0, "解析选区", Skill.RESOLVE_SELECTION_CONTEXT),
                     Step.of(1, "检索局部证据", Skill.RETRIEVE_LOCAL_EVIDENCE),
@@ -143,7 +149,7 @@ public class WorkbenchRuleRouter {
     private int defaultTokenBudget(Workflow workflow) {
         return switch (workflow) {
             case SELECTION_QA, ANNOTATION_SUGGESTION -> 6_000;
-            case PAPER_ANALYSIS -> 14_000;
+            case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> 14_000;
             case PAPER_COMPARISON, RESEARCH_GAP -> 20_000;
         };
     }

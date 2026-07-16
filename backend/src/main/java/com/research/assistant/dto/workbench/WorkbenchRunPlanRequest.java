@@ -20,7 +20,8 @@ public record WorkbenchRunPlanRequest(
         WorkbenchPlan.Scope scope,
         SelectionAnchor selectionAnchor,
         @Min(1) @Max(6) Integer maxSteps,
-        @Min(256) @Max(60_000) Integer tokenBudget) {
+        @Min(256) @Max(60_000) Integer tokenBudget,
+        @Size(max = 64) String sourceRunId) {
 
     public WorkbenchInvocation toInvocation() {
         return new WorkbenchInvocation(
@@ -30,6 +31,7 @@ public record WorkbenchRunPlanRequest(
                 scope,
                 selectionAnchor,
                 maxSteps == null ? 6 : maxSteps,
-                tokenBudget == null ? 0 : tokenBudget);
+                tokenBudget == null ? 0 : tokenBudget,
+                sourceRunId);
     }
 }

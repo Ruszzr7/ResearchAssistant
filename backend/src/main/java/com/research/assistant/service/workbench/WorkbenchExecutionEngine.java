@@ -72,6 +72,7 @@ public class WorkbenchExecutionEngine {
             WorkbenchWorkflowResult result = switch (trace.plan().workflow()) {
                 case SELECTION_QA, ANNOTATION_SUGGESTION -> executeSelection(trace, stage);
                 case PAPER_ANALYSIS -> executePaperAnalysis(trace, stage);
+                case PAPER_IMPROVEMENT -> executePaperImprovement(trace, stage);
                 case PAPER_COMPARISON, RESEARCH_GAP -> executeComparison(trace, stage);
             };
             traceService.completeRun(runId, result, result.evidence().size());
@@ -141,6 +142,25 @@ public class WorkbenchExecutionEngine {
         persistenceStep(trace.runId(), 4, () -> reportService.persist(
                 paperId, result, trace.artifactVersions().get(0), currentTokenUsage(trace.runId())));
         return result;
+    }
+
+    private WorkbenchWorkflowResult executePaperImprovement(WorkbenchRunTrace trace, Consumer<String> stage) {
+        Long paperId = trace.invocation().paperIds().get(0);
+        stage.accept("正在准备论文版面制品…");
+        PaperLayoutArtifact artifact = deterministicStep(
+                trace.runId(), 0, Map.of("paperId", paperId),
+                () -> currentArtifact(trace, paperId),
+                value -> Map.of("pageCount", value.pageCount(), "layoutConfidence", value.layoutConfidence(),
+                        "parserVersion", value.parserVersion()));
+
+        stage.accept("正在检索论文局限与改进证据…");
+        List<LayoutEvidence> evidence = deterministicStep(
+                trace.runId(), 1, Map.of("paperId", paperId, "maxEvidence", 48),
+                () -> wholePaperEvidenceService.retrievePaper(
+                        artifact, paperImprovementQuery(trace.invocation().question()), 48,
+                        evidenceCharacterBudget(trace, 36_000)),
+                value -> Map.of("evidenceCount", value.size(), "sectionCount", sectionCount(value)));
+        return modelAndGate(trace, evidence, false, stage, 2, 3);
     }
 
     private WorkbenchWorkflowResult executeComparison(WorkbenchRunTrace trace, Consumer<String> stage) {
@@ -306,7 +326,7 @@ public class WorkbenchExecutionEngine {
                     WorkbenchEvidenceGate.GatePolicy.selection(repairAttempt);
             case PAPER_COMPARISON, RESEARCH_GAP -> WorkbenchEvidenceGate.GatePolicy.comparison(
                     repairAttempt, Set.copyOf(trace.invocation().paperIds()));
-            case PAPER_ANALYSIS -> WorkbenchEvidenceGate.GatePolicy.strict(repairAttempt);
+            case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> WorkbenchEvidenceGate.GatePolicy.strict(repairAttempt);
         };
     }
 
@@ -383,6 +403,11 @@ public class WorkbenchExecutionEngine {
                 : question;
     }
 
+    private String paperImprovementQuery(String question) {
+        String focus = "limitation weakness assumption boundary future work method data scenario metric experiment reproducibility";
+        return question == null || question.isBlank() ? focus : question + " " + focus;
+    }
+
     private int sectionCount(List<LayoutEvidence> evidence) {
         return (int) evidence.stream().map(item -> String.join(" / ", item.sectionPath())).distinct().count();
     }
@@ -395,12 +420,12 @@ public class WorkbenchExecutionEngine {
             return remaining;
         }
         int numerator = switch (trace.plan().workflow()) {
-            case PAPER_ANALYSIS -> 6;
+            case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> 6;
             case PAPER_COMPARISON, RESEARCH_GAP -> 4;
             case SELECTION_QA, ANNOTATION_SUGGESTION -> 1;
         };
         int denominator = switch (trace.plan().workflow()) {
-            case PAPER_ANALYSIS -> 7;
+            case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> 7;
             case PAPER_COMPARISON, RESEARCH_GAP -> 5;
             case SELECTION_QA, ANNOTATION_SUGGESTION -> 1;
         };
@@ -415,7 +440,8 @@ public class WorkbenchExecutionEngine {
     /** Leaves room for the system prompt, JSON envelope, answer and the single permitted repair. */
     private int evidenceCharacterBudget(WorkbenchRunTrace trace, int ceiling) {
         long budget = switch (trace.plan().workflow()) {
-            case PAPER_ANALYSIS -> Math.max(6_000L, (long) trace.plan().tokenBudget() * 3 / 4);
+            case PAPER_ANALYSIS, PAPER_IMPROVEMENT ->
+                    Math.max(6_000L, (long) trace.plan().tokenBudget() * 3 / 4);
             case PAPER_COMPARISON, RESEARCH_GAP -> Math.max(8_000L, (long) trace.plan().tokenBudget());
             case SELECTION_QA, ANNOTATION_SUGGESTION ->
                     Math.max(4_000L, (long) trace.plan().tokenBudget() * 5 / 4);

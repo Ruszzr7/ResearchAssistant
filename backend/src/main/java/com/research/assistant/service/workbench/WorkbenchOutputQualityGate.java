@@ -33,6 +33,16 @@ public class WorkbenchOutputQualityGate {
                 requireMarker(lower, issues, "paper analysis is missing limitation", "局限", "limitation");
                 if (output.claims().size() < 3) issues.add("paper analysis has fewer than three grounded claims");
             }
+            case PAPER_IMPROVEMENT -> {
+                if (output.answer().length() < 180) issues.add("paper improvement analysis is too short");
+                requireMarker(lower, issues, "paper improvement analysis is missing research entry points",
+                        "改进空间", "研究切入点", "improvement", "research opportunity");
+                requireMarker(lower, issues, "paper improvement analysis is missing validation steps",
+                        "验证", "实验", "verify", "validation");
+                if (output.claims().size() < 3) {
+                    issues.add("paper improvement analysis has fewer than three grounded claims");
+                }
+            }
             case PAPER_COMPARISON -> {
                 if (output.answer().length() < 120) issues.add("paper comparison is too short");
                 if (output.answer().lines().filter(line -> line.contains("|")).count() < 3) {

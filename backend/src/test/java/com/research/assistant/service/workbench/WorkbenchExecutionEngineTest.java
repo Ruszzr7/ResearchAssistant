@@ -129,6 +129,20 @@ class WorkbenchExecutionEngineTest {
     }
 
     @Test
+    void executesSinglePaperImprovementWithoutExpandingToAFieldClaim() {
+        WorkbenchRunTrace planned = traceService.plan(invocation(
+                WorkbenchIntent.IDENTIFY_PAPER_IMPROVEMENTS, List.of(7L), null,
+                "分析论文改进空间与可检验研究切入点", 14_000));
+
+        WorkbenchWorkflowResult result = engine.execute(planned.runId(), "task-improvement", null);
+
+        assertThat(result.workflow()).isEqualTo(WorkbenchPlan.Workflow.PAPER_IMPROVEMENT);
+        assertThat(result.paperIds()).containsExactly(7L);
+        assertCompleted(planned.runId(), 4);
+        verify(reportService, times(0)).persist(anyLong(), any(), any(), anyInt());
+    }
+
+    @Test
     void executesComparisonOnlyWhenEveryPaperIsCited() {
         WorkbenchRunTrace planned = traceService.plan(invocation(
                 WorkbenchIntent.COMPARE_PAPERS, List.of(7L, 8L), null, "比较方法与局限", 20_000));
@@ -143,9 +157,13 @@ class WorkbenchExecutionEngineTest {
 
     @Test
     void executesResearchGapOnlyWhenEveryPaperIsCited() {
-        WorkbenchRunTrace planned = traceService.plan(invocation(
-                WorkbenchIntent.FIND_RESEARCH_GAPS, List.of(7L, 8L, 9L), null,
-                "识别可检验且仍需验证的候选研究空白", 20_000));
+        WorkbenchRunTrace comparison = traceService.plan(invocation(
+                WorkbenchIntent.COMPARE_PAPERS, List.of(7L, 8L, 9L), null,
+                "先完成跨论文对比", 20_000));
+        completeSourceComparison(comparison);
+        WorkbenchRunTrace planned = traceService.plan(new WorkbenchInvocation(
+                List.of(7L, 8L, 9L), "识别可检验且仍需验证的候选研究空白",
+                WorkbenchIntent.FIND_RESEARCH_GAPS, null, null, 6, 20_000, comparison.runId()));
 
         WorkbenchWorkflowResult result = engine.execute(planned.runId(), "task-gap", null);
 
@@ -153,6 +171,15 @@ class WorkbenchExecutionEngineTest {
         assertThat(result.claims()).extracting(claim -> claim.evidenceIds().get(0))
                 .containsExactly("lay_p7", "lay_p8", "lay_p9");
         assertCompleted(planned.runId(), 4);
+    }
+
+    private void completeSourceComparison(WorkbenchRunTrace comparison) {
+        traceService.startRun(comparison.runId(), "task-source-comparison");
+        for (int index = 0; index < comparison.steps().size(); index++) {
+            traceService.startStep(comparison.runId(), index, null);
+            traceService.completeStep(comparison.runId(), index, null, 0, 0, 0, 1);
+        }
+        traceService.completeRun(comparison.runId(), java.util.Map.of("answer", "completed comparison"), 0);
     }
 
     @Test
@@ -262,6 +289,14 @@ class WorkbenchExecutionEngineTest {
                             new WorkbenchEvidenceGate.GroundedClaim("论文研究低时延通信", List.of("lay_p7")),
                             new WorkbenchEvidenceGate.GroundedClaim("采用有限块长分析方法", List.of("lay_p7")),
                             new WorkbenchEvidenceGate.GroundedClaim("论文给出优化策略", List.of("lay_p7"))),
+                    null);
+            case PAPER_IMPROVEMENT -> new WorkbenchModelOutput(
+                    ("## 改进空间与研究切入点\n论文当前假设边界限制了跨场景泛化。"
+                            + "可通过扩展数据场景和对照实验验证改进方向，并报告可复现设置。\n").repeat(4),
+                    List.of(
+                            new WorkbenchEvidenceGate.GroundedClaim("假设边界可扩展", List.of("lay_p7")),
+                            new WorkbenchEvidenceGate.GroundedClaim("实验场景可补充", List.of("lay_p7")),
+                            new WorkbenchEvidenceGate.GroundedClaim("可复现性可验证", List.of("lay_p7"))),
                     null);
             case PAPER_COMPARISON -> new WorkbenchModelOutput(
                     ("| 论文 | 方法 | 局限 |\n|---|---|---|\n| Paper 7 | 方法 A | 局限 A |\n"

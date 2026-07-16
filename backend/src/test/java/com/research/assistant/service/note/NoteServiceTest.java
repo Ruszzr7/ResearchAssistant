@@ -9,6 +9,7 @@ import com.research.assistant.mapper.NoteMapper;
 import com.research.assistant.mapper.PaperNoteLinkMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
@@ -70,5 +71,40 @@ class NoteServiceTest {
     void shouldThrowWhenUpdatingMissingNote() {
         when(noteMapper.selectById(99L)).thenReturn(null);
         assertThrows(IllegalArgumentException.class, () -> service.update(99L, new NoteRequest()));
+    }
+
+    @Test
+    void shouldPersistWorkbenchSourceIdentityWithThePaperLink() throws Exception {
+        NoteRequest request = new NoteRequest();
+        request.setTitle("Method insight");
+        request.setContent("The result applies under short-packet assumptions.");
+        request.setCoordinates(Map.of(
+                "source", "paper-workbench",
+                "workbenchRunId", "run-42",
+                "workbenchWorkflow", "PAPER_ANALYSIS",
+                "sourceEvidenceIds", List.of("e1", "e2"),
+                "workbenchItemType", "NOTE"));
+        when(noteMapper.insert(any(Note.class))).thenAnswer(invocation -> {
+            invocation.<Note>getArgument(0).setId(91L);
+            return 1;
+        });
+        when(linkMapper.insert(any(PaperNoteLink.class))).thenAnswer(invocation -> {
+            invocation.<PaperNoteLink>getArgument(0).setId(92L);
+            return 1;
+        });
+
+        NoteDto dto = service.create(7L, request);
+
+        assertThat(dto.getId()).isEqualTo(91L);
+        assertThat(dto.getLinkId()).isEqualTo(92L);
+        assertThat(dto.getCoordinates()).containsEntry("source", "paper-workbench");
+        assertThat(dto.getCoordinates()).containsEntry("workbenchRunId", "run-42");
+        assertThat(dto.getCoordinates().get("sourceEvidenceIds")).isEqualTo(List.of("e1", "e2"));
+
+        ArgumentCaptor<PaperNoteLink> linkCaptor = ArgumentCaptor.forClass(PaperNoteLink.class);
+        verify(linkMapper).insert(linkCaptor.capture());
+        Map<?, ?> persisted = new ObjectMapper().readValue(linkCaptor.getValue().getCoordinatesJson(), Map.class);
+        assertThat(persisted.get("workbenchWorkflow")).isEqualTo("PAPER_ANALYSIS");
+        assertThat(persisted.get("sourceEvidenceIds")).isEqualTo(List.of("e1", "e2"));
     }
 }

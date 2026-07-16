@@ -31,10 +31,18 @@
           v-for="item in modeOptions"
           :key="item.value"
           type="button"
-          :class="{ active: mode === item.value }"
+          :class="{ active: isModeTabActive(item.value) }"
           :disabled="running || (item.needsSelection && !selectionAnchor)"
-          @click="mode = item.value"
+          @click="selectProductMode(item.value)"
         >{{ item.label }}</button>
+      </div>
+
+      <div v-if="isFieldGapMode" class="comparison-stage-banner">
+        <div>
+          <b>领域研究空白</b>
+          <small>基于已完成的跨论文对比继续分析，不改变论文集合</small>
+        </div>
+        <button type="button" :disabled="running" @click="returnToComparison">返回对比结果</button>
       </div>
 
       <el-select
@@ -47,6 +55,7 @@
         collapse-tags-tooltip
         :placeholder="paperSelectorPlaceholder"
         :loading="papersLoading"
+        :disabled="isFieldGapMode"
       >
         <el-option
           v-for="item in availablePapers"
@@ -70,7 +79,7 @@
         <div class="comparison-hint" :class="{ ready: comparisonState.canStart }">
           {{ comparisonSelectionHint }}
         </div>
-        <div class="dimension-picker" :aria-label="mode === WORKBENCH_MODES.RESEARCH_GAP ? 'Gap 分析维度' : '比较维度'">
+        <div class="dimension-picker" :aria-label="isFieldGapMode ? '领域研究空白分析维度' : '跨论文比较维度'">
           <button
             v-for="dimension in comparisonDimensionOptions"
             :key="dimension"
@@ -92,6 +101,7 @@
       />
       <div class="compose-actions">
         <span v-if="mode === WORKBENCH_MODES.PAPER_ANALYSIS">全文分析可能需要 1–2 分钟</span>
+        <span v-else-if="mode === WORKBENCH_MODES.PAPER_IMPROVEMENT">仅分析当前论文</span>
         <el-button type="primary" :loading="running" :disabled="actionDisabled" @click="startRun">
           {{ actionLabel }}
         </el-button>
@@ -136,84 +146,83 @@
     </section>
 
     <section v-if="trace?.result" class="result-card">
-      <div class="section-heading"><span>分析结果</span></div>
-      <div class="answer-text" v-html="answerHtml" />
+      <div class="section-heading">
+        <span>分析结果</span>
+      </div>
+      <div class="result-selectable-content">
+        <div class="answer-text" v-html="answerHtml" />
 
-      <div v-if="isMultiPaperResult && comparisonCoverage.total" class="comparison-coverage">
-        <div class="coverage-heading">
-          <b>逐论文证据覆盖</b>
-          <el-tag
-            size="small"
-            :type="comparisonCoverage.covered === comparisonCoverage.total ? 'success' : 'warning'"
-            effect="plain"
-          >{{ comparisonCoverage.covered }}/{{ comparisonCoverage.total }}</el-tag>
+        <div v-if="isMultiPaperResult && comparisonCoverage.total" class="comparison-coverage">
+          <div class="coverage-heading">
+            <b>逐论文证据覆盖</b>
+            <el-tag
+              size="small"
+              :type="comparisonCoverage.covered === comparisonCoverage.total ? 'success' : 'warning'"
+              effect="plain"
+            >{{ comparisonCoverage.covered }}/{{ comparisonCoverage.total }}</el-tag>
+          </div>
+          <button
+            v-for="row in comparisonCoverage.rows"
+            :key="row.paperId"
+            type="button"
+            class="coverage-row"
+            :class="{ covered: row.covered }"
+            :disabled="!row.firstEvidence"
+            @click="jump(row.firstEvidence)"
+          >
+            <span class="coverage-state" aria-hidden="true">{{ row.covered ? '✓' : '!' }}</span>
+            <span class="coverage-paper">
+              <b :title="row.title">{{ row.title }}</b>
+              <small>
+                {{ row.evidenceCount }} 条证据 · {{ row.citedClaims }} 条结论引用
+                <template v-if="row.pages.length"> · p.{{ row.pages.join(', ') }}</template>
+              </small>
+            </span>
+          </button>
         </div>
-        <button
-          v-for="row in comparisonCoverage.rows"
-          :key="row.paperId"
-          type="button"
-          class="coverage-row"
-          :class="{ covered: row.covered }"
-          :disabled="!row.firstEvidence"
-          @click="jump(row.firstEvidence)"
-        >
-          <span class="coverage-state" aria-hidden="true">{{ row.covered ? '✓' : '!' }}</span>
-          <span class="coverage-paper">
-            <b :title="row.title">{{ row.title }}</b>
-            <small>
-              {{ row.evidenceCount }} 条证据 · {{ row.citedClaims }} 条结论引用
-              <template v-if="row.pages.length"> · p.{{ row.pages.join(', ') }}</template>
-            </small>
-          </span>
-        </button>
+
+        <ol v-if="trace.result.claims?.length" class="claim-list">
+          <li v-for="(claim, index) in trace.result.claims" :key="index">
+            <span>{{ claim.text }}</span>
+            <div class="evidence-links">
+              <button
+                v-for="item in evidenceForClaim(claim)"
+                :key="item.evidenceId"
+                type="button"
+                :title="item.text"
+                @click="jump(item)"
+              >{{ paperDisplayName(item.paperId) }} · p.{{ item.page }}</button>
+            </div>
+          </li>
+        </ol>
+        <div v-if="trace.result.regionFallback" class="region-warning">
+          该结果包含低置信度区域证据，请结合原页核对。
+        </div>
       </div>
 
-      <div v-if="trace.result.annotationSuggestion" class="annotation-suggestion">
+      <div v-if="completedComparisonResult" class="comparison-followup">
         <div>
-          <el-tag size="small" effect="plain">{{ annotationTypeLabel(trace.result.annotationSuggestion.type) }}</el-tag>
-          <span>确认后才会写入 PDF 批注</span>
-        </div>
-        <p>{{ trace.result.annotationSuggestion.content }}</p>
-        <div class="evidence-links">
-          <button
-            v-for="item in annotationEvidence"
-            :key="item.evidenceId"
-            type="button"
-            @click="jump(item)"
-          >p.{{ item.page }}</button>
+          <b>继续分析领域研究空白</b>
+          <small v-if="comparisonResultPaperIds.length >= 3">
+            沿用本次 {{ comparisonResultPaperIds.length }} 篇论文及证据，寻找跨论文的候选空白。
+          </small>
+          <small v-else>领域研究空白至少需要 3 篇论文，请增加论文并重新对比。</small>
         </div>
         <el-button
           type="primary"
-          size="small"
-          :loading="applyingAnnotation"
-          :disabled="annotationIsApplied"
-          @click="confirmAnnotation"
-        >{{ annotationIsApplied ? '已添加批注' : '确认添加批注' }}</el-button>
-      </div>
-
-      <ol v-if="trace.result.claims?.length" class="claim-list">
-        <li v-for="(claim, index) in trace.result.claims" :key="index">
-          <span>{{ claim.text }}</span>
-          <div class="evidence-links">
-            <button
-              v-for="item in evidenceForClaim(claim)"
-              :key="item.evidenceId"
-              type="button"
-              :title="item.text"
-              @click="jump(item)"
-            >{{ paperDisplayName(item.paperId) }} · p.{{ item.page }}</button>
-          </div>
-        </li>
-      </ol>
-      <div v-if="trace.result.regionFallback" class="region-warning">
-        该结果包含低置信度区域证据，请结合原页核对。
+          plain
+          :loading="running"
+          :disabled="comparisonResultPaperIds.length < 3"
+          @click="startFieldGapFromComparison"
+        >分析领域研究空白</el-button>
       </div>
     </section>
+
   </aside>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listPapers } from '@/api/paper.js'
 import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
@@ -234,8 +243,6 @@ const props = defineProps({
   selectionAnchor: { type: Object, default: null },
   selectionLoading: { type: Boolean, default: false },
   selectionError: { type: String, default: '' },
-  applyAnnotation: { type: Function, default: null },
-  appliedAnnotationRunIds: { type: Array, default: () => [] },
   initialMode: { type: String, default: '' },
   initialPaperIds: { type: Array, default: () => [] },
 })
@@ -251,27 +258,32 @@ const {
   selectRun,
 } = usePaperWorkbench()
 
+const productWorkbenchModes = [
+  WORKBENCH_MODES.SELECTION_QA,
+  WORKBENCH_MODES.PAPER_ANALYSIS,
+  WORKBENCH_MODES.PAPER_COMPARISON,
+  WORKBENCH_MODES.PAPER_IMPROVEMENT,
+]
+const supportedWorkbenchModes = [...productWorkbenchModes, WORKBENCH_MODES.RESEARCH_GAP]
 const mode = ref(normalizeInitialMode(props.initialMode))
 const questions = reactive({
   [WORKBENCH_MODES.SELECTION_QA]: '',
   [WORKBENCH_MODES.PAPER_ANALYSIS]: '请从研究问题、核心方法、实验结果、主要结论与局限五个方面分析这篇论文。',
-  [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: '请为选中内容生成一条有价值的学术批注。',
+  [WORKBENCH_MODES.PAPER_IMPROVEMENT]: '请识别这篇论文的改进空间，并从假设、方法、数据或场景、评价指标、实验设计与可复现性中提出可检验的后续研究切入点；区分论文自述局限与基于证据的推断。',
   [WORKBENCH_MODES.PAPER_COMPARISON]: '比较这些论文的研究问题、方法、关键结论与局限，并指出异同。',
   [WORKBENCH_MODES.RESEARCH_GAP]: '结合所选论文识别可检验的候选研究空白，并说明证据边界与下一步验证方案。',
 })
+const fieldGapSourceRunId = ref('')
 const comparisonPaperIds = ref(normalizeInitialPaperIds(props.initialPaperIds))
 const comparisonDimensions = ref(['研究问题', '核心方法', '实验与指标', '主要结论', '局限'])
 const availablePapers = ref([])
 const papersLoading = ref(false)
-const applyingAnnotation = ref(false)
-const annotationAppliedRunId = ref('')
 
 const modeOptions = [
   { value: WORKBENCH_MODES.SELECTION_QA, label: '选区问答', needsSelection: true },
   { value: WORKBENCH_MODES.PAPER_ANALYSIS, label: '全文分析' },
-  { value: WORKBENCH_MODES.ANNOTATION_SUGGESTION, label: '批注建议', needsSelection: true },
-  { value: WORKBENCH_MODES.PAPER_COMPARISON, label: '多篇对比' },
-  { value: WORKBENCH_MODES.RESEARCH_GAP, label: '研究 Gap' },
+  { value: WORKBENCH_MODES.PAPER_COMPARISON, label: '跨论文对比' },
+  { value: WORKBENCH_MODES.PAPER_IMPROVEMENT, label: '论文改进空间' },
 ]
 const comparisonDimensionOptions = ['研究问题', '核心方法', '实验与指标', '主要结论', '局限', '适用场景']
 const question = computed({
@@ -281,23 +293,18 @@ const question = computed({
 const questionPlaceholder = computed(() => ({
   [WORKBENCH_MODES.SELECTION_QA]: '针对当前选区提问，例如：这一步推导为什么成立？',
   [WORKBENCH_MODES.PAPER_ANALYSIS]: '可补充你关注的研究问题；留空也可使用默认分析要求',
-  [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: '说明希望得到总结、质疑、问题或批判性批注',
+  [WORKBENCH_MODES.PAPER_IMPROVEMENT]: '可补充希望重点检查的方法、假设、指标或实验环节',
   [WORKBENCH_MODES.PAPER_COMPARISON]: '说明比较维度，例如方法、指标、场景或结论',
-  [WORKBENCH_MODES.RESEARCH_GAP]: '说明希望检验的方向，例如假设边界、指标缺口或场景覆盖',
+  [WORKBENCH_MODES.RESEARCH_GAP]: '说明希望进一步检验的领域方向，例如假设边界、指标缺口或场景覆盖',
 }[mode.value]))
 const actionLabel = computed(() => ({
   [WORKBENCH_MODES.SELECTION_QA]: '基于选区回答',
   [WORKBENCH_MODES.PAPER_ANALYSIS]: '分析全文',
-  [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: '生成批注建议',
-  [WORKBENCH_MODES.PAPER_COMPARISON]: '开始对比',
-  [WORKBENCH_MODES.RESEARCH_GAP]: '识别候选 Gap',
+  [WORKBENCH_MODES.PAPER_IMPROVEMENT]: '分析改进空间',
+  [WORKBENCH_MODES.PAPER_COMPARISON]: '开始跨论文对比',
+  [WORKBENCH_MODES.RESEARCH_GAP]: '分析领域研究空白',
 }[mode.value]))
 const resultEvidenceIndex = computed(() => evidenceIndex(trace.value))
-const annotationEvidence = computed(() => (trace.value?.result?.annotationSuggestion?.evidenceIds || [])
-  .map(id => resultEvidenceIndex.value.get(id)).filter(Boolean))
-const annotationIsApplied = computed(() => Boolean(trace.value?.runId)
-  && (annotationAppliedRunId.value === trace.value.runId
-    || props.appliedAnnotationRunIds.includes(trace.value.runId)))
 const historyOptions = computed(() => {
   const matchingRuns = recentRuns.value.filter(item => item.plan?.workflow === mode.value)
   if (!trace.value || trace.value.plan?.workflow !== mode.value) return matchingRuns
@@ -309,6 +316,7 @@ const paperCatalog = computed(() => [props.paper, ...availablePapers.value])
 const eligibleComparisonPapers = computed(() => availablePapers.value.filter(item => item.pdfPath))
 const isMultiPaperMode = computed(() => mode.value === WORKBENCH_MODES.PAPER_COMPARISON
   || mode.value === WORKBENCH_MODES.RESEARCH_GAP)
+const isFieldGapMode = computed(() => mode.value === WORKBENCH_MODES.RESEARCH_GAP)
 const minimumPaperCount = computed(() => mode.value === WORKBENCH_MODES.RESEARCH_GAP ? 3 : 2)
 const comparisonState = computed(() => comparisonSelectionState(
   props.paper.id, comparisonPaperIds.value, minimumPaperCount.value))
@@ -318,33 +326,51 @@ const comparisonSelectionHint = computed(() => {
   const requiredAdditional = minimumPaperCount.value - 1
   if (eligibleComparisonPapers.value.length < requiredAdditional) {
     return mode.value === WORKBENCH_MODES.RESEARCH_GAP
-      ? '文库中至少需要三篇带 PDF 的论文才能识别 Gap'
-      : '文库中至少需要两篇带 PDF 的论文才能对比'
+      ? '文库中至少需要三篇带 PDF 的论文才能分析领域研究空白'
+      : '文库中至少需要两篇带 PDF 的论文才能跨论文对比'
   }
   if (!comparisonState.value.canStart) return `请至少再选择 ${requiredAdditional} 篇论文`
   if (comparisonState.value.atLimit) return '已达到单次对比上限'
-  return `已选择 ${comparisonState.value.total} 篇论文，可以开始${mode.value === WORKBENCH_MODES.RESEARCH_GAP ? '识别候选 Gap' : '对比'}`
+  return `已选择 ${comparisonState.value.total} 篇论文，可以开始${mode.value === WORKBENCH_MODES.RESEARCH_GAP ? '分析领域研究空白' : '跨论文对比'}`
 })
 const actionDisabled = computed(() => running.value
-  || (isMultiPaperMode.value && !comparisonState.value.canStart))
+  || (isMultiPaperMode.value && !comparisonState.value.canStart)
+  || (isFieldGapMode.value && !fieldGapSourceRunId.value))
 const isMultiPaperResult = computed(() => [
   WORKBENCH_MODES.PAPER_COMPARISON,
   WORKBENCH_MODES.RESEARCH_GAP,
 ].includes(trace.value?.plan?.workflow))
 const comparisonCoverage = computed(() => buildComparisonCoverage(trace.value, paperCatalog.value))
+const completedComparisonResult = computed(() => trace.value?.status === 'COMPLETED'
+  && trace.value?.plan?.workflow === WORKBENCH_MODES.PAPER_COMPARISON
+  && Boolean(trace.value?.result))
+const comparisonResultPaperIds = computed(() => {
+  if (!completedComparisonResult.value) return []
+  const ids = trace.value?.result?.paperIds?.length
+    ? trace.value.result.paperIds : trace.value?.invocation?.paperIds || []
+  return [...new Set(ids.map(Number))].filter(id => Number.isInteger(id) && id > 0)
+})
 
 watch(() => props.selectionAnchor, next => {
   if (next && !running.value) mode.value = WORKBENCH_MODES.SELECTION_QA
 })
-watch(() => trace.value?.runId, () => { annotationAppliedRunId.value = '' })
 watch(mode, nextMode => {
   emit('mode-change', nextMode)
   if (nextMode === WORKBENCH_MODES.PAPER_COMPARISON || nextMode === WORKBENCH_MODES.RESEARCH_GAP) {
     emit('paper-ids-change', [Number(props.paper.id), ...normalizeInitialPaperIds(comparisonPaperIds.value)])
   }
+  if (nextMode === WORKBENCH_MODES.RESEARCH_GAP && fieldGapSourceRunId.value) {
+    selectRun(null)
+    return
+  }
   if (running.value || trace.value?.plan?.workflow === nextMode) return
   const matchingRun = recentRuns.value.find(item => item.plan?.workflow === nextMode)
   selectRun(matchingRun || null)
+})
+watch(trace, nextTrace => {
+  if (nextTrace?.plan?.workflow === WORKBENCH_MODES.RESEARCH_GAP) {
+    fieldGapSourceRunId.value = nextTrace.invocation?.sourceRunId || ''
+  }
 })
 watch(() => props.initialMode, nextMode => {
   const normalized = normalizeInitialMode(nextMode)
@@ -379,7 +405,7 @@ onMounted(async () => {
       if (trace.value?.plan?.workflow !== requestedMode) selectRun(matchingRun || null)
     } else {
       const restoredMode = trace.value?.plan?.workflow
-      if (modeOptions.some(item => item.value === restoredMode)) mode.value = restoredMode
+      if (supportedWorkbenchModes.includes(restoredMode)) mode.value = restoredMode
     }
   } catch { /* history is optional */ }
 })
@@ -395,6 +421,7 @@ async function startRun() {
       comparisonPaperIds: comparisonPaperIds.value,
       question: effectiveQuestion,
       selectionAnchor: props.selectionAnchor,
+      sourceRunId: isFieldGapMode.value ? fieldGapSourceRunId.value : '',
     })
     await run(request)
     await loadRecent(props.paper.id)
@@ -404,6 +431,47 @@ async function startRun() {
       ElMessage.error(reason?.response?.data?.message || reason?.message || '论文助手执行失败')
     }
   }
+}
+
+async function startFieldGapFromComparison() {
+  const source = trace.value
+  if (!completedComparisonResult.value || !source?.runId) return
+  if (comparisonResultPaperIds.value.length < 3) {
+    ElMessage.warning('领域研究空白至少需要三篇论文')
+    return
+  }
+  fieldGapSourceRunId.value = source.runId
+  comparisonPaperIds.value = comparisonResultPaperIds.value
+    .filter(id => id !== Number(props.paper.id))
+  mode.value = WORKBENCH_MODES.RESEARCH_GAP
+  await nextTick()
+  await startRun()
+}
+
+async function returnToComparison() {
+  const sourceRunId = fieldGapSourceRunId.value || trace.value?.invocation?.sourceRunId || ''
+  const sourceRun = recentRuns.value.find(item => item.runId === sourceRunId) || null
+  mode.value = WORKBENCH_MODES.PAPER_COMPARISON
+  await nextTick()
+  if (sourceRun) {
+    comparisonPaperIds.value = (sourceRun.invocation?.paperIds || [])
+      .map(Number).filter(id => id !== Number(props.paper.id))
+    selectRun(sourceRun)
+  }
+}
+
+function selectProductMode(nextMode) {
+  if (running.value) return
+  if (isFieldGapMode.value && nextMode === WORKBENCH_MODES.PAPER_COMPARISON) {
+    void returnToComparison()
+    return
+  }
+  mode.value = nextMode
+}
+
+function isModeTabActive(tabMode) {
+  return mode.value === tabMode
+    || (tabMode === WORKBENCH_MODES.PAPER_COMPARISON && isFieldGapMode.value)
 }
 
 function comparisonOptionDisabled(paper) {
@@ -436,35 +504,19 @@ function jump(item) {
   if (item) emit('jump-evidence', item)
 }
 
-async function confirmAnnotation() {
-  if (!props.applyAnnotation || !trace.value?.result?.annotationSuggestion) return
-  applyingAnnotation.value = true
-  try {
-    await props.applyAnnotation({
-      trace: trace.value,
-      suggestion: trace.value.result.annotationSuggestion,
-      evidence: annotationEvidence.value,
-    })
-    annotationAppliedRunId.value = trace.value.runId
-  } catch (reason) {
-    ElMessage.error(reason?.message || '批注添加失败')
-  } finally {
-    applyingAnnotation.value = false
-  }
-}
-
 function workflowLabel(workflow) {
   return {
     SELECTION_QA: '选区问答',
     PAPER_ANALYSIS: '全文分析',
+    PAPER_IMPROVEMENT: '论文改进空间',
     ANNOTATION_SUGGESTION: '批注建议',
-    PAPER_COMPARISON: '多篇对比',
-    RESEARCH_GAP: '研究 Gap',
+    PAPER_COMPARISON: '跨论文对比',
+    RESEARCH_GAP: '领域研究空白',
   }[workflow] || '论文助手运行'
 }
 
 function normalizeInitialMode(value) {
-  return Object.values(WORKBENCH_MODES).includes(value)
+  return supportedWorkbenchModes.includes(value)
     ? value : WORKBENCH_MODES.PAPER_ANALYSIS
 }
 
@@ -488,10 +540,6 @@ function runTagType(status) {
 
 function anchorLabel(kind) {
   return { TEXT: '正文已映射', FORMULA: '公式已映射', TABLE: '表格已映射', REGION: '区域理解' }[kind] || '已建立锚点'
-}
-
-function annotationTypeLabel(type) {
-  return { COMMENT: '评论', SUMMARY: '总结', QUESTION: '问题', CRITIQUE: '批判性批注' }[type] || '批注'
 }
 
 </script>
@@ -525,10 +573,15 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .section-heading button { border: 0; color: var(--ra-text-secondary); background: transparent; cursor: pointer; font-size: 18px; }
 .selection-card p { max-height: 76px; overflow: auto; margin: 0 0 8px; padding: 8px; border-left: 3px solid var(--ra-link); background: var(--ra-hover-bg); font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
 .selection-meta { color: var(--ra-text-tertiary); font-size: 11px; }
-.workflow-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-bottom: 9px; }
+.workflow-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-bottom: 9px; }
 .workflow-tabs button { min-width: 0; padding: 7px 4px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-text-secondary); background: transparent; cursor: pointer; }
 .workflow-tabs button.active { border-color: var(--ra-link); color: var(--ra-link); background: var(--ra-hover-bg); }
 .workflow-tabs button:disabled { opacity: .45; cursor: not-allowed; }
+.comparison-stage-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--ra-link) 42%, var(--ra-border)); border-radius: 7px; background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); }
+.comparison-stage-banner > div { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.comparison-stage-banner b { color: var(--ra-link); font-size: 11px; }
+.comparison-stage-banner small { color: var(--ra-text-tertiary); font-size: 9px; line-height: 1.35; }
+.comparison-stage-banner button { flex: 0 0 auto; padding: 3px 6px; border: 0; color: var(--ra-link); background: transparent; font-size: 9px; cursor: pointer; }
 .paper-selector { width: 100%; margin-bottom: 9px; }
 .comparison-config { margin: -1px 0 10px; padding: 9px; border: 1px solid var(--ra-border); border-radius: 7px; background: var(--ra-hover-bg); }
 .comparison-base { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -553,6 +606,7 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .trace-dot-item.is-failed .step-dot { border-color: var(--el-color-danger); background: var(--el-color-danger); }
 @keyframes trace-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ra-link) 30%, transparent); } 75%, 100% { box-shadow: 0 0 0 6px transparent; } }
 .answer-text { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.result-selectable-content { user-select: text; }
 .answer-text :deep(h3), .answer-text :deep(h4), .answer-text :deep(h5) { margin: 12px 0 5px; font-size: 13px; line-height: 1.4; }
 .answer-text :deep(h3:first-child), .answer-text :deep(h4:first-child) { margin-top: 0; }
 .answer-text :deep(p) { margin: 5px 0; }
@@ -561,6 +615,10 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .answer-text :deep(code) { padding: 1px 3px; border-radius: 3px; background: var(--ra-hover-bg); }
 .claim-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 0; padding-left: 19px; }
 .comparison-coverage { display: flex; flex-direction: column; gap: 6px; margin-top: 13px; padding: 9px; border: 1px solid var(--ra-border); border-radius: 7px; background: var(--ra-hover-bg); }
+.comparison-followup { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: 13px; padding: 10px; border: 1px solid color-mix(in srgb, var(--ra-link) 38%, var(--ra-border)); border-radius: 7px; background: color-mix(in srgb, var(--ra-link) 6%, var(--ra-panel-bg)); }
+.comparison-followup > div { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
+.comparison-followup b { font-size: 11px; }
+.comparison-followup small { color: var(--ra-text-tertiary); font-size: 9px; line-height: 1.4; }
 .coverage-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
 .coverage-heading b { font-size: 11px; font-weight: 600; }
 .coverage-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-text); background: var(--ra-panel-bg); text-align: left; cursor: pointer; }
@@ -574,10 +632,6 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .claim-list li { padding-left: 2px; font-size: 11px; line-height: 1.5; }
 .evidence-links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .evidence-links button { padding: 2px 6px; border: 1px solid color-mix(in srgb, var(--ra-link) 45%, var(--ra-border)); border-radius: 999px; color: var(--ra-link); background: transparent; font-size: 10px; cursor: pointer; }
-.annotation-suggestion { margin-top: 12px; padding: 10px; border: 1px solid color-mix(in srgb, var(--ra-link) 40%, var(--ra-border)); border-radius: 7px; background: var(--ra-hover-bg); }
-.annotation-suggestion > div:first-child { display: flex; align-items: center; gap: 7px; color: var(--ra-text-tertiary); font-size: 10px; }
-.annotation-suggestion p { margin: 8px 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
-.annotation-suggestion > .el-button { margin-top: 9px; }
 .muted-state, .error-state, .region-warning { padding: 7px 0; color: var(--ra-text-tertiary); font-size: 11px; line-height: 1.45; }
 .error-state { color: var(--el-color-danger); }
 .region-warning { color: #a66000; }

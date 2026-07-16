@@ -7,20 +7,28 @@ const MODE_ALIASES = Object.freeze({
   read: WORKBENCH_MODES.PAPER_ANALYSIS,
   paper: WORKBENCH_MODES.PAPER_ANALYSIS,
   paper_analysis: WORKBENCH_MODES.PAPER_ANALYSIS,
-  gap: WORKBENCH_MODES.RESEARCH_GAP,
-  research_gap: WORKBENCH_MODES.RESEARCH_GAP,
-  'research-gap': WORKBENCH_MODES.RESEARCH_GAP,
+  gap: WORKBENCH_MODES.PAPER_IMPROVEMENT,
+  research_gap: WORKBENCH_MODES.PAPER_IMPROVEMENT,
+  'research-gap': WORKBENCH_MODES.PAPER_IMPROVEMENT,
+  improvement: WORKBENCH_MODES.PAPER_IMPROVEMENT,
+  paper_improvement: WORKBENCH_MODES.PAPER_IMPROVEMENT,
+  'paper-improvement': WORKBENCH_MODES.PAPER_IMPROVEMENT,
+  field_gap: WORKBENCH_MODES.RESEARCH_GAP,
+  'field-gap': WORKBENCH_MODES.RESEARCH_GAP,
+  domain_gap: WORKBENCH_MODES.RESEARCH_GAP,
+  'domain-gap': WORKBENCH_MODES.RESEARCH_GAP,
   comparison: WORKBENCH_MODES.PAPER_COMPARISON,
   compare: WORKBENCH_MODES.PAPER_COMPARISON,
   paper_comparison: WORKBENCH_MODES.PAPER_COMPARISON,
   selection: WORKBENCH_MODES.SELECTION_QA,
   selection_qa: WORKBENCH_MODES.SELECTION_QA,
-  annotation: WORKBENCH_MODES.ANNOTATION_SUGGESTION,
-  annotation_suggestion: WORKBENCH_MODES.ANNOTATION_SUGGESTION,
+  annotation: WORKBENCH_MODES.SELECTION_QA,
+  annotation_suggestion: WORKBENCH_MODES.SELECTION_QA,
 })
 
 export function normalizeWorkbenchRouteMode(value, fallback = WORKBENCH_MODES.PAPER_ANALYSIS) {
   const raw = Array.isArray(value) ? value[0] : value
+  if (raw === WORKBENCH_MODES.ANNOTATION_SUGGESTION) return WORKBENCH_MODES.SELECTION_QA
   if (Object.values(WORKBENCH_MODES).includes(raw)) return raw
   return MODE_ALIASES[String(raw || '').trim().toLowerCase()] || fallback
 }
@@ -28,10 +36,11 @@ export function normalizeWorkbenchRouteMode(value, fallback = WORKBENCH_MODES.PA
 export function workbenchModeQueryValue(mode) {
   return {
     [WORKBENCH_MODES.PAPER_ANALYSIS]: 'analysis',
-    [WORKBENCH_MODES.RESEARCH_GAP]: 'gap',
+    [WORKBENCH_MODES.PAPER_IMPROVEMENT]: 'improvement',
+    [WORKBENCH_MODES.RESEARCH_GAP]: 'field-gap',
     [WORKBENCH_MODES.PAPER_COMPARISON]: 'comparison',
     [WORKBENCH_MODES.SELECTION_QA]: 'selection',
-    [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: 'annotation',
+    [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: 'selection',
   }[mode] || 'analysis'
 }
 

@@ -11,6 +11,7 @@
             <el-button :type="currentTool === 'select' ? 'primary' : 'default'" @click="setTool('select')">选择</el-button>
             <el-button @mousedown.prevent @click="applyTextAnnotation('HIGHLIGHT')">高亮</el-button>
             <el-button @mousedown.prevent @click="applyTextAnnotation('UNDERLINE')">下划线</el-button>
+            <el-button @mousedown.prevent @click="openSelectionComment">批注</el-button>
             <el-button :type="currentTool === 'note' ? 'primary' : 'default'" @mousedown.prevent @click="activateNote">便签</el-button>
           </el-button-group>
           <span class="selection-hint">{{ selectionHint }}</span>
@@ -58,7 +59,6 @@
         </div>
         <el-color-picker v-model="currentColor" size="small" :predefine="predefineColors" show-alpha />
 
-        <el-button size="small" :loading="aiGenerating" @click="generateAiAnnotationsLocal">AI 批注</el-button>
         <el-button size="small" :type="workbenchPanelVisible ? 'primary' : 'default'" @click="workbenchPanelVisible = !workbenchPanelVisible">
           论文助手
         </el-button>
@@ -272,8 +272,6 @@
         :selection-anchor="selectionAnchor"
         :selection-loading="selectionContextLoading"
         :selection-error="selectionContextError"
-        :apply-annotation="applyWorkbenchAnnotationSuggestion"
-        :applied-annotation-run-ids="appliedWorkbenchRunIds"
         :initial-mode="initialWorkbenchMode"
         :initial-paper-ids="initialWorkbenchPaperIds"
         @clear-selection="clearPendingTextSelection"
@@ -293,13 +291,19 @@
     />
     </div>
 
-    <!-- 便签编辑弹窗 -->
-    <el-dialog v-model="noteDialogVisible" title="批注内容" width="400px" @closed="noteEditTarget = null">
+    <!-- 手动选区批注与自由便签共用保存链路；是否锚定由当前草稿决定。 -->
+    <el-dialog v-model="noteDialogVisible" :title="noteDialogTitle" width="420px" @closed="noteEditTarget = null">
+      <div v-if="noteDialogAnchored" class="selection-comment-anchor">
+        <span>关联原文</span>
+        <p>{{ noteDialogAnchorText }}</p>
+      </div>
       <el-input
         v-model="noteEditText"
         type="textarea"
         :rows="4"
-        placeholder="输入批注..."
+        maxlength="4000"
+        show-word-limit
+        :placeholder="noteDialogAnchored ? '填写对所选文本的批注…' : '输入便签内容…'"
       />
       <template #footer>
         <el-button @click="noteDialogVisible = false">取消</el-button>
@@ -310,7 +314,7 @@
     <!-- 已保存批注的编辑弹窗 -->
     <el-dialog
       v-model="annotationEditorVisible"
-      :title="annotationEditorTarget?.type === 'NOTE' ? '编辑便签' : '编辑批注'"
+      :title="annotationEditorTitle"
       width="420px"
       @closed="annotationEditorTarget = null"
     >
@@ -364,13 +368,12 @@
 import { ref, shallowRef, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
-import { listAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, generateAiAnnotations } from '@/api/annotation'
+import { listAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } from '@/api/annotation'
 import { listNotesByPaper, deleteNote, unlinkNote } from '@/api/notes'
 import NoteLinkPanel from '@/components/notes/NoteLinkPanel.vue'
 import NoteEditor from '@/components/notes/NoteEditor.vue'
 import PaperWorkbenchPanel from '@/components/pdf/PaperWorkbenchPanel.vue'
-import { resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
-import { appliedWorkbenchRunIds as collectAppliedWorkbenchRunIds } from '@/utils/workbenchRun.js'
+import { buildSelectionNoteDraft, resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
 import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
@@ -424,7 +427,6 @@ const annotations = ref([])
 const selectedAnnotation = ref(null)
 const currentTool = ref('select')
 const currentColor = ref('#ffeb3b')
-const aiGenerating = ref(false)
 const pendingTextSelection = ref(null)
 const selectionAnchor = ref(null)
 const selectionContextLoading = ref(false)
@@ -456,11 +458,23 @@ const noteEditText = ref('')
 const noteEditTarget = ref(null)
 const noteSaving = ref(false)
 const notePreview = ref(null)
+const noteDialogAnchored = computed(() => Boolean(noteEditTarget.value?.coordinates?.anchorQuads?.length))
+const noteDialogTitle = computed(() => noteDialogAnchored.value ? '添加选区批注' : '添加便签')
+const noteDialogAnchorText = computed(() => noteEditTarget.value?.coordinates?.anchorText || '')
 const annotationEditorVisible = ref(false)
 const annotationEditorTarget = ref(null)
 const annotationEditorText = ref('')
 const annotationEditorColor = ref('#ffeb3b')
 const annotationEditorSaving = ref(false)
+const annotationEditorIsSelectionComment = computed(() => (
+  annotationEditorTarget.value?.type === 'NOTE'
+  && (annotationEditorTarget.value?.coordinates?.anchorKind === 'SELECTION'
+    || annotationEditorTarget.value?.coordinates?.anchorQuads?.length)
+))
+const annotationEditorTitle = computed(() => (
+  annotationEditorTarget.value?.type === 'NOTE' && !annotationEditorIsSelectionComment.value
+    ? '编辑便签' : '编辑批注'
+))
 
 const notes = ref([])
 const showNotePanel = ref(false)
@@ -482,7 +496,6 @@ let selectionContextRequestId = 0
 let evidenceFocusTimer = null
 
 const pageAnnotations = computed(() => (pageNum) => annotations.value.filter(a => a.page === pageNum))
-const appliedWorkbenchRunIds = computed(() => collectAppliedWorkbenchRunIds(annotations.value))
 const selectionGroupForPage = computed(() => (pageNum) => (
   pendingTextSelection.value?.groups?.find(group => group.pageNum === pageNum) || null
 ))
@@ -500,10 +513,10 @@ const selectionHint = computed(() => {
   if (text && selectionAnchor.value) return selectionAnchor.value.kind === 'REGION'
     ? '该选区将按区域理解'
     : `${selectionAnchorLabel.value} · ${Math.round(selectionAnchor.value.confidence * 100)}%`
-  if (text) return `已选中“${text.slice(0, 18)}${text.length > 18 ? '…' : ''}”，可添加高亮、下划线或关联便签`
-  if (currentTool.value === 'note') return '点击页面放置便签；先选中文本再点“便签”可建立关联'
+  if (text) return `已选中“${text.slice(0, 18)}${text.length > 18 ? '…' : ''}”，可添加高亮、下划线或批注`
+  if (currentTool.value === 'note') return '点击页面任意位置放置便签'
   if (currentTool.value === 'edit') return '点击批注后可编辑或删除；拖动高亮/下划线两端可调整范围'
-  return '先拖动选择文本，再点高亮、下划线或便签'
+  return '先拖动选择文本，再点高亮、下划线或批注；便签可直接放置在页面上'
 })
 const selectionAnchorLabel = computed(() => ({
   TEXT: '正文已映射',
@@ -1204,55 +1217,6 @@ async function jumpToEvidence(item) {
   }, 8000)
 }
 
-async function applyWorkbenchAnnotationSuggestion({ trace, suggestion, evidence }) {
-  const traceAnchor = trace?.invocation?.selectionAnchor
-  const currentGroup = pendingTextSelection.value?.groups?.[0]
-  const currentAnchorMatches = currentGroup && selectionAnchor.value && traceAnchor
-    && selectionAnchor.value.documentHash === traceAnchor.documentHash
-    && selectionAnchor.value.parserVersion === traceAnchor.parserVersion
-
-  let pageNum = currentAnchorMatches ? currentGroup.pageNum : null
-  let quads = currentAnchorMatches ? currentGroup.quads : []
-  let anchorText = currentAnchorMatches ? pendingTextSelection.value.text : ''
-  if (!quads?.length) {
-    const candidates = (evidence || []).filter(item => Number(item.paperId) === Number(props.paper.id) && item.bbox)
-    const first = candidates.find(item => item.selected) || candidates[0]
-    if (!first) throw new Error('批注建议没有可回链的当前论文证据')
-    pageNum = first.page
-    quads = candidates.filter(item => item.page === pageNum).map(item => boundingBoxToViewportQuad(item.bbox)).filter(Boolean)
-    anchorText = candidates.filter(item => item.page === pageNum).map(item => item.text).join(' ').slice(0, 500)
-  }
-
-  await goToPage(pageNum)
-  const pageState = renderedPages.value.find(page => page.pageNum === pageNum)
-  if (!pageState?.viewport || !quads.length) throw new Error('未能恢复批注锚点，请重新选择内容')
-  const annotation = {
-    localId: nextLocalId++,
-    paperId: props.paper.id,
-    type: 'NOTE',
-    page: pageNum,
-    color: currentColor.value,
-    note: suggestion.content,
-    coordinates: {
-      coordinateSpace: 'viewport',
-      pageWidth: pageState.viewport.width,
-      pageHeight: pageState.viewport.height,
-      rotation: pageState.viewport.rotation,
-      scale: pageState.viewport.scale,
-      quads,
-      anchorQuads: quads,
-      notePosition: notePositionNearAnchor(quads),
-      anchorText,
-      workbenchRunId: trace.runId
-    }
-  }
-  await persistNewAnnotation(annotation)
-  selectedAnnotation.value = annotation
-  notePreview.value = annotation
-  ElMessage.success('批注已添加')
-  return annotation
-}
-
 function selectionSegmentsToViewportQuads(segments, layoutIndex, layer, pageElement) {
   const runById = new Map(layoutIndex.runs.map(run => [run.id, run]))
   const pageRect = pageElement.getBoundingClientRect()
@@ -1357,12 +1321,17 @@ function toggleAnnotationEditMode() {
 }
 
 function activateNote() {
+  setTool(currentTool.value === 'note' ? 'select' : 'note')
+}
+
+function openSelectionComment() {
   const selection = pendingTextSelection.value
-  if (selection?.groups?.length) {
-    openAnchoredNote(selection)
+  if (!selection?.groups?.length) {
+    ElMessage.warning('请先用“选择”拖动选中文本，再添加批注')
+    setTool('select')
     return
   }
-  setTool(currentTool.value === 'note' ? 'select' : 'note')
+  openAnchoredNote(selection)
 }
 
 function findPageElement(node) {
@@ -1442,36 +1411,21 @@ function openAnchoredNote(selection) {
     ElMessage.warning('未能获取所选文字的位置，请重新选择后再试')
     return
   }
-  const pageState = group.pageState
-  noteEditTarget.value = {
+  noteEditTarget.value = buildSelectionNoteDraft({
     localId: nextLocalId++,
     paperId: props.paper.id,
-    type: 'NOTE',
-    page: group.pageNum,
     color: currentColor.value,
-    note: '',
-    coordinates: {
-      coordinateSpace: 'viewport',
-      pageWidth: pageState.viewport.width,
-      pageHeight: pageState.viewport.height,
-      rotation: pageState.viewport.rotation,
-      scale: pageState.viewport.scale,
-      // anchorQuads 用于绘制选区外框和指向线；quads 保留给旧版批注数据读取。
-      quads: group.quads,
-      anchorQuads: group.quads,
-      notePosition: notePositionNearAnchor(group.quads),
-      anchorText: selection.text.slice(0, 500)
-    }
-  }
+    selection,
+    notePosition: notePositionNearAnchor(group.quads),
+  })
   noteEditText.value = ''
-  clearPendingTextSelection()
   noteDialogVisible.value = true
 }
 
 async function confirmNote() {
   const content = noteEditText.value.trim()
   if (!content) {
-    ElMessage.warning('请先填写便签内容')
+    ElMessage.warning(noteDialogAnchored.value ? '请先填写批注内容' : '请先填写便签内容')
     return
   }
   const target = noteEditTarget.value
@@ -1484,9 +1438,10 @@ async function confirmNote() {
     notePreview.value = target
     currentTool.value = 'select'
     noteDialogVisible.value = false
-    ElMessage.success(target.coordinates?.anchorQuads ? '已自动保存关联便签' : '已自动保存便签')
+    if (target.coordinates?.anchorQuads) clearPendingTextSelection()
+    ElMessage.success(target.coordinates?.anchorQuads ? '批注已保存' : '便签已保存')
   } catch (e) {
-    ElMessage.error('便签保存失败：' + requestErrorMessage(e))
+    ElMessage.error(`${target.coordinates?.anchorQuads ? '批注' : '便签'}保存失败：${requestErrorMessage(e)}`)
   } finally {
     noteSaving.value = false
   }
@@ -1645,7 +1600,7 @@ async function saveAnnotationEditor() {
   if (!annotation) return
   const note = annotationEditorText.value.trim()
   if (annotation.type === 'NOTE' && !note) {
-    ElMessage.warning('便签内容不能为空')
+    ElMessage.warning(annotationEditorIsSelectionComment.value ? '批注内容不能为空' : '便签内容不能为空')
     return
   }
   const previous = { color: annotation.color, note: annotation.note }
@@ -1715,21 +1670,6 @@ async function persistUpdatedAnnotation(annotation) {
 
 function requestErrorMessage(error) {
   return error?.response?.data?.message || error?.message || '请求失败'
-}
-
-async function generateAiAnnotationsLocal() {
-  aiGenerating.value = true
-  try {
-    const created = await generateAiAnnotations(props.paper.id)
-    for (const a of created) {
-      annotations.value.push({ ...a, localId: nextLocalId++ })
-    }
-    ElMessage.success(`已生成 ${created.length} 条 AI 批注`)
-  } catch (e) {
-    ElMessage.error('AI 批注生成失败：' + (e.response?.data?.message || e.message))
-  } finally {
-    aiGenerating.value = false
-  }
 }
 
 function toPayload(ann) {
@@ -2216,6 +2156,26 @@ function colorName(color) {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+}
+.selection-comment-anchor {
+  margin-bottom: 12px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--ra-link);
+  border-radius: 4px;
+  background: var(--ra-hover-bg);
+}
+.selection-comment-anchor span {
+  color: var(--ra-text-tertiary);
+  font-size: 11px;
+}
+.selection-comment-anchor p {
+  max-height: 72px;
+  overflow: auto;
+  margin: 5px 0 0;
+  color: var(--ra-text);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 .annotation-editor-field {
   display: flex;

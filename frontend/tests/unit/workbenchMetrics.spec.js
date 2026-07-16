@@ -33,11 +33,13 @@ describe('PDF workbench metric presentation', () => {
       completionRate: 0.5, repairRate: 0.25,
       averageLatencyMs: 1200, averageTokens: 1234.4, averageEvidence: 9.5,
     }] })).toEqual([{
-      workflow: 'PAPER_COMPARISON', label: '多篇对比', total: 2, terminal: 2, completed: 1,
+      workflow: 'PAPER_COMPARISON', label: '跨论文对比', total: 2, terminal: 2, completed: 1,
       completionRate: 0.5, repairRate: 0.25,
       averageLatency: '1.2s', averageTokens: 1234, averageEvidence: 9.5,
     }])
     expect(workflowMetricRows({ workflows: [{ workflow: 'RESEARCH_GAP' }] })[0].label)
-      .toBe('研究 Gap')
+      .toBe('领域研究空白')
+    expect(workflowMetricRows({ workflows: [{ workflow: 'PAPER_IMPROVEMENT' }] })[0].label)
+      .toBe('论文改进空间')
   })
 })

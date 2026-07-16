@@ -32,6 +32,22 @@ class WorkbenchOutputQualityGateTest {
                         "research gap analysis has too few grounded claims");
     }
 
+    @Test
+    void paperImprovementRequiresActionableValidatedEntryPoints() {
+        WorkbenchModelOutput valid = new WorkbenchModelOutput(
+                ("## 改进空间与研究切入点\n当前假设边界可通过扩展场景和对照实验验证。\n").repeat(8),
+                List.of(claim("假设边界", "e1"), claim("评价指标", "e2"), claim("实验设计", "e3")),
+                null);
+        assertThat(gate.validate(WorkbenchPlan.Workflow.PAPER_IMPROVEMENT, valid, true, 1)).isEmpty();
+
+        WorkbenchModelOutput weak = new WorkbenchModelOutput(
+                "这篇论文还有一些普通问题。".repeat(20), List.of(claim("问题", "e1")), null);
+        assertThat(gate.validate(WorkbenchPlan.Workflow.PAPER_IMPROVEMENT, weak, true, 1))
+                .contains("paper improvement analysis is missing research entry points",
+                        "paper improvement analysis is missing validation steps",
+                        "paper improvement analysis has fewer than three grounded claims");
+    }
+
     private WorkbenchEvidenceGate.GroundedClaim claim(String text, String evidenceId) {
         return new WorkbenchEvidenceGate.GroundedClaim(text, List.of(evidenceId));
     }

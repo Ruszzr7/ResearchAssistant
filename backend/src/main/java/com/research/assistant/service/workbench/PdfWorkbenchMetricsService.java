@@ -181,7 +181,8 @@ public class PdfWorkbenchMetricsService {
                 }
                 if (grounded) groundedClaims++;
             }
-            if (workflow == WorkbenchPlan.Workflow.PAPER_COMPARISON) {
+            if (workflow == WorkbenchPlan.Workflow.PAPER_COMPARISON
+                    || workflow == WorkbenchPlan.Workflow.RESEARCH_GAP) {
                 comparisonRuns++;
                 Set<Long> requiredPaperIds = parsePaperIds(run.getPaperIdsJson());
                 if (requiredPaperIds.size() >= 2 && citedPaperIds.containsAll(requiredPaperIds)) {
