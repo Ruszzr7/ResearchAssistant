@@ -12,9 +12,22 @@
     <section v-if="selection" class="selection-card">
       <div class="section-heading">
         <span>当前选区</span>
-        <button type="button" aria-label="清除选区" @click="$emit('clear-selection')">×</button>
+        <div class="selection-heading-actions">
+          <button
+            type="button"
+            class="selection-translate-action"
+            :disabled="selectionTranslationLoading"
+            @click="translateSelection"
+          >{{ selectionTranslationLoading ? '翻译中…' : `译为${languageLabel(selectionTargetLanguage)}` }}</button>
+          <button type="button" class="selection-clear-action" aria-label="清除选区" @click="$emit('clear-selection')">×</button>
+        </div>
       </div>
       <p>{{ selection.text }}</p>
+      <div v-if="selectionTranslation" class="selection-translation">
+        <small>{{ languageLabel(selectionTranslation.targetLanguage) }}</small>
+        <div>{{ selectionTranslation.text }}</div>
+      </div>
+      <div v-if="selectionTranslationError" class="error-state">{{ selectionTranslationError }}</div>
       <div v-if="selectionLoading" class="muted-state">正在建立证据锚点…</div>
       <div v-else-if="selectionError" class="error-state">{{ selectionError }}</div>
       <template v-else-if="selectionAnchor">
@@ -148,7 +161,19 @@
     <section v-if="trace?.result" class="result-card">
       <div class="section-heading">
         <span>分析结果</span>
+        <div class="result-language-switch" role="group" aria-label="结果语言">
+          <button
+            v-for="language in resultLanguageOptions"
+            :key="language.value"
+            type="button"
+            :class="{ active: resultLanguage === language.value }"
+            :disabled="resultTranslationLoading"
+            @click="selectResultLanguage(language.value)"
+          >{{ language.label }}</button>
+        </div>
       </div>
+      <div v-if="resultTranslationLoading" class="muted-state translation-state">正在转换结果语言…</div>
+      <div v-if="resultTranslationError" class="error-state translation-state">{{ resultTranslationError }}</div>
       <div class="result-selectable-content">
         <div class="answer-text" v-html="answerHtml" />
 
@@ -181,8 +206,8 @@
           </button>
         </div>
 
-        <ol v-if="trace.result.claims?.length" class="claim-list">
-          <li v-for="(claim, index) in trace.result.claims" :key="index">
+        <ol v-if="displayedClaims.length" class="claim-list">
+          <li v-for="(claim, index) in displayedClaims" :key="index">
             <span>{{ claim.text }}</span>
             <div class="evidence-links">
               <button
@@ -225,7 +250,14 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listPapers } from '@/api/paper.js'
+import { translateTexts } from '@/api/workbench.js'
 import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
+import {
+  detectTextLanguage,
+  languageLabel,
+  oppositeLanguage,
+  TRANSLATION_LANGUAGES,
+} from '@/utils/translation.js'
 import {
   buildComparisonCoverage,
   buildComparisonQuestion,
@@ -278,6 +310,17 @@ const comparisonPaperIds = ref(normalizeInitialPaperIds(props.initialPaperIds))
 const comparisonDimensions = ref(['研究问题', '核心方法', '实验与指标', '主要结论', '局限'])
 const availablePapers = ref([])
 const papersLoading = ref(false)
+const selectionTranslation = ref(null)
+const selectionTranslationLoading = ref(false)
+const selectionTranslationError = ref('')
+const resultLanguage = ref(detectTextLanguage(trace.value?.result?.answer))
+const resultTranslationLoading = ref(false)
+const resultTranslationError = ref('')
+const resultTranslationCache = reactive(new Map())
+const resultLanguageOptions = [
+  { value: TRANSLATION_LANGUAGES.CHINESE, label: '中文' },
+  { value: TRANSLATION_LANGUAGES.ENGLISH, label: 'English' },
+]
 
 const modeOptions = [
   { value: WORKBENCH_MODES.SELECTION_QA, label: '选区问答', needsSelection: true },
@@ -310,7 +353,25 @@ const historyOptions = computed(() => {
   if (!trace.value || trace.value.plan?.workflow !== mode.value) return matchingRuns
   return [trace.value, ...matchingRuns.filter(item => item.runId !== trace.value.runId)]
 })
-const answerHtml = computed(() => workbenchMarkdownToHtml(trace.value?.result?.answer))
+const originalAnswer = computed(() => trace.value?.result?.answer || '')
+const originalResultLanguage = computed(() => detectTextLanguage(originalAnswer.value))
+const activeResultTranslation = computed(() => resultTranslationCache.get(resultTranslationKey(resultLanguage.value)))
+const displayedAnswer = computed(() => {
+  if (resultLanguage.value === originalResultLanguage.value) return originalAnswer.value
+  return activeResultTranslation.value?.items?.[0]?.text || originalAnswer.value
+})
+const displayedClaims = computed(() => {
+  const claims = trace.value?.result?.claims || []
+  if (resultLanguage.value === originalResultLanguage.value) return claims
+  const translated = activeResultTranslation.value?.items || []
+  return claims.map((claim, index) => ({
+    ...claim,
+    text: translated[index + 1]?.text || claim.text,
+  }))
+})
+const answerHtml = computed(() => workbenchMarkdownToHtml(displayedAnswer.value))
+const selectionTargetLanguage = computed(() => oppositeLanguage(
+  detectTextLanguage(props.selection?.text)))
 const tracePhases = computed(() => compactTracePhases(trace.value))
 const paperCatalog = computed(() => [props.paper, ...availablePapers.value])
 const eligibleComparisonPapers = computed(() => availablePapers.value.filter(item => item.pdfPath))
@@ -354,6 +415,10 @@ const comparisonResultPaperIds = computed(() => {
 watch(() => props.selectionAnchor, next => {
   if (next && !running.value) mode.value = WORKBENCH_MODES.SELECTION_QA
 })
+watch(() => props.selection?.text, () => {
+  selectionTranslation.value = null
+  selectionTranslationError.value = ''
+})
 watch(mode, nextMode => {
   emit('mode-change', nextMode)
   if (nextMode === WORKBENCH_MODES.PAPER_COMPARISON || nextMode === WORKBENCH_MODES.RESEARCH_GAP) {
@@ -371,6 +436,8 @@ watch(trace, nextTrace => {
   if (nextTrace?.plan?.workflow === WORKBENCH_MODES.RESEARCH_GAP) {
     fieldGapSourceRunId.value = nextTrace.invocation?.sourceRunId || ''
   }
+  resultLanguage.value = detectTextLanguage(nextTrace?.result?.answer)
+  resultTranslationError.value = ''
 })
 watch(() => props.initialMode, nextMode => {
   const normalized = normalizeInitialMode(nextMode)
@@ -431,6 +498,71 @@ async function startRun() {
       ElMessage.error(reason?.response?.data?.message || reason?.message || '论文助手执行失败')
     }
   }
+}
+
+async function translateSelection() {
+  const text = props.selection?.text
+  if (!text || selectionTranslationLoading.value) return
+  const targetLanguage = selectionTargetLanguage.value
+  selectionTranslationLoading.value = true
+  selectionTranslationError.value = ''
+  try {
+    const response = await translateTexts({
+      texts: [text],
+      sourceLanguage: detectTextLanguage(text),
+      targetLanguage,
+    })
+    const item = response?.items?.[0]
+    if (!item?.text) throw new Error('翻译服务未返回内容')
+    if (props.selection?.text !== text) return
+    selectionTranslation.value = { text: item.text, targetLanguage }
+  } catch (reason) {
+    if (props.selection?.text === text) {
+      selectionTranslationError.value = translationErrorMessage(reason)
+    }
+  } finally {
+    selectionTranslationLoading.value = false
+  }
+}
+
+async function selectResultLanguage(targetLanguage) {
+  if (!originalAnswer.value || resultTranslationLoading.value) return
+  resultTranslationError.value = ''
+  if (targetLanguage === originalResultLanguage.value
+      || resultTranslationCache.has(resultTranslationKey(targetLanguage))) {
+    resultLanguage.value = targetLanguage
+    return
+  }
+  const sourceAnswer = originalAnswer.value
+  const sourceClaims = trace.value?.result?.claims || []
+  const runId = trace.value?.runId || 'result'
+  const cacheKey = `${runId}:${targetLanguage}`
+  resultTranslationLoading.value = true
+  try {
+    const response = await translateTexts({
+      texts: [sourceAnswer, ...sourceClaims.map(claim => claim.text)],
+      sourceLanguage: originalResultLanguage.value,
+      targetLanguage,
+    })
+    if (!response?.items?.[0]?.text) throw new Error('翻译服务未返回内容')
+    resultTranslationCache.set(cacheKey, response)
+    if ((trace.value?.runId || 'result') !== runId || originalAnswer.value !== sourceAnswer) return
+    resultLanguage.value = targetLanguage
+  } catch (reason) {
+    if ((trace.value?.runId || 'result') === runId) {
+      resultTranslationError.value = translationErrorMessage(reason)
+    }
+  } finally {
+    resultTranslationLoading.value = false
+  }
+}
+
+function resultTranslationKey(targetLanguage) {
+  return `${trace.value?.runId || 'result'}:${targetLanguage}`
+}
+
+function translationErrorMessage(reason) {
+  return reason?.response?.data?.message || reason?.message || '翻译失败，请重试'
 }
 
 async function startFieldGapFromComparison() {
@@ -571,7 +703,13 @@ function anchorLabel(kind) {
 section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; font-size: 13px; font-weight: 600; }
 .section-heading button { border: 0; color: var(--ra-text-secondary); background: transparent; cursor: pointer; font-size: 18px; }
+.selection-heading-actions { display: flex; align-items: center; gap: 5px; }
+.section-heading .selection-translate-action { padding: 3px 7px; border: 1px solid var(--ra-border); border-radius: 999px; color: var(--ra-link); background: transparent; font-size: 10px; }
+.section-heading .selection-translate-action:disabled { cursor: wait; opacity: .65; }
+.section-heading .selection-clear-action { font-size: 18px; }
 .selection-card p { max-height: 76px; overflow: auto; margin: 0 0 8px; padding: 8px; border-left: 3px solid var(--ra-link); background: var(--ra-hover-bg); font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
+.selection-translation { margin: 0 0 8px; padding: 8px; border-radius: 6px; background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.selection-translation small { display: block; margin-bottom: 3px; color: var(--ra-text-tertiary); font-size: 9px; }
 .selection-meta { color: var(--ra-text-tertiary); font-size: 11px; }
 .workflow-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-bottom: 9px; }
 .workflow-tabs button { min-width: 0; padding: 7px 4px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-text-secondary); background: transparent; cursor: pointer; }
@@ -606,6 +744,11 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .trace-dot-item.is-failed .step-dot { border-color: var(--el-color-danger); background: var(--el-color-danger); }
 @keyframes trace-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ra-link) 30%, transparent); } 75%, 100% { box-shadow: 0 0 0 6px transparent; } }
 .answer-text { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.result-language-switch { display: flex; padding: 2px; border: 1px solid var(--ra-border); border-radius: 6px; background: var(--ra-hover-bg); }
+.section-heading .result-language-switch button { padding: 3px 7px; border-radius: 4px; color: var(--ra-text-tertiary); font-size: 10px; }
+.section-heading .result-language-switch button.active { color: var(--ra-link); background: var(--ra-panel-bg); box-shadow: 0 0 0 1px var(--ra-border); }
+.section-heading .result-language-switch button:disabled { cursor: wait; opacity: .6; }
+.translation-state { padding-top: 0; }
 .result-selectable-content { user-select: text; }
 .answer-text :deep(h3), .answer-text :deep(h4), .answer-text :deep(h5) { margin: 12px 0 5px; font-size: 13px; line-height: 1.4; }
 .answer-text :deep(h3:first-child), .answer-text :deep(h4:first-child) { margin-top: 0; }

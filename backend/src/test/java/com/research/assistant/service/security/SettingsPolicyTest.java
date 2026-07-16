@@ -15,6 +15,7 @@ class SettingsPolicyTest {
         assertThat(SettingsPolicy.isSensitive("qdrant_api_key")).isTrue();
         assertThat(SettingsPolicy.isSensitive("apiKey")).isTrue();
         assertThat(SettingsPolicy.isSensitive("provider_token")).isTrue();
+        assertThat(SettingsPolicy.isSensitive("deepl_auth_key")).isTrue();
         assertThat(SettingsPolicy.mask("secret-value")).isEqualTo("secret****alue");
         assertThat(SettingsPolicy.isMaskedValue("secret****alue")).isTrue();
     }
@@ -22,6 +23,9 @@ class SettingsPolicyTest {
     @Test
     void validatesAllowedSettingsAndRejectsUnknownOrInvalidValues() {
         SettingsPolicy.validateBatch(List.of(new Settings("base_url", "https://example.com/v1")));
+        SettingsPolicy.validateBatch(List.of(
+                new Settings("translation_provider", "deepl"),
+                new Settings("deepl_api_base_url", "https://api-free.deepl.com")));
         SettingsPolicy.validateBatch(List.of(
                 new Settings("pdf_layout_fallback_enabled", "true"),
                 new Settings("pdf_layout_fallback_provider", "MINERU"),
@@ -35,6 +39,9 @@ class SettingsPolicyTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SettingsPolicy.validateBatch(
                 List.of(new Settings("pdf_layout_fallback_provider", "UNKNOWN"))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> SettingsPolicy.validateBatch(
+                List.of(new Settings("translation_provider", "llm"))))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

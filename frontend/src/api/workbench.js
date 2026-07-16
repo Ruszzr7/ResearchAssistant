@@ -23,3 +23,11 @@ export function listPaperWorkbenchRuns(paperId, limit = 5) {
 export function getWorkbenchMetrics(days = 30) {
   return api.get('/workbench/metrics', { params: { days } }).then(r => r.data)
 }
+
+export function getTranslationStatus() {
+  return api.get('/translations/status').then(r => r.data)
+}
+
+export function translateTexts(request, config = {}) {
+  return api.post('/translations', request, config).then(r => r.data)
+}

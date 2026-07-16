@@ -4,6 +4,7 @@ import PaperWorkbenchPanel from '@/components/pdf/PaperWorkbenchPanel.vue'
 
 const mocks = vi.hoisted(() => ({
   listPapers: vi.fn(),
+  translateTexts: vi.fn(),
   state: {
     trace: { __v_isRef: true, value: null },
     recentRuns: { __v_isRef: true, value: [] },
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/api/paper.js', () => ({ listPapers: mocks.listPapers }))
+vi.mock('@/api/workbench.js', () => ({ translateTexts: mocks.translateTexts }))
 vi.mock('@/composables/usePaperWorkbench.js', () => ({
   usePaperWorkbench: () => mocks.state,
 }))
@@ -37,6 +39,7 @@ describe('PaperWorkbenchPanel comparison result', () => {
     mocks.state.loadRecent.mockReset()
     mocks.state.selectRun.mockReset()
     mocks.state.run.mockReset()
+    mocks.translateTexts.mockReset()
     mocks.state.selectRun.mockImplementation(run => { mocks.state.trace.value = run })
     mocks.listPapers.mockResolvedValue([{ id: 2, title: 'Comparison Paper' }])
     mocks.state.loadRecent.mockResolvedValue([])
@@ -125,6 +128,77 @@ describe('PaperWorkbenchPanel comparison result', () => {
     expect(wrapper.findAll('.trace-dot-item')[2].classes()).toContain('is-running')
     expect(wrapper.findAll('.trace-dot-item')[2].attributes('title')).toContain('生成回答：执行中')
     expect(wrapper.find('.run-card').text()).not.toContain('证据门禁')
+  })
+
+  it('translates only the exact selection and preserves the original text', async () => {
+    mocks.state.trace.value = null
+    mocks.translateTexts.mockResolvedValue({
+      provider: 'deepl',
+      targetLanguage: 'ZH',
+      items: [{ text: '有限块长速率 $R_k$ 见式 [12]。', detectedSourceLanguage: 'EN' }],
+    })
+    const wrapper = mount(PaperWorkbenchPanel, {
+      props: {
+        paper: { id: 1, title: 'Current Paper' },
+        selection: { text: 'The finite-blocklength rate $R_k$ follows [12].' },
+        selectionAnchor: { kind: 'TEXT', page: 2, confidence: 0.96 },
+      },
+      global: { stubs: defaultStubs },
+    })
+    await flushPromises()
+
+    await wrapper.get('.selection-translate-action').trigger('click')
+    await flushPromises()
+
+    expect(mocks.translateTexts).toHaveBeenCalledWith({
+      texts: ['The finite-blocklength rate $R_k$ follows [12].'],
+      sourceLanguage: 'EN',
+      targetLanguage: 'ZH',
+    })
+    expect(wrapper.get('.selection-card p').text()).toContain('finite-blocklength')
+    expect(wrapper.get('.selection-translation').text()).toContain('有限块长速率')
+  })
+
+  it('switches an existing answer and claims without rerunning the workflow', async () => {
+    mocks.state.trace.value = {
+      runId: 'run-english',
+      status: 'COMPLETED',
+      invocation: { paperIds: [1] },
+      plan: { workflow: 'PAPER_ANALYSIS' },
+      steps: [],
+      result: {
+        answer: 'The paper studies finite blocklength.',
+        claims: [{ text: 'It studies reliability.', evidenceIds: [] }],
+        evidence: [],
+      },
+    }
+    mocks.translateTexts.mockResolvedValue({
+      provider: 'deepl',
+      targetLanguage: 'ZH',
+      items: [
+        { text: '本文研究有限块长。', detectedSourceLanguage: 'EN' },
+        { text: '本文研究可靠性。', detectedSourceLanguage: 'EN' },
+      ],
+    })
+    const wrapper = mount(PaperWorkbenchPanel, {
+      props: { paper: { id: 1, title: 'Current Paper' } },
+      global: { stubs: defaultStubs },
+    })
+    await flushPromises()
+
+    const languageButtons = wrapper.findAll('.result-language-switch button')
+    expect(languageButtons[1].classes()).toContain('active')
+    await languageButtons[0].trigger('click')
+    await flushPromises()
+
+    expect(mocks.translateTexts).toHaveBeenCalledWith({
+      texts: ['The paper studies finite blocklength.', 'It studies reliability.'],
+      sourceLanguage: 'EN',
+      targetLanguage: 'ZH',
+    })
+    expect(wrapper.get('.answer-text').text()).toContain('本文研究有限块长')
+    expect(wrapper.get('.claim-list').text()).toContain('本文研究可靠性')
+    expect(mocks.state.run).not.toHaveBeenCalled()
   })
 
   it('starts field-gap analysis only from a completed three-paper comparison', async () => {

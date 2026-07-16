@@ -68,6 +68,14 @@ class SettingsServiceImplEncryptionTest {
     }
 
     @Test
+    void translationCredentialsPreferEnvironmentOverride() {
+        when(environment.getProperty("DEEPL_AUTH_KEY")).thenReturn("deepl-from-env");
+
+        assertThat(service.getValue("deepl_auth_key")).isEqualTo("deepl-from-env");
+        verify(settingsMapper, never()).selectByKey("deepl_auth_key");
+    }
+
+    @Test
     void getValueReturnsNullWhenNotFoundAndNoEnvOverride() {
         when(settingsMapper.selectByKey("model")).thenReturn(null);
         when(environment.getProperty("RA_MODEL")).thenReturn(null);

@@ -22,13 +22,16 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class SettingsServiceImpl implements SettingsService {
 
-    private static final Map<String, String> ENV_OVERRIDES = Map.of(
-            "api_key", "RA_API_KEY",
-            "base_url", "RA_BASE_URL",
-            "model", "RA_MODEL",
-            "embedding_api_key", "RA_EMBEDDING_API_KEY",
-            "embedding_base_url", "RA_EMBEDDING_BASE_URL",
-            "embedding_model", "RA_EMBEDDING_MODEL"
+    private static final Map<String, String> ENV_OVERRIDES = Map.ofEntries(
+            Map.entry("api_key", "RA_API_KEY"),
+            Map.entry("base_url", "RA_BASE_URL"),
+            Map.entry("model", "RA_MODEL"),
+            Map.entry("embedding_api_key", "RA_EMBEDDING_API_KEY"),
+            Map.entry("embedding_base_url", "RA_EMBEDDING_BASE_URL"),
+            Map.entry("embedding_model", "RA_EMBEDDING_MODEL"),
+            Map.entry("translation_provider", "RA_TRANSLATION_PROVIDER"),
+            Map.entry("deepl_auth_key", "DEEPL_AUTH_KEY"),
+            Map.entry("deepl_api_base_url", "DEEPL_API_BASE_URL")
     );
 
     private final SettingsMapper settingsMapper;

@@ -84,6 +84,11 @@ app:
     retry-backoff: ${RA_EXTERNAL_RETRY_BACKOFF:250ms}
     max-concurrency: ${RA_EXTERNAL_MAX_CONCURRENCY:8}
     permit-wait: ${RA_EXTERNAL_PERMIT_WAIT:25ms}
+  translation:
+    provider: ${RA_TRANSLATION_PROVIDER:deepl}
+    glossary-version: ${RA_TRANSLATION_GLOSSARY_VERSION:v1}
+    cache-maximum-size: ${RA_TRANSLATION_CACHE_MAX_SIZE:1000}
+    cache-expire-after-access: ${RA_TRANSLATION_CACHE_TTL:24h}
   ai-quality:
     retention-days: ${AI_QUALITY_RETENTION_DAYS:180}
     retention-cron: ${AI_QUALITY_RETENTION_CRON:0 30 3 * * *}

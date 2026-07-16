@@ -3,6 +3,7 @@ package com.research.assistant.common;
 import com.research.assistant.service.async.AsyncTaskCapacityException;
 import com.research.assistant.service.async.AsyncTaskIdempotencyConflictException;
 import com.research.assistant.service.pdf.layout.StaleLayoutArtifactException;
+import com.research.assistant.service.translation.TranslationException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -48,6 +49,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Void>> handleStaleLayoutArtifact(StaleLayoutArtifactException e) {
         log.warn("stale_layout_artifact");
         return response(HttpStatus.CONFLICT, "PDF 已更新，请重新选择内容");
+    }
+
+    @ExceptionHandler(TranslationException.class)
+    public ResponseEntity<Result<Void>> handleTranslation(TranslationException e) {
+        log.warn("translation_failed code={} retryable={}", e.code(), e.retryable());
+        return response(e.status(), e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

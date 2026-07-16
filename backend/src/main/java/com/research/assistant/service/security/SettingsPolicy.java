@@ -37,7 +37,8 @@ public final class SettingsPolicy {
             "vector_store_provider", "qdrant_host", "qdrant_port", "qdrant_use_tls",
             "qdrant_api_key", "qdrant_collection",
             "rag_enabled", "rag_rerank_enabled", "rag_rerank_top_k", "rag_answer_top_k",
-            "rag_rerank_min_chunks"
+            "rag_rerank_min_chunks",
+            "translation_provider", "deepl_auth_key", "deepl_api_base_url"
     );
 
     private static final Set<String> BOOLEAN_KEYS = Set.of(
@@ -53,7 +54,8 @@ public final class SettingsPolicy {
             "formula_extractor_command", "figure_extractor_command"
     );
 
-    private static final Set<String> URL_KEYS = Set.of("base_url", "embedding_base_url", "acm_dl_api_url");
+    private static final Set<String> URL_KEYS = Set.of(
+            "base_url", "embedding_base_url", "acm_dl_api_url", "deepl_api_base_url");
 
     private static final Set<String> SENSITIVE_EXACT_KEYS = Set.of("zotero_collection_key");
 
@@ -70,6 +72,7 @@ public final class SettingsPolicy {
         // 兼容旧库中的 camelCase 设置名（例如 apiKey），避免历史密钥明文返回。
         return key.contains("api_key")
                 || "apikey".equals(key)
+                || key.endsWith("_auth_key")
                 || key.endsWith("_token")
                 || key.endsWith("_secret")
                 || key.endsWith("_password")
@@ -131,6 +134,9 @@ public final class SettingsPolicy {
         if ("pdf_layout_fallback_provider".equals(key)
                 && !Set.of("AUTO", "GROBID", "MINERU").contains(value.toUpperCase(Locale.ROOT))) {
             throw new IllegalArgumentException("不支持的版面回退解析器: " + value);
+        }
+        if ("translation_provider".equals(key) && !"deepl".equalsIgnoreCase(value)) {
+            throw new IllegalArgumentException("不支持的翻译服务: " + value);
         }
         if (URL_KEYS.contains(key)) {
             try {
