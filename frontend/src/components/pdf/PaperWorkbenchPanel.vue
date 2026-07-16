@@ -48,7 +48,7 @@
           :key="item.value"
           type="button"
           :class="{ active: mode === item.value }"
-          :disabled="item.needsSelection && !selectionAnchor"
+          :disabled="running || (item.needsSelection && !selectionAnchor)"
           @click="mode = item.value"
         >{{ item.label }}</button>
       </div>
@@ -67,10 +67,36 @@
         <el-option
           v-for="item in availablePapers"
           :key="item.id"
-          :label="item.title"
-          :value="item.id"
+          :label="item.title || `论文 #${item.id}`"
+          :value="Number(item.id)"
+          :disabled="comparisonOptionDisabled(item.id)"
         />
       </el-select>
+
+      <div v-if="mode === WORKBENCH_MODES.PAPER_COMPARISON" class="comparison-config">
+        <div class="comparison-base">
+          <div>
+            <small>基准论文</small>
+            <b :title="paper.title">{{ paper.title || `论文 #${paper.id}` }}</b>
+          </div>
+          <el-tag size="small" effect="plain">
+            {{ comparisonState.total }}/{{ comparisonState.max }} 篇
+          </el-tag>
+        </div>
+        <div class="comparison-hint" :class="{ ready: comparisonState.canStart }">
+          {{ comparisonSelectionHint }}
+        </div>
+        <div class="dimension-picker" aria-label="比较维度">
+          <button
+            v-for="dimension in comparisonDimensionOptions"
+            :key="dimension"
+            type="button"
+            :class="{ active: comparisonDimensions.includes(dimension) }"
+            :aria-pressed="comparisonDimensions.includes(dimension)"
+            @click="toggleComparisonDimension(dimension)"
+          >{{ dimension }}</button>
+        </div>
+      </div>
 
       <el-input
         v-model="question"
@@ -82,7 +108,7 @@
       />
       <div class="compose-actions">
         <span v-if="mode === WORKBENCH_MODES.PAPER_ANALYSIS">全文分析可能需要 1–2 分钟</span>
-        <el-button type="primary" :loading="running" @click="startRun">
+        <el-button type="primary" :loading="running" :disabled="actionDisabled" @click="startRun">
           {{ actionLabel }}
         </el-button>
       </div>
@@ -138,6 +164,35 @@
       <div class="section-heading"><span>分析结果</span></div>
       <div class="answer-text" v-html="answerHtml" />
 
+      <div v-if="isComparisonResult && comparisonCoverage.total" class="comparison-coverage">
+        <div class="coverage-heading">
+          <b>逐论文证据覆盖</b>
+          <el-tag
+            size="small"
+            :type="comparisonCoverage.covered === comparisonCoverage.total ? 'success' : 'warning'"
+            effect="plain"
+          >{{ comparisonCoverage.covered }}/{{ comparisonCoverage.total }}</el-tag>
+        </div>
+        <button
+          v-for="row in comparisonCoverage.rows"
+          :key="row.paperId"
+          type="button"
+          class="coverage-row"
+          :class="{ covered: row.covered }"
+          :disabled="!row.firstEvidence"
+          @click="jump(row.firstEvidence)"
+        >
+          <span class="coverage-state" aria-hidden="true">{{ row.covered ? '✓' : '!' }}</span>
+          <span class="coverage-paper">
+            <b :title="row.title">{{ row.title }}</b>
+            <small>
+              {{ row.evidenceCount }} 条证据 · {{ row.citedClaims }} 条结论引用
+              <template v-if="row.pages.length"> · p.{{ row.pages.join(', ') }}</template>
+            </small>
+          </span>
+        </button>
+      </div>
+
       <div v-if="trace.result.annotationSuggestion" class="annotation-suggestion">
         <div>
           <el-tag size="small" effect="plain">{{ annotationTypeLabel(trace.result.annotationSuggestion.type) }}</el-tag>
@@ -171,7 +226,7 @@
               type="button"
               :title="item.text"
               @click="jump(item)"
-            >论文 {{ item.paperId }} · p.{{ item.page }}</button>
+            >{{ paperDisplayName(item.paperId) }} · p.{{ item.page }}</button>
           </div>
         </li>
       </ol>
@@ -188,7 +243,10 @@ import { ElMessage } from 'element-plus'
 import { listPapers } from '@/api/paper.js'
 import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
 import {
+  buildComparisonCoverage,
+  buildComparisonQuestion,
   buildWorkbenchPlanRequest,
+  comparisonSelectionState,
   evidenceIndex,
   stepStatusLabel,
   workbenchMarkdownToHtml,
@@ -226,6 +284,7 @@ const questions = reactive({
   [WORKBENCH_MODES.PAPER_COMPARISON]: '比较这些论文的研究问题、方法、关键结论与局限，并指出异同。',
 })
 const comparisonPaperIds = ref([])
+const comparisonDimensions = ref(['研究问题', '核心方法', '实验与指标', '主要结论', '局限'])
 const availablePapers = ref([])
 const papersLoading = ref(false)
 const applyingAnnotation = ref(false)
@@ -237,6 +296,7 @@ const modeOptions = [
   { value: WORKBENCH_MODES.ANNOTATION_SUGGESTION, label: '批注建议', needsSelection: true },
   { value: WORKBENCH_MODES.PAPER_COMPARISON, label: '多篇对比' },
 ]
+const comparisonDimensionOptions = ['研究问题', '核心方法', '实验与指标', '主要结论', '局限', '适用场景']
 const question = computed({
   get: () => questions[mode.value],
   set: value => { questions[mode.value] = value },
@@ -260,15 +320,34 @@ const annotationIsApplied = computed(() => Boolean(trace.value?.runId)
   && (annotationAppliedRunId.value === trace.value.runId
     || props.appliedAnnotationRunIds.includes(trace.value.runId)))
 const historyOptions = computed(() => {
-  if (!trace.value) return recentRuns.value
-  return [trace.value, ...recentRuns.value.filter(item => item.runId !== trace.value.runId)]
+  const matchingRuns = recentRuns.value.filter(item => item.plan?.workflow === mode.value)
+  if (!trace.value || trace.value.plan?.workflow !== mode.value) return matchingRuns
+  return [trace.value, ...matchingRuns.filter(item => item.runId !== trace.value.runId)]
 })
 const answerHtml = computed(() => workbenchMarkdownToHtml(trace.value?.result?.answer))
+const paperCatalog = computed(() => [props.paper, ...availablePapers.value])
+const comparisonState = computed(() => comparisonSelectionState(
+  props.paper.id, comparisonPaperIds.value))
+const comparisonSelectionHint = computed(() => {
+  if (!availablePapers.value.length) return '文库中暂无其他论文，至少再导入一篇才能对比'
+  if (!comparisonState.value.canStart) return '请至少再选择一篇论文'
+  if (comparisonState.value.atLimit) return '已达到单次对比上限'
+  return `已选择 ${comparisonState.value.total} 篇论文，可以开始对比`
+})
+const actionDisabled = computed(() => running.value
+  || (mode.value === WORKBENCH_MODES.PAPER_COMPARISON && !comparisonState.value.canStart))
+const isComparisonResult = computed(() => trace.value?.plan?.workflow === WORKBENCH_MODES.PAPER_COMPARISON)
+const comparisonCoverage = computed(() => buildComparisonCoverage(trace.value, paperCatalog.value))
 
 watch(() => props.selectionAnchor, next => {
   if (next && !running.value) mode.value = WORKBENCH_MODES.SELECTION_QA
 })
 watch(() => trace.value?.runId, () => { annotationAppliedRunId.value = '' })
+watch(mode, nextMode => {
+  if (running.value || trace.value?.plan?.workflow === nextMode) return
+  const matchingRun = recentRuns.value.find(item => item.plan?.workflow === nextMode)
+  selectRun(matchingRun || null)
+})
 
 onMounted(async () => {
   papersLoading.value = true
@@ -280,16 +359,23 @@ onMounted(async () => {
   } finally {
     papersLoading.value = false
   }
-  try { await loadRecent(props.paper.id) } catch { /* history is optional */ }
+  try {
+    await loadRecent(props.paper.id)
+    const restoredMode = trace.value?.plan?.workflow
+    if (modeOptions.some(item => item.value === restoredMode)) mode.value = restoredMode
+  } catch { /* history is optional */ }
 })
 
 async function startRun() {
   try {
+    const effectiveQuestion = mode.value === WORKBENCH_MODES.PAPER_COMPARISON
+      ? buildComparisonQuestion(question.value, comparisonDimensions.value)
+      : question.value
     const request = buildWorkbenchPlanRequest({
       mode: mode.value,
       paperId: props.paper.id,
       comparisonPaperIds: comparisonPaperIds.value,
-      question: question.value,
+      question: effectiveQuestion,
       selectionAnchor: props.selectionAnchor,
     })
     await run(request)
@@ -300,6 +386,23 @@ async function startRun() {
       ElMessage.error(reason?.response?.data?.message || reason?.message || '论文助手执行失败')
     }
   }
+}
+
+function comparisonOptionDisabled(paperId) {
+  const normalizedId = Number(paperId)
+  return comparisonState.value.atLimit
+    && !comparisonState.value.additionalIds.includes(normalizedId)
+}
+
+function toggleComparisonDimension(dimension) {
+  const index = comparisonDimensions.value.indexOf(dimension)
+  if (index >= 0) comparisonDimensions.value.splice(index, 1)
+  else comparisonDimensions.value.push(dimension)
+}
+
+function paperDisplayName(paperId) {
+  const paper = paperCatalog.value.find(item => Number(item.id) === Number(paperId))
+  return paper?.title || `论文 #${paperId}`
 }
 
 function selectHistory(runId) {
@@ -415,6 +518,16 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .workflow-tabs button.active { border-color: var(--ra-link); color: var(--ra-link); background: var(--ra-hover-bg); }
 .workflow-tabs button:disabled { opacity: .45; cursor: not-allowed; }
 .paper-selector { width: 100%; margin-bottom: 9px; }
+.comparison-config { margin: -1px 0 10px; padding: 9px; border: 1px solid var(--ra-border); border-radius: 7px; background: var(--ra-hover-bg); }
+.comparison-base { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.comparison-base > div { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.comparison-base small, .comparison-hint { color: var(--ra-text-tertiary); font-size: 10px; }
+.comparison-base b { overflow: hidden; color: var(--ra-text); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.comparison-hint { margin-top: 7px; }
+.comparison-hint.ready { color: #3a8b3d; }
+.dimension-picker { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.dimension-picker button { padding: 3px 7px; border: 1px solid var(--ra-border); border-radius: 999px; color: var(--ra-text-secondary); background: var(--ra-panel-bg); font-size: 10px; cursor: pointer; }
+.dimension-picker button.active { border-color: color-mix(in srgb, var(--ra-link) 60%, var(--ra-border)); color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 9%, var(--ra-panel-bg)); }
 .compose-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; }
 .compose-actions span { color: var(--ra-text-tertiary); font-size: 10px; }
 .history-select { width: 150px; }
@@ -438,6 +551,17 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .answer-text :deep(li) { margin: 3px 0; }
 .answer-text :deep(code) { padding: 1px 3px; border-radius: 3px; background: var(--ra-hover-bg); }
 .claim-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 0; padding-left: 19px; }
+.comparison-coverage { display: flex; flex-direction: column; gap: 6px; margin-top: 13px; padding: 9px; border: 1px solid var(--ra-border); border-radius: 7px; background: var(--ra-hover-bg); }
+.coverage-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+.coverage-heading b { font-size: 11px; font-weight: 600; }
+.coverage-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-text); background: var(--ra-panel-bg); text-align: left; cursor: pointer; }
+.coverage-row:disabled { cursor: default; opacity: .75; }
+.coverage-row.covered { border-color: color-mix(in srgb, #4caf50 45%, var(--ra-border)); }
+.coverage-state { display: grid; flex: 0 0 auto; width: 18px; height: 18px; place-items: center; border-radius: 50%; color: #a66000; background: color-mix(in srgb, #e6a23c 15%, transparent); font-size: 11px; font-weight: 700; }
+.coverage-row.covered .coverage-state { color: #36883a; background: color-mix(in srgb, #4caf50 15%, transparent); }
+.coverage-paper { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 2px; }
+.coverage-paper b { overflow: hidden; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.coverage-paper small { color: var(--ra-text-tertiary); font-size: 9px; }
 .claim-list li { padding-left: 2px; font-size: 11px; line-height: 1.5; }
 .evidence-links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .evidence-links button { padding: 2px 6px; border: 1px solid color-mix(in srgb, var(--ra-link) 45%, var(--ra-border)); border-radius: 999px; color: var(--ra-link); background: transparent; font-size: 10px; cursor: pointer; }

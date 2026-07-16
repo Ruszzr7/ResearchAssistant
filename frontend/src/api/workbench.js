@@ -27,3 +27,7 @@ export function getWorkbenchRun(runId, config = {}) {
 export function listPaperWorkbenchRuns(paperId, limit = 5) {
   return api.get('/workbench/runs', { params: { paperId, limit } }).then(r => r.data)
 }
+
+export function getWorkbenchMetrics(days = 30) {
+  return api.get('/workbench/metrics', { params: { days } }).then(r => r.data)
+}

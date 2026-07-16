@@ -105,8 +105,13 @@ export function usePaperWorkbench() {
   }
 
   function selectRun(run) {
-    if (!run) return
     stopWatching()
+    if (!run) {
+      trace.value = null
+      stageText.value = ''
+      error.value = ''
+      return
+    }
     trace.value = run
     stageText.value = run.status === 'COMPLETED' ? '完成' : ''
     error.value = run.errorMessage || ''

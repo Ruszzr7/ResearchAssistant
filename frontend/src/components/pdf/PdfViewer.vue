@@ -357,10 +357,11 @@ import { ElMessage } from 'element-plus'
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
 const props = defineProps({
-  paper: { type: Object, required: true }
+  paper: { type: Object, required: true },
+  initialEvidence: { type: Object, default: null }
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'open-paper-evidence'])
 
 const containerRef = ref(null)
 const canvasRefs = ref({})
@@ -525,6 +526,10 @@ async function loadDocument() {
     updateVisiblePageRange()
     await renderVisiblePages()
     await Promise.all([loadAnnotations(), loadNotes()])
+    if (props.initialEvidence
+      && Number(props.initialEvidence.paperId) === Number(props.paper.id)) {
+      await jumpToEvidence(props.initialEvidence)
+    }
   } catch (e) {
     ElMessage.error('PDF 加载失败：' + (e.message || e))
   }
@@ -1059,6 +1064,10 @@ async function resolvePendingSelectionContext(selection) {
 
 async function jumpToEvidence(item) {
   if (!item?.page || !item?.bbox) return
+  if (Number(item.paperId) !== Number(props.paper.id)) {
+    emit('open-paper-evidence', item)
+    return
+  }
   await goToPage(item.page)
   evidenceFocus.value = { page: item.page, bbox: item.bbox }
   if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)

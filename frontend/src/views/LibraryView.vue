@@ -234,7 +234,7 @@
       </div>
       <div class="detail-item">
         <span class="label">PDF</span>
-        <a v-if="currentPaper.pdfPath" @click.prevent="showPdfOverlay = true" href="#">打开 PDF</a>
+        <a v-if="currentPaper.pdfPath" @click.prevent="openCurrentPaperPdf" href="#">打开 PDF</a>
         <span v-else>暂无</span>
       </div>
       <div class="detail-item" v-if="currentPaper.pdfPath">
@@ -528,11 +528,14 @@
     </el-dialog>
 
     <!-- ==================== PDF 全屏预览 ==================== -->
-    <div v-if="showPdfOverlay && currentPaper" class="pdf-overlay" @keydown.esc="showPdfOverlay = false">
+    <div v-if="showPdfOverlay && currentPaper" class="pdf-overlay" @keydown.esc="closePdfOverlay">
       <PdfViewer
         v-if="pdfJsViewerEnabled"
+        :key="currentPaper.id"
         :paper="currentPaper"
-        @close="showPdfOverlay = false"
+        :initial-evidence="pendingPdfEvidence"
+        @close="closePdfOverlay"
+        @open-paper-evidence="openPaperEvidence"
       >
         <template #toolbar-extra>
           <ReadingTimePanel :paper="currentPaper" @updated="onReadingTimeUpdated" />
@@ -542,7 +545,7 @@
         <div class="pdf-toolbar">
           <span class="pdf-toolbar-title">{{ currentPaper.title }}</span>
           <ReadingTimePanel :paper="currentPaper" @updated="onReadingTimeUpdated" />
-          <el-button size="small" text @click="showPdfOverlay = false" style="padding:2px 4px;min-width:auto">
+          <el-button size="small" text @click="closePdfOverlay" style="padding:2px 4px;min-width:auto">
             <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
           </el-button>
         </div>
@@ -640,6 +643,7 @@ const doiPdfUrl = ref('')
 const fetchingDoi = ref(false)
 const enriching = ref(false)
 const showPdfOverlay = ref(false)
+const pendingPdfEvidence = ref(null)
 const pdfJsViewerEnabled = ref(true)
 
 // ===== 全局后台任务：论文库 AI 分析切换页面不取消 =====
@@ -1655,10 +1659,38 @@ function showPaperInfo(paperId) {
 
 async function openPaperPdf(row) {
   if (!row.pdfPath) return
+  pendingPdfEvidence.value = null
   if (currentPaper.value?.id !== row.id) {
     await selectPaper(row.id)
   }
   showPdfOverlay.value = true
+}
+
+function openCurrentPaperPdf() {
+  pendingPdfEvidence.value = null
+  showPdfOverlay.value = true
+}
+
+function closePdfOverlay() {
+  showPdfOverlay.value = false
+  pendingPdfEvidence.value = null
+}
+
+async function openPaperEvidence(item) {
+  const paperId = Number(item?.paperId)
+  if (!Number.isInteger(paperId) || paperId <= 0 || !item?.bbox) return
+  pendingPdfEvidence.value = item
+  try {
+    if (Number(currentPaper.value?.id) !== paperId) {
+      await selectPaper(paperId)
+    }
+    if (!currentPaper.value?.pdfPath) throw new Error('目标论文没有 PDF')
+    showPdfOverlay.value = true
+  } catch (error) {
+    showPdfOverlay.value = false
+    pendingPdfEvidence.value = null
+    ElMessage.error(error?.message || '无法打开目标论文证据')
+  }
 }
 
 async function handlePaperAction(cmd, paper) {
@@ -1751,7 +1783,7 @@ async function loadViewerSetting() {
     pdfJsViewerEnabled.value = true
   }
 }
-function onKeyDown(e){if(e.key==='Escape')showPdfOverlay.value=false}
+function onKeyDown(e){if(e.key==='Escape')closePdfOverlay()}
 function handleDocClick(e) {
   if (showFolderSearch.value && folderSearchWrapRef.value && !folderSearchWrapRef.value.contains(e.target)) {
     showFolderSearch.value = false

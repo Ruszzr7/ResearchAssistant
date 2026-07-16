@@ -149,6 +149,7 @@
         </el-col>
       </el-row>
       <ResearchInsightsPanel />
+      <PdfWorkbenchMetricsPanel />
     </template>
   </div>
 </template>
@@ -158,6 +159,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getDashboard } from '@/api/dashboard'
 import ResearchInsightsPanel from '@/components/dashboard/ResearchInsightsPanel.vue'
+import PdfWorkbenchMetricsPanel from '@/components/dashboard/PdfWorkbenchMetricsPanel.vue'
 
 const loading = ref(true)
 const data = ref(null)

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildWorkbenchPlanRequest,
+  buildComparisonCoverage,
+  buildComparisonQuestion,
+  comparisonSelectionState,
   appliedWorkbenchRunIds,
   citedEvidence,
   workbenchMarkdownToHtml,
@@ -33,6 +36,47 @@ describe('PDF workbench request boundary', () => {
       comparisonPaperIds: [7],
       question: '比较贡献',
     })).toThrow('至少再选择一篇')
+  })
+
+  it('enforces the shared eight-paper comparison boundary', () => {
+    const state = comparisonSelectionState(1, [2, 2, 3, 4, 5, 6, 7, 8])
+    expect(state).toMatchObject({ total: 8, canStart: true, atLimit: true, max: 8 })
+    expect(() => buildWorkbenchPlanRequest({
+      mode: WORKBENCH_MODES.PAPER_COMPARISON,
+      paperId: 1,
+      comparisonPaperIds: [2, 3, 4, 5, 6, 7, 8, 9],
+      question: '比较贡献',
+    })).toThrow('最多对比 8 篇')
+  })
+
+  it('builds an explicit bounded comparison question', () => {
+    expect(buildComparisonQuestion('说明异同', ['核心方法', '关键结论', '核心方法']))
+      .toBe('比较维度：核心方法、关键结论。说明异同')
+  })
+
+  it('computes per-paper evidence and claim coverage', () => {
+    const coverage = buildComparisonCoverage({
+      invocation: { paperIds: [1, 2, 3] },
+      result: {
+        evidence: [
+          { evidenceId: 'e1', paperId: 1, page: 2 },
+          { evidenceId: 'e2', paperId: 1, page: 3 },
+          { evidenceId: 'e3', paperId: 2, page: 5 },
+          { evidenceId: 'e4', paperId: 3, page: 1 },
+        ],
+        claims: [
+          { evidenceIds: ['e1', 'e2', 'e3'] },
+          { evidenceIds: ['e1', 'unknown'] },
+        ],
+      },
+    }, [{ id: 1, title: 'Paper A' }, { id: 2, title: 'Paper B' }, { id: 3, title: 'Paper C' }])
+
+    expect(coverage).toMatchObject({ covered: 2, total: 3, coverageRate: 2 / 3 })
+    expect(coverage.rows).toEqual([
+      expect.objectContaining({ title: 'Paper A', evidenceCount: 2, citedClaims: 2, pages: [2, 3], covered: true }),
+      expect.objectContaining({ title: 'Paper B', evidenceCount: 1, citedClaims: 1, pages: [5], covered: true }),
+      expect.objectContaining({ title: 'Paper C', evidenceCount: 1, citedClaims: 0, pages: [1], covered: false }),
+    ])
   })
 
   it('returns only evidence actually cited by claims or an annotation', () => {

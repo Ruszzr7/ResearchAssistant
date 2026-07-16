@@ -5,6 +5,8 @@ export const WORKBENCH_MODES = Object.freeze({
   PAPER_COMPARISON: 'PAPER_COMPARISON',
 })
 
+export const MAX_COMPARISON_PAPERS = 8
+
 const MODE_CONFIG = Object.freeze({
   [WORKBENCH_MODES.SELECTION_QA]: { intent: 'ASK_SELECTION', scope: 'SELECTION' },
   [WORKBENCH_MODES.PAPER_ANALYSIS]: { intent: 'ANALYZE_PAPER', scope: 'PAPER' },
@@ -34,8 +36,7 @@ export function buildWorkbenchPlanRequest({
   }
 
   const paperIds = mode === WORKBENCH_MODES.PAPER_COMPARISON
-    ? [...new Set([currentPaperId, ...comparisonPaperIds.map(Number)])]
-        .filter(id => Number.isInteger(id) && id > 0)
+    ? normalizeComparisonPaperIds(currentPaperId, comparisonPaperIds)
     : [currentPaperId]
   if (mode === WORKBENCH_MODES.PAPER_COMPARISON && paperIds.length < 2) {
     throw new Error('请至少再选择一篇论文')
@@ -49,6 +50,94 @@ export function buildWorkbenchPlanRequest({
     scope,
     ...(needsSelection ? { selectionAnchor } : {}),
     maxSteps: 6,
+  }
+}
+
+export function normalizeComparisonPaperIds(paperId, comparisonPaperIds = []) {
+  const currentPaperId = Number(paperId)
+  const ids = [...new Set([currentPaperId, ...comparisonPaperIds.map(Number)])]
+    .filter(id => Number.isInteger(id) && id > 0)
+  if (ids.length > MAX_COMPARISON_PAPERS) {
+    throw new Error(`一次最多对比 ${MAX_COMPARISON_PAPERS} 篇论文`)
+  }
+  return ids
+}
+
+export function comparisonSelectionState(paperId, comparisonPaperIds = []) {
+  const currentPaperId = Number(paperId)
+  const additionalIds = [...new Set(comparisonPaperIds.map(Number))]
+    .filter(id => Number.isInteger(id) && id > 0 && id !== currentPaperId)
+  const total = 1 + additionalIds.length
+  return {
+    additionalIds,
+    total,
+    canStart: additionalIds.length >= 1 && total <= MAX_COMPARISON_PAPERS,
+    atLimit: total >= MAX_COMPARISON_PAPERS,
+    max: MAX_COMPARISON_PAPERS,
+  }
+}
+
+export function buildComparisonQuestion(question, dimensions = []) {
+  const normalizedQuestion = String(question || '').trim()
+  const normalizedDimensions = [...new Set((dimensions || [])
+    .map(value => String(value || '').trim()).filter(Boolean))]
+  const prefix = normalizedDimensions.length
+    ? `比较维度：${normalizedDimensions.join('、')}。`
+    : ''
+  return `${prefix}${normalizedQuestion}`.slice(0, 4000)
+}
+
+/** Per-paper citation coverage for a completed comparison result. */
+export function buildComparisonCoverage(trace, papers = []) {
+  const paperTitleById = new Map((papers || []).map(paper => [
+    Number(paper?.id), String(paper?.title || '').trim(),
+  ]))
+  const result = trace?.result || {}
+  const requiredPaperIds = Array.isArray(result.paperIds) && result.paperIds.length
+    ? result.paperIds
+    : trace?.invocation?.paperIds || []
+  const paperIds = [...new Set(requiredPaperIds
+    .map(Number).filter(id => Number.isInteger(id) && id > 0))]
+  const evidenceById = new Map()
+  const evidenceByPaper = new Map()
+  for (const item of result.evidence || []) {
+    const paperId = Number(item?.paperId)
+    if (!Number.isInteger(paperId) || paperId <= 0 || !item?.evidenceId) continue
+    evidenceById.set(item.evidenceId, item)
+    if (!evidenceByPaper.has(paperId)) evidenceByPaper.set(paperId, [])
+    evidenceByPaper.get(paperId).push(item)
+    if (!paperIds.includes(paperId)) paperIds.push(paperId)
+  }
+  const citedClaimsByPaper = new Map(paperIds.map(id => [id, 0]))
+  for (const claim of result.claims || []) {
+    const citedPaperIds = new Set((claim?.evidenceIds || [])
+      .map(id => Number(evidenceById.get(id)?.paperId))
+      .filter(id => Number.isInteger(id) && id > 0))
+    for (const paperId of citedPaperIds) {
+      citedClaimsByPaper.set(paperId, (citedClaimsByPaper.get(paperId) || 0) + 1)
+    }
+  }
+  const rows = paperIds.map(paperId => {
+    const evidence = evidenceByPaper.get(paperId) || []
+    const pages = [...new Set(evidence.map(item => Number(item.page))
+      .filter(page => Number.isInteger(page) && page > 0))].sort((a, b) => a - b)
+    const citedClaims = citedClaimsByPaper.get(paperId) || 0
+    return {
+      paperId,
+      title: paperTitleById.get(paperId) || `论文 #${paperId}`,
+      evidenceCount: evidence.length,
+      citedClaims,
+      pages,
+      covered: evidence.length > 0 && citedClaims > 0,
+      firstEvidence: evidence[0] || null,
+    }
+  })
+  const covered = rows.filter(row => row.covered).length
+  return {
+    rows,
+    covered,
+    total: rows.length,
+    coverageRate: rows.length ? covered / rows.length : 0,
   }
 }
 
