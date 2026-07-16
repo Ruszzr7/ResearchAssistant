@@ -3,6 +3,7 @@ import {
   buildWorkbenchPlanRequest,
   buildComparisonCoverage,
   buildComparisonQuestion,
+  compactTracePhases,
   comparisonSelectionState,
   appliedWorkbenchRunIds,
   citedEvidence,
@@ -106,5 +107,24 @@ describe('PDF workbench request boundary', () => {
       { coordinates: { workbenchRunId: 'run-1' } },
       { coordinates: {} },
     ])).toEqual(['run-1'])
+  })
+
+  it('compresses persisted steps into four hoverable product phases', () => {
+    const phases = compactTracePhases({
+      steps: [
+        { index: 0, name: '解析范围', status: 'COMPLETED', latencyMs: 10 },
+        { index: 1, name: '检索证据', status: 'COMPLETED', evidenceCount: 3, latencyMs: 20 },
+        { index: 2, name: '生成回答', status: 'COMPLETED', totalTokens: 900, latencyMs: 30 },
+        { index: 3, name: '校验结果', status: 'COMPLETED', latencyMs: 5 },
+        { index: 4, name: '保存结果', status: 'FAILED', errorMessage: '保存失败', latencyMs: 2 },
+      ],
+    })
+
+    expect(phases).toHaveLength(4)
+    expect(phases.map(item => item.status)).toEqual(['COMPLETED', 'COMPLETED', 'COMPLETED', 'FAILED'])
+    expect(phases[1].tooltip).toContain('3 条证据')
+    expect(phases[2].tooltip).toContain('900 tokens')
+    expect(phases[3].tooltip).toContain('保存结果：失败')
+    expect(phases[3].tooltip).toContain('保存失败')
   })
 })

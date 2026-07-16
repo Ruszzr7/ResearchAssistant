@@ -167,7 +167,8 @@ class WorkbenchExecutionEngineTest {
         AtomicInteger calls = new AtomicInteger();
         doAnswer(invocation -> {
             if (calls.getAndIncrement() == 0) {
-                throw new WorkbenchModelException("MODEL_CALL_FAILED", "模型服务暂时不可用", true);
+                throw new WorkbenchModelException("MODEL_CALL_FAILED", "模型服务暂时不可用", true,
+                        70, 50, 120, "LENGTH", 1);
             }
             return modelCall(WorkbenchPlan.Workflow.SELECTION_QA);
         }).when(modelService).generate(
@@ -181,12 +182,16 @@ class WorkbenchExecutionEngineTest {
         WorkbenchRunTrace failedAttempt = traceService.requireTrace(planned.runId());
         assertThat(failedAttempt.status()).isEqualTo(WorkbenchRunStatus.RUNNING);
         assertThat(failedAttempt.steps().get(2).status()).isEqualTo(WorkbenchStepStatus.FAILED);
+        assertThat(failedAttempt.steps().get(2).totalTokens()).isEqualTo(120);
+        assertThat(failedAttempt.steps().get(2).outputSummary().toString()).contains("LENGTH");
 
         WorkbenchWorkflowResult result = engine.execute(planned.runId(), "task-model-retry", null);
 
         assertThat(result.workflow()).isEqualTo(WorkbenchPlan.Workflow.SELECTION_QA);
         assertThat(calls).hasValue(2);
-        assertThat(traceService.requireTrace(planned.runId()).steps().get(2).retryCount()).isEqualTo(1);
+        WorkbenchRunTrace completed = traceService.requireTrace(planned.runId());
+        assertThat(completed.steps().get(2).retryCount()).isEqualTo(1);
+        assertThat(completed.steps().get(2).totalTokens()).isEqualTo(135);
     }
 
     @Test

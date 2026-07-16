@@ -227,14 +227,37 @@ public class WorkbenchExecutionEngine {
                     trace.plan().workflow(), trace.invocation().question(), paperTitles(trace.invocation().paperIds()),
                     evidence, callBudget, previous, repairIssues);
             traceService.completeStep(trace.runId(), stepIndex,
-                    Map.of("structured", call.structured(), "claimCount", call.output().claims().size(),
-                            "answerCharacters", call.output().answer().length()),
+                    modelSuccessSummary(call),
                     evidence.size(), call.promptTokens(), call.completionTokens(), elapsed(started));
             return call;
         } catch (WorkbenchModelException e) {
-            traceService.failStep(trace.runId(), stepIndex, e.code(), e.getMessage(), elapsed(started));
+            traceService.failStep(trace.runId(), stepIndex, e.code(), e.getMessage(),
+                    modelFailureSummary(e), e.promptTokens(), e.completionTokens(), elapsed(started));
             throw e;
         }
+    }
+
+    private Map<String, Object> modelSuccessSummary(WorkbenchModelService.ModelCall call) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("structured", call.structured());
+        summary.put("claimCount", call.output().claims().size());
+        summary.put("answerCharacters", call.output().answer().length());
+        summary.put("attemptCount", call.attemptCount());
+        summary.put("emptyOutputRecoveryUsed", call.recoveryUsed());
+        if (call.finishReason() != null && !call.finishReason().isBlank()) {
+            summary.put("finishReason", call.finishReason());
+        }
+        return summary;
+    }
+
+    private Map<String, Object> modelFailureSummary(WorkbenchModelException error) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("attemptCount", error.attemptCount());
+        summary.put("emptyOutputRecoveryUsed", error.attemptCount() > 1);
+        if (error.finishReason() != null && !error.finishReason().isBlank()) {
+            summary.put("finishReason", error.finishReason());
+        }
+        return summary;
     }
 
     private WorkbenchEvidenceGate.GateResult gateStep(WorkbenchRunTrace trace,
@@ -367,15 +390,19 @@ public class WorkbenchExecutionEngine {
     private int firstCallBudget(WorkbenchRunTrace trace) {
         int remaining = remainingTokenBudget(trace);
         if (remaining < 512) return remaining;
+        if (trace.plan().workflow() == WorkbenchPlan.Workflow.SELECTION_QA
+                || trace.plan().workflow() == WorkbenchPlan.Workflow.ANNOTATION_SUGGESTION) {
+            return remaining;
+        }
         int numerator = switch (trace.plan().workflow()) {
             case PAPER_ANALYSIS -> 6;
             case PAPER_COMPARISON -> 4;
-            case SELECTION_QA, ANNOTATION_SUGGESTION -> 2;
+            case SELECTION_QA, ANNOTATION_SUGGESTION -> 1;
         };
         int denominator = switch (trace.plan().workflow()) {
             case PAPER_ANALYSIS -> 7;
             case PAPER_COMPARISON -> 5;
-            case SELECTION_QA, ANNOTATION_SUGGESTION -> 3;
+            case SELECTION_QA, ANNOTATION_SUGGESTION -> 1;
         };
         return Math.max(512, remaining * numerator / denominator);
     }

@@ -86,4 +86,44 @@ describe('PaperWorkbenchPanel comparison result', () => {
     expect(mocks.state.selectRun).toHaveBeenCalledWith(null)
     expect(wrapper.find('.result-card').exists()).toBe(false)
   })
+
+  it('shows only the exact selection and renders four compact status dots', async () => {
+    mocks.state.trace.value = {
+      runId: 'run-selection',
+      status: 'RUNNING',
+      invocation: { paperIds: [1] },
+      plan: { workflow: 'SELECTION_QA' },
+      steps: [
+        { index: 0, name: '解析选区', status: 'COMPLETED', latencyMs: 10 },
+        { index: 1, name: '检索局部证据', status: 'COMPLETED', evidenceCount: 3, latencyMs: 10 },
+        { index: 2, name: '生成回答', status: 'RUNNING', totalTokens: 400, latencyMs: 10 },
+        { index: 3, name: '证据门禁', status: 'PENDING', latencyMs: 0 },
+      ],
+    }
+    const wrapper = mount(PaperWorkbenchPanel, {
+      props: {
+        paper: { id: 1, title: 'Current Paper' },
+        selection: { text: '用户真正选中的句子' },
+        selectionAnchor: { kind: 'TEXT', page: 2, confidence: 0.96 },
+      },
+      global: {
+        stubs: {
+          'el-tag': passthrough,
+          'el-select': passthrough,
+          'el-option': true,
+          'el-input': true,
+          'el-button': buttonStub,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('用户真正选中的句子')
+    expect(wrapper.find('.compact-evidence-list').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('所有结论均需通过证据门禁')
+    expect(wrapper.findAll('.trace-dot-item')).toHaveLength(4)
+    expect(wrapper.findAll('.trace-dot-item')[2].classes()).toContain('is-running')
+    expect(wrapper.findAll('.trace-dot-item')[2].attributes('title')).toContain('生成回答：执行中')
+    expect(wrapper.find('.run-card').text()).not.toContain('证据门禁')
+  })
 })

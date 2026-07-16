@@ -81,13 +81,14 @@ public class LLMServiceImpl implements LLMService {
             int completionTokens = usage != null && usage.outputTokenCount() != null ? usage.outputTokenCount() : 0;
             int totalTokens = usage != null && usage.totalTokenCount() != null ? usage.totalTokenCount()
                     : promptTokens + completionTokens;
+            String finishReason = response.finishReason() == null ? null : response.finishReason().name();
 
             metrics.addTokens("input", promptTokens);
             metrics.addTokens("output", completionTokens);
-            log.info("event=ai_chat_completed inputTokens={} outputTokens={} totalTokens={}",
-                    promptTokens, completionTokens, totalTokens);
+            log.info("event=ai_chat_completed inputTokens={} outputTokens={} totalTokens={} finishReason={}",
+                    promptTokens, completionTokens, totalTokens, finishReason);
 
-            return new LlmResponse(content, promptTokens, completionTokens, totalTokens);
+            return new LlmResponse(content, promptTokens, completionTokens, totalTokens, finishReason);
         } catch (RuntimeException e) {
             outcome = "failure";
             log.warn("event=ai_chat_failed errorType={}", e.getClass().getSimpleName());

@@ -3,7 +3,6 @@
     <header class="paper-workbench__header">
       <div>
         <strong>论文助手</strong>
-        <span>所有结论均需通过证据门禁</span>
       </div>
       <el-tag v-if="trace" size="small" :type="runTagType(trace.status)" effect="plain">
         {{ runStatusLabel(trace.status) }}
@@ -22,21 +21,6 @@
         <div class="selection-meta">
           {{ anchorLabel(selectionAnchor.kind) }} · 第 {{ selectionAnchor.page }} 页 ·
           {{ Math.round(selectionAnchor.confidence * 100) }}%
-        </div>
-        <div class="compact-evidence-list">
-          <button
-            v-for="item in localEvidence"
-            :key="item.evidenceId"
-            type="button"
-            :class="{ selected: item.selected }"
-            @click="jump(item)"
-          >
-            <span>
-              p.{{ item.page }} · {{ roleLabel(item.role) }} · {{ contentModeLabel(item.contentMode) }}
-            </span>
-            <b>{{ item.text }}</b>
-          </button>
-          <div v-if="!localEvidence.length" class="muted-state">该区域没有可安全引用的正文证据</div>
         </div>
       </template>
     </section>
@@ -134,28 +118,19 @@
           />
         </el-select>
       </div>
-      <div v-if="running" class="stage-line">
-        <span class="stage-pulse" />{{ stageText || '正在执行固定工作流…' }}
-      </div>
-      <ol class="trace-steps">
-        <li v-for="step in trace.steps" :key="step.index" :class="`is-${String(step.status).toLowerCase()}`">
-          <span class="step-dot" />
-          <div>
-            <b>{{ step.name }}</b>
-            <small>
-              {{ stepStatusLabel(step.status) }}
-              <template v-if="step.evidenceCount"> · {{ step.evidenceCount }} 条证据</template>
-              <template v-if="step.totalTokens"> · {{ step.totalTokens }} tokens</template>
-              <template v-if="step.retryCount"> · 重试 {{ step.retryCount }}</template>
-            </small>
-          </div>
-        </li>
-      </ol>
-      <div v-if="trace.metrics" class="run-metrics">
-        <span>证据 {{ trace.metrics.evidenceCount }}</span>
-        <span>repair {{ trace.metrics.repairCount }}</span>
-        <span>{{ trace.metrics.totalTokens }} tokens</span>
-        <span>{{ formatDuration(trace.metrics.latencyMs) }}</span>
+      <div class="trace-dots" role="list" aria-label="执行进度">
+        <span
+          v-for="phase in tracePhases"
+          :key="phase.key"
+          class="trace-dot-item"
+          :class="`is-${String(phase.status).toLowerCase()}`"
+          role="listitem"
+          tabindex="0"
+          :title="phase.tooltip"
+          :aria-label="`${phase.description}：${phase.statusLabel}`"
+        >
+          <span class="step-dot" aria-hidden="true" />
+        </span>
       </div>
       <div v-if="trace.errorMessage" class="error-state">{{ trace.errorMessage }}</div>
     </section>
@@ -246,9 +221,9 @@ import {
   buildComparisonCoverage,
   buildComparisonQuestion,
   buildWorkbenchPlanRequest,
+  compactTracePhases,
   comparisonSelectionState,
   evidenceIndex,
-  stepStatusLabel,
   workbenchMarkdownToHtml,
   WORKBENCH_MODES,
 } from '@/utils/workbenchRun.js'
@@ -257,7 +232,6 @@ const props = defineProps({
   paper: { type: Object, required: true },
   selection: { type: Object, default: null },
   selectionAnchor: { type: Object, default: null },
-  localEvidence: { type: Array, default: () => [] },
   selectionLoading: { type: Boolean, default: false },
   selectionError: { type: String, default: '' },
   applyAnnotation: { type: Function, default: null },
@@ -269,7 +243,6 @@ const {
   trace,
   recentRuns,
   running,
-  stageText,
   error,
   run,
   loadRecent,
@@ -325,6 +298,7 @@ const historyOptions = computed(() => {
   return [trace.value, ...matchingRuns.filter(item => item.runId !== trace.value.runId)]
 })
 const answerHtml = computed(() => workbenchMarkdownToHtml(trace.value?.result?.answer))
+const tracePhases = computed(() => compactTracePhases(trace.value))
 const paperCatalog = computed(() => [props.paper, ...availablePapers.value])
 const comparisonState = computed(() => comparisonSelectionState(
   props.paper.id, comparisonPaperIds.value))
@@ -460,22 +434,10 @@ function anchorLabel(kind) {
   return { TEXT: '正文已映射', FORMULA: '公式已映射', TABLE: '表格已映射', REGION: '区域理解' }[kind] || '已建立锚点'
 }
 
-function roleLabel(role) {
-  return { ABSTRACT: '摘要', HEADING: '标题', BODY: '正文', CAPTION: '图表说明', FORMULA: '公式', TABLE: '表格' }[role] || role
-}
-
-function contentModeLabel(mode) {
-  return { TEXT: '精确文本', STRUCTURED: '结构化', REGION: '仅区域' }[mode] || '精确文本'
-}
-
 function annotationTypeLabel(type) {
   return { COMMENT: '评论', SUMMARY: '总结', QUESTION: '问题', CRITIQUE: '批判性批注' }[type] || '批注'
 }
 
-function formatDuration(milliseconds) {
-  const value = Math.max(0, Number(milliseconds) || 0)
-  return value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}s` : `${value}ms`
-}
 </script>
 
 <style scoped>
@@ -507,12 +469,7 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; font-size: 13px; font-weight: 600; }
 .section-heading button { border: 0; color: var(--ra-text-secondary); background: transparent; cursor: pointer; font-size: 18px; }
 .selection-card p { max-height: 76px; overflow: auto; margin: 0 0 8px; padding: 8px; border-left: 3px solid var(--ra-link); background: var(--ra-hover-bg); font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
-.selection-meta { margin-bottom: 7px; color: var(--ra-text-tertiary); font-size: 11px; }
-.compact-evidence-list { display: flex; flex-direction: column; gap: 5px; }
-.compact-evidence-list button { display: flex; flex-direction: column; gap: 3px; padding: 7px 8px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-text); background: transparent; text-align: left; cursor: pointer; }
-.compact-evidence-list button:hover, .compact-evidence-list button.selected { border-color: var(--ra-link); background: var(--ra-hover-bg); }
-.compact-evidence-list span { color: var(--ra-text-tertiary); font-size: 10px; }
-.compact-evidence-list b { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 11px; font-weight: 400; line-height: 1.4; }
+.selection-meta { color: var(--ra-text-tertiary); font-size: 11px; }
 .workflow-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-bottom: 9px; }
 .workflow-tabs button { min-width: 0; padding: 7px 4px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-text-secondary); background: transparent; cursor: pointer; }
 .workflow-tabs button.active { border-color: var(--ra-link); color: var(--ra-link); background: var(--ra-hover-bg); }
@@ -531,18 +488,15 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .compose-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; }
 .compose-actions span { color: var(--ra-text-tertiary); font-size: 10px; }
 .history-select { width: 150px; }
-.stage-line { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; color: var(--ra-link); font-size: 12px; }
-.stage-pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--ra-link); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ra-link) 18%, transparent); }
-.trace-steps { display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none; }
-.trace-steps li { display: flex; gap: 8px; color: var(--ra-text-tertiary); }
-.trace-steps li > div { display: flex; flex-direction: column; min-width: 0; }
-.trace-steps b { color: var(--ra-text-secondary); font-size: 12px; font-weight: 500; }
-.trace-steps small { font-size: 10px; }
-.step-dot { flex: 0 0 auto; width: 8px; height: 8px; margin-top: 4px; border: 2px solid var(--ra-border); border-radius: 50%; }
-.trace-steps .is-running .step-dot { border-color: var(--ra-link); background: var(--ra-link); }
-.trace-steps .is-completed .step-dot { border-color: #4caf50; background: #4caf50; }
-.trace-steps .is-failed .step-dot { border-color: var(--el-color-danger); background: var(--el-color-danger); }
-.run-metrics { display: flex; flex-wrap: wrap; gap: 5px 10px; margin-top: 10px; color: var(--ra-text-tertiary); font-size: 10px; }
+.trace-dots { display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; margin: 2px 10px 4px; }
+.trace-dot-item { position: relative; display: grid; min-width: 28px; height: 28px; place-items: center; outline: none; }
+.trace-dot-item:not(:last-child)::after { position: absolute; z-index: 0; top: 50%; left: calc(50% + 7px); width: calc(100% - 14px); height: 1px; background: var(--ra-border); content: ''; }
+.step-dot { z-index: 1; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--ra-border); border-radius: 50%; background: var(--ra-panel-bg); }
+.trace-dot-item:focus-visible .step-dot { outline: 3px solid color-mix(in srgb, var(--ra-link) 22%, transparent); outline-offset: 3px; }
+.trace-dot-item.is-running .step-dot { border-color: var(--ra-link); background: var(--ra-link); animation: trace-pulse 1.2s ease-out infinite; }
+.trace-dot-item.is-completed .step-dot { border-color: #4caf50; background: #4caf50; }
+.trace-dot-item.is-failed .step-dot { border-color: var(--el-color-danger); background: var(--el-color-danger); }
+@keyframes trace-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ra-link) 30%, transparent); } 75%, 100% { box-shadow: 0 0 0 6px transparent; } }
 .answer-text { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
 .answer-text :deep(h3), .answer-text :deep(h4), .answer-text :deep(h5) { margin: 12px 0 5px; font-size: 13px; line-height: 1.4; }
 .answer-text :deep(h3:first-child), .answer-text :deep(h4:first-child) { margin-top: 0; }

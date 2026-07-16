@@ -28,7 +28,7 @@ class PaperLayoutEvidenceServiceTest {
 
         assertThat(result.regionFallback()).isFalse();
         assertThat(result.evidence()).extracting(LayoutEvidence::blockId)
-                .contains("body-2")
+                .containsExactly("body-1", "body-2", "heading-1")
                 .doesNotContain("header-1", "reference-1");
         assertThat(result.evidence()).allMatch(item -> policy.isAllowed(
                 artifact.blocks().stream().filter(block -> block.id().equals(item.blockId())).findFirst().orElseThrow()));
@@ -36,6 +36,24 @@ class PaperLayoutEvidenceServiceTest {
                 .extracting(LayoutEvidence::blockId)
                 .containsExactly("body-2");
         assertThat(result.evidence()).allMatch(item -> item.evidenceId().startsWith("lay_"));
+    }
+
+    @Test
+    void returnsAtMostOneAllowedBlockOnEachSideOfTheSelection() {
+        PaperLayoutArtifact artifact = artifact();
+        SelectionAnchor anchor = resolver.resolve(
+                artifact,
+                1,
+                List.of(new NormalizedBoundingBox(0.10, 0.62, 0.30, 0.02)),
+                "next section channel model",
+                null);
+
+        LocalEvidenceResult result = service.retrieve(artifact, anchor, "channel", 8);
+
+        assertThat(result.evidence()).extracting(LayoutEvidence::blockId)
+                .containsExactly("heading-1", "body-3");
+        assertThat(result.evidence().stream().filter(LayoutEvidence::selected))
+                .extracting(LayoutEvidence::blockId).containsExactly("body-3");
     }
 
     @Test

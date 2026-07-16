@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -110,7 +111,7 @@ class WorkbenchModelServiceTest {
         when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
                 .thenReturn(new LlmResponse("""
                         {"answer":"grounded answer","claims":[{"text":"claim","evidenceIds":["lay_a"]}]}
-                        """, 700, 1_200, 1_900));
+                        """, 700, 800, 1_500));
 
         service.generate(WorkbenchPlan.Workflow.SELECTION_QA, "why", Map.of(),
                 List.of(evidence("lay_a", "evidence")), 3_000, null, List.of());
@@ -137,10 +138,70 @@ class WorkbenchModelServiceTest {
         assertThat(policy.getValue().maxOutputTokens()).isLessThanOrEqualTo(10_000);
     }
 
+    @Test
+    void retriesBlankTruncatedSelectionWithOnlyDirectEvidence() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(
+                        new LlmResponse("", 200, 300, 500, "LENGTH"),
+                        new LlmResponse("""
+                                {"answer":"精简回答","claims":[{"text":"直接证据结论","evidenceIds":["lay_selected"]}]}
+                                """, 180, 220, 400, "STOP"));
+
+        WorkbenchModelService.ModelCall result = service.generate(
+                WorkbenchPlan.Workflow.SELECTION_QA,
+                "解释选区",
+                Map.of(7L, "Paper"),
+                List.of(
+                        evidence("lay_before", "neighbour before", false),
+                        evidence("lay_selected", "direct selection", true),
+                        evidence("lay_after", "neighbour after", false)),
+                6_000,
+                null,
+                List.of());
+
+        assertThat(result.recoveryUsed()).isTrue();
+        assertThat(result.attemptCount()).isEqualTo(2);
+        assertThat(result.totalTokens()).isEqualTo(900);
+        assertThat(result.finishReason()).isEqualTo("STOP");
+
+        ArgumentCaptor<String> messages = ArgumentCaptor.forClass(String.class);
+        verify(llmService, times(2)).chatWithUsage(anyString(), messages.capture(), any(LlmCallPolicy.class));
+        assertThat(messages.getAllValues().get(0)).contains("neighbour before", "neighbour after");
+        assertThat(messages.getAllValues().get(1))
+                .contains("direct selection", "精确选中证据")
+                .doesNotContain("neighbour before", "neighbour after");
+    }
+
+    @Test
+    void reportsUsageAndFinishReasonWhenCompactRetryIsStillBlank() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(
+                        new LlmResponse("", 100, 200, 300, "LENGTH"),
+                        new LlmResponse("", 80, 120, 200, "STOP"));
+
+        assertThatThrownBy(() -> service.generate(
+                WorkbenchPlan.Workflow.SELECTION_QA, "why", Map.of(),
+                List.of(evidence("lay_a", "selected", true)), 3_000, null, List.of()))
+                .isInstanceOf(WorkbenchModelException.class)
+                .satisfies(error -> {
+                    WorkbenchModelException modelError = (WorkbenchModelException) error;
+                    assertThat(modelError.code()).isEqualTo("MODEL_OUTPUT_TRUNCATED");
+                    assertThat(modelError.attemptCount()).isEqualTo(2);
+                    assertThat(modelError.promptTokens()).isEqualTo(180);
+                    assertThat(modelError.completionTokens()).isEqualTo(320);
+                    assertThat(modelError.totalTokens()).isEqualTo(500);
+                    assertThat(modelError.finishReason()).isEqualTo("STOP");
+                });
+    }
+
     private LayoutEvidence evidence(String id, String text) {
+        return evidence(id, text, true);
+    }
+
+    private LayoutEvidence evidence(String id, String text, boolean selected) {
         return new LayoutEvidence(id, 7L, "p1-b0001", 1,
                 new NormalizedBoundingBox(0.1, 0.2, 0.3, 0.04), DocumentBlockRole.BODY,
-                1, List.of("Introduction"), text, 0.9, true, 0.95,
+                1, List.of("Introduction"), text, 0.9, selected, 0.95,
                 "a".repeat(64), "parser-v1");
     }
 }

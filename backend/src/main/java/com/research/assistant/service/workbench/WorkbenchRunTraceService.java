@@ -242,13 +242,30 @@ public class WorkbenchRunTraceService {
 
     @Transactional
     public void failStep(String runId, int stepIndex, String errorCode, String safeErrorMessage, long latencyMs) {
+        failStep(runId, stepIndex, errorCode, safeErrorMessage, null, 0, 0, latencyMs);
+    }
+
+    @Transactional
+    public void failStep(String runId,
+                         int stepIndex,
+                         String errorCode,
+                         String safeErrorMessage,
+                         Object outputSummary,
+                         int promptTokens,
+                         int completionTokens,
+                         long latencyMs) {
         requireRunStatus(requireRun(runId), WorkbenchRunStatus.RUNNING);
         PaperWorkbenchStepRecord step = requireStep(runId, stepIndex);
         requireStepStatus(step, WorkbenchStepStatus.RUNNING);
         LocalDateTime now = LocalDateTime.now();
         step.setStatus(WorkbenchStepStatus.FAILED.name());
+        step.setOutputSummaryJson(writeNullable(outputSummary));
         step.setErrorCode(normalizeCode(errorCode));
         step.setErrorMessage(truncate(safeErrorMessage, 1_000));
+        step.setPromptTokens(value(step.getPromptTokens()) + nonNegative(promptTokens));
+        step.setCompletionTokens(value(step.getCompletionTokens()) + nonNegative(completionTokens));
+        step.setTotalTokens(value(step.getTotalTokens())
+                + nonNegative(promptTokens) + nonNegative(completionTokens));
         step.setLatencyMs(longValue(step.getLatencyMs()) + Math.max(0, latencyMs));
         step.setCompletedAt(now);
         step.setUpdatedAt(now);

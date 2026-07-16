@@ -250,7 +250,6 @@
         :paper="paper"
         :selection="pendingTextSelection"
         :selection-anchor="selectionAnchor"
-        :local-evidence="localEvidence"
         :selection-loading="selectionContextLoading"
         :selection-error="selectionContextError"
         :apply-annotation="applyWorkbenchAnnotationSuggestion"
@@ -351,7 +350,7 @@ import { appliedWorkbenchRunIds as collectAppliedWorkbenchRunIds } from '@/utils
 import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
-import { resolveSelectionAnchor, retrieveLocalEvidence } from '@/api/workbench.js'
+import { resolveSelectionAnchor } from '@/api/workbench.js'
 import { ElMessage } from 'element-plus'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
@@ -390,7 +389,6 @@ const currentColor = ref('#ffeb3b')
 const aiGenerating = ref(false)
 const pendingTextSelection = ref(null)
 const selectionAnchor = ref(null)
-const localEvidence = ref([])
 const selectionContextLoading = ref(false)
 const selectionContextError = ref('')
 const evidenceFocus = ref(null)
@@ -1032,7 +1030,6 @@ async function resolvePendingSelectionContext(selection) {
   const payload = selectionToAnchorPayload(selection)
   const requestId = ++selectionContextRequestId
   selectionAnchor.value = null
-  localEvidence.value = []
   selectionContextError.value = ''
   evidenceFocus.value = null
   if (!payload) {
@@ -1045,15 +1042,6 @@ async function resolvePendingSelectionContext(selection) {
     const anchor = await resolveSelectionAnchor(props.paper.id, payload)
     if (requestId !== selectionContextRequestId) return
     selectionAnchor.value = anchor
-    const result = await retrieveLocalEvidence(
-      props.paper.id,
-      anchor,
-      String(selection.text || '').slice(0, 2000),
-      6
-    )
-    if (requestId !== selectionContextRequestId) return
-    selectionAnchor.value = result.anchor || anchor
-    localEvidence.value = result.evidence || []
   } catch (error) {
     if (requestId !== selectionContextRequestId) return
     selectionContextError.value = error.response?.data?.message || error.message || '证据锚点建立失败'
@@ -1208,7 +1196,6 @@ function clearPendingTextSelection() {
   layoutSelectionDrag = null
   pendingTextSelection.value = null
   selectionAnchor.value = null
-  localEvidence.value = []
   selectionContextLoading.value = false
   selectionContextError.value = ''
   evidenceFocus.value = null

@@ -1,6 +1,6 @@
 # PDF 精确选取与论文工作台规格
 
-状态：P0 至 P3-B2 已完成并通过最终全链路审计（2026-07-16）。验收证据与复现命令见 [PDF 工作台最终验收](pdf-workbench-acceptance.md)。
+状态：P0 至 P3-B2 已完成并通过最终全链路审计（2026-07-16）；P4-A 已完成代码、全量测试与真实 PDF 浏览器验收。P4-B 至 P4-F 待按小步增量实施。P0–P3 的验收证据与复现命令见 [PDF 工作台最终验收](pdf-workbench-acceptance.md)。
 
 ## 1. 产品目标：做“有证据的论文 Agent”，不是再做一个 PDF 编辑器
 
@@ -26,12 +26,12 @@ PDF 页面仍是论文阅读入口，左侧为 PDF，右侧为“论文助手”
 
 | 用户上下文 | 可做的事 | 默认范围 |
 | --- | --- | --- |
-| 选中正文 | 解释、翻译、提问、建议批注 | 选区 + 相邻段落 |
+| 选中正文 | 解释、翻译、提问、把结果加入批注 | 精确选区；解释/问答可在后台使用有界邻近证据 |
 | 框选区域 | 解释公式、图或表 | 区域 + 相交块 |
 | 未选内容 | 总结、方法拆解、局限、全文问答 | 当前论文正文 |
 | 已选多篇论文 | 对比方法、假设、指标、结论 | 指定论文集合 |
 
-“论文分析”页面继续承载完整报告和历史结果；“研究空白/对比”页面继续承载跨论文任务。PDF 工作台只负责携带当前上下文进入这些能力，避免重复建设两套页面。
+P4 将“论文分析”“研究空白/对比阅读”和 PDF 内问答统一为同一个论文工作台，以 `SELECTION / PAPER / COMPARISON` 范围和具体任务区分能力，不再维护重复入口。任务中心、阅读计划与写作助手继续作为独立页面。旧页面和接口在迁移期保留兼容跳转，待历史结果可从统一工作台访问后再移除。
 
 ## 3. 最小文档数据模型
 
@@ -179,11 +179,17 @@ Preflight
 
 对比维度由用户选择或由受限 Schema 提议，例如问题、假设、方法、数据集、指标、结论与局限；不得把不同论文的证据混为一条来源。
 
-### 7.4 生成批注建议
+### 7.4 将助手输出加入批注（P4 替换目标）
 
-`resolveSelectionContext → synthesizeEvidenceAnswer/explain → proposeAnchoredAnnotation → user confirm → deterministic create API`
+`user selects assistant output → quick annotation editor → user confirm → deterministic create API`
 
-模型只提供建议内容，用户决定是否落库。
+P4 不再让模型额外猜测用户想写什么批注。对话、翻译、全文分析或多篇对比结果都可选择部分内容并打开快捷编辑器；用户可修改文字、类型、颜色和锚点后再保存。当前论文选区可保存为锚定批注；多篇结果必须明确目标论文/证据，否则只保存为工作台笔记。
+
+### 7.5 选区翻译与结果语言（P4）
+
+`resolve exact selection → TranslationService → DeepLTranslationProvider → preserve formula/citation → cache result`
+
+翻译属于确定性外部服务调用，不经过论文问答 LLM，也不触发新一轮全文检索或 Evidence Gate。默认只翻译用户精确选中的内容；长文本分块时必须保持 LaTeX、引用编号、数值、缩写和段落顺序。工作台回答默认中文，术语首次出现按“中文名称（English Full Name, ABBR）”展示；用户切换英文时复用同一个翻译服务转换既有答案，不重新执行论文分析。
 
 ## 8. 持久化、可观测性与评估
 
@@ -286,6 +292,14 @@ Flyway V17 将 `primaryParser/selectedParser/fallbackAttempted/fallbackAccepted/
 
 多篇对比把当前 PDF 固定为基准论文，额外论文去重后总数必须为 2–8；达到 8 篇时禁止继续选入，少于 2 篇时禁用执行。研究问题、核心方法、实验与指标、主要结论、局限和适用场景是显式可选维度，只拼入用户问题，不改变固定 Workflow/Skill 白名单。结果根据 claim 实际引用的 evidence ID 生成逐论文矩阵，显示标题、证据数、被引用 claim 数和页码；每篇至少有证据且被 claim 引用才算覆盖。点击当前论文证据会原地定位；其他论文证据通过 `open-paper-evidence` 切换详情和 PDF 实例，再以 initial evidence 跳到目标页/bbox，不能在当前 PDF 上复用另一个论文的页码。当前真实库仅有一篇，浏览器验证提示“1/8、暂无其他论文”且执行禁用；双论文覆盖矩阵由前端组件测试和后端 Evidence Gate 集成测试验证。前端 42 项及生产构建通过。
 
+### 8.12 P4-A 问答可靠性与精简状态验收
+
+选区局部证据由原先最多 8 条、reading-order 距离 4 的候选收敛为“全部直接选中块 + 前后各至多一个允许角色块”，并按直接选中优先执行上限裁剪。前端建立 `SelectionAnchor` 后不再重复请求局部证据；邻近上下文只在用户真正发起问答时由后端检索，页面“当前选区”只展示原始精确选中文字和锚点状态。
+
+选区模型调用现在共享完整 run token 预算，但首次调用预留一次内部精简恢复额度。若 provider 返回空正文或 `LENGTH/MAX_TOKEN`，系统只用直接选中证据自动重试一次；两次调用严格共享总预算。成功与失败步骤都会累计 prompt/completion token、attempt count、是否使用空输出恢复和 provider `finishReason`，任务级重试不能再把失败调用成本误记为零。选区回答 prompt 约束为简洁中文、最多 4 条 claims，并禁止输出思考过程。
+
+前端将持久化的底层步骤聚合为固定四个横向状态点：完成为绿、执行中为蓝色脉冲、失败为红、未执行为空心灰；常驻步骤名称与 token 文本移入 hover/focus 提示。真实论文 175 首页选区映射置信度 92%，在线 `SELECTION_QA` 使用 3 条证据、1781 tokens、约 23 秒一次完成，`attemptCount=1 / emptyOutputRecoveryUsed=false / finishReason=STOP`，四点全部变绿且无浏览器控制台错误。后端全量 403 项通过（5 个可选本机样本未配置时跳过），前端 44 项与生产构建通过；运行态评测为确定性 7/7、WY 真实样本 1/1。
+
 ## 9. 分阶段实施
 
 | 阶段 | 交付 | 验收 |
@@ -302,6 +316,20 @@ Flyway V17 将 `primaryParser/selectedParser/fallbackAttempted/fallbackAccepted/
 | P3-A（已完成） | 低置信度外部解析适配器、公式/表格区域模式 | 复杂页显式回退或区域降级，不伪造精确文本 |
 | P3-B1（已完成） | 可提交评测集、可选真实 PDF manifest、可重复评测器与聚合指标 API | 确定性 7/7、WY 真实 case 通过；指标不泄露论文内容 |
 | P3-B2（已完成） | 产品指标面板与多论文对比选择/覆盖呈现 | 质量快照可切换窗口；对比前校验 2–8 篇并按论文展示实际引用覆盖 |
+| P4-A（已完成） | 修复模型空结果与 token 截断；选区上下文收敛；四个横向状态点替换详细流程文字；页面只展示精确选区 | 真实选区问答一次完成；四点状态与 trace 一致；邻近证据不混入“当前选区” |
+| P4-B（待实施） | PDF 与助手可拖动分栏、宽度记忆、路由返回后恢复工作区 | 分割线可拖动/复位；论文、页码、缩放、滚动位置和助手任务保持；显式关闭才清空 |
+| P4-C（待实施） | 统一单篇分析、研究 Gap 与多篇对比的页面、路由和 Workflow 入口 | 同一窗口按范围切换任务；旧入口兼容跳转；任务中心、阅读计划、写作助手保持独立 |
+| P4-D（待实施） | 用“选择助手输出 → 快捷编辑 → 添加批注/工作台笔记”替代两套 AI 批注建议 | 用户可编辑内容、颜色、类型和锚点；保存结果携带 run/evidence 身份；不再自动生成并直接落库 |
+| P4-E（待实施） | 独立翻译服务，默认 DeepL；中/英双语输出、懒翻译与缓存 | 选区翻译不调用问答 LLM；中英切换不重新分析；LaTeX/引用/数值保持；密钥不进入源码、日志或 Git |
+| P4-F（待实施） | 公式区域框选、多模态/公式 OCR、LaTeX 结果与 KaTeX 渲染 | 大型运算符和复杂公式可用区域识别；显示区域缩略图、渲染公式、LaTeX 源码与置信度；低置信度保留 REGION |
+
+### 9.1 P4-E 翻译 Provider 约束
+
+- 后端定义 `TranslationService` 与可替换的 `TranslationProvider`，默认 provider 为 `deepl`；论文问答模型不得作为默认翻译路径。
+- DeepL 凭据只从本机环境变量或现有加密设置读取。计划使用 `RA_TRANSLATION_PROVIDER=deepl`、`DEEPL_AUTH_KEY=<local-secret>` 和可选 `DEEPL_API_BASE_URL=<account-endpoint>`；真实值不得写入 Markdown、源码、前端 bundle、测试快照或日志。
+- 服务未配置、额度不足、限流或网络失败时返回明确可恢复错误，不静默改用 LLM 产生风格不一致的译文；将来如需备用翻译 API，必须由配置显式选择。
+- 缓存键至少包含 `provider + sourceLanguage + targetLanguage + contentHash + glossaryVersion`。只在用户点击“翻译”或切换结果语言时调用，避免对隐藏邻近证据和未查看结果计费。
+- 长文本按段落安全分块，公式、引用、数字和占位符先保护再还原；测试覆盖中英互译、LaTeX、IEEE 引用、缩写、超长文本、限流和密钥脱敏。
 
 ## 10. 可提炼为简历亮点的技术叙事
 

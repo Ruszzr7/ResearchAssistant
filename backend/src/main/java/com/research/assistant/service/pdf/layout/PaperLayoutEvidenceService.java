@@ -18,8 +18,6 @@ import java.util.Set;
 @Service
 public class PaperLayoutEvidenceService {
 
-    private static final int MAX_READING_DISTANCE = 4;
-
     private final PaperLayoutEvidencePolicy evidencePolicy;
     private final SelectionAnchorResolver anchorResolver;
 
@@ -62,31 +60,34 @@ public class PaperLayoutEvidenceService {
                     resolvedAnchor, List.of(), resolvedAnchor.kind() == SelectionAnchorKind.REGION);
         }
 
-        Set<String> selectedIds = selected.stream().map(DocumentBlock::id)
+        List<DocumentBlock> orderedSelected = selected.stream()
+                .sorted(Comparator.comparingInt(DocumentBlock::readingOrder)).toList();
+        Set<String> selectedIds = orderedSelected.stream().map(DocumentBlock::id)
                 .collect(java.util.stream.Collectors.toCollection(HashSet::new));
-        Set<Integer> selectedOrders = selected.stream().map(DocumentBlock::readingOrder)
-                .collect(java.util.stream.Collectors.toSet());
         String effectiveQuery = query == null || query.isBlank() ? resolvedAnchor.anchorText() : query;
         List<ScoredBlock> candidates = new ArrayList<>();
-        for (DocumentBlock block : evidencePolicy.selectAllowed(artifact)) {
-            int distance = selectedOrders.stream()
-                    .mapToInt(order -> Math.abs(order - block.readingOrder()))
-                    .min()
-                    .orElse(Integer.MAX_VALUE);
-            boolean directlySelected = selectedIds.contains(block.id());
-            if (!directlySelected && distance > MAX_READING_DISTANCE) {
-                continue;
-            }
-            double lexical = LayoutTextSimilarity.queryCoverage(effectiveQuery, block.text());
-            double sectionBonus = sameSection(block, selected) ? 0.08 : 0;
-            double score = directlySelected
-                    ? 1
-                    : Math.max(0.15, 0.72 - 0.11 * distance) + 0.18 * lexical + sectionBonus;
-            candidates.add(new ScoredBlock(block, Math.min(1, score), directlySelected));
+        for (DocumentBlock block : orderedSelected) {
+            candidates.add(new ScoredBlock(block, 1, true));
         }
 
+        List<DocumentBlock> allowed = evidencePolicy.selectAllowed(artifact).stream()
+                .sorted(Comparator.comparingInt(DocumentBlock::readingOrder)).toList();
+        int firstSelectedOrder = orderedSelected.get(0).readingOrder();
+        int lastSelectedOrder = orderedSelected.get(orderedSelected.size() - 1).readingOrder();
+        DocumentBlock before = allowed.stream()
+                .filter(block -> !selectedIds.contains(block.id()))
+                .filter(block -> block.readingOrder() < firstSelectedOrder)
+                .max(Comparator.comparingInt(DocumentBlock::readingOrder)).orElse(null);
+        DocumentBlock after = allowed.stream()
+                .filter(block -> !selectedIds.contains(block.id()))
+                .filter(block -> block.readingOrder() > lastSelectedOrder)
+                .min(Comparator.comparingInt(DocumentBlock::readingOrder)).orElse(null);
+        addNeighbour(candidates, before, orderedSelected, effectiveQuery, firstSelectedOrder);
+        addNeighbour(candidates, after, orderedSelected, effectiveQuery, lastSelectedOrder);
+
         List<ScoredBlock> chosen = candidates.stream()
-                .sorted(Comparator.comparingDouble(ScoredBlock::score).reversed()
+                .sorted(Comparator.comparing((ScoredBlock item) -> !item.selected())
+                        .thenComparing(Comparator.comparingDouble(ScoredBlock::score).reversed())
                         .thenComparingInt(item -> item.block().readingOrder()))
                 .limit(safeMax)
                 .sorted(Comparator.comparingInt(item -> item.block().readingOrder()))
@@ -96,6 +97,20 @@ public class PaperLayoutEvidenceService {
                 .toList();
         return new LocalEvidenceResult(
                 resolvedAnchor, evidence, resolvedAnchor.kind() == SelectionAnchorKind.REGION);
+    }
+
+    private void addNeighbour(List<ScoredBlock> candidates,
+                              DocumentBlock block,
+                              List<DocumentBlock> selected,
+                              String query,
+                              int boundaryOrder) {
+        if (block == null) return;
+        int distance = Math.abs(block.readingOrder() - boundaryOrder);
+        double lexical = LayoutTextSimilarity.queryCoverage(query, block.text());
+        double sectionBonus = sameSection(block, selected) ? 0.08 : 0;
+        double score = Math.min(0.90, Math.max(0.20, 0.70 - 0.08 * distance)
+                + 0.12 * lexical + sectionBonus);
+        candidates.add(new ScoredBlock(block, score, false));
     }
 
     /** Shared stable evidence projection used by local and whole-paper workbench retrieval. */
