@@ -33,7 +33,7 @@
       </el-header>
       <div class="app-divider"></div>
       <el-main>
-        <router-view />
+        <CachedRouterView :include="['LibraryView']" />
       </el-main>
     </el-container>
 
@@ -90,6 +90,7 @@ import { Moon, Sunny } from '@element-plus/icons-vue'
 import { useTheme } from '@/stores/themeStore'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import CommandPalette from '@/components/CommandPalette.vue'
+import CachedRouterView from '@/components/navigation/CachedRouterView.vue'
 
 const router = useRouter()
 const { dark, toggle: toggleTheme } = useTheme()

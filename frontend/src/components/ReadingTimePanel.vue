@@ -5,7 +5,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { getReadingProgress, addReadingTime } from '@/api/readingProgress.js'
 
 const props = defineProps({
@@ -18,20 +18,34 @@ const readSeconds = ref(Number(props.paper.readSeconds) || 0)
 let timer = null
 let pendingSeconds = 0
 let lastSyncSeconds = 0
+let lifecycleEventsAttached = false
+let syncInFlight = null
 
 onMounted(() => {
   loadReadTime()
+  activateTimer()
+})
+onActivated(activateTimer)
+onDeactivated(deactivateTimer)
+onUnmounted(deactivateTimer)
+
+function activateTimer() {
+  stopTimer()
   startTimer()
+  if (lifecycleEventsAttached) return
+  lifecycleEventsAttached = true
   window.addEventListener('beforeunload', flushTime)
   document.addEventListener('visibilitychange', onVisibilityChange)
-})
+}
 
-onUnmounted(() => {
+function deactivateTimer() {
   stopTimer()
-  flushTime()
+  void flushTime()
+  if (!lifecycleEventsAttached) return
+  lifecycleEventsAttached = false
   window.removeEventListener('beforeunload', flushTime)
   document.removeEventListener('visibilitychange', onVisibilityChange)
-})
+}
 
 watch(() => props.paper.id, () => {
   flushTime()
@@ -82,19 +96,27 @@ function onVisibilityChange() {
 }
 
 function flushTime() {
-  if (pendingSeconds > lastSyncSeconds) syncTime()
+  if (pendingSeconds > lastSyncSeconds) return syncTime()
+  return Promise.resolve()
 }
 
 async function syncTime() {
+  if (syncInFlight) return syncInFlight
   const delta = pendingSeconds - lastSyncSeconds
   if (delta <= 0 || !props.paper?.id) return
-  try {
-    await addReadingTime(props.paper.id, delta)
-    lastSyncSeconds = pendingSeconds
-    emit('updated', readSeconds.value)
-  } catch (e) {
-    // 保留未同步秒数，下次继续尝试。
-  }
+  const syncedThrough = pendingSeconds
+  syncInFlight = (async () => {
+    try {
+      await addReadingTime(props.paper.id, delta)
+      lastSyncSeconds = Math.max(lastSyncSeconds, syncedThrough)
+      emit('updated', readSeconds.value)
+    } catch (e) {
+      // 保留未同步秒数，下次继续尝试。
+    } finally {
+      syncInFlight = null
+    }
+  })()
+  return syncInFlight
 }
 </script>
 

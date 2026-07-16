@@ -446,7 +446,6 @@ function annotationTypeLabel(type) {
   min-width: 0;
   overflow-y: auto;
   box-sizing: border-box;
-  border-left: 1px solid var(--ra-border);
   background: var(--ra-panel-bg);
   color: var(--ra-text);
 }

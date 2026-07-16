@@ -576,7 +576,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, defineAsyncComponent, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import { waitForAnalysis } from '@/utils/analysis.js'
@@ -586,6 +586,8 @@ import ReadingTimePanel from '@/components/ReadingTimePanel.vue'
 import LibraryBatchSelectionBar from '@/components/library/LibraryBatchSelectionBar.vue'
 import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
 import { listReadingPlans, addPlanItem } from '@/api/readingPlan'
+
+defineOptions({ name: 'LibraryView' })
 
 const router = useRouter()
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1794,8 +1796,23 @@ function handleDocClick(e) {
     showNewFolderForm.value = false
   }
 }
-onMounted(()=>{initLibrary();window.addEventListener('keydown',onKeyDown);document.addEventListener('click',handleDocClick)})
-onUnmounted(()=>{window.removeEventListener('keydown',onKeyDown);document.removeEventListener('click',handleDocClick)})
+let libraryEventsAttached = false
+function attachLibraryEvents() {
+  if (libraryEventsAttached) return
+  libraryEventsAttached = true
+  window.addEventListener('keydown', onKeyDown)
+  document.addEventListener('click', handleDocClick)
+}
+function detachLibraryEvents() {
+  if (!libraryEventsAttached) return
+  libraryEventsAttached = false
+  window.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('click', handleDocClick)
+}
+onMounted(()=>{initLibrary();attachLibraryEvents()})
+onActivated(attachLibraryEvents)
+onDeactivated(detachLibraryEvents)
+onUnmounted(detachLibraryEvents)
 </script>
 
 <style scoped>

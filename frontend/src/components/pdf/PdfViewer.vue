@@ -74,7 +74,7 @@
       </div>
     </div>
 
-    <div class="viewer-body">
+    <div ref="viewerBodyRef" class="viewer-body" :class="{ 'is-workbench-resizing': workbenchResizing }">
       <div ref="containerRef" class="pdf-pages" @scroll="onScroll">
         <div class="virtual-spacer" :style="{ height: topSpacerHeight + 'px' }" aria-hidden="true"></div>
         <div
@@ -245,8 +245,28 @@
         <div class="virtual-spacer" :style="{ height: bottomSpacerHeight + 'px' }" aria-hidden="true"></div>
       </div>
 
+      <div
+        v-if="workbenchPanelVisible"
+        class="workbench-divider"
+        role="separator"
+        aria-label="调整 PDF 与论文助手宽度"
+        aria-orientation="vertical"
+        :aria-valuemin="20"
+        :aria-valuemax="65"
+        :aria-valuenow="workbenchRatioPercent"
+        tabindex="0"
+        title="拖动调整宽度；双击恢复默认"
+        @pointerdown="beginWorkbenchResize"
+        @pointermove="continueWorkbenchResize"
+        @pointerup="finishWorkbenchResize"
+        @pointercancel="finishWorkbenchResize"
+        @dblclick="resetWorkbenchWidth"
+        @keydown="onWorkbenchDividerKeydown"
+      ><span aria-hidden="true" /></div>
+
       <PaperWorkbenchPanel
         v-if="workbenchPanelVisible"
+        :style="{ flexBasis: workbenchWidth + 'px' }"
         :paper="paper"
         :selection="pendingTextSelection"
         :selection-anchor="selectionAnchor"
@@ -337,7 +357,7 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, shallowRef, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { listAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, generateAiAnnotations } from '@/api/annotation'
@@ -351,6 +371,15 @@ import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
 import { resolveSelectionAnchor } from '@/api/workbench.js'
+import {
+  DEFAULT_WORKBENCH_RATIO,
+  completePdfPaneWidth,
+  normalizeWorkbenchRatio,
+  ratioFromDividerPosition,
+  readWorkbenchRatio,
+  workbenchWidthForContainer,
+  writeWorkbenchRatio,
+} from '@/utils/pdfWorkspaceLayout.js'
 import { ElMessage } from 'element-plus'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
@@ -363,6 +392,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'open-paper-evidence'])
 
 const containerRef = ref(null)
+const viewerBodyRef = ref(null)
 const canvasRefs = ref({})
 const textLayerRefs = ref({})
 const overlayRefs = ref({})
@@ -393,6 +423,25 @@ const selectionContextLoading = ref(false)
 const selectionContextError = ref('')
 const evidenceFocus = ref(null)
 const workbenchPanelVisible = ref(true)
+const workbenchWidthRatio = ref(readWorkbenchRatio())
+const viewerBodyWidth = ref(0)
+const pdfPageWidthAt100 = ref(0)
+const pdfViewportReserveWidth = ref(20)
+const workbenchResizing = ref(false)
+const minimumCompletePdfWidth = computed(() => completePdfPaneWidth(
+  pdfPageWidthAt100.value,
+  pdfViewportReserveWidth.value,
+))
+const workbenchWidth = computed(() => workbenchWidthForContainer(
+  viewerBodyWidth.value,
+  workbenchWidthRatio.value,
+  minimumCompletePdfWidth.value,
+))
+const workbenchRatioPercent = computed(() => viewerBodyWidth.value > 0
+  ? Math.round(workbenchWidth.value / viewerBodyWidth.value * 100)
+  : Math.round(workbenchWidthRatio.value * 100))
+let viewerBodyResizeObserver = null
+let viewerEventsAttached = false
 
 const noteDialogVisible = ref(false)
 const noteEditText = ref('')
@@ -476,14 +525,50 @@ const bottomSpacerHeight = computed(() => Math.max(
   totalPageHeight.value - pageOffset(visiblePageEnd.value + 1)
 ))
 
-onMounted(() => {
+function attachViewerEvents() {
+  if (viewerEventsAttached) return
+  viewerEventsAttached = true
   document.documentElement.classList.add('pdf-viewer-open')
   document.body.classList.add('pdf-viewer-open')
   window.addEventListener('click', onWindowClick)
   window.addEventListener('pointerup', finishTextSelectionFromWindow, true)
   window.addEventListener('pointercancel', cancelTextSelection, true)
+}
+
+function detachViewerEvents() {
+  if (!viewerEventsAttached) return
+  viewerEventsAttached = false
+  document.documentElement.classList.remove('pdf-viewer-open')
+  document.body.classList.remove('pdf-viewer-open')
+  document.documentElement.classList.remove('pdf-workbench-resizing')
+  window.removeEventListener('click', onWindowClick)
+  window.removeEventListener('pointerup', finishTextSelectionFromWindow, true)
+  window.removeEventListener('pointercancel', cancelTextSelection, true)
+  workbenchResizing.value = false
+}
+
+function updateViewerBodyWidth() {
+  viewerBodyWidth.value = viewerBodyRef.value?.getBoundingClientRect?.().width || 0
+  const container = containerRef.value
+  if (container) {
+    pdfViewportReserveWidth.value = Math.max(20, container.offsetWidth - container.clientWidth + 4)
+  }
+}
+
+onMounted(() => {
+  attachViewerEvents()
+  if (typeof ResizeObserver !== 'undefined') {
+    viewerBodyResizeObserver = new ResizeObserver(updateViewerBodyWidth)
+    if (viewerBodyRef.value) viewerBodyResizeObserver.observe(viewerBodyRef.value)
+  }
+  updateViewerBodyWidth()
   loadDocument()
 })
+onActivated(() => {
+  attachViewerEvents()
+  void nextTick(updateViewerBodyWidth)
+})
+onDeactivated(detachViewerEvents)
 onUnmounted(() => {
   renderQueueRequested = false
   if (renderFrame != null) window.cancelAnimationFrame(renderFrame)
@@ -491,18 +576,60 @@ onUnmounted(() => {
   pdfDoc.value?.destroy()
   pageLayoutIndexes.clear()
   if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
-  window.removeEventListener('click', onWindowClick)
-  window.removeEventListener('pointerup', finishTextSelectionFromWindow, true)
-  window.removeEventListener('pointercancel', cancelTextSelection, true)
-  document.documentElement.classList.remove('pdf-viewer-open')
-  document.body.classList.remove('pdf-viewer-open')
+  viewerBodyResizeObserver?.disconnect()
+  viewerBodyResizeObserver = null
+  detachViewerEvents()
 })
+
+function beginWorkbenchResize(event) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  workbenchResizing.value = true
+  document.documentElement.classList.add('pdf-workbench-resizing')
+  try { event.currentTarget?.setPointerCapture?.(event.pointerId) } catch { /* synthetic/legacy pointer */ }
+  updateWorkbenchWidthFromPointer(event)
+}
+
+function continueWorkbenchResize(event) {
+  if (!workbenchResizing.value) return
+  updateWorkbenchWidthFromPointer(event)
+}
+
+function finishWorkbenchResize(event) {
+  if (!workbenchResizing.value) return
+  updateWorkbenchWidthFromPointer(event)
+  workbenchResizing.value = false
+  document.documentElement.classList.remove('pdf-workbench-resizing')
+  try { event.currentTarget?.releasePointerCapture?.(event.pointerId) } catch { /* capture already released */ }
+  workbenchWidthRatio.value = writeWorkbenchRatio(workbenchWidthRatio.value)
+}
+
+function updateWorkbenchWidthFromPointer(event) {
+  const rect = viewerBodyRef.value?.getBoundingClientRect?.()
+  if (!rect?.width) return
+  workbenchWidthRatio.value = ratioFromDividerPosition(event.clientX, rect)
+}
+
+function resetWorkbenchWidth() {
+  workbenchWidthRatio.value = writeWorkbenchRatio(DEFAULT_WORKBENCH_RATIO)
+}
+
+function onWorkbenchDividerKeydown(event) {
+  let next = workbenchWidthRatio.value
+  if (event.key === 'ArrowLeft') next += event.shiftKey ? 0.05 : 0.02
+  else if (event.key === 'ArrowRight') next -= event.shiftKey ? 0.05 : 0.02
+  else if (event.key === 'Home') next = DEFAULT_WORKBENCH_RATIO
+  else return
+  event.preventDefault()
+  workbenchWidthRatio.value = writeWorkbenchRatio(normalizeWorkbenchRatio(next))
+}
 
 async function loadDocument() {
   try {
     cancelAllPageRenders()
     renderQueueRequested = false
     pageLayoutIndexes.clear()
+    pdfPageWidthAt100.value = 0
     const url = `/api/papers/${props.paper.id}/pdf`
     const loading = pdfjsLib.getDocument(url)
     pdfDoc.value = await loading.promise
@@ -712,9 +839,13 @@ async function renderPage(pageState) {
   const dpr = window.devicePixelRatio || 1
   const baseViewport = page.getViewport({ scale: 1.5 * zoomPercent.value / 100 })
   const viewport = baseViewport
-  pageState.viewport = viewport
-  pageState.width = viewport.width
-  pageState.height = viewport.height
+    pageState.viewport = viewport
+    pageState.width = viewport.width
+    pageState.height = viewport.height
+    pdfPageWidthAt100.value = Math.max(
+      pdfPageWidthAt100.value,
+      viewport.width * 100 / zoomPercent.value,
+    )
 
   canvas.width = Math.floor(viewport.width * dpr)
   canvas.height = Math.floor(viewport.height * dpr)
@@ -1770,6 +1901,40 @@ function colorName(color) {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+.viewer-body.is-workbench-resizing,
+.viewer-body.is-workbench-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+.workbench-divider {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 8px;
+  width: 8px;
+  min-height: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+.workbench-divider::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--ra-border);
+  content: '';
+  transition: width .12s ease, left .12s ease, background .12s ease;
+}
+.workbench-divider:hover::before,
+.workbench-divider:focus-visible::before,
+.viewer-body.is-workbench-resizing .workbench-divider::before {
+  left: 2px;
+  width: 3px;
+  background: var(--ra-link);
 }
 .pdf-toolbar {
   display: flex;
