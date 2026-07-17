@@ -13,11 +13,12 @@
           <el-menu-item index="/library" title="文库管理 (Ctrl+2)">文库管理</el-menu-item>
           <el-menu-item index="/search" title="文献检索 (Ctrl+3)">文献检索</el-menu-item>
           <el-menu-item index="/research" title="论文研究 (Ctrl+4)">论文研究</el-menu-item>
-          <el-menu-item index="/tasks" title="任务中心 (Ctrl+6)">任务中心</el-menu-item>
+          <el-menu-item index="/archive" title="研究档案 (Ctrl+6)">研究档案</el-menu-item>
           <el-menu-item index="/reading-plans" title="阅读计划 (Ctrl+7)">阅读计划</el-menu-item>
           <el-menu-item index="/writing" title="写作助手 (Ctrl+8)">写作助手</el-menu-item>
         </el-menu>
         <div class="header-actions">
+        <TaskDrawer />
           <el-button text class="theme-btn" @click="toggleTheme" :title="dark.dark ? '切换亮色' : '切换暗色'">
           <el-icon v-if="dark.dark" :size="18"><Moon /></el-icon>
           <el-icon v-else :size="18"><Sunny /></el-icon>
@@ -104,6 +105,7 @@ import { useTheme } from '@/stores/themeStore'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import CommandPalette from '@/components/CommandPalette.vue'
 import CachedRouterView from '@/components/navigation/CachedRouterView.vue'
+import TaskDrawer from '@/components/TaskDrawer.vue'
 
 const router = useRouter()
 const { dark, toggle: toggleTheme } = useTheme()
@@ -192,13 +194,14 @@ const routeCommands = [
   { id: 'library', title: '打开文库管理', subtitle: '论文库与文件夹', route: '/library', shortcut: 'Ctrl+2', shortcutKey: '2', keywords: ['文库', 'library', '论文'] },
   { id: 'search', title: '打开文献检索', subtitle: 'AI 检索与多源搜索', route: '/search', shortcut: 'Ctrl+3', shortcutKey: '3', keywords: ['检索', 'search', '文献'] },
   { id: 'workbench', title: '打开论文研究', subtitle: '全文分析 / 改进空间 / 跨论文对比', route: '/research', shortcut: 'Ctrl+4', shortcutKey: '4', keywords: ['分析', 'analysis', 'gap', '空白', '改进', '对比', '论文研究'] },
-  { id: 'tasks', title: '打开任务中心', subtitle: '异步任务与工作流', route: '/tasks', shortcut: 'Ctrl+6', shortcutKey: '6', keywords: ['任务', 'task', '工作流'] },
+  { id: 'archive', title: '打开研究档案', subtitle: '对话、分析与证据记录', route: '/archive', shortcut: 'Ctrl+6', shortcutKey: '6', keywords: ['档案', 'archive', '研究', '对话'] },
   { id: 'reading-plans', title: '打开阅读计划', subtitle: '阅读计划与提醒', route: '/reading-plans', shortcut: 'Ctrl+7', shortcutKey: '7', keywords: ['阅读', 'reading', '计划'] },
   { id: 'writing', title: '打开写作助手', subtitle: '大纲 / Related Work / 引用', route: '/writing', shortcut: 'Ctrl+8', shortcutKey: '8', keywords: ['写作', 'writing', '大纲'] },
 ]
 
 const commands = [
   ...routeCommands,
+  { id: 'tasks', title: '查看后台任务', subtitle: '异步任务与工作流', route: '/tasks', shortcut: '', keywords: ['任务', 'task', '工作流'] },
   { id: 'search-quick', title: '全局搜索论文…', subtitle: '跳转到文献检索', action: () => router.push('/search'), shortcut: 'Ctrl+Shift+F', keywords: ['搜索', 'search', '论文'] },
   { id: 'settings', title: '打开设置', subtitle: 'API 与模型配置', action: () => { showSettings.value = true }, shortcut: '', keywords: ['设置', 'settings', 'api'] },
   { id: 'theme', title: '切换主题', subtitle: '亮色 / 暗色', action: toggleTheme, shortcut: '', keywords: ['主题', 'theme', '暗色', '亮色'] },
@@ -216,7 +219,7 @@ const shortcutList = [
   { desc: '打开文库管理', keys: 'Ctrl + 2' },
   { desc: '打开文献检索', keys: 'Ctrl + 3' },
   { desc: '打开论文研究', keys: 'Ctrl + 4' },
-  { desc: '打开任务中心', keys: 'Ctrl + 6' },
+  { desc: '打开研究档案', keys: 'Ctrl + 6' },
   { desc: '打开阅读计划', keys: 'Ctrl + 7' },
   { desc: '打开写作助手', keys: 'Ctrl + 8' },
 ]

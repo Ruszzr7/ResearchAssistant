@@ -6,6 +6,10 @@ import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 const mocks = vi.hoisted(() => ({
   listPapers: vi.fn(),
   translateTexts: vi.fn(),
+  createResearchSession: vi.fn(),
+  getResearchSession: vi.fn(),
+  appendResearchMessages: vi.fn(),
+  attachResearchRun: vi.fn(),
   state: {
     trace: { __v_isRef: true, value: null },
     recentRuns: { __v_isRef: true, value: [] },
@@ -20,6 +24,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/api/paper.js', () => ({ listPapers: mocks.listPapers }))
 vi.mock('@/api/workbench.js', () => ({ translateTexts: mocks.translateTexts }))
+vi.mock('@/api/researchArchive.js', () => ({
+  createResearchSession: mocks.createResearchSession,
+  getResearchSession: mocks.getResearchSession,
+  appendResearchMessages: mocks.appendResearchMessages,
+  attachResearchRun: mocks.attachResearchRun,
+}))
 vi.mock('@/composables/usePaperWorkbench.js', () => ({
   usePaperWorkbench: () => mocks.state,
 }))
@@ -46,6 +56,10 @@ describe('PaperWorkbenchPanel comparison result', () => {
     mocks.state.selectRun.mockReset()
     mocks.state.run.mockReset()
     mocks.translateTexts.mockReset()
+    mocks.createResearchSession.mockReset().mockResolvedValue({ id: 91 })
+    mocks.getResearchSession.mockReset().mockResolvedValue({ messages: [], runs: [] })
+    mocks.appendResearchMessages.mockReset().mockResolvedValue([])
+    mocks.attachResearchRun.mockReset().mockResolvedValue(undefined)
     mocks.state.running.value = false
     mocks.state.stageText.value = ''
     mocks.state.error.value = ''
@@ -210,7 +224,7 @@ describe('PaperWorkbenchPanel comparison result', () => {
 
     expect(wrapper.text()).toContain('第一轮回答')
     const firstRequest = mocks.state.run.mock.calls[0][0]
-    expect(firstRequest.conversationId).toMatch(/^selection-/)
+    expect(firstRequest.conversationId).toBe('session-91')
     expect(firstRequest).not.toHaveProperty('conversationContext')
 
     await input.setValue('它和全文实验结果有什么关系？')

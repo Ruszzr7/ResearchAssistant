@@ -14,6 +14,7 @@ const routes = [
   { path: '/workbench', redirect: to => legacyWorkbenchRedirect(to, 'analysis') },
   { path: '/analysis',  redirect: to => legacyWorkbenchRedirect(to, 'analysis') },
   { path: '/gap',       redirect: to => legacyWorkbenchRedirect(to, 'gap') },
+  { path: '/archive',   name: 'archive',   component: () => import('@/views/ResearchArchiveView.vue') },
   { path: '/tasks',     name: 'tasks',     component: () => import('@/views/TaskCenterView.vue') },
   { path: '/reading-plans', name: 'reading-plans', component: () => import('@/views/ReadingPlanView.vue') },
   { path: '/writing',     name: 'writing',     component: () => import('@/views/WritingView.vue') },

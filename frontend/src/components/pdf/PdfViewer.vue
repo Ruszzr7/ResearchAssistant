@@ -319,6 +319,7 @@
         :formula-error="formulaRecognitionError"
         :initial-mode="initialWorkbenchMode"
         :initial-paper-ids="initialWorkbenchPaperIds"
+        :research-session-id="researchSessionId"
         @clear-selection="clearPendingTextSelection"
         @clear-formula="clearFormulaRegion"
         @retry-formula="recognizeCurrentFormulaRegion"
@@ -326,6 +327,7 @@
         @jump-evidence="jumpToEvidence"
         @mode-change="$emit('workbench-mode-change', $event)"
         @paper-ids-change="$emit('workbench-paper-ids-change', $event)"
+        @research-session-change="$emit('research-session-change', $event)"
       />
 
     <NoteLinkPanel
@@ -453,11 +455,12 @@ const props = defineProps({
   initialEvidence: { type: Object, default: null },
   initialWorkbenchMode: { type: String, default: '' },
   initialWorkbenchPaperIds: { type: Array, default: () => [] },
+  researchSessionId: { type: Number, default: null },
   initialPage: { type: Number, default: 1 },
 })
 
 const emit = defineEmits([
-  'close', 'open-paper-evidence', 'workbench-mode-change', 'workbench-paper-ids-change', 'page-change',
+  'close', 'open-paper-evidence', 'workbench-mode-change', 'workbench-paper-ids-change', 'research-session-change', 'page-change',
 ])
 
 const containerRef = ref(null)

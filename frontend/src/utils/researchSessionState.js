@@ -18,12 +18,14 @@ export function normalizeResearchLocation(location) {
   if (!paperId) return null
   const query = location?.query || {}
   const page = positivePageNumber(location?.page ?? query.page)
+  const session = positivePaperId(location?.session ?? query.session)
   const mode = String(location?.mode ?? query.mode ?? '').trim()
   const paperIds = normalizedPaperIds(location?.paperIds ?? query.paperIds)
   return {
     path: `${RESEARCH_ROUTE_PATH}/${paperId}`,
     query: {
       ...(page ? { page: String(page) } : {}),
+      ...(session ? { session: String(session) } : {}),
       ...(mode ? { mode } : {}),
       ...(paperIds.length ? { paperIds: paperIds.join(',') } : {}),
     },
@@ -45,9 +47,11 @@ export function writeLastResearchLocation(location, storage) {
   const target = resolveStorage(storage)
   if (!normalized || !target) return normalized
   try {
+    const session = positivePaperId(normalized.query.session)
     target.setItem(LAST_RESEARCH_ROUTE_KEY, JSON.stringify({
       paperId: positivePaperId(normalized.path.split('/').pop()),
       page: positivePageNumber(normalized.query.page),
+      ...(session ? { session } : {}),
       mode: normalized.query.mode || '',
       paperIds: normalized.query.paperIds || '',
     }))

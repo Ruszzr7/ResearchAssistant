@@ -44,4 +44,14 @@ describe('research route recovery state', () => {
     expect(readLastResearchLocation(storage)).toBeNull()
     expect(normalizeResearchLocation({ page: 2 })).toBeNull()
   })
+
+  it('preserves a persistent research session identifier', () => {
+    const storage = memoryStorage()
+    writeLastResearchLocation({ paperId: 17, page: 5, session: 42 }, storage)
+
+    expect(readLastResearchLocation(storage)).toEqual({
+      path: '/research/17',
+      query: { page: '5', session: '42' },
+    })
+  })
 })

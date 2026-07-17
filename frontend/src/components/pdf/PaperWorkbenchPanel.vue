@@ -330,6 +330,12 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listPapers } from '@/api/paper.js'
 import { translateTexts } from '@/api/workbench.js'
+import {
+  appendResearchMessages,
+  attachResearchRun,
+  createResearchSession,
+  getResearchSession,
+} from '@/api/researchArchive.js'
 import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
 import {
@@ -362,11 +368,12 @@ const props = defineProps({
   formulaError: { type: String, default: '' },
   initialMode: { type: String, default: '' },
   initialPaperIds: { type: Array, default: () => [] },
+  researchSessionId: { type: Number, default: null },
 })
 
 const emit = defineEmits([
   'clear-selection', 'clear-formula', 'retry-formula', 'confirm-formula',
-  'jump-evidence', 'mode-change', 'paper-ids-change',
+  'jump-evidence', 'mode-change', 'paper-ids-change', 'research-session-change',
 ])
 const {
   trace,
@@ -406,6 +413,8 @@ const selectionConversationId = ref('')
 const selectionChatError = ref('')
 const selectionChatMessages = ref(null)
 let selectionMessageSequence = 0
+const activeResearchSessionId = ref(positiveSessionId(props.researchSessionId))
+let sessionCreatePromise = null
 const resultLanguage = ref(detectTextLanguage(trace.value?.result?.answer))
 const resultTranslationLoading = ref(false)
 const resultTranslationError = ref('')
@@ -559,6 +568,12 @@ watch(() => props.initialMode, nextMode => {
   const normalized = normalizeInitialMode(nextMode)
   if (!running.value && normalized !== mode.value) mode.value = normalized
 })
+watch(() => props.researchSessionId, nextId => {
+  const normalized = positiveSessionId(nextId)
+  if (normalized === activeResearchSessionId.value) return
+  activeResearchSessionId.value = normalized
+  if (normalized) void restoreResearchMessages(normalized)
+})
 watch(() => props.initialPaperIds, nextIds => {
   comparisonPaperIds.value = normalizeInitialPaperIds(nextIds)
 }, { deep: true })
@@ -591,6 +606,7 @@ onMounted(async () => {
       if (supportedWorkbenchModes.includes(restoredMode)) mode.value = restoredMode
     }
   } catch { /* history is optional */ }
+  if (activeResearchSessionId.value) await restoreResearchMessages(activeResearchSessionId.value)
 })
 
 async function startRun() {
@@ -606,7 +622,10 @@ async function startRun() {
       selectionAnchor: activeSelectionAnchor.value,
       sourceRunId: isFieldGapMode.value ? fieldGapSourceRunId.value : '',
     })
-    await run(request)
+    const sessionId = await ensureResearchSession(request.paperIds)
+    const completed = await run(request)
+    try { await attachResearchRun(sessionId, completed.runId) }
+    catch { ElMessage.warning('分析已完成，档案将在后台补全') }
     await loadRecent(props.paper.id)
     ElMessage.success('论文助手已完成')
   } catch (reason) {
@@ -622,7 +641,13 @@ async function sendSelectionMessage() {
   const selectedText = activeSelectionText.value
   const selectedIdentity = activeSelectionIdentity.value
   if (!content || !anchor || running.value) return
-  if (!selectionConversationId.value) selectionConversationId.value = createConversationId()
+  let sessionId
+  try { sessionId = await ensureResearchSession([Number(props.paper.id)]) }
+  catch (reason) {
+    selectionChatError.value = reason?.response?.data?.message || reason?.message || '研究档案创建失败'
+    return
+  }
+  if (!selectionConversationId.value) selectionConversationId.value = `session-${sessionId}`
   const conversationId = selectionConversationId.value
   const conversationContext = buildSelectionConversationContext()
   const userMessage = {
@@ -655,6 +680,28 @@ async function sendSelectionMessage() {
       evidence: completed.result?.evidence || [],
       regionFallback: Boolean(completed.result?.regionFallback),
     })
+    try {
+      await appendResearchMessages(sessionId, [
+        {
+          messageKey: `${completed.runId}:user`,
+          role: 'USER',
+          content,
+          runId: completed.runId,
+          selectionAnchor: anchor,
+        },
+        {
+          messageKey: `${completed.runId}:assistant`,
+          role: 'ASSISTANT',
+          content: completed.result?.answer || '',
+          runId: completed.runId,
+          evidence: {
+            claims: completed.result?.claims || [],
+            evidence: completed.result?.evidence || [],
+            regionFallback: Boolean(completed.result?.regionFallback),
+          },
+        },
+      ])
+    } catch { ElMessage.warning('回答已完成，档案将在后台补全') }
     await scrollSelectionChat()
     questions[WORKBENCH_MODES.SELECTION_QA] = ''
     await loadRecent(props.paper.id)
@@ -665,6 +712,49 @@ async function sendSelectionMessage() {
       selectionChatError.value = reason?.response?.data?.message || reason?.message || '选区对话失败'
     }
   }
+}
+
+async function ensureResearchSession(paperIds = []) {
+  if (activeResearchSessionId.value) return activeResearchSessionId.value
+  if (sessionCreatePromise) return sessionCreatePromise
+  const normalizedPaperIds = [...new Set([Number(props.paper.id), ...(paperIds || []).map(Number)])]
+    .filter(id => Number.isInteger(id) && id > 0)
+  sessionCreatePromise = createResearchSession({
+    paperIds: normalizedPaperIds,
+    primaryPaperId: Number(props.paper.id),
+    title: props.paper.title || '论文研究',
+    mode: mode.value,
+    lastPage: 1,
+    outputLanguage: 'ZH',
+  }).then(session => {
+    activeResearchSessionId.value = Number(session.id)
+    selectionConversationId.value = `session-${session.id}`
+    emit('research-session-change', Number(session.id))
+    return Number(session.id)
+  }).finally(() => { sessionCreatePromise = null })
+  return sessionCreatePromise
+}
+
+async function restoreResearchMessages(sessionId) {
+  try {
+    const detail = await getResearchSession(sessionId)
+    if (activeResearchSessionId.value !== sessionId) return
+    selectionConversationId.value = `session-${sessionId}`
+    selectionMessages.value = (detail?.messages || []).map(message => ({
+      id: message.messageKey || String(message.id),
+      role: message.role === 'USER' ? 'user' : 'assistant',
+      content: message.content || '',
+      claims: message.evidence?.claims || [],
+      evidence: message.evidence?.evidence || [],
+      regionFallback: Boolean(message.evidence?.regionFallback),
+    }))
+    await scrollSelectionChat()
+  } catch { /* A missing archive must not prevent reading the PDF. */ }
+}
+
+function positiveSessionId(value) {
+  const id = Number(value)
+  return Number.isInteger(id) && id > 0 ? id : null
 }
 
 function resetSelectionConversation() {

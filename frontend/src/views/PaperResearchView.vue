@@ -9,11 +9,13 @@
       :initial-evidence="pendingEvidence"
       :initial-workbench-mode="researchMode"
       :initial-workbench-paper-ids="researchPaperIds"
+      :research-session-id="activeResearchSessionId"
       @page-change="onPageChange"
       @close="returnToLibrary"
       @open-paper-evidence="openPaperEvidence"
       @workbench-mode-change="onWorkbenchModeChange"
       @workbench-paper-ids-change="onWorkbenchPaperIdsChange"
+      @research-session-change="onResearchSessionChange"
     >
       <template #toolbar-extra>
         <ReadingTimePanel :paper="paper" @updated="onReadingTimeUpdated" />
@@ -41,6 +43,7 @@ import { computed, defineAsyncComponent, nextTick, onActivated, onDeactivated, o
 import { useRoute, useRouter } from 'vue-router'
 import { getPaper } from '@/api/paper.js'
 import { updateReadingProgress } from '@/api/readingProgress.js'
+import { updateResearchSession } from '@/api/researchArchive.js'
 import ReadingTimePanel from '@/components/ReadingTimePanel.vue'
 import {
   normalizeWorkbenchRouteMode,
@@ -70,12 +73,14 @@ const pendingEvidence = ref(null)
 let loadSequence = 0
 let routePageTimer = null
 let progressTimer = null
+let sessionStateTimer = null
 let lastPersistedPage = null
 
 const isResearchRoute = computed(() => route.name === 'research')
 const routePaperId = computed(() => positivePaperId(route.params.paperId))
 const activeModeQuery = ref('analysis')
 const activePaperIdsQuery = ref('')
+const activeResearchSessionId = ref(null)
 const researchMode = computed(() => normalizeWorkbenchRouteMode(activeModeQuery.value))
 const researchPaperIds = computed(() => workbenchPaperIds({
   paperId: paper.value?.id || routePaperId.value,
@@ -91,6 +96,9 @@ watch(() => route.query.page, page => {
   if (!requested || requested === currentPage.value || !paper.value) return
   currentPage.value = requested
   void nextTick(() => viewerRef.value?.goToPage?.(requested))
+})
+watch(() => route.query.session, session => {
+  activeResearchSessionId.value = positivePaperId(session)
 })
 
 onActivated(() => {
@@ -124,6 +132,7 @@ async function loadRoutePaper(id) {
     paper.value = loaded
     activeModeQuery.value = workbenchModeQueryValue(normalizeWorkbenchRouteMode(route.query.mode))
     activePaperIdsQuery.value = String(route.query.paperIds || '')
+    activeResearchSessionId.value = positivePaperId(route.query.session)
     lastPersistedPage = positivePageNumber(loaded.currentPage)
     initialPage.value = positivePageNumber(route.query.page) || lastPersistedPage || 1
     currentPage.value = initialPage.value
@@ -168,6 +177,7 @@ function onPageChange(page) {
   }, 250)
   clearTimeout(progressTimer)
   progressTimer = setTimeout(() => { void persistPage() }, 800)
+  scheduleResearchSessionPersist()
 }
 
 async function persistPage() {
@@ -183,10 +193,13 @@ async function persistPage() {
 function flushResearchState() {
   clearTimeout(routePageTimer)
   clearTimeout(progressTimer)
+  clearTimeout(sessionStateTimer)
   routePageTimer = null
   progressTimer = null
+  sessionStateTimer = null
   rememberLocation()
   void persistPage()
+  void persistResearchSessionState()
 }
 
 function rememberLocation() {
@@ -196,6 +209,7 @@ function rememberLocation() {
     page: currentPage.value,
     mode: activeModeQuery.value,
     paperIds: activePaperIdsQuery.value,
+    session: activeResearchSessionId.value,
   })
 }
 
@@ -208,7 +222,7 @@ function onWorkbenchModeChange(nextMode) {
     return
   }
   void router.replace(researchRouteLocation(paper.value.id, { ...route.query, mode }))
-    .then(rememberLocation)
+    .then(() => { rememberLocation(); scheduleResearchSessionPersist() })
 }
 
 function onWorkbenchPaperIdsChange(paperIds) {
@@ -224,7 +238,40 @@ function onWorkbenchPaperIdsChange(paperIds) {
   const query = { ...route.query }
   if (serialized) query.paperIds = serialized
   else delete query.paperIds
-  void router.replace(researchRouteLocation(paper.value.id, query)).then(rememberLocation)
+  void router.replace(researchRouteLocation(paper.value.id, query)).then(() => {
+    rememberLocation()
+    scheduleResearchSessionPersist()
+  })
+}
+
+function onResearchSessionChange(sessionId) {
+  const normalized = positivePaperId(sessionId)
+  if (!normalized || !paper.value) return
+  activeResearchSessionId.value = normalized
+  void router.replace(researchRouteLocation(paper.value.id, {
+    ...route.query,
+    session: String(normalized),
+  })).then(() => {
+    rememberLocation()
+    scheduleResearchSessionPersist()
+  })
+}
+
+function scheduleResearchSessionPersist() {
+  if (!activeResearchSessionId.value) return
+  clearTimeout(sessionStateTimer)
+  sessionStateTimer = setTimeout(() => { void persistResearchSessionState() }, 450)
+}
+
+async function persistResearchSessionState() {
+  if (!activeResearchSessionId.value || !paper.value) return
+  try {
+    await updateResearchSession(activeResearchSessionId.value, {
+      lastPage: currentPage.value || 1,
+      mode: activeModeQuery.value || 'analysis',
+      paperIds: researchPaperIds.value,
+    })
+  } catch { /* Run persistence can backfill the archive even if this resume update fails. */ }
 }
 
 async function openPaperEvidence(item) {

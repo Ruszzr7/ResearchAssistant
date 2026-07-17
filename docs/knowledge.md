@@ -14,6 +14,7 @@
 - MyBatis-Plus 承担常规 CRUD，复杂查询使用显式列和参数化 SQL；MySQL `abstract` 列通过别名映射为 `abstractText`。
 - 正式环境由 Flyway 迁移 `backend/src/main/resources/db/migration`；`schema.sql` 和 `schema-upgrade-*.sql` 仅作历史参考。
 - 测试使用独立 H2 schema 并关闭 Flyway，不依赖开发库数据。旧库切换前先备份并核验 schema，禁止对未知版本盲目 baseline。
+- “研究记录”与“后台任务”是两类生命周期：研究会话持久化用户可继续使用的论文集合、对话、分析 run、页码和模式；后台任务只表达执行状态。顶层导航面向研究档案，任务状态放入全局抽屉，二者通过 run ID 关联但不能互相替代。选区对话每轮仍是独立 workbench run，并用客户端稳定 message key 幂等写入，刷新后从服务端会话恢复。
 
 ## 3. 文件、PDF 与外部服务
 

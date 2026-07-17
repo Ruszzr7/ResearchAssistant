@@ -283,10 +283,51 @@ CREATE TABLE workflow_step (
     UNIQUE(task_id, step_index)
 );
 
+CREATE TABLE research_session (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_key VARCHAR(64) NOT NULL UNIQUE,
+    title VARCHAR(255) NOT NULL,
+    session_type VARCHAR(16) NOT NULL DEFAULT 'SINGLE',
+    primary_paper_id BIGINT,
+    last_page INT NOT NULL DEFAULT 1,
+    mode VARCHAR(48) NOT NULL DEFAULT 'analysis',
+    output_language VARCHAR(8) NOT NULL DEFAULT 'ZH',
+    archived BOOLEAN NOT NULL DEFAULT FALSE,
+    last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (primary_paper_id) REFERENCES paper(id) ON DELETE SET NULL
+);
+
+CREATE TABLE research_session_paper (
+    session_id BIGINT NOT NULL,
+    paper_id BIGINT NOT NULL,
+    position_no INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (session_id, paper_id),
+    FOREIGN KEY (session_id) REFERENCES research_session(id) ON DELETE CASCADE,
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
+);
+
+CREATE TABLE research_message (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_id BIGINT NOT NULL,
+    message_key VARCHAR(100) NOT NULL,
+    role VARCHAR(16) NOT NULL,
+    content TEXT NOT NULL,
+    run_id VARCHAR(36),
+    selection_anchor_json TEXT,
+    evidence_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(session_id, message_key),
+    FOREIGN KEY (session_id) REFERENCES research_session(id) ON DELETE CASCADE
+);
+
 CREATE TABLE paper_workbench_run (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     run_id VARCHAR(36) NOT NULL UNIQUE,
     task_id VARCHAR(36),
+    research_session_id BIGINT,
     workflow VARCHAR(48) NOT NULL,
     scope VARCHAR(24) NOT NULL,
     status VARCHAR(24) NOT NULL DEFAULT 'PLANNED',
@@ -309,7 +350,8 @@ CREATE TABLE paper_workbench_run (
     started_at TIMESTAMP,
     completed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (research_session_id) REFERENCES research_session(id) ON DELETE SET NULL
 );
 
 CREATE TABLE paper_workbench_step (

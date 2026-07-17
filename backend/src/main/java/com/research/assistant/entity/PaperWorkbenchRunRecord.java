@@ -12,6 +12,7 @@ public class PaperWorkbenchRunRecord {
     private Long id;
     private String runId;
     private String taskId;
+    private Long researchSessionId;
     private String workflow;
     private String scope;
     private String status;
@@ -42,6 +43,8 @@ public class PaperWorkbenchRunRecord {
     public void setRunId(String runId) { this.runId = runId; }
     public String getTaskId() { return taskId; }
     public void setTaskId(String taskId) { this.taskId = taskId; }
+    public Long getResearchSessionId() { return researchSessionId; }
+    public void setResearchSessionId(Long researchSessionId) { this.researchSessionId = researchSessionId; }
     public String getWorkflow() { return workflow; }
     public void setWorkflow(String workflow) { this.workflow = workflow; }
     public String getScope() { return scope; }
