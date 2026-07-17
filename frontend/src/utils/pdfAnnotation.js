@@ -74,3 +74,19 @@ export function buildSelectionNoteDraft({ localId, paperId, color, selection, no
     },
   }
 }
+
+export function annotationContextPlacement(points, pageWidth, pageHeight, menuWidth = 178) {
+  const safePoints = Array.isArray(points) && points.length
+    ? points.filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+    : []
+  const source = safePoints.length ? safePoints : [{ x: 12, y: 52 }]
+  const width = Math.max(0, Number(pageWidth) || 0)
+  const height = Math.max(0, Number(pageHeight) || 0)
+  const menu = Math.max(0, Number(menuWidth) || 0)
+  const minX = Math.min(...source.map(point => point.x))
+  const minY = Math.min(...source.map(point => point.y))
+  return {
+    left: clamp(minX, 8, Math.max(8, width - menu - 8)),
+    top: clamp(minY - 42, 8, Math.max(8, height - 48)),
+  }
+}

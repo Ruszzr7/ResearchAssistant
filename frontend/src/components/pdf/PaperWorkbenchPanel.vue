@@ -2,7 +2,7 @@
   <aside class="paper-workbench" aria-label="论文研究工作台">
     <header class="paper-workbench__header">
       <div>
-        <strong>论文研究工作台</strong>
+        <strong>论文助手</strong>
       </div>
       <el-tag v-if="trace" size="small" :type="runTagType(trace.status)" effect="plain">
         {{ runStatusLabel(trace.status) }}
@@ -65,17 +65,11 @@
 
       <div v-if="mode === WORKBENCH_MODES.SELECTION_QA" class="selection-chat">
         <div class="selection-chat__heading">
-          <div>
-            <b>选区对话</b>
-            <small>以当前选区为焦点，并检索整篇论文的相关证据</small>
-          </div>
+          <b>选区对话</b>
           <button type="button" :disabled="running" @click="resetSelectionConversation">新对话</button>
         </div>
 
         <div ref="selectionChatMessages" class="selection-chat__messages" aria-live="polite">
-          <div v-if="!selectionMessages.length" class="selection-chat__empty">
-            针对选中文字提问；后续可以继续追问。
-          </div>
           <article
             v-for="message in selectionMessages"
             :key="message.id"
@@ -125,7 +119,6 @@
           @keydown.ctrl.enter.prevent="sendSelectionMessage"
         />
         <div class="compose-actions selection-chat__actions">
-          <span>Ctrl + Enter 发送</span>
           <el-button
             type="primary"
             :loading="running"
@@ -200,8 +193,6 @@
         :placeholder="questionPlaceholder"
       />
       <div class="compose-actions">
-        <span v-if="mode === WORKBENCH_MODES.PAPER_ANALYSIS">全文分析可能需要 1–2 分钟</span>
-        <span v-else-if="mode === WORKBENCH_MODES.PAPER_IMPROVEMENT">仅分析当前论文</span>
         <el-button type="primary" :loading="running" :disabled="actionDisabled" @click="startRun">
           {{ actionLabel }}
         </el-button>

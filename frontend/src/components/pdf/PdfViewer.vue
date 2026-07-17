@@ -9,13 +9,17 @@
         <div class="pdf-tool-group" aria-label="PDF 批注工具">
           <el-button-group size="small">
             <el-button :type="currentTool === 'select' ? 'primary' : 'default'" @click="setTool('select')">选择</el-button>
-            <el-button :type="currentTool === 'formula' ? 'primary' : 'default'" @click="activateFormula">公式</el-button>
+            <el-button
+              :type="currentTool === 'formula' ? 'primary' : 'default'"
+              title="在公式周围拖出矩形区域"
+              @click="activateFormula"
+            >框选公式</el-button>
             <el-button @mousedown.prevent @click="applyTextAnnotation('HIGHLIGHT')">高亮</el-button>
             <el-button @mousedown.prevent @click="applyTextAnnotation('UNDERLINE')">下划线</el-button>
             <el-button @mousedown.prevent @click="openSelectionComment">批注</el-button>
             <el-button :type="currentTool === 'note' ? 'primary' : 'default'" @mousedown.prevent @click="activateNote">便签</el-button>
           </el-button-group>
-          <span class="selection-hint">{{ selectionHint }}</span>
+          <span v-if="toolbarStatus" class="selection-hint">{{ toolbarStatus }}</span>
         </div>
 
         <div class="zoom-controls" aria-label="PDF 缩放">
@@ -65,10 +69,8 @@
         </el-button>
         <el-button size="small" :type="showNotePanel ? 'info' : 'default'" @click="showNotePanel = !showNotePanel">笔记</el-button>
         <el-button size="small" :type="currentTool === 'edit' ? 'info' : 'default'" @click="toggleAnnotationEditMode">
-          {{ currentTool === 'edit' ? '完成编辑' : '编辑批注' }}
+          {{ currentTool === 'edit' ? '完成' : '调整' }}
         </el-button>
-        <el-button size="small" :disabled="!selectedAnnotation" @click="openAnnotationEditor(selectedAnnotation)">编辑</el-button>
-        <el-button size="small" :disabled="!selectedAnnotation" @click="deleteSelected">删除批注</el-button>
       </div>
       <div class="pdf-toolbar-right">
         <el-button size="small" text @click="$emit('close')">关闭</el-button>
@@ -253,6 +255,32 @@
               <el-button link type="danger" size="small" @click="deleteAnnotationImmediately(notePreview)">删除</el-button>
             </div>
           </div>
+          <div
+            v-if="currentTool === 'edit' && selectedAnnotation?.page === page.pageNum"
+            class="annotation-context-menu"
+            :style="annotationContextStyle(selectedAnnotation, page)"
+            @pointerdown.stop
+            @click.stop
+          >
+            <div class="annotation-context-colors" aria-label="修改批注颜色">
+              <button
+                v-for="color in annotationColors"
+                :key="`context-${color}`"
+                type="button"
+                class="annotation-color"
+                :class="{ active: selectedAnnotation.color === color }"
+                :style="{ backgroundColor: color }"
+                :title="colorName(color)"
+                @click="setSelectedAnnotationColor(color)"
+              />
+            </div>
+            <button
+              v-if="selectedAnnotation.type === 'NOTE'"
+              type="button"
+              @click="openAnnotationEditor(selectedAnnotation)"
+            >内容</button>
+            <button type="button" class="danger" @click="deleteAnnotationImmediately(selectedAnnotation)">删除</button>
+          </div>
         </div>
         <div class="virtual-spacer" :style="{ height: bottomSpacerHeight + 'px' }" aria-hidden="true"></div>
       </div>
@@ -393,7 +421,11 @@ import { listNotesByPaper, deleteNote, unlinkNote } from '@/api/notes'
 import NoteLinkPanel from '@/components/notes/NoteLinkPanel.vue'
 import NoteEditor from '@/components/notes/NoteEditor.vue'
 import PaperWorkbenchPanel from '@/components/pdf/PaperWorkbenchPanel.vue'
-import { buildSelectionNoteDraft, resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
+import {
+  annotationContextPlacement,
+  buildSelectionNoteDraft,
+  resizeTextAnnotationQuads,
+} from '@/utils/pdfAnnotation.js'
 import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
@@ -543,20 +575,17 @@ function formulaRegionRectForPage(page) {
 const visiblePages = computed(() => renderedPages.value.slice(
   Math.max(0, visiblePageStart.value - 1), visiblePageEnd.value
 ))
-const selectionHint = computed(() => {
-  if (formulaRegion.value && formulaRecognitionLoading.value) return '正在识别所框选的公式…'
-  if (formulaRecognition.value?.confirmed) return '公式已确认，可在右侧继续提问'
-  if (formulaRecognition.value) return '请在右侧核对 LaTeX，确认后才会用于问答'
-  if (currentTool.value === 'formula') return '在单页拖框圈定完整公式；松开后会在右侧识别'
+const toolbarStatus = computed(() => {
+  if (formulaRegion.value && formulaRecognitionLoading.value) return '公式识别中'
+  if (formulaRecognition.value?.confirmed) return '公式已确认'
+  if (formulaRecognition.value) return '公式待确认'
   const text = pendingTextSelection.value?.text || ''
-  if (text && selectionContextLoading.value) return '正在建立证据锚点…'
+  if (text && selectionContextLoading.value) return '选区锚定中'
   if (text && selectionAnchor.value) return selectionAnchor.value.kind === 'REGION'
-    ? '该选区将按区域理解'
-    : `${selectionAnchorLabel.value} · ${Math.round(selectionAnchor.value.confidence * 100)}%`
-  if (text) return `已选中“${text.slice(0, 18)}${text.length > 18 ? '…' : ''}”，可添加高亮、下划线或批注`
-  if (currentTool.value === 'note') return '点击页面任意位置放置便签'
-  if (currentTool.value === 'edit') return '点击批注后可编辑或删除；拖动高亮/下划线两端可调整范围'
-  return '先拖动选择文本，再点高亮、下划线或批注；便签可直接放置在页面上'
+    ? '区域选区'
+    : `${selectionAnchorLabel.value} ${Math.round(selectionAnchor.value.confidence * 100)}%`
+  if (text) return `已选 ${text.length} 字`
+  return ''
 })
 const selectionAnchorLabel = computed(() => ({
   TEXT: '正文已映射',
@@ -1813,11 +1842,6 @@ async function deleteAnnotationFromEditor() {
   await deleteAnnotationImmediately(annotation)
 }
 
-async function deleteSelected() {
-  if (!selectedAnnotation.value) return
-  await deleteAnnotationImmediately(selectedAnnotation.value)
-}
-
 async function deleteAnnotationImmediately(annotation) {
   if (!annotation) return
   try {
@@ -1942,6 +1966,41 @@ function notePreviewStyle(annotation, page) {
   return {
     left: `${clamp(point.x + 12, 8, Math.max(8, pageWidth - popoverWidth - 8))}px`,
     top: `${clamp(point.y + 8, 8, Math.max(8, pageHeight - popoverHeight - 8))}px`
+  }
+}
+
+function annotationContextStyle(annotation, page) {
+  const coords = annotation?.coordinates || {}
+  let points = []
+  if (annotation?.type === 'NOTE') {
+    points = [notePoint(coords, page)]
+  } else {
+    points = (coords.quads || []).flatMap(q => [
+      annotationPoint(q.x1, q.y1, page, coords),
+      annotationPoint(q.x2, q.y2, page, coords),
+      annotationPoint(q.x3, q.y3, page, coords),
+      annotationPoint(q.x4, q.y4, page, coords),
+    ]).map(([x, y]) => ({ x, y }))
+  }
+  const menuWidth = annotation?.type === 'NOTE' ? 226 : 178
+  const placement = annotationContextPlacement(points, page.width, page.height, menuWidth)
+  return {
+    left: `${placement.left}px`,
+    top: `${placement.top}px`,
+  }
+}
+
+async function setSelectedAnnotationColor(color) {
+  const annotation = selectedAnnotation.value
+  if (!annotation || annotation.color === color) return
+  const previous = annotation.color
+  annotation.color = color
+  currentColor.value = color
+  try {
+    await persistUpdatedAnnotation(annotation)
+  } catch (error) {
+    annotation.color = previous
+    ElMessage.error('批注颜色保存失败：' + requestErrorMessage(error))
   }
 }
 
@@ -2356,6 +2415,31 @@ function colorName(color) {
   justify-content: flex-end;
   gap: 6px;
 }
+.annotation-context-menu {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  border: 1px solid var(--ra-border);
+  border-radius: 7px;
+  background: var(--ra-panel-bg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+.annotation-context-colors { display: flex; align-items: center; gap: 4px; }
+.annotation-context-menu > button {
+  border: 0;
+  padding: 3px 5px;
+  color: var(--ra-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+.annotation-context-menu > button:hover { color: var(--ra-link); }
+.annotation-context-menu > button.danger:hover { color: var(--el-color-danger); }
 .selection-comment-anchor {
   margin-bottom: 12px;
   padding: 9px 10px;

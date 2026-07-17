@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildSelectionNoteDraft, resizeTextAnnotationQuads } from '@/utils/pdfAnnotation.js'
+import {
+  annotationContextPlacement,
+  buildSelectionNoteDraft,
+  resizeTextAnnotationQuads,
+} from '@/utils/pdfAnnotation.js'
 
 const multiLineQuads = [
   { x1: 0.2, y1: 0.4, x2: 0.8, y2: 0.4, x3: 0.8, y3: 0.36, x4: 0.2, y4: 0.36 },
@@ -63,5 +67,14 @@ describe('PDF selection comment draft', () => {
 
   it('rejects a selection without usable geometry', () => {
     expect(buildSelectionNoteDraft({ selection: { groups: [] } })).toBeNull()
+  })
+})
+
+describe('PDF annotation context placement', () => {
+  it('places the menu above the annotation and keeps it inside the page', () => {
+    expect(annotationContextPlacement([{ x: 400, y: 100 }], 500, 700, 178))
+      .toEqual({ left: 314, top: 58 })
+    expect(annotationContextPlacement([{ x: 2, y: 10 }], 500, 700, 178))
+      .toEqual({ left: 8, top: 8 })
   })
 })
