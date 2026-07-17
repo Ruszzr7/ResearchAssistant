@@ -12,6 +12,8 @@ import com.research.assistant.entity.ReadingPlanItem;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.ReadingPlanItemMapper;
 import com.research.assistant.mapper.ReadingPlanMapper;
+import com.research.assistant.mapper.ResearchSessionMapper;
+import com.research.assistant.mapper.ResearchSessionPaperMapper;
 import com.research.assistant.mapper.TagMapper;
 import com.research.assistant.service.TagService;
 import org.slf4j.Logger;
@@ -23,6 +25,8 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
 import java.util.Collections;
+import java.util.Set;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -41,14 +45,25 @@ public class ReadingPlanService {
     private final PaperMapper paperMapper;
     private final TagMapper tagMapper;
     private final TagService tagService;
+    private final ResearchSessionMapper researchSessionMapper;
+    private final ResearchSessionPaperMapper researchSessionPaperMapper;
+
+    private static final Set<String> VALID_STATUSES = Set.of(
+            ReadingPlanItemStatus.TODO, ReadingPlanItemStatus.IN_PROGRESS, ReadingPlanItemStatus.DONE);
+    private static final Set<String> VALID_OUTPUTS = Set.of(
+            "SUMMARY", "METHOD_MAP", "RESULT_CHECK", "IMPROVEMENT", "COMPARISON");
 
     public ReadingPlanService(ReadingPlanMapper planMapper, ReadingPlanItemMapper itemMapper, PaperMapper paperMapper,
-                              TagMapper tagMapper, TagService tagService) {
+                              TagMapper tagMapper, TagService tagService,
+                              ResearchSessionMapper researchSessionMapper,
+                              ResearchSessionPaperMapper researchSessionPaperMapper) {
         this.planMapper = planMapper;
         this.itemMapper = itemMapper;
         this.paperMapper = paperMapper;
         this.tagMapper = tagMapper;
         this.tagService = tagService;
+        this.researchSessionMapper = researchSessionMapper;
+        this.researchSessionPaperMapper = researchSessionPaperMapper;
     }
 
     /**
@@ -98,8 +113,11 @@ public class ReadingPlanService {
      * 创建计划。
      */
     public ReadingPlanDto createPlan(ReadingPlanRequest request) {
+        validatePlanDates(request);
         ReadingPlan plan = new ReadingPlan();
-        plan.setName(request.getName());
+        plan.setName(request.getName().trim());
+        plan.setObjective(defaultObjective(request.getObjective(), request.getName()));
+        plan.setSuccessCriteria(normalizeText(request.getSuccessCriteria()));
         plan.setStartDate(request.getStartDate());
         plan.setEndDate(request.getEndDate());
         planMapper.insert(plan);
@@ -112,7 +130,10 @@ public class ReadingPlanService {
     public ReadingPlanDto updatePlan(Long id, ReadingPlanRequest request) {
         ReadingPlan plan = planMapper.selectById(id);
         if (plan == null) throw new IllegalArgumentException("阅读计划不存在: " + id);
-        plan.setName(request.getName());
+        validatePlanDates(request);
+        plan.setName(request.getName().trim());
+        plan.setObjective(defaultObjective(request.getObjective(), request.getName()));
+        plan.setSuccessCriteria(normalizeText(request.getSuccessCriteria()));
         plan.setStartDate(request.getStartDate());
         plan.setEndDate(request.getEndDate());
         planMapper.updateById(plan);
@@ -147,6 +168,7 @@ public class ReadingPlanService {
         if (plan == null) throw new IllegalArgumentException("阅读计划不存在: " + planId);
 
         Long paperId = request.getPaperId();
+        if (paperId == null) throw new IllegalArgumentException("论文不能为空");
         if (paperMapper.selectById(paperId) == null) {
             throw new IllegalArgumentException("论文不存在: " + paperId);
         }
@@ -162,12 +184,21 @@ public class ReadingPlanService {
         ReadingPlanItem item = new ReadingPlanItem();
         item.setPlanId(planId);
         item.setPaperId(paperId);
+        item.setReadingQuestion(normalizeText(request.getReadingQuestion()));
+        item.setExpectedOutput(normalizeOutput(request.getExpectedOutput()));
         item.setDeadline(request.getDeadline());
         item.setPriority(request.getPriority() != null ? request.getPriority() : 0);
-        item.setStatus(request.getStatus() != null ? request.getStatus() : ReadingPlanItemStatus.TODO);
-        item.setNotes(request.getNotes());
+        item.setStatus(normalizeStatus(request.getStatus()));
+        item.setNotes(normalizeText(request.getNotes()));
+        item.setOutcome(normalizeText(request.getOutcome()));
+        if (request.getResearchSessionId() != null) {
+            validateResearchSession(request.getResearchSessionId(), paperId);
+            item.setResearchSessionId(request.getResearchSessionId());
+        }
+        applyCompletionState(item);
         itemMapper.insert(item);
-        return toDto(item, paperTitle(paperId), paperTags(paperId));
+        touchPlan(plan);
+        return toDto(item, paperTitle(paperId), paperTags(paperId), plan.getName());
     }
 
     /**
@@ -178,12 +209,25 @@ public class ReadingPlanService {
         if (item == null || !item.getPlanId().equals(planId)) {
             throw new IllegalArgumentException("计划条目不存在: " + itemId);
         }
+        if (request.getPaperId() != null && !request.getPaperId().equals(item.getPaperId())) {
+            throw new IllegalArgumentException("计划条目不能更换论文");
+        }
         if (request.getDeadline() != null) item.setDeadline(request.getDeadline());
         if (request.getPriority() != null) item.setPriority(request.getPriority());
-        if (request.getStatus() != null) item.setStatus(request.getStatus());
-        if (request.getNotes() != null) item.setNotes(request.getNotes());
+        if (request.getStatus() != null) item.setStatus(normalizeStatus(request.getStatus()));
+        if (request.getNotes() != null) item.setNotes(normalizeText(request.getNotes()));
+        if (request.getReadingQuestion() != null) item.setReadingQuestion(normalizeText(request.getReadingQuestion()));
+        if (request.getExpectedOutput() != null) item.setExpectedOutput(normalizeOutput(request.getExpectedOutput()));
+        if (request.getOutcome() != null) item.setOutcome(normalizeText(request.getOutcome()));
+        if (request.getResearchSessionId() != null) {
+            validateResearchSession(request.getResearchSessionId(), item.getPaperId());
+            item.setResearchSessionId(request.getResearchSessionId());
+        }
+        applyCompletionState(item);
         itemMapper.updateById(item);
-        return toDto(item, paperTitle(item.getPaperId()), paperTags(item.getPaperId()));
+        ReadingPlan plan = planMapper.selectById(planId);
+        touchPlan(plan);
+        return toDto(item, paperTitle(item.getPaperId()), paperTags(item.getPaperId()), plan.getName());
     }
 
     /**
@@ -195,6 +239,7 @@ public class ReadingPlanService {
             throw new IllegalArgumentException("计划条目不存在: " + itemId);
         }
         itemMapper.deleteById(itemId);
+        touchPlan(planMapper.selectById(planId));
     }
 
     /**
@@ -244,8 +289,13 @@ public class ReadingPlanService {
                         .collect(Collectors.groupingBy(
                                 TagMapper.TagWithPaperId::getPaperId,
                                 Collectors.mapping(TagMapper.TagWithPaperId::getName, Collectors.toList())));
+        List<Long> planIds = items.stream().map(ReadingPlanItem::getPlanId).distinct().toList();
+        Map<Long, String> planNameMap = planIds.isEmpty() ? Map.of() : planMapper.selectBatchIds(planIds).stream()
+                .collect(Collectors.toMap(ReadingPlan::getId, ReadingPlan::getName));
         return items.stream()
-                .map(i -> toDto(i, titleMap.getOrDefault(i.getPaperId(), ""), tagMap.getOrDefault(i.getPaperId(), Collections.emptyList())))
+                .map(i -> toDto(i, titleMap.getOrDefault(i.getPaperId(), ""),
+                        tagMap.getOrDefault(i.getPaperId(), Collections.emptyList()),
+                        planNameMap.getOrDefault(i.getPlanId(), "")))
                 .toList();
     }
 
@@ -264,6 +314,8 @@ public class ReadingPlanService {
         ReadingPlanDto dto = new ReadingPlanDto();
         dto.setId(plan.getId());
         dto.setName(plan.getName());
+        dto.setObjective(plan.getObjective());
+        dto.setSuccessCriteria(plan.getSuccessCriteria());
         dto.setStartDate(plan.getStartDate());
         dto.setEndDate(plan.getEndDate());
         dto.setCreatedAt(plan.getCreatedAt());
@@ -271,19 +323,82 @@ public class ReadingPlanService {
         return dto;
     }
 
-    private ReadingPlanItemDto toDto(ReadingPlanItem item, String paperTitle, List<String> paperTags) {
+    private ReadingPlanItemDto toDto(ReadingPlanItem item, String paperTitle, List<String> paperTags, String planName) {
         ReadingPlanItemDto dto = new ReadingPlanItemDto();
         dto.setId(item.getId());
         dto.setPlanId(item.getPlanId());
         dto.setPaperId(item.getPaperId());
         dto.setPaperTitle(paperTitle);
+        dto.setPlanName(planName);
+        dto.setReadingQuestion(item.getReadingQuestion());
+        dto.setExpectedOutput(item.getExpectedOutput());
         dto.setDeadline(item.getDeadline());
         dto.setPriority(item.getPriority());
         dto.setStatus(item.getStatus());
         dto.setNotes(item.getNotes());
+        dto.setOutcome(item.getOutcome());
+        dto.setResearchSessionId(item.getResearchSessionId());
+        dto.setCompletedAt(item.getCompletedAt());
         dto.setPaperTags(paperTags);
         dto.setCreatedAt(item.getCreatedAt());
         dto.setUpdatedAt(item.getUpdatedAt());
         return dto;
+    }
+
+    private void validatePlanDates(ReadingPlanRequest request) {
+        if (request.getStartDate() != null && request.getEndDate() != null
+                && request.getEndDate().isBefore(request.getStartDate())) {
+            throw new IllegalArgumentException("计划结束日期不能早于开始日期");
+        }
+    }
+
+    private String defaultObjective(String objective, String name) {
+        String value = normalizeText(objective);
+        return value == null ? name.trim() : value;
+    }
+
+    private String normalizeStatus(String status) {
+        String value = status == null || status.isBlank()
+                ? ReadingPlanItemStatus.TODO : status.trim().toUpperCase();
+        if (!VALID_STATUSES.contains(value)) throw new IllegalArgumentException("不支持的阅读状态");
+        return value;
+    }
+
+    private String normalizeOutput(String output) {
+        String value = output == null || output.isBlank() ? "SUMMARY" : output.trim().toUpperCase();
+        if (!VALID_OUTPUTS.contains(value)) throw new IllegalArgumentException("不支持的阅读产出类型");
+        return value;
+    }
+
+    private String normalizeText(String value) {
+        if (value == null) return null;
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private void validateResearchSession(Long sessionId, Long paperId) {
+        if (researchSessionMapper.selectById(sessionId) == null) {
+            throw new IllegalArgumentException("研究会话不存在");
+        }
+        if (researchSessionPaperMapper.countLink(sessionId, paperId) == 0) {
+            throw new IllegalArgumentException("研究会话未关联当前论文");
+        }
+    }
+
+    private void applyCompletionState(ReadingPlanItem item) {
+        if (ReadingPlanItemStatus.DONE.equals(item.getStatus())) {
+            if (item.getOutcome() == null || item.getOutcome().isBlank()) {
+                throw new IllegalArgumentException("请先记录阅读产出，再标记完成");
+            }
+            if (item.getCompletedAt() == null) item.setCompletedAt(LocalDateTime.now());
+        } else {
+            item.setCompletedAt(null);
+        }
+    }
+
+    private void touchPlan(ReadingPlan plan) {
+        if (plan == null) return;
+        plan.setUpdatedAt(LocalDateTime.now());
+        planMapper.updateById(plan);
     }
 }

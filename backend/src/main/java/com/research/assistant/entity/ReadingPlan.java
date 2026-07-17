@@ -16,6 +16,10 @@ public class ReadingPlan {
 
     private String name;
 
+    private String objective;
+
+    private String successCriteria;
+
     @TableField("start_date")
     private LocalDate startDate;
 
@@ -35,6 +39,12 @@ public class ReadingPlan {
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+
+    public String getObjective() { return objective; }
+    public void setObjective(String objective) { this.objective = objective; }
+
+    public String getSuccessCriteria() { return successCriteria; }
+    public void setSuccessCriteria(String successCriteria) { this.successCriteria = successCriteria; }
 
     public LocalDate getStartDate() { return startDate; }
     public void setStartDate(LocalDate startDate) { this.startDate = startDate; }

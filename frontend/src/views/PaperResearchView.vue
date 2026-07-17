@@ -295,7 +295,13 @@ function onReadingTimeUpdated(seconds) {
 
 function returnToLibrary() {
   flushResearchState()
-  router.push('/library')
+  router.push(safeReturnTarget(route.query.returnTo))
+}
+
+function safeReturnTarget(value) {
+  const target = String(Array.isArray(value) ? value[0] : value || '')
+  if (target === '/archive' || target.startsWith('/reading-plans')) return target
+  return '/library'
 }
 </script>
 

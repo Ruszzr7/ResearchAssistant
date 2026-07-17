@@ -13,10 +13,16 @@ public class ReadingPlanItemDto {
     private Long planId;
     private Long paperId;
     private String paperTitle;
+    private String planName;
+    private String readingQuestion;
+    private String expectedOutput;
     private LocalDate deadline;
     private Integer priority;
     private String status;
     private String notes;
+    private String outcome;
+    private Long researchSessionId;
+    private LocalDateTime completedAt;
     private List<String> paperTags;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -32,6 +38,12 @@ public class ReadingPlanItemDto {
 
     public String getPaperTitle() { return paperTitle; }
     public void setPaperTitle(String paperTitle) { this.paperTitle = paperTitle; }
+    public String getPlanName() { return planName; }
+    public void setPlanName(String planName) { this.planName = planName; }
+    public String getReadingQuestion() { return readingQuestion; }
+    public void setReadingQuestion(String readingQuestion) { this.readingQuestion = readingQuestion; }
+    public String getExpectedOutput() { return expectedOutput; }
+    public void setExpectedOutput(String expectedOutput) { this.expectedOutput = expectedOutput; }
 
     public LocalDate getDeadline() { return deadline; }
     public void setDeadline(LocalDate deadline) { this.deadline = deadline; }
@@ -44,6 +56,12 @@ public class ReadingPlanItemDto {
 
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public String getOutcome() { return outcome; }
+    public void setOutcome(String outcome) { this.outcome = outcome; }
+    public Long getResearchSessionId() { return researchSessionId; }
+    public void setResearchSessionId(Long researchSessionId) { this.researchSessionId = researchSessionId; }
+    public LocalDateTime getCompletedAt() { return completedAt; }
+    public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
 
     public List<String> getPaperTags() { return paperTags; }
     public void setPaperTags(List<String> paperTags) { this.paperTags = paperTags; }

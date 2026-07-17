@@ -11,6 +11,8 @@ public class ReadingPlanDto {
 
     private Long id;
     private String name;
+    private String objective;
+    private String successCriteria;
     private LocalDate startDate;
     private LocalDate endDate;
     private LocalDateTime createdAt;
@@ -25,6 +27,10 @@ public class ReadingPlanDto {
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+    public String getObjective() { return objective; }
+    public void setObjective(String objective) { this.objective = objective; }
+    public String getSuccessCriteria() { return successCriteria; }
+    public void setSuccessCriteria(String successCriteria) { this.successCriteria = successCriteria; }
 
     public LocalDate getStartDate() { return startDate; }
     public void setStartDate(LocalDate startDate) { this.startDate = startDate; }

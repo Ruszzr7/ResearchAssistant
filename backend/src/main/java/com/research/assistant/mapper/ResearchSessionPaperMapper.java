@@ -25,4 +25,7 @@ public interface ResearchSessionPaperMapper {
             + "FROM research_session_paper rsp JOIN paper p ON p.id = rsp.paper_id "
             + "WHERE rsp.session_id = #{sessionId} ORDER BY rsp.position_no, p.id")
     List<ResearchPaperView> selectPapers(@Param("sessionId") long sessionId);
+
+    @Select("SELECT COUNT(*) FROM research_session_paper WHERE session_id = #{sessionId} AND paper_id = #{paperId}")
+    long countLink(@Param("sessionId") long sessionId, @Param("paperId") long paperId);
 }

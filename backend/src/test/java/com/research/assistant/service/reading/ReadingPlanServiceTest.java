@@ -45,11 +45,15 @@ class ReadingPlanServiceTest {
     void createAndGetPlan() {
         ReadingPlanRequest request = new ReadingPlanRequest();
         request.setName("暑期精读");
+        request.setObjective("梳理有限块长 RSMA 的优化方法");
+        request.setSuccessCriteria("形成方法对比表并确定复现实验");
         request.setStartDate(LocalDate.of(2026, 7, 1));
         request.setEndDate(LocalDate.of(2026, 8, 31));
 
         ReadingPlanDto dto = service.createPlan(request);
         assertThat(dto.getName()).isEqualTo("暑期精读");
+        assertThat(dto.getObjective()).contains("有限块长 RSMA");
+        assertThat(dto.getSuccessCriteria()).contains("方法对比表");
 
         ReadingPlanDto fetched = service.getPlan(dto.getId());
         assertThat(fetched.getItems()).isEmpty();
@@ -101,6 +105,7 @@ class ReadingPlanServiceTest {
         // 标记为完成
         ReadingPlanItemRequest update = new ReadingPlanItemRequest();
         update.setStatus("DONE");
+        update.setOutcome("确认论文的核心假设与实验结论。");
         service.updateItem(plan.getId(), item.getId(), update);
 
         assertThat(service.reminders().stream()
@@ -143,6 +148,33 @@ class ReadingPlanServiceTest {
         assertThatThrownBy(() -> service.addItem(plan.getId(), req))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("已在当前计划中");
+    }
+
+    @Test
+    void requiresDurableOutcomeBeforeCompletion() {
+        Paper paper = new Paper();
+        paper.setTitle("Evidence Paper");
+        paperMapper.insert(paper);
+        ReadingPlanDto plan = service.createPlan(planReq("证据阅读"));
+
+        ReadingPlanItemRequest create = new ReadingPlanItemRequest();
+        create.setPaperId(paper.getId());
+        create.setReadingQuestion("该方法依赖哪些信道假设？");
+        create.setExpectedOutput("METHOD_MAP");
+        ReadingPlanItemDto item = service.addItem(plan.getId(), create);
+
+        ReadingPlanItemRequest invalid = new ReadingPlanItemRequest();
+        invalid.setStatus("DONE");
+        assertThatThrownBy(() -> service.updateItem(plan.getId(), item.getId(), invalid))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("记录阅读产出");
+
+        ReadingPlanItemRequest complete = new ReadingPlanItemRequest();
+        complete.setStatus("DONE");
+        complete.setOutcome("方法假设信道老化系数已知，并采用过时 CSIT。");
+        ReadingPlanItemDto completed = service.updateItem(plan.getId(), item.getId(), complete);
+        assertThat(completed.getCompletedAt()).isNotNull();
+        assertThat(completed.getOutcome()).contains("过时 CSIT");
     }
 
     private ReadingPlanRequest planReq(String name) {
