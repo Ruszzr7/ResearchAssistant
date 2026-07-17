@@ -421,10 +421,11 @@ const props = defineProps({
   initialEvidence: { type: Object, default: null },
   initialWorkbenchMode: { type: String, default: '' },
   initialWorkbenchPaperIds: { type: Array, default: () => [] },
+  initialPage: { type: Number, default: 1 },
 })
 
 const emit = defineEmits([
-  'close', 'open-paper-evidence', 'workbench-mode-change', 'workbench-paper-ids-change',
+  'close', 'open-paper-evidence', 'workbench-mode-change', 'workbench-paper-ids-change', 'page-change',
 ])
 
 const containerRef = ref(null)
@@ -705,10 +706,12 @@ async function loadDocument() {
       renderFailed: false,
       surfaceVersion: 0
     }))
-    visiblePageStart.value = 1
-    visiblePageEnd.value = Math.min(count, 3)
-    currentPage.value = 1
+    const requestedPage = Math.min(count, Math.max(1, Number(props.initialPage) || 1))
+    visiblePageStart.value = Math.max(1, requestedPage - 1)
+    visiblePageEnd.value = Math.min(count, requestedPage + 1)
+    currentPage.value = requestedPage
     await nextTick()
+    if (containerRef.value) containerRef.value.scrollTop = pageOffset(requestedPage)
     updateVisiblePageRange()
     await renderVisiblePages()
     await Promise.all([loadAnnotations(), loadNotes()])
@@ -853,7 +856,11 @@ function updateCurrentPage() {
   for (let index = 0; index < count; index += 1) {
     const pageBottom = cursor + pageHeight(renderedPages.value[index])
     if (focusOffset <= pageBottom + 16 || index === count - 1) {
-      currentPage.value = index + 1
+      const nextPage = index + 1
+      if (currentPage.value !== nextPage) {
+        currentPage.value = nextPage
+        emit('page-change', nextPage)
+      }
       return
     }
     cursor = pageBottom + 16
@@ -868,6 +875,7 @@ async function goToPage(requestedPage = currentPage.value) {
   const numericPage = Number(requestedPage)
   const targetPage = Math.min(count, Math.max(1, Number.isFinite(numericPage) ? Math.round(numericPage) : currentPage.value || 1))
   currentPage.value = targetPage
+  emit('page-change', targetPage)
 
   // Materialise a small local window before changing scrollTop. The virtual
   // spacer keeps the position exact even for pages that have not been painted
@@ -880,6 +888,8 @@ async function goToPage(requestedPage = currentPage.value) {
   cancelStalePageRenders()
   await renderVisiblePages()
 }
+
+defineExpose({ goToPage })
 
 async function renderPage(pageState) {
   const canvas = canvasRefs.value[pageState.pageNum]

@@ -1,6 +1,9 @@
 import { WORKBENCH_MODES } from '@/utils/workbenchRun.js'
 
-export const WORKBENCH_ROUTE_PATH = '/workbench'
+export const RESEARCH_ROUTE_PATH = '/research'
+// Compatibility export for older callers. New navigation should use
+// researchRouteLocation() so the paper identity lives in the path.
+export const WORKBENCH_ROUTE_PATH = RESEARCH_ROUTE_PATH
 
 const MODE_ALIASES = Object.freeze({
   analysis: WORKBENCH_MODES.PAPER_ANALYSIS,
@@ -50,6 +53,12 @@ export function positivePaperId(value) {
   return Number.isInteger(id) && id > 0 ? id : null
 }
 
+export function positivePageNumber(value) {
+  const raw = Array.isArray(value) ? value[0] : value
+  const page = Number(raw)
+  return Number.isInteger(page) && page > 0 ? page : null
+}
+
 export function workbenchPaperIds(query = {}) {
   const baseId = positivePaperId(query.paperId)
   const rawValues = Array.isArray(query.paperIds) ? query.paperIds : [query.paperIds]
@@ -61,8 +70,22 @@ export function workbenchPaperIds(query = {}) {
 export function legacyWorkbenchRedirect(to, defaultMode) {
   const fallback = normalizeWorkbenchRouteMode(defaultMode)
   const mode = normalizeWorkbenchRouteMode(to?.query?.mode, fallback)
+  const paperIds = workbenchPaperIds(to?.query)
+  const paperId = positivePaperId(to?.params?.paperId) || paperIds[0] || null
+  const query = { ...(to?.query || {}), mode: workbenchModeQueryValue(mode) }
+  delete query.paperId
   return {
-    path: WORKBENCH_ROUTE_PATH,
-    query: { ...(to?.query || {}), mode: workbenchModeQueryValue(mode) },
+    path: paperId ? `${RESEARCH_ROUTE_PATH}/${paperId}` : RESEARCH_ROUTE_PATH,
+    query,
+  }
+}
+
+export function researchRouteLocation(paperId, query = {}) {
+  const id = positivePaperId(paperId)
+  const normalizedQuery = { ...query }
+  delete normalizedQuery.paperId
+  return {
+    path: id ? `${RESEARCH_ROUTE_PATH}/${id}` : RESEARCH_ROUTE_PATH,
+    query: normalizedQuery,
   }
 }

@@ -527,35 +527,6 @@
       </template>
     </el-dialog>
 
-    <!-- ==================== PDF 全屏预览 ==================== -->
-    <div v-if="showPdfOverlay && currentPaper" class="pdf-overlay" @keydown.esc="closePdfOverlay">
-      <PdfViewer
-        v-if="pdfJsViewerEnabled"
-        :key="currentPaper.id"
-        :paper="currentPaper"
-        :initial-evidence="pendingPdfEvidence"
-        :initial-workbench-mode="workbenchRouteMode"
-        :initial-workbench-paper-ids="workbenchRoutePaperIds"
-        @close="closePdfOverlay"
-        @open-paper-evidence="openPaperEvidence"
-        @workbench-mode-change="onWorkbenchModeChange"
-        @workbench-paper-ids-change="onWorkbenchPaperIdsChange"
-      >
-        <template #toolbar-extra>
-          <ReadingTimePanel :paper="currentPaper" @updated="onReadingTimeUpdated" />
-        </template>
-      </PdfViewer>
-      <template v-else>
-        <div class="pdf-toolbar">
-          <span class="pdf-toolbar-title">{{ currentPaper.title }}</span>
-          <ReadingTimePanel :paper="currentPaper" @updated="onReadingTimeUpdated" />
-          <el-button size="small" text @click="closePdfOverlay" style="padding:2px 4px;min-width:auto">
-            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-          </el-button>
-        </div>
-        <iframe :src="`/api/papers/${currentPaper.id}/pdf`" class="pdf-frame" />
-      </template>
-    </div>
     <!-- ==================== 加入阅读计划弹窗 ==================== -->
     <el-dialog v-model="addToPlanDialogVisible" title="加入阅读计划" width="420px">
       <el-form label-width="80px">
@@ -581,30 +552,26 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, defineAsyncComponent, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import api from '@/api'
 import { waitForAnalysis } from '@/utils/analysis.js'
 import { useGlobalTask } from '@/composables/useGlobalTask.js'
 import { usePaperImportRecommendations } from '@/composables/usePaperImportRecommendations.js'
-import ReadingTimePanel from '@/components/ReadingTimePanel.vue'
 import LibraryBatchSelectionBar from '@/components/library/LibraryBatchSelectionBar.vue'
 import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
 import { listReadingPlans, addPlanItem } from '@/api/readingPlan'
 import {
   normalizeWorkbenchRouteMode,
-  positivePaperId,
+  researchRouteLocation,
   workbenchModeQueryValue,
-  workbenchPaperIds,
 } from '@/router/workbenchRoute.js'
 
 defineOptions({ name: 'LibraryView' })
 
 const router = useRouter()
-const route = useRoute()
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-// PDF 与大型表格只在资料库页面真正使用时加载，避免进入首页就下载大体积依赖。
-const PdfViewer = defineAsyncComponent(() => import('@/components/pdf/PdfViewer.vue'))
+// 大型表格只在资料库页面真正使用时加载，避免进入首页就下载大体积依赖。
 const PaperTable = defineAsyncComponent(() => import('@/components/PaperTable.vue'))
 
 const treeRef = ref(null)
@@ -655,15 +622,6 @@ const doiInput = ref('')
 const doiPdfUrl = ref('')
 const fetchingDoi = ref(false)
 const enriching = ref(false)
-const showPdfOverlay = ref(false)
-const pendingPdfEvidence = ref(null)
-const pdfJsViewerEnabled = ref(true)
-const libraryInitialized = ref(false)
-const isWorkbenchRoute = computed(() => route.path === '/workbench')
-const workbenchRouteMode = computed(() => isWorkbenchRoute.value
-  ? normalizeWorkbenchRouteMode(route.query.mode) : '')
-const workbenchRoutePaperIds = computed(() => isWorkbenchRoute.value
-  ? workbenchPaperIds(route.query) : [])
 
 // ===== 全局后台任务：论文库 AI 分析切换页面不取消 =====
 const {
@@ -1390,12 +1348,6 @@ async function savePaper(p) {
   }
 }
 
-function onReadingTimeUpdated(seconds) {
-  if (!currentPaper.value) return
-  currentPaper.value.readSeconds = seconds
-  syncPaperInList(currentPaper.value)
-}
-
 function currentRecommendation() {
   return currentPaper.value ? ensureRec(currentPaper.value.id) : null
 }
@@ -1669,10 +1621,9 @@ async function handleExport(cmd) {
 
 function goToAnalysis(paperId, mode) {
   if (!paperId) return
-  router.push({ path: '/workbench', query: {
-    paperId,
+  router.push(researchRouteLocation(paperId, {
     mode: workbenchModeQueryValue(normalizeWorkbenchRouteMode(mode)),
-  } })
+  }))
 }
 
 function showPaperInfo(paperId) {
@@ -1681,97 +1632,12 @@ function showPaperInfo(paperId) {
 
 async function openPaperPdf(row) {
   if (!row.pdfPath) return
-  pendingPdfEvidence.value = null
-  if (currentPaper.value?.id !== row.id) {
-    await selectPaper(row.id)
-  }
-  showPdfOverlay.value = true
+  await router.push(researchRouteLocation(row.id, { mode: 'analysis' }))
 }
 
 function openCurrentPaperPdf() {
-  pendingPdfEvidence.value = null
-  showPdfOverlay.value = true
-}
-
-function closePdfOverlay() {
-  showPdfOverlay.value = false
-  pendingPdfEvidence.value = null
-  if (isWorkbenchRoute.value) router.push('/library')
-}
-
-function onWorkbenchModeChange(nextMode) {
-  if (!isWorkbenchRoute.value) return
-  const mode = workbenchModeQueryValue(nextMode)
-  if (route.query.mode === mode) return
-  router.replace({ path: '/workbench', query: { ...route.query, mode } })
-}
-
-function onWorkbenchPaperIdsChange(paperIds) {
-  if (!isWorkbenchRoute.value) return
-  const normalized = [...new Set((paperIds || []).map(Number))]
-    .filter(id => Number.isInteger(id) && id > 0)
-  const serialized = normalized.join(',')
-  if (String(route.query.paperIds || '') === serialized) return
-  router.replace({ path: '/workbench', query: {
-    ...route.query,
-    paperId: normalized[0] || currentPaper.value?.id,
-    ...(serialized ? { paperIds: serialized } : {}),
-  } })
-}
-
-async function ensureWorkbenchRouteOpen() {
-  if (!libraryInitialized.value || !isWorkbenchRoute.value) return
-  const requestedPaperId = positivePaperId(route.query.paperId)
-    || workbenchRoutePaperIds.value[0] || null
-  let target = requestedPaperId && Number(currentPaper.value?.id) === requestedPaperId
-    ? currentPaper.value : null
-  try {
-    if (!target && requestedPaperId) {
-      await selectPaper(requestedPaperId)
-      target = currentPaper.value
-    }
-    if (!target) target = currentPaper.value?.pdfPath ? currentPaper.value : papers.value.find(item => item.pdfPath)
-    if (!target) {
-      ElMessage.info('请先在文库中导入一篇 PDF')
-      return
-    }
-    if (Number(currentPaper.value?.id) !== Number(target.id)) await selectPaper(target.id)
-    if (!currentPaper.value?.pdfPath) {
-      ElMessage.warning('该论文没有可打开的 PDF')
-      return
-    }
-    showPdfOverlay.value = true
-    const mode = workbenchModeQueryValue(workbenchRouteMode.value)
-    if (String(route.query.paperId || '') !== String(currentPaper.value.id) || route.query.mode !== mode) {
-      await router.replace({ path: '/workbench', query: {
-        ...route.query,
-        paperId: currentPaper.value.id,
-        mode,
-      } })
-    }
-  } catch (error) {
-    showPdfOverlay.value = false
-    ElMessage.error(error?.response?.data?.message || error?.message || '无法打开论文研究工作台')
-  }
-}
-
-async function openPaperEvidence(item) {
-  const paperId = Number(item?.paperId)
-  if (!Number.isInteger(paperId) || paperId <= 0 || !item?.bbox) return
-  pendingPdfEvidence.value = item
-  try {
-    if (Number(currentPaper.value?.id) !== paperId) {
-      await selectPaper(paperId)
-    }
-    if (!currentPaper.value?.pdfPath) throw new Error('目标论文没有 PDF')
-    showPdfOverlay.value = true
-    if (isWorkbenchRoute.value) {
-      await router.replace({ path: '/workbench', query: { ...route.query, paperId } })
-    }
-  } catch (error) {
-    showPdfOverlay.value = false
-    pendingPdfEvidence.value = null
-    ElMessage.error(error?.message || '无法打开目标论文证据')
+  if (currentPaper.value?.pdfPath) {
+    router.push(researchRouteLocation(currentPaper.value.id, { mode: 'analysis' }))
   }
 }
 
@@ -1854,18 +1720,8 @@ async function confirmImportFolderRecommendation() {
 }
 
 async function initLibrary() {
-  await Promise.all([loadFolders(), loadAllTags(), loadPapers(), loadViewerSetting()])
+  await Promise.all([loadFolders(), loadAllTags(), loadPapers()])
 }
-async function loadViewerSetting() {
-  try {
-    const res = await api.get('/settings')
-    const item = res.data.find(i => i.keyName === 'pdf_js_viewer_enabled')
-    pdfJsViewerEnabled.value = item ? item.value === 'true' : true
-  } catch (e) {
-    pdfJsViewerEnabled.value = true
-  }
-}
-function onKeyDown(e){if(e.key==='Escape')closePdfOverlay()}
 function handleDocClick(e) {
   if (showFolderSearch.value && folderSearchWrapRef.value && !folderSearchWrapRef.value.contains(e.target)) {
     showFolderSearch.value = false
@@ -1880,28 +1736,22 @@ let libraryEventsAttached = false
 function attachLibraryEvents() {
   if (libraryEventsAttached) return
   libraryEventsAttached = true
-  window.addEventListener('keydown', onKeyDown)
   document.addEventListener('click', handleDocClick)
 }
 function detachLibraryEvents() {
   if (!libraryEventsAttached) return
   libraryEventsAttached = false
-  window.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('click', handleDocClick)
 }
-watch(() => route.fullPath, () => { void ensureWorkbenchRouteOpen() })
 onMounted(async () => {
   try {
     await initLibrary()
-    libraryInitialized.value = true
-    await ensureWorkbenchRouteOpen()
   } finally {
     attachLibraryEvents()
   }
 })
 onActivated(() => {
   attachLibraryEvents()
-  void ensureWorkbenchRouteOpen()
 })
 onDeactivated(detachLibraryEvents)
 onUnmounted(detachLibraryEvents)
@@ -2014,10 +1864,6 @@ onUnmounted(detachLibraryEvents)
 .preview-title { font-size:13px; font-weight:600; color:var(--ra-text); margin-bottom:8px; }
 
 /** PDF 全屏预览 */
-.pdf-overlay { position:fixed; top:61px; left:0; right:0; bottom:0; z-index:9999; background:var(--ra-bg); display:flex; flex-direction:column; min-height:0; overflow:hidden; overscroll-behavior:contain; }
-.pdf-toolbar { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:var(--ra-hover-bg); flex-shrink:0; border-bottom:1px solid var(--ra-border); }
-.pdf-toolbar-title { color:var(--ra-text); font-size:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-.pdf-frame { flex:1; border:none; width:100%; }
 
 /* 标签下拉框：每个选项显示删除按钮 */
 .tag-option-row { display:flex; align-items:center; justify-content:space-between; width:100%; padding-right:0; box-sizing:border-box; }

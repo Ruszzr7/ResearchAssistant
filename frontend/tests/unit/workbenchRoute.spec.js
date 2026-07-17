@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   legacyWorkbenchRedirect,
   normalizeWorkbenchRouteMode,
+  positivePageNumber,
+  researchRouteLocation,
   workbenchModeQueryValue,
   workbenchPaperIds,
 } from '@/router/workbenchRoute.js'
@@ -28,13 +30,21 @@ describe('unified paper research route', () => {
 
   it('redirects legacy entries while preserving paper parameters', () => {
     expect(legacyWorkbenchRedirect({ query: { paperId: '7', mode: 'compare' } }, 'analysis'))
-      .toEqual({ path: '/workbench', query: { paperId: '7', mode: 'comparison' } })
+      .toEqual({ path: '/research/7', query: { mode: 'comparison' } })
     expect(legacyWorkbenchRedirect({ query: { paperIds: '7,8,9' } }, 'gap'))
-      .toEqual({ path: '/workbench', query: { paperIds: '7,8,9', mode: 'improvement' } })
+      .toEqual({ path: '/research/7', query: { paperIds: '7,8,9', mode: 'improvement' } })
   })
 
   it('parses and deduplicates base and additional paper IDs', () => {
     expect(workbenchPaperIds({ paperId: '7', paperIds: ['8,9', '7,invalid'] }))
       .toEqual([7, 8, 9])
+  })
+
+  it('builds canonical research routes and accepts only positive page numbers', () => {
+    expect(researchRouteLocation(7, { paperId: 8, page: '13', mode: 'analysis' }))
+      .toEqual({ path: '/research/7', query: { page: '13', mode: 'analysis' } })
+    expect(positivePageNumber('13')).toBe(13)
+    expect(positivePageNumber('0')).toBeNull()
+    expect(positivePageNumber('2.5')).toBeNull()
   })
 })

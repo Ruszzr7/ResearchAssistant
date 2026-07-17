@@ -62,7 +62,7 @@ class ReadingProgressServiceTest {
     }
 
     @Test
-    void shouldUpdateStatusFromUnreadToReading() {
+    void shouldPersistLastPageWithoutChangingReadingStatus() {
         ReadingProgressService service = new ReadingProgressService(paperMapper, pdfExtractor);
         Paper paper = new Paper();
         paper.setId(1L);
@@ -75,12 +75,12 @@ class ReadingProgressServiceTest {
         verify(paperMapper).updateById(ArgumentMatchers.<Paper>argThat(p ->
                 p.getId().equals(1L)
                         && p.getCurrentPage() == 3
-                        && ReadingStatus.READING.equals(p.getReadingStatus())
+                        && p.getReadingStatus() == null
                         && p.getLastReadAt() != null));
     }
 
     @Test
-    void shouldMarkReadWhenReachingLastPage() {
+    void shouldNotMarkReadWhenReachingLastPage() {
         ReadingProgressService service = new ReadingProgressService(paperMapper, pdfExtractor);
         Paper paper = new Paper();
         paper.setId(1L);
@@ -91,23 +91,8 @@ class ReadingProgressServiceTest {
         service.updateProgress(1L, 10);
 
         verify(paperMapper).updateById(ArgumentMatchers.<Paper>argThat(p ->
-                ReadingStatus.READ.equals(p.getReadingStatus())
+                p.getReadingStatus() == null
                         && p.getCurrentPage() == 10));
-    }
-
-    @Test
-    void shouldAllowReadBackToReading() {
-        ReadingProgressService service = new ReadingProgressService(paperMapper, pdfExtractor);
-        Paper paper = new Paper();
-        paper.setId(1L);
-        paper.setPageCount(10);
-        paper.setReadingStatus(ReadingStatus.READ);
-        when(paperMapper.selectById(1L)).thenReturn(paper);
-
-        service.updateProgress(1L, 2);
-
-        verify(paperMapper).updateById(ArgumentMatchers.<Paper>argThat(p ->
-                ReadingStatus.READING.equals(p.getReadingStatus())));
     }
 
     @Test

@@ -1,6 +1,5 @@
 package com.research.assistant.service;
 
-import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.dto.ReadingProgressDto;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.mapper.PaperMapper;
@@ -12,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 
 /**
- * 阅读进度服务 —— 管理论文的当前页、阅读时长、进度百分比与阅读状态。
+ * 阅读位置服务 —— 管理论文的最后页码与阅读时长。
  */
 @Service
 public class ReadingProgressService {
@@ -45,7 +44,7 @@ public class ReadingProgressService {
     }
 
     /**
-     * 更新当前页，计算进度百分比，并按规则推进阅读状态。
+     * 更新最后阅读页。阅读状态由用户显式维护，浏览到末页不会自动改成“已读”。
      */
     @Transactional
     public void updateProgress(Long paperId, int currentPage) {
@@ -68,7 +67,6 @@ public class ReadingProgressService {
         update.setId(paperId);
         update.setCurrentPage(currentPage);
         update.setLastReadAt(LocalDateTime.now());
-        update.setReadingStatus(nextReadingStatus(paper.getReadingStatus(), currentPage, pageCount));
         paperMapper.updateById(update);
     }
 
@@ -105,21 +103,6 @@ public class ReadingProgressService {
             paper.setPageCount(count);
         }
         return Math.max(count, 0);
-    }
-
-    private String nextReadingStatus(String currentStatus, int currentPage, int pageCount) {
-        if (currentPage >= pageCount) {
-            return ReadingStatus.READ;
-        }
-        if (ReadingStatus.READ.equals(currentStatus)) {
-            // 已读论文重新阅读时回到 READING
-            return ReadingStatus.READING;
-        }
-        if (ReadingStatus.UNREAD.equals(currentStatus)) {
-            return ReadingStatus.READING;
-        }
-        // READING 保持，其他未知状态保持原样
-        return currentStatus != null ? currentStatus : ReadingStatus.READING;
     }
 
     private ReadingProgressDto toDto(Paper paper, Integer pageCount) {

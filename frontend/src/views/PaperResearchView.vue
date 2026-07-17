@@ -1,0 +1,267 @@
+<template>
+  <div class="paper-research-view">
+    <PdfViewer
+      v-if="paper?.pdfPath"
+      ref="viewerRef"
+      :key="paper.id"
+      :paper="paper"
+      :initial-page="initialPage"
+      :initial-evidence="pendingEvidence"
+      :initial-workbench-mode="researchMode"
+      :initial-workbench-paper-ids="researchPaperIds"
+      @page-change="onPageChange"
+      @close="returnToLibrary"
+      @open-paper-evidence="openPaperEvidence"
+      @workbench-mode-change="onWorkbenchModeChange"
+      @workbench-paper-ids-change="onWorkbenchPaperIdsChange"
+    >
+      <template #toolbar-extra>
+        <ReadingTimePanel :paper="paper" @updated="onReadingTimeUpdated" />
+      </template>
+    </PdfViewer>
+
+    <div v-else-if="loading" class="research-state" v-loading="true" />
+    <el-result
+      v-else-if="error"
+      icon="error"
+      title="无法打开论文研究"
+      :sub-title="error"
+      class="research-state"
+    >
+      <template #extra><el-button type="primary" @click="returnToLibrary">返回文库</el-button></template>
+    </el-result>
+    <el-empty v-else class="research-state" description="请先从文库选择一篇带 PDF 的论文">
+      <el-button type="primary" @click="returnToLibrary">打开文库</el-button>
+    </el-empty>
+  </div>
+</template>
+
+<script setup>
+import { computed, defineAsyncComponent, nextTick, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getPaper } from '@/api/paper.js'
+import { updateReadingProgress } from '@/api/readingProgress.js'
+import ReadingTimePanel from '@/components/ReadingTimePanel.vue'
+import {
+  normalizeWorkbenchRouteMode,
+  positivePageNumber,
+  positivePaperId,
+  researchRouteLocation,
+  workbenchModeQueryValue,
+  workbenchPaperIds,
+} from '@/router/workbenchRoute.js'
+import {
+  readLastResearchLocation,
+  writeLastResearchLocation,
+} from '@/utils/researchSessionState.js'
+
+defineOptions({ name: 'PaperResearchView' })
+
+const PdfViewer = defineAsyncComponent(() => import('@/components/pdf/PdfViewer.vue'))
+const route = useRoute()
+const router = useRouter()
+const viewerRef = ref(null)
+const paper = ref(null)
+const loading = ref(false)
+const error = ref('')
+const initialPage = ref(1)
+const currentPage = ref(1)
+const pendingEvidence = ref(null)
+let loadSequence = 0
+let routePageTimer = null
+let progressTimer = null
+let lastPersistedPage = null
+
+const isResearchRoute = computed(() => route.name === 'research')
+const routePaperId = computed(() => positivePaperId(route.params.paperId))
+const activeModeQuery = ref('analysis')
+const activePaperIdsQuery = ref('')
+const researchMode = computed(() => normalizeWorkbenchRouteMode(activeModeQuery.value))
+const researchPaperIds = computed(() => workbenchPaperIds({
+  paperId: paper.value?.id || routePaperId.value,
+  paperIds: activePaperIdsQuery.value,
+}))
+
+watch([isResearchRoute, routePaperId], ([active, id]) => {
+  if (active) void loadRoutePaper(id)
+}, { immediate: true })
+watch(() => route.query.page, page => {
+  if (!isResearchRoute.value) return
+  const requested = positivePageNumber(page)
+  if (!requested || requested === currentPage.value || !paper.value) return
+  currentPage.value = requested
+  void nextTick(() => viewerRef.value?.goToPage?.(requested))
+})
+
+onActivated(() => {
+  if (isResearchRoute.value && !routePaperId.value) void restoreLastResearchRoute()
+})
+onDeactivated(flushResearchState)
+onUnmounted(flushResearchState)
+
+async function restoreLastResearchRoute() {
+  if (!isResearchRoute.value) return
+  const last = readLastResearchLocation()
+  if (last) await router.replace(last)
+}
+
+async function loadRoutePaper(id) {
+  if (!id) {
+    paper.value = null
+    error.value = ''
+    await restoreLastResearchRoute()
+    return
+  }
+  const sequence = ++loadSequence
+  loading.value = true
+  error.value = ''
+  try {
+    const response = await getPaper(id)
+    if (sequence !== loadSequence) return
+    const loaded = response?.data || response
+    if (!loaded) throw new Error('论文不存在')
+    if (!loaded.pdfPath) throw new Error('该论文没有可打开的 PDF')
+    paper.value = loaded
+    activeModeQuery.value = workbenchModeQueryValue(normalizeWorkbenchRouteMode(route.query.mode))
+    activePaperIdsQuery.value = String(route.query.paperIds || '')
+    lastPersistedPage = positivePageNumber(loaded.currentPage)
+    initialPage.value = positivePageNumber(route.query.page) || lastPersistedPage || 1
+    currentPage.value = initialPage.value
+    await ensureCanonicalRoute()
+    rememberLocation()
+  } catch (reason) {
+    if (sequence !== loadSequence) return
+    paper.value = null
+    error.value = reason?.response?.data?.message || reason?.message || '论文加载失败'
+  } finally {
+    if (sequence === loadSequence) loading.value = false
+  }
+}
+
+async function ensureCanonicalRoute() {
+  if (!paper.value) return
+  const mode = workbenchModeQueryValue(researchMode.value)
+  const query = {
+    ...route.query,
+    page: String(initialPage.value),
+    mode,
+  }
+  if (route.path !== `/research/${paper.value.id}`
+      || String(route.query.page || '') !== query.page
+      || route.query.mode !== mode) {
+    await router.replace(researchRouteLocation(paper.value.id, query))
+  }
+}
+
+function onPageChange(page) {
+  const normalized = positivePageNumber(page)
+  if (!normalized || !paper.value) return
+  currentPage.value = normalized
+  rememberLocation()
+  clearTimeout(routePageTimer)
+  routePageTimer = setTimeout(() => {
+    if (!paper.value || String(route.query.page || '') === String(currentPage.value)) return
+    void router.replace(researchRouteLocation(paper.value.id, {
+      ...route.query,
+      page: String(currentPage.value),
+    }))
+  }, 250)
+  clearTimeout(progressTimer)
+  progressTimer = setTimeout(() => { void persistPage() }, 800)
+}
+
+async function persistPage() {
+  if (!paper.value || !currentPage.value || currentPage.value === lastPersistedPage) return
+  const pageToSave = currentPage.value
+  try {
+    await updateReadingProgress(paper.value.id, pageToSave)
+    lastPersistedPage = pageToSave
+    if (paper.value) paper.value.currentPage = pageToSave
+  } catch { /* URL remains the authoritative recovery state for this tab. */ }
+}
+
+function flushResearchState() {
+  clearTimeout(routePageTimer)
+  clearTimeout(progressTimer)
+  routePageTimer = null
+  progressTimer = null
+  rememberLocation()
+  void persistPage()
+}
+
+function rememberLocation() {
+  if (!paper.value) return
+  writeLastResearchLocation({
+    paperId: paper.value.id,
+    page: currentPage.value,
+    mode: activeModeQuery.value,
+    paperIds: activePaperIdsQuery.value,
+  })
+}
+
+function onWorkbenchModeChange(nextMode) {
+  if (!paper.value) return
+  const mode = workbenchModeQueryValue(nextMode)
+  activeModeQuery.value = mode
+  if (route.query.mode === mode) {
+    rememberLocation()
+    return
+  }
+  void router.replace(researchRouteLocation(paper.value.id, { ...route.query, mode }))
+    .then(rememberLocation)
+}
+
+function onWorkbenchPaperIdsChange(paperIds) {
+  if (!paper.value) return
+  const ids = [...new Set((paperIds || []).map(Number))]
+    .filter(id => Number.isInteger(id) && id > 0)
+  const serialized = ids.join(',')
+  activePaperIdsQuery.value = serialized
+  if (String(route.query.paperIds || '') === serialized) {
+    rememberLocation()
+    return
+  }
+  const query = { ...route.query }
+  if (serialized) query.paperIds = serialized
+  else delete query.paperIds
+  void router.replace(researchRouteLocation(paper.value.id, query)).then(rememberLocation)
+}
+
+async function openPaperEvidence(item) {
+  const targetId = positivePaperId(item?.paperId)
+  if (!targetId) return
+  pendingEvidence.value = item
+  const query = {
+    ...route.query,
+    ...(positivePageNumber(item?.page) ? { page: String(item.page) } : {}),
+  }
+  if (targetId === routePaperId.value) {
+    if (query.page) await viewerRef.value?.goToPage?.(Number(query.page))
+    return
+  }
+  await router.push(researchRouteLocation(targetId, query))
+}
+
+function onReadingTimeUpdated(seconds) {
+  if (paper.value) paper.value.readSeconds = seconds
+}
+
+function returnToLibrary() {
+  flushResearchState()
+  router.push('/library')
+}
+</script>
+
+<style scoped>
+.paper-research-view {
+  height: calc(100vh - 61px);
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ra-bg);
+}
+.research-state {
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+</style>
