@@ -6,6 +6,7 @@ import {
   normalizeWorkbenchRatio,
   ratioFromDividerPosition,
   readWorkbenchRatio,
+  splitWorkbenchAllocation,
   workbenchWidthForContainer,
   writeWorkbenchRatio,
 } from '@/utils/pdfWorkspaceLayout.js'
@@ -30,6 +31,13 @@ describe('PDF workbench split layout', () => {
     expect(ratioFromDividerPosition(700, rect)).toBe(0.4)
     expect(ratioFromDividerPosition(50, rect)).toBe(0.65)
     expect(ratioFromDividerPosition(1000, rect)).toBe(0.2)
+  })
+
+  it('takes the comment list out of the assistant allocation instead of the PDF pane', () => {
+    expect(splitWorkbenchAllocation(600, false)).toEqual({ commentWidth: 0, assistantWidth: 600 })
+    expect(splitWorkbenchAllocation(600, true)).toEqual({ commentWidth: 280, assistantWidth: 320 })
+    expect(splitWorkbenchAllocation(477, true)).toEqual({ commentWidth: 237, assistantWidth: 240 })
+    expect(splitWorkbenchAllocation(300, true)).toEqual({ commentWidth: 135, assistantWidth: 165 })
   })
 
   it('persists only normalized ratios and safely handles missing or invalid storage', () => {

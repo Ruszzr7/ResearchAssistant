@@ -7,6 +7,9 @@ export const MIN_COMPACT_WORKBENCH_WIDTH = 240
 export const MIN_PDF_WIDTH = 480
 export const DEFAULT_PDF_VIEWPORT_RESERVE = 20
 export const WORKBENCH_DIVIDER_WIDTH = 8
+export const DEFAULT_COMMENT_PANEL_WIDTH = 280
+export const MIN_COMMENT_PANEL_WIDTH = 180
+export const MIN_ASSISTANT_WITH_COMMENTS = 240
 
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value))
@@ -56,6 +59,17 @@ export function ratioFromDividerPosition(clientX, containerRect) {
   const right = Number(containerRect?.right)
   if (width <= 0 || !Number.isFinite(right)) return DEFAULT_WORKBENCH_RATIO
   return normalizeWorkbenchRatio((right - Number(clientX || 0)) / width)
+}
+
+export function splitWorkbenchAllocation(allocationWidth, commentsVisible) {
+  const width = Math.max(0, Number(allocationWidth) || 0)
+  if (!commentsVisible) return { commentWidth: 0, assistantWidth: Math.round(width) }
+  if (width >= MIN_COMMENT_PANEL_WIDTH + MIN_ASSISTANT_WITH_COMMENTS) {
+    const commentWidth = Math.min(DEFAULT_COMMENT_PANEL_WIDTH, width - MIN_ASSISTANT_WITH_COMMENTS)
+    return { commentWidth: Math.round(commentWidth), assistantWidth: Math.round(width - commentWidth) }
+  }
+  const commentWidth = Math.round(width * 0.45)
+  return { commentWidth, assistantWidth: Math.round(width - commentWidth) }
 }
 
 function resolveStorage(storage) {

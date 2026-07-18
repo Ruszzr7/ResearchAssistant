@@ -6,32 +6,12 @@
         <slot name="toolbar-extra" />
       </div>
       <div class="pdf-toolbar-center">
-        <div class="pdf-tool-group" aria-label="PDF 批注工具">
-          <el-button-group size="small">
-            <el-button :type="currentTool === 'select' ? 'primary' : 'default'" @click="setTool('select')">选择</el-button>
-            <el-button
-              :type="currentTool === 'formula' ? 'primary' : 'default'"
-              title="在公式周围拖出矩形区域"
-              @click="activateFormula"
-            >框选公式</el-button>
-            <el-button @mousedown.prevent @click="applyTextAnnotation('HIGHLIGHT')">高亮</el-button>
-            <el-button @mousedown.prevent @click="applyTextAnnotation('UNDERLINE')">下划线</el-button>
-            <el-button @mousedown.prevent @click="openSelectionComment">批注</el-button>
-            <el-button :type="currentTool === 'note' ? 'primary' : 'default'" @mousedown.prevent @click="activateNote">便签</el-button>
-          </el-button-group>
-          <span v-if="toolbarStatus" class="selection-hint">{{ toolbarStatus }}</span>
-        </div>
-
         <div class="zoom-controls" aria-label="PDF 缩放">
           <el-button size="small" :disabled="zoomPercent <= zoomOptions[0]" @click="changeZoom(-1)">−</el-button>
-          <div class="zoom-menu" @click.stop>
-            <el-button size="small" class="zoom-menu-button" @click="zoomMenuVisible = !zoomMenuVisible">{{ zoomPercent }}%⌄</el-button>
-            <div v-if="zoomMenuVisible" class="zoom-option-list" role="menu" aria-label="缩放比例">
-              <button v-for="zoom in zoomOptions" :key="zoom" type="button" :class="{ active: zoom === zoomPercent }" @click="selectZoom(zoom)">{{ zoom }}%</button>
-            </div>
-          </div>
+          <span class="zoom-value" aria-live="polite">{{ zoomPercent }}%</span>
           <el-button size="small" :disabled="zoomPercent >= zoomOptions[zoomOptions.length - 1]" @click="changeZoom(1)">+</el-button>
         </div>
+        <span class="toolbar-separator" aria-hidden="true" />
 
         <label class="page-navigation" title="输入页码后按 Enter 跳转">
           <span class="sr-only">跳转页码</span>
@@ -47,37 +27,96 @@
           />
           <span aria-label="总页数">/ {{ renderedPages.length || 0 }}</span>
         </label>
+        <span class="toolbar-separator" aria-hidden="true" />
 
-        <div class="annotation-color-palette" aria-label="批注颜色">
+        <el-button-group size="small" aria-label="文字标记">
+          <el-button @mousedown.prevent @click="applyTextAnnotation('HIGHLIGHT')">高亮</el-button>
+          <el-button @mousedown.prevent @click="applyTextAnnotation('UNDERLINE')">下划线</el-button>
+        </el-button-group>
+        <el-button size="small" @mousedown.prevent @click="openSelectionComment">笔记</el-button>
+        <el-button-group size="small" aria-label="批注工具">
+          <el-button :type="currentTool === 'note' ? 'primary' : 'default'" @mousedown.prevent @click="activateNote">批注</el-button>
+          <el-button :type="commentPanelVisible ? 'primary' : 'default'" @click="commentPanelVisible = !commentPanelVisible">批注列表</el-button>
+        </el-button-group>
+        <div class="annotation-color-menu" @click.stop>
           <button
-            v-for="color in annotationColors"
-            :key="color"
             type="button"
-            class="annotation-color"
-            :class="{ active: currentColor === color }"
-            :style="{ backgroundColor: color }"
-            :title="colorName(color)"
-            :aria-label="colorName(color)"
+            class="annotation-color-trigger"
+            :title="`标记颜色：${colorName(currentColor)}`"
+            :aria-label="`标记颜色：${colorName(currentColor)}`"
+            :style="{ '--annotation-color': currentColor }"
             @mousedown.prevent
-            @click.stop="currentColor = color"
-          />
+            @click="colorMenuVisible = !colorMenuVisible"
+          ><span aria-hidden="true" /></button>
+          <div v-if="colorMenuVisible" class="annotation-color-list" role="menu" aria-label="选择标记颜色">
+            <button
+              v-for="color in annotationColors"
+              :key="color"
+              type="button"
+              class="annotation-color-option"
+              :class="{ active: currentColor === color }"
+              :style="{ backgroundColor: color }"
+              :title="colorName(color)"
+              :aria-label="colorName(color)"
+              @click="selectAnnotationColor(color)"
+            />
+          </div>
         </div>
-        <el-color-picker v-model="currentColor" size="small" :predefine="predefineColors" show-alpha />
-
-        <el-button size="small" :type="workbenchPanelVisible ? 'primary' : 'default'" @click="workbenchPanelVisible = !workbenchPanelVisible">
-          论文助手
-        </el-button>
-        <el-button size="small" :type="showNotePanel ? 'info' : 'default'" @click="showNotePanel = !showNotePanel">笔记</el-button>
-        <el-button size="small" :type="currentTool === 'edit' ? 'info' : 'default'" @click="toggleAnnotationEditMode">
-          {{ currentTool === 'edit' ? '完成' : '调整' }}
-        </el-button>
       </div>
       <div class="pdf-toolbar-right">
+        <el-button size="small" text :type="searchPanelVisible ? 'primary' : 'default'" @click="toggleSearchPanel">搜索</el-button>
+        <el-button size="small" text :type="workbenchPanelVisible ? 'primary' : 'default'" @click="workbenchPanelVisible = !workbenchPanelVisible">论文助手</el-button>
         <el-button size="small" text @click="$emit('close')">关闭</el-button>
       </div>
     </div>
 
     <div ref="viewerBodyRef" class="viewer-body" :class="{ 'is-workbench-resizing': workbenchResizing }">
+      <aside v-if="searchPanelVisible" class="pdf-search-panel" aria-label="PDF 搜索">
+        <header class="side-panel-header">
+          <strong>搜索文档</strong>
+          <button type="button" aria-label="关闭搜索" title="关闭搜索" @click="closeSearchPanel">×</button>
+        </header>
+        <div class="pdf-search-box">
+          <input
+            ref="searchInputRef"
+            v-model="searchQuery"
+            type="search"
+            autocomplete="off"
+            placeholder="搜索 PDF 内容"
+            aria-label="搜索 PDF 内容"
+            @input="schedulePdfSearch"
+            @keydown.enter.prevent="activateNextSearchResult($event.shiftKey ? -1 : 1)"
+            @keydown.esc.prevent="closeSearchPanel"
+          />
+          <button v-if="searchQuery" type="button" aria-label="清除搜索" title="清除搜索" @click="clearPdfSearch">×</button>
+        </div>
+        <div class="pdf-search-summary">
+          <span v-if="searchIndexLoading">正在建立索引 {{ searchIndexProgress }}/{{ renderedPages.length }}</span>
+          <span v-else-if="searchQuery && searchResults.length">{{ activeSearchResultIndex + 1 }} / {{ searchResults.length }}</span>
+          <span v-else-if="searchQuery">未找到结果</span>
+          <span v-else>输入文字开始搜索</span>
+          <span class="pdf-search-navigation">
+            <button type="button" :disabled="!searchResults.length" aria-label="上一个结果" @click="activateNextSearchResult(-1)">↑</button>
+            <button type="button" :disabled="!searchResults.length" aria-label="下一个结果" @click="activateNextSearchResult(1)">↓</button>
+          </span>
+        </div>
+        <div class="pdf-search-results" role="listbox" aria-label="搜索结果">
+          <button
+            v-for="(result, index) in searchResults"
+            :key="result.id"
+            type="button"
+            role="option"
+            class="pdf-search-result"
+            :class="{ active: index === activeSearchResultIndex }"
+            :aria-selected="index === activeSearchResultIndex"
+            @click="activateSearchResult(index)"
+          >
+            <span>第 {{ result.page }} 页</span>
+            <p>{{ result.context }}</p>
+          </button>
+        </div>
+      </aside>
+
       <div ref="containerRef" class="pdf-pages" @scroll="onScroll">
         <div class="virtual-spacer" :style="{ height: topSpacerHeight + 'px' }" aria-hidden="true"></div>
         <div
@@ -285,6 +324,32 @@
         <div class="virtual-spacer" :style="{ height: bottomSpacerHeight + 'px' }" aria-hidden="true"></div>
       </div>
 
+      <aside
+        v-if="commentPanelVisible"
+        class="pdf-comment-panel"
+        :style="{ flexBasis: commentPanelWidth + 'px' }"
+        aria-label="批注列表"
+      >
+        <header class="side-panel-header">
+          <strong>批注</strong>
+          <button type="button" aria-label="关闭批注列表" title="关闭批注列表" @click="commentPanelVisible = false">×</button>
+        </header>
+        <div class="pdf-comment-list">
+          <button
+            v-for="annotation in panelComments"
+            :key="annotation.localId"
+            type="button"
+            class="pdf-comment-card"
+            :class="{ active: selectedAnnotation?.localId === annotation.localId }"
+            @click="jumpToPanelComment(annotation)"
+          >
+            <span>第 {{ annotation.page }} 页</span>
+            <p>{{ annotation.note || '未填写内容' }}</p>
+          </button>
+          <div v-if="!panelComments.length" class="side-panel-empty">暂无批注</div>
+        </div>
+      </aside>
+
       <div
         v-if="workbenchPanelVisible"
         class="workbench-divider"
@@ -306,7 +371,7 @@
 
       <PaperWorkbenchPanel
         v-if="workbenchPanelVisible"
-        :style="{ flexBasis: workbenchWidth + 'px' }"
+        :style="{ flexBasis: assistantPanelWidth + 'px' }"
         :paper="paper"
         :selection="pendingTextSelection"
         :selection-anchor="selectionAnchor"
@@ -432,6 +497,7 @@ import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
 import { formulaRegionSvgRect, normalizedFormulaRegion } from '@/utils/formulaRegionSelection.js'
+import { buildPdfPageSearchRecord, findPdfSearchMatches } from '@/utils/pdfSearch.js'
 import {
   confirmFormulaRegion,
   recognizeFormulaRegion,
@@ -439,10 +505,12 @@ import {
 } from '@/api/workbench.js'
 import {
   DEFAULT_WORKBENCH_RATIO,
+  DEFAULT_COMMENT_PANEL_WIDTH,
   completePdfPaneWidth,
   normalizeWorkbenchRatio,
   ratioFromDividerPosition,
   readWorkbenchRatio,
+  splitWorkbenchAllocation,
   workbenchWidthForContainer,
   writeWorkbenchRatio,
 } from '@/utils/pdfWorkspaceLayout.js'
@@ -465,6 +533,7 @@ const emit = defineEmits([
 
 const containerRef = ref(null)
 const viewerBodyRef = ref(null)
+const searchInputRef = ref(null)
 const canvasRefs = ref({})
 const textLayerRefs = ref({})
 const overlayRefs = ref({})
@@ -475,6 +544,7 @@ const pageLayoutIndexes = new Map()
 // 时会报 "Cannot read from private field"。
 const pdfDoc = shallowRef(null)
 const renderedPages = ref([])
+const pageSearchRecords = new Map()
 const visiblePageStart = ref(1)
 const visiblePageEnd = ref(1)
 const currentPage = ref(1)
@@ -482,12 +552,19 @@ const baseEstimatedPageHeight = 900
 const zoomPercent = ref(100)
 const renderedZoomPercent = ref(100)
 const zoomOptions = [50, 75, 100, 125, 150, 200, 300]
-const zoomMenuVisible = ref(false)
 const estimatedPageHeight = computed(() => baseEstimatedPageHeight * zoomPercent.value / 100)
 const annotations = ref([])
 const selectedAnnotation = ref(null)
 const currentTool = ref('select')
-const currentColor = ref('#ffeb3b')
+const currentColor = ref('#f44336')
+const colorMenuVisible = ref(false)
+const searchPanelVisible = ref(false)
+const searchQuery = ref('')
+const searchResults = ref([])
+const activeSearchResultIndex = ref(-1)
+const searchIndexLoading = ref(false)
+const searchIndexProgress = ref(0)
+const commentPanelVisible = ref(false)
 const pendingTextSelection = ref(null)
 const selectionAnchor = ref(null)
 const selectionContextLoading = ref(false)
@@ -513,6 +590,17 @@ const workbenchWidth = computed(() => workbenchWidthForContainer(
   workbenchWidthRatio.value,
   minimumCompletePdfWidth.value,
 ))
+const splitRightPanels = computed(() => splitWorkbenchAllocation(
+  workbenchWidth.value,
+  commentPanelVisible.value && workbenchPanelVisible.value,
+))
+const commentPanelWidth = computed(() => {
+  if (!commentPanelVisible.value) return 0
+  return workbenchPanelVisible.value
+    ? splitRightPanels.value.commentWidth
+    : DEFAULT_COMMENT_PANEL_WIDTH
+})
+const assistantPanelWidth = computed(() => splitRightPanels.value.assistantWidth)
 const workbenchRatioPercent = computed(() => viewerBodyWidth.value > 0
   ? Math.round(workbenchWidth.value / viewerBodyWidth.value * 100)
   : Math.round(workbenchWidthRatio.value * 100))
@@ -550,7 +638,6 @@ const selectedNote = ref(null)
 const contextMenu = ref({ visible: false, x: 0, y: 0 })
 
 const annotationColors = ['#f44336', '#ffeb3b', '#2196f3', '#4caf50', '#000000']
-const predefineColors = [...annotationColors, '#ff9800', '#9c27b0']
 const viewportCoordinates = Object.freeze({ coordinateSpace: 'viewport' })
 
 let nextLocalId = 1
@@ -560,9 +647,13 @@ let suppressAnnotationClickId = null
 let layoutSelectionDrag = null
 let formulaRegionDrag = null
 let selectionContextRequestId = 0
+let searchIndexPromise = null
+let searchDebounceTimer = null
+let searchRequestId = 0
 let evidenceFocusTimer = null
 
 const pageAnnotations = computed(() => (pageNum) => annotations.value.filter(a => a.page === pageNum))
+const panelComments = computed(() => annotations.value.filter(annotation => annotation.type === 'NOTE'))
 const selectionGroupForPage = computed(() => (pageNum) => (
   pendingTextSelection.value?.groups?.find(group => group.pageNum === pageNum) || null
 ))
@@ -578,25 +669,6 @@ function formulaRegionRectForPage(page) {
 const visiblePages = computed(() => renderedPages.value.slice(
   Math.max(0, visiblePageStart.value - 1), visiblePageEnd.value
 ))
-const toolbarStatus = computed(() => {
-  if (formulaRegion.value && formulaRecognitionLoading.value) return '公式识别中'
-  if (formulaRecognition.value?.confirmed) return '公式已确认'
-  if (formulaRecognition.value) return '公式待确认'
-  const text = pendingTextSelection.value?.text || ''
-  if (text && selectionContextLoading.value) return '选区锚定中'
-  if (text && selectionAnchor.value) return selectionAnchor.value.kind === 'REGION'
-    ? '区域选区'
-    : `${selectionAnchorLabel.value} ${Math.round(selectionAnchor.value.confidence * 100)}%`
-  if (text) return `已选 ${text.length} 字`
-  return ''
-})
-const selectionAnchorLabel = computed(() => ({
-  TEXT: '正文已映射',
-  FORMULA: '公式已映射',
-  TABLE: '表格已映射',
-  REGION: '区域理解'
-}[selectionAnchor.value?.kind] || '已建立锚点'))
-
 function pageHeight(page) {
   return page?.height || estimatedPageHeight.value
 }
@@ -666,9 +738,11 @@ onDeactivated(detachViewerEvents)
 onUnmounted(() => {
   renderQueueRequested = false
   if (renderFrame != null) window.cancelAnimationFrame(renderFrame)
+  if (searchDebounceTimer != null) window.clearTimeout(searchDebounceTimer)
   cancelAllPageRenders()
   pdfDoc.value?.destroy()
   pageLayoutIndexes.clear()
+  pageSearchRecords.clear()
   if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
   viewerBodyResizeObserver?.disconnect()
   viewerBodyResizeObserver = null
@@ -718,11 +792,171 @@ function onWorkbenchDividerKeydown(event) {
   workbenchWidthRatio.value = writeWorkbenchRatio(normalizeWorkbenchRatio(next))
 }
 
+function toggleSearchPanel() {
+  if (searchPanelVisible.value) {
+    closeSearchPanel()
+    return
+  }
+  searchPanelVisible.value = true
+  void nextTick(() => {
+    searchInputRef.value?.focus?.()
+    if (searchQuery.value.trim()) schedulePdfSearch()
+  })
+}
+
+function closeSearchPanel() {
+  searchPanelVisible.value = false
+  searchRequestId += 1
+  searchResults.value = []
+  activeSearchResultIndex.value = -1
+  clearSearchHighlights()
+}
+
+function clearPdfSearch() {
+  searchQuery.value = ''
+  searchRequestId += 1
+  searchResults.value = []
+  activeSearchResultIndex.value = -1
+  clearSearchHighlights()
+  searchInputRef.value?.focus?.()
+}
+
+function schedulePdfSearch() {
+  if (searchDebounceTimer != null) window.clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = window.setTimeout(() => {
+    searchDebounceTimer = null
+    void performPdfSearch()
+  }, 160)
+}
+
+async function performPdfSearch() {
+  const query = searchQuery.value.trim()
+  const requestId = ++searchRequestId
+  if (!query) {
+    searchResults.value = []
+    activeSearchResultIndex.value = -1
+    clearSearchHighlights()
+    return
+  }
+  await ensurePdfSearchIndex()
+  if (requestId !== searchRequestId || !searchPanelVisible.value) return
+  const records = [...pageSearchRecords.values()].sort((left, right) => left.page - right.page)
+  searchResults.value = findPdfSearchMatches(records, query)
+  activeSearchResultIndex.value = searchResults.value.length ? 0 : -1
+  refreshVisibleSearchHighlights()
+  if (searchResults.value.length) await activateSearchResult(0)
+}
+
+async function ensurePdfSearchIndex() {
+  const documentRef = pdfDoc.value
+  const pageCount = documentRef?.numPages || 0
+  if (!documentRef || !pageCount || pageSearchRecords.size === pageCount) return
+  if (searchIndexPromise) return searchIndexPromise
+
+  searchIndexLoading.value = true
+  searchIndexProgress.value = pageSearchRecords.size
+  searchIndexPromise = (async () => {
+    for (let start = 1; start <= pageCount; start += 6) {
+      const pageNumbers = Array.from({ length: Math.min(6, pageCount - start + 1) }, (_, index) => start + index)
+        .filter(pageNumber => !pageSearchRecords.has(pageNumber))
+      const records = await Promise.all(pageNumbers.map(async pageNumber => {
+        try {
+          const page = await documentRef.getPage(pageNumber)
+          const textContent = await page.getTextContent()
+          return buildPdfPageSearchRecord(pageNumber, textContent.items)
+        } catch {
+          return buildPdfPageSearchRecord(pageNumber, [])
+        }
+      }))
+      if (pdfDoc.value !== documentRef) return
+      records.forEach(record => pageSearchRecords.set(record.page, record))
+      searchIndexProgress.value = pageSearchRecords.size
+    }
+  })().finally(() => {
+    searchIndexPromise = null
+    searchIndexLoading.value = false
+  })
+  return searchIndexPromise
+}
+
+function activateNextSearchResult(direction) {
+  const count = searchResults.value.length
+  if (!count) return
+  const current = activeSearchResultIndex.value < 0 ? 0 : activeSearchResultIndex.value
+  void activateSearchResult((current + direction + count) % count)
+}
+
+async function activateSearchResult(index) {
+  const result = searchResults.value[index]
+  if (!result) return
+  activeSearchResultIndex.value = index
+  await goToPage(result.page)
+  await nextTick()
+  refreshVisibleSearchHighlights()
+  scrollActiveSearchMatchIntoView(result)
+}
+
+function refreshVisibleSearchHighlights() {
+  for (const page of visiblePages.value) applySearchHighlightsToPage(page.pageNum)
+}
+
+function clearSearchHighlights() {
+  for (const layer of Object.values(textLayerRefs.value)) {
+    layer?.querySelectorAll?.('.pdf-search-match, .pdf-search-current').forEach(span => {
+      span.classList.remove('pdf-search-match', 'pdf-search-current')
+    })
+  }
+}
+
+function applySearchHighlightsToPage(pageNum) {
+  const layer = textLayerRefs.value[pageNum]
+  if (!layer) return
+  const spans = layer.querySelectorAll('span')
+  spans.forEach(span => span.classList.remove('pdf-search-match', 'pdf-search-current'))
+  searchResults.value.forEach((result, resultIndex) => {
+    if (result.page !== pageNum) return
+    result.spanIndexes.forEach(spanIndex => {
+      const span = spans[spanIndex]
+      if (!span) return
+      span.classList.add('pdf-search-match')
+      if (resultIndex === activeSearchResultIndex.value) span.classList.add('pdf-search-current')
+    })
+  })
+}
+
+function scrollActiveSearchMatchIntoView(result) {
+  const container = containerRef.value
+  const layer = textLayerRefs.value[result.page]
+  const span = layer?.querySelectorAll?.('span')?.[result.spanIndexes?.[0]]
+  if (!container || !span) return
+  const containerRect = container.getBoundingClientRect()
+  const spanRect = span.getBoundingClientRect()
+  container.scrollTop += spanRect.top - containerRect.top - container.clientHeight * 0.3
+  if (spanRect.left < containerRect.left || spanRect.right > containerRect.right) {
+    container.scrollLeft += spanRect.left - containerRect.left - container.clientWidth * 0.25
+  }
+}
+
+function selectAnnotationColor(color) {
+  currentColor.value = color
+  colorMenuVisible.value = false
+}
+
+async function jumpToPanelComment(annotation) {
+  selectedAnnotation.value = annotation
+  notePreview.value = annotation
+  await goToPage(annotation.page)
+}
+
 async function loadDocument() {
   try {
     cancelAllPageRenders()
     renderQueueRequested = false
     pageLayoutIndexes.clear()
+    pageSearchRecords.clear()
+    searchResults.value = []
+    activeSearchResultIndex.value = -1
+    searchIndexProgress.value = 0
     pdfPageWidthAt100.value = 0
     const url = `/api/papers/${props.paper.id}/pdf`
     const loading = pdfjsLib.getDocument(url)
@@ -1003,6 +1237,7 @@ async function renderPage(pageState) {
   }
   if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
   pageState.rendered = true
+  applySearchHighlightsToPage(pageState.pageNum)
   return true
 }
 
@@ -1110,11 +1345,6 @@ async function setZoom(value) {
   if (!zoomOptions.includes(next) || next === zoomPercent.value) return
   zoomPercent.value = next
   await renderAtCurrentZoom()
-}
-
-async function selectZoom(value) {
-  zoomMenuVisible.value = false
-  await setZoom(value)
 }
 
 async function renderAtCurrentZoom() {
@@ -2069,7 +2299,7 @@ async function jumpToNote(note) {
 
 function onWindowClick() {
   if (contextMenu.value.visible) contextMenu.value.visible = false
-  if (zoomMenuVisible.value) zoomMenuVisible.value = false
+  if (colorMenuVisible.value) colorMenuVisible.value = false
   if (notePreview.value) notePreview.value = null
 }
 
@@ -2134,38 +2364,54 @@ function colorName(color) {
   background: var(--ra-link);
 }
 .pdf-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
   align-items: center;
-  justify-content: space-between;
   padding: 8px 12px;
   background: var(--ra-panel-bg);
   border-bottom: 1px solid var(--ra-border);
   gap: 12px;
   flex-shrink: 0;
+  overflow-x: auto;
 }
 .pdf-toolbar-left, .pdf-toolbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 80px;
+  min-width: 0;
+}
+.pdf-toolbar-right {
+  justify-content: flex-end;
+  white-space: nowrap;
 }
 .pdf-toolbar-center {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 8px;
+  flex-wrap: nowrap;
   justify-content: center;
+  white-space: nowrap;
 }
 .pdf-tool-group, .zoom-controls, .page-navigation {
   display: flex;
   align-items: center;
   gap: 6px;
 }
+.zoom-value {
+  min-width: 42px;
+  color: var(--ra-text-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  flex: 0 0 1px;
+  background: var(--ra-border);
+}
 .page-navigation {
   min-height: 28px;
   box-sizing: border-box;
-  padding-left: 8px;
-  border-left: 1px solid var(--ra-border);
   color: var(--ra-text-secondary);
   font-size: 12px;
   white-space: nowrap;
@@ -2204,44 +2450,61 @@ function colorName(color) {
   white-space: nowrap;
   border: 0;
 }
-.selection-hint {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--ra-text-secondary);
+.annotation-color-menu {
+  position: relative;
+  flex: 0 0 auto;
 }
-.zoom-menu-button { min-width: 72px; }
-.zoom-menu { position: relative; }
-.zoom-option-list {
+.annotation-color-trigger {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--ra-border);
+  border-radius: 5px;
+  background: var(--ra-panel-bg);
+  cursor: pointer;
+}
+.annotation-color-trigger:hover,
+.annotation-color-trigger:focus-visible {
+  border-color: var(--ra-link);
+}
+.annotation-color-trigger > span {
+  width: 15px;
+  height: 15px;
+  border: 1px solid rgba(127, 127, 127, 0.55);
+  border-radius: 50%;
+  background: var(--annotation-color);
+}
+.annotation-color-list {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
-  z-index: 8;
+  right: 0;
+  z-index: 12;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  min-width: 78px;
-  padding: 4px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 6px;
   border: 1px solid var(--ra-border);
-  border-radius: 6px;
+  border-radius: 7px;
   background: var(--ra-panel-bg);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
 }
-.zoom-option-list button {
-  border: 0;
-  border-radius: 4px;
-  padding: 5px 8px;
-  color: var(--ra-text);
-  background: transparent;
-  text-align: left;
+.annotation-color-option {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(127, 127, 127, 0.55);
+  border-radius: 50%;
   cursor: pointer;
+  box-sizing: border-box;
 }
-.zoom-option-list button:hover,
-.zoom-option-list button.active {
-  background: var(--ra-hover-bg);
-  color: var(--ra-link);
+.annotation-color-option:hover,
+.annotation-color-option:focus-visible,
+.annotation-color-option.active {
+  outline: 2px solid var(--ra-link);
+  outline-offset: 1px;
 }
 .pdf-title {
   font-size: 14px;
@@ -2251,16 +2514,168 @@ function colorName(color) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.pdf-search-panel,
+.pdf-comment-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  background: var(--ra-panel-bg);
+}
+.pdf-search-panel {
+  flex: 0 0 292px;
+  width: 292px;
+  border-right: 1px solid var(--ra-border);
+}
+.pdf-comment-panel {
+  flex: 0 0 auto;
+  border-left: 1px solid var(--ra-border);
+}
+.side-panel-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ra-border);
+  color: var(--ra-text);
+  font-size: 13px;
+}
+.side-panel-header button,
+.pdf-search-box button,
+.pdf-search-navigation button {
+  border: 0;
+  color: var(--ra-text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+.side-panel-header button {
+  padding: 2px 5px;
+  font-size: 18px;
+}
+.side-panel-header button:hover,
+.pdf-search-box button:hover,
+.pdf-search-navigation button:hover:not(:disabled) {
+  color: var(--ra-link);
+}
+.pdf-search-box {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin: 10px 10px 6px;
+  border: 1px solid var(--ra-border);
+  border-radius: 6px;
+  background: var(--ra-bg);
+}
+.pdf-search-box:focus-within {
+  border-color: var(--ra-link);
+  box-shadow: 0 0 0 1px var(--ra-link);
+}
+.pdf-search-box input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 0;
+  outline: 0;
+  color: var(--ra-text);
+  background: transparent;
+  font: inherit;
+}
+.pdf-search-box button {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+}
+.pdf-search-summary {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 0 10px 6px;
+  color: var(--ra-text-tertiary);
+  font-size: 12px;
+}
+.pdf-search-navigation {
+  display: flex;
+  gap: 2px;
+}
+.pdf-search-navigation button {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+}
+.pdf-search-navigation button:hover:not(:disabled) {
+  background: var(--ra-hover-bg);
+}
+.pdf-search-navigation button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.pdf-search-results,
+.pdf-comment-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 8px 10px;
+}
+.pdf-search-result,
+.pdf-comment-card {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 6px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ra-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.pdf-search-result:hover,
+.pdf-comment-card:hover {
+  background: var(--ra-hover-bg);
+}
+.pdf-search-result.active,
+.pdf-comment-card.active {
+  border-color: color-mix(in srgb, var(--ra-link) 50%, transparent);
+  background: color-mix(in srgb, var(--ra-link) 10%, transparent);
+}
+.pdf-search-result span,
+.pdf-comment-card span {
+  color: var(--ra-text-tertiary);
+  font-size: 11px;
+}
+.pdf-search-result p,
+.pdf-comment-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.side-panel-empty {
+  padding: 32px 12px;
+  color: var(--ra-text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
 .pdf-pages {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
+  overflow: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: safe center;
   padding: 16px 0;
   gap: 0;
 }
@@ -2319,6 +2734,14 @@ function colorName(color) {
 }
 .text-layer :deep(span) {
   cursor: text;
+}
+.text-layer :deep(span.pdf-search-match) {
+  border-radius: 2px;
+  background: rgba(255, 213, 79, 0.58);
+}
+.text-layer :deep(span.pdf-search-current) {
+  background: rgba(255, 145, 0, 0.78);
+  box-shadow: 0 0 0 1px rgba(230, 81, 0, 0.65);
 }
 .text-layer ::selection {
   background: rgba(0, 0, 255, 0.25);
