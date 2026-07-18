@@ -253,7 +253,7 @@ public class ResearchSessionService {
     private String normalizeTitle(String requested, List<Paper> papers, int paperCount) {
         if (requested != null && !requested.isBlank()) return requested.trim();
         String base = papers.stream().filter(paper -> paper.getTitle() != null && !paper.getTitle().isBlank())
-                .map(Paper::getTitle).findFirst().orElse("论文研究");
+                .map(Paper::getTitle).findFirst().orElse("论文分析");
         return paperCount > 1 ? base + " 等 " + paperCount + " 篇" : base;
     }
 

@@ -1,5 +1,5 @@
 <template>
-  <aside class="paper-workbench" aria-label="论文研究工作台">
+  <aside class="paper-workbench" aria-label="论文分析工作台">
     <header class="paper-workbench__header">
       <div>
         <strong>论文助手</strong>
@@ -722,7 +722,7 @@ async function ensureResearchSession(paperIds = []) {
   sessionCreatePromise = createResearchSession({
     paperIds: normalizedPaperIds,
     primaryPaperId: Number(props.paper.id),
-    title: props.paper.title || '论文研究',
+    title: props.paper.title || '论文分析',
     mode: mode.value,
     lastPage: 1,
     outputLanguage: 'ZH',

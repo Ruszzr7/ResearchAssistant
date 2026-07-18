@@ -11,15 +11,12 @@ import com.research.assistant.mapper.AsyncTaskRecordMapper;
 import com.research.assistant.mapper.NoteMapper;
 import com.research.assistant.mapper.PaperAnnotationMapper;
 import com.research.assistant.mapper.PaperMapper;
-import com.research.assistant.mapper.ReadingPlanItemMapper;
 import com.research.assistant.service.DashboardService;
 import com.research.assistant.service.FolderService;
 import org.springframework.stereotype.Service;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -39,20 +36,17 @@ public class DashboardServiceImpl implements DashboardService {
 
     private final PaperMapper paperMapper;
     private final FolderService folderService;
-    private final ReadingPlanItemMapper readingPlanItemMapper;
     private final AsyncTaskRecordMapper asyncTaskRecordMapper;
     private final NoteMapper noteMapper;
     private final PaperAnnotationMapper paperAnnotationMapper;
 
     public DashboardServiceImpl(PaperMapper paperMapper,
                                 FolderService folderService,
-                                ReadingPlanItemMapper readingPlanItemMapper,
                                 AsyncTaskRecordMapper asyncTaskRecordMapper,
                                 NoteMapper noteMapper,
                                 PaperAnnotationMapper paperAnnotationMapper) {
         this.paperMapper = paperMapper;
         this.folderService = folderService;
-        this.readingPlanItemMapper = readingPlanItemMapper;
         this.asyncTaskRecordMapper = asyncTaskRecordMapper;
         this.noteMapper = noteMapper;
         this.paperAnnotationMapper = paperAnnotationMapper;
@@ -63,7 +57,6 @@ public class DashboardServiceImpl implements DashboardService {
         DashboardDto dto = new DashboardDto();
         dto.setPaperStats(buildPaperStats());
         dto.setFolderBacklog(buildFolderBacklog());
-        dto.setReadingPlanStats(buildReadingPlanStats());
         dto.setTaskStats(buildTaskStats());
         dto.setRecentNotes(buildRecentNotes());
         dto.setRecentAnnotations(buildRecentAnnotations());
@@ -98,19 +91,6 @@ public class DashboardServiceImpl implements DashboardService {
             out.add(new DashboardDto.FolderBacklog(f.getId(), f.getName(), count));
             collectFolders(f.getChildren(), out);
         }
-    }
-
-    private DashboardDto.ReadingPlanStats buildReadingPlanStats() {
-        DashboardDto.ReadingPlanStats stats = new DashboardDto.ReadingPlanStats();
-        LocalDate today = LocalDate.now();
-        LocalDate soonEnd = today.plusDays(3);
-        LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        LocalDate weekEnd = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
-
-        stats.setOverdue(readingPlanItemMapper.countOverdue(today));
-        stats.setDueSoon(readingPlanItemMapper.countDueBetween(today, soonEnd));
-        stats.setThisWeek(readingPlanItemMapper.countThisWeek(weekStart, weekEnd));
-        return stats;
     }
 
     private DashboardDto.TaskStats buildTaskStats() {

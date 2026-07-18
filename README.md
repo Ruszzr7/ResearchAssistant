@@ -33,7 +33,7 @@ Windows 下可直接使用以下启动入口：
 - AI：论文精读、对比、追问、Gap 分析与多源验证。
 - Agent：Skill Registry、自然语言 Planner、可暂停 Workflow、任务中心。
 - RAG：论文分析结果和 PDF 分片生成 embedding，默认内存检索，可选 Qdrant。
-- 阅读与写作：PDF 批注、笔记双向链接、阅读计划、Related Work、大纲和引用检查。
+- 阅读与写作：PDF 标记、笔记、批注、Related Work、大纲和引用检查。
 
 ## 重要配置
 

@@ -132,7 +132,6 @@
                 <el-dropdown-item command="bibtex-batch" :disabled="!selectedPaperIds.length">导出选中 BibTeX</el-dropdown-item>
                 <el-dropdown-item command="obsidian" :disabled="!selectedPaperIds.length">同步到 Obsidian</el-dropdown-item>
                 <el-dropdown-item command="zotero" :disabled="!selectedPaperIds.length">同步到 Zotero</el-dropdown-item>
-                <el-dropdown-item divided command="add-to-plan" :disabled="!currentPaper">加入阅读计划</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -527,26 +526,6 @@
       </template>
     </el-dialog>
 
-    <!-- ==================== 加入阅读计划弹窗 ==================== -->
-    <el-dialog v-model="addToPlanDialogVisible" title="加入阅读计划" width="420px">
-      <el-form label-width="80px">
-        <el-form-item label="计划">
-          <el-select v-model="addToPlanId" placeholder="选择阅读计划" style="width:100%">
-            <el-option v-for="p in readingPlans" :key="p.id" :label="p.name" :value="p.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="截止日期">
-          <el-date-picker v-model="addToPlanDeadline" type="date" placeholder="选择截止日期" style="width:100%" />
-        </el-form-item>
-        <el-form-item label="优先级">
-          <el-rate v-model="addToPlanPriority" :max="3" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="addToPlanDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmAddToPlan">加入</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -559,7 +538,6 @@ import { useGlobalTask } from '@/composables/useGlobalTask.js'
 import { usePaperImportRecommendations } from '@/composables/usePaperImportRecommendations.js'
 import LibraryBatchSelectionBar from '@/components/library/LibraryBatchSelectionBar.vue'
 import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
-import { listReadingPlans, addPlanItem } from '@/api/readingPlan'
 import {
   normalizeWorkbenchRouteMode,
   researchRouteLocation,
@@ -613,11 +591,6 @@ const editTitleText = ref('')
 const titleInputRef = ref(null)
 const resizing = ref(null)
 const uploadFile = ref(null)
-const addToPlanDialogVisible = ref(false)
-const readingPlans = ref([])
-const addToPlanId = ref(null)
-const addToPlanDeadline = ref(null)
-const addToPlanPriority = ref(1)
 const doiInput = ref('')
 const doiPdfUrl = ref('')
 const fetchingDoi = ref(false)
@@ -1569,33 +1542,6 @@ async function confirmBatchDelete() {
   }
 }
 
-async function openAddToPlanDialog() {
-  if (!currentPaper.value) return
-  const res = await listReadingPlans()
-  readingPlans.value = res.data
-  addToPlanId.value = readingPlans.value[0]?.id || null
-  addToPlanDeadline.value = null
-  addToPlanPriority.value = 1
-  addToPlanDialogVisible.value = true
-}
-
-async function confirmAddToPlan() {
-  if (!addToPlanId.value) {
-    ElMessage.warning('请选择阅读计划')
-    return
-  }
-  const dateStr = addToPlanDeadline.value
-    ? (addToPlanDeadline.value.substring ? addToPlanDeadline.value.substring(0, 10) : new Date(addToPlanDeadline.value).toISOString().split('T')[0])
-    : null
-  await addPlanItem(addToPlanId.value, {
-    paperId: currentPaper.value.id,
-    deadline: dateStr,
-    priority: addToPlanPriority.value || 0,
-  })
-  addToPlanDialogVisible.value = false
-  ElMessage.success('已加入阅读计划')
-}
-
 async function handleExport(cmd) {
   try {
     if (cmd === 'bibtex-single') {
@@ -1611,8 +1557,6 @@ async function handleExport(cmd) {
     } else if (cmd === 'zotero') {
       const data = await syncZotero(selectedPaperIds.value)
       ElMessage[data.success ? 'success' : 'error'](data.message || `已同步 ${data.count} 篇`)
-    } else if (cmd === 'add-to-plan') {
-      openAddToPlanDialog()
     }
   } catch (e) {
     ElMessage.error('导出失败：' + (e.response?.data?.message || e.message))

@@ -116,6 +116,6 @@ public class ResearchSessionHistoryService {
     }
 
     private String safeTitle(Paper paper) {
-        return paper.getTitle() == null || paper.getTitle().isBlank() ? "论文研究" : paper.getTitle();
+        return paper.getTitle() == null || paper.getTitle().isBlank() ? "论文分析" : paper.getTitle();
     }
 }

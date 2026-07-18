@@ -180,35 +180,6 @@ CREATE TABLE paper_note_link (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE reading_plan (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    objective TEXT NOT NULL,
-    success_criteria TEXT,
-    start_date DATE,
-    end_date DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE reading_plan_item (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    plan_id BIGINT NOT NULL,
-    paper_id BIGINT NOT NULL,
-    reading_question TEXT,
-    expected_output VARCHAR(48) NOT NULL DEFAULT 'SUMMARY',
-    deadline DATE,
-    priority INT DEFAULT 0,
-    status VARCHAR(32) DEFAULT 'TODO',
-    notes TEXT,
-    outcome TEXT,
-    research_session_id BIGINT,
-    completed_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (plan_id) REFERENCES reading_plan(id) ON DELETE CASCADE
-);
-
 CREATE TABLE writing_project (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(255) NOT NULL,

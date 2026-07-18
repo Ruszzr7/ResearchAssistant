@@ -31,7 +31,7 @@ PDF 页面仍是论文阅读入口，左侧为 PDF，右侧为“论文助手”
 | 未选内容 | 总结、方法拆解、局限、全文问答 | 当前论文正文 |
 | 已选多篇论文 | 对比方法、假设、指标、结论 | 指定论文集合 |
 
-P4 将“论文分析”“研究空白/对比阅读”和 PDF 内问答统一为同一个论文工作台，以 `SELECTION / PAPER / COMPARISON` 范围和具体任务区分能力，不再维护重复入口。任务中心、阅读计划与写作助手继续作为独立页面。旧前端页面已移除，`/analysis` 与 `/gap` 保留为兼容跳转；历史后端接口暂不删除，避免破坏已有调用方。
+P4 将“论文分析”“研究空白/对比阅读”和 PDF 内问答统一为同一个论文工作台，以 `SELECTION / PAPER / COMPARISON` 范围和具体任务区分能力，不再维护重复入口。写作助手继续作为独立页面，阅读计划已经从产品与数据模型中移除。旧前端页面已移除，`/analysis` 与 `/gap` 保留为兼容跳转；历史后端接口暂不删除，避免破坏已有调用方。
 
 ## 3. 最小文档数据模型
 
@@ -307,9 +307,9 @@ Flyway V17 将 `primaryParser/selectedParser/fallbackAttempted/fallbackAccepted/
 
 PDF 与助手之间增加 8px 可访问分割线，桌面请求默认约为 60/40，但左移上限由当前 PDF 的真实 100% 页面宽度动态决定：页面宽度加滚动条占用必须完整留在左侧，助手不能继续挤压 PDF。助手常规下限 320px；当容器可同时容纳完整页但空间紧张时可压缩至 240px，窗口窄到两者无法兼得时才降级保留横向滚动。分割线支持鼠标/指针拖动、方向键 2% 微调、Shift 5% 微调和双击/Home 恢复默认。只把 20%–65% 的助手宽度偏好写入 `localStorage`，不把论文内容、选区或任务结果写入浏览器存储。
 
-### 8.14 P4-C 统一论文研究工作台验收
+### 8.14 P4-C 统一论文分析工作台验收
 
-顶层导航将重复的“论文分析”和“研究空白”合并为“论文研究”；`/workbench` 复用已缓存的 `LibraryView + PdfViewer + PaperWorkbenchPanel`，而不是新建另一套 PDF/任务状态。右侧窗口的四个顶层任务为选区问答、全文分析、跨论文对比和论文改进空间；领域研究空白只作为跨论文对比完成后的第二阶段。URL 同步 `mode/paperId/paperIds`，旧 `/analysis`、`/gap` 地址保留查询参数后分别跳转到全文分析和单篇论文改进空间。任务中心、阅读计划和写作助手仍为独立页面，旧 `AnalysisView/GapView` 已删除。
+顶层导航将重复入口统一为“论文分析”；`/workbench` 复用已缓存的 `LibraryView + PdfViewer + PaperWorkbenchPanel`，而不是新建另一套 PDF/任务状态。右侧窗口的四个顶层任务为选区问答、全文分析、跨论文对比和论文改进空间；领域研究空白只作为跨论文对比完成后的第二阶段。URL 同步 `mode/paperId/paperIds`，旧 `/analysis`、`/gap` 地址保留查询参数后分别跳转到全文分析和单篇论文改进空间。写作助手仍为独立页面，阅读计划及旧 `AnalysisView/GapView` 已删除。
 
 后端保留多篇 `RESEARCH_GAP` Workflow 并新增单篇 `PAPER_IMPROVEMENT` Workflow。单篇改进空间只接受一篇论文，调用 `IDENTIFY_PAPER_IMPROVEMENTS`，要求至少三项有论文内 evidence、影响、验证方式的研究切入点，并禁止推断为整个领域的空白。领域研究空白接受 3–8 篇，逐篇读取版本绑定的本地 evidence，调用 `IDENTIFY_RESEARCH_GAPS`，要求每篇至少被 claim 实际引用；请求还必须携带已完成的 `PAPER_COMPARISON` 源 run，后端校验论文集合完全相同。输出只能称为“候选空白”，必须给出跨论文证据边界、可检验问题和外部检索/实验验证步骤。
 

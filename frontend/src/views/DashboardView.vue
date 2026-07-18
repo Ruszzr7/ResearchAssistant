@@ -3,7 +3,7 @@
     <div class="dashboard-header">
       <div>
         <h2 class="dashboard-title">Research Assistant</h2>
-        <p class="dashboard-subtitle">科研工作台 · 一眼掌握论文、计划与任务</p>
+        <p class="dashboard-subtitle">科研工作台 · 一眼掌握论文、分析与任务</p>
       </div>
       <el-button type="primary" @click="$router.push('/library')">
         进入文库
@@ -24,41 +24,8 @@
       </el-row>
 
       <el-row :gutter="16" class="panel-row">
-        <!-- 阅读计划 -->
-        <el-col :xs="24" :md="12" :lg="8">
-          <el-card shadow="hover" class="panel-card">
-            <template #header>
-              <div class="panel-header">
-                <span>阅读计划</span>
-                <el-button text size="small" @click="$router.push('/reading-plans')">查看</el-button>
-              </div>
-            </template>
-            <div class="plan-stats">
-              <div class="plan-stat warn">
-                <div class="plan-number">{{ data.readingPlanStats.overdue }}</div>
-                <div class="plan-desc">已逾期</div>
-              </div>
-              <div class="plan-stat info">
-                <div class="plan-number">{{ data.readingPlanStats.dueSoon }}</div>
-                <div class="plan-desc">3 天内到期</div>
-              </div>
-              <div class="plan-stat primary">
-                <div class="plan-number">{{ data.readingPlanStats.thisWeek }}</div>
-                <div class="plan-desc">本周待读</div>
-              </div>
-            </div>
-            <div class="progress-wrap">
-              <div class="progress-label">
-                阅读进度
-                <span>{{ readProgress }}%</span>
-              </div>
-              <el-progress :percentage="readProgress" :stroke-width="10" :show-text="false" />
-            </div>
-          </el-card>
-        </el-col>
-
         <!-- 文件夹堆积 -->
-        <el-col :xs="24" :md="12" :lg="8">
+        <el-col :xs="24" :md="12">
           <el-card shadow="hover" class="panel-card">
             <template #header>
               <div class="panel-header">
@@ -80,7 +47,7 @@
         </el-col>
 
         <!-- 任务状态 -->
-        <el-col :xs="24" :md="12" :lg="8">
+        <el-col :xs="24" :md="12">
           <el-card shadow="hover" class="panel-card">
             <template #header>
               <div class="panel-header">
@@ -174,12 +141,6 @@ const paperStatList = computed(() => {
     { key: 'pinned', label: '置顶', value: ps.pinned || 0 },
     { key: 'thisMonth', label: '本月新增', value: ps.thisMonth || 0 },
   ]
-})
-
-const readProgress = computed(() => {
-  const ps = data.value?.paperStats
-  if (!ps || !ps.total) return 0
-  return Math.round((ps.read / ps.total) * 100)
 })
 
 const folderBacklogWithPercent = computed(() => {
@@ -287,35 +248,6 @@ onMounted(load)
   align-items: center;
   font-weight: 600;
   color: var(--ra-text);
-}
-.plan-stats {
-  display: flex;
-  justify-content: space-around;
-  text-align: center;
-  margin-bottom: 20px;
-}
-.plan-stat .plan-number {
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1;
-}
-.plan-stat .plan-desc {
-  font-size: 12px;
-  color: var(--ra-text-secondary);
-  margin-top: 6px;
-}
-.plan-stat.warn .plan-number { color: #f56c6c; }
-.plan-stat.info .plan-number { color: #e6a23c; }
-.plan-stat.primary .plan-number { color: #409eff; }
-.progress-wrap {
-  margin-top: 12px;
-}
-.progress-label {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--ra-text-secondary);
-  margin-bottom: 6px;
 }
 .folder-list {
   display: flex;

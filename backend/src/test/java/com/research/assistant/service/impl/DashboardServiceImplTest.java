@@ -10,11 +10,9 @@ import com.research.assistant.mapper.AsyncTaskRecordMapper;
 import com.research.assistant.mapper.NoteMapper;
 import com.research.assistant.mapper.PaperAnnotationMapper;
 import com.research.assistant.mapper.PaperMapper;
-import com.research.assistant.mapper.ReadingPlanItemMapper;
 import com.research.assistant.service.FolderService;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -29,13 +27,12 @@ class DashboardServiceImplTest {
 
     private final PaperMapper paperMapper = mock(PaperMapper.class);
     private final FolderService folderService = mock(FolderService.class);
-    private final ReadingPlanItemMapper itemMapper = mock(ReadingPlanItemMapper.class);
     private final AsyncTaskRecordMapper taskMapper = mock(AsyncTaskRecordMapper.class);
     private final NoteMapper noteMapper = mock(NoteMapper.class);
     private final PaperAnnotationMapper annotationMapper = mock(PaperAnnotationMapper.class);
 
     private final DashboardServiceImpl service = new DashboardServiceImpl(
-            paperMapper, folderService, itemMapper, taskMapper, noteMapper, annotationMapper);
+            paperMapper, folderService, taskMapper, noteMapper, annotationMapper);
 
     @Test
     void aggregateReturnsPaperStats() {
@@ -74,22 +71,6 @@ class DashboardServiceImplTest {
         assertThat(dto.getFolderBacklog()).hasSize(2);
         assertThat(dto.getFolderBacklog().get(0).getName()).isEqualTo("B");
         assertThat(dto.getFolderBacklog().get(0).getPaperCount()).isEqualTo(8);
-    }
-
-    @Test
-    void readingPlanStatsAreAggregated() {
-        LocalDate today = LocalDate.now();
-        stubEmptyCounts();
-        when(itemMapper.countOverdue(today)).thenReturn(1L);
-        when(itemMapper.countDueBetween(today, today.plusDays(3))).thenReturn(2L);
-        when(itemMapper.countThisWeek(today.with(java.time.DayOfWeek.MONDAY), today.with(java.time.DayOfWeek.SUNDAY)))
-                .thenReturn(4L);
-
-        DashboardDto dto = service.aggregate();
-
-        assertThat(dto.getReadingPlanStats().getOverdue()).isEqualTo(1L);
-        assertThat(dto.getReadingPlanStats().getDueSoon()).isEqualTo(2L);
-        assertThat(dto.getReadingPlanStats().getThisWeek()).isEqualTo(4L);
     }
 
     @Test
@@ -163,9 +144,6 @@ class DashboardServiceImplTest {
         when(paperMapper.countPinned()).thenReturn(0L);
         when(paperMapper.countCreatedSince(any())).thenReturn(0L);
         when(folderService.getTree()).thenReturn(List.of());
-        when(itemMapper.countOverdue(any())).thenReturn(0L);
-        when(itemMapper.countDueBetween(any(), any())).thenReturn(0L);
-        when(itemMapper.countThisWeek(any(), any())).thenReturn(0L);
         when(taskMapper.countByStatus(any())).thenReturn(0L);
         when(taskMapper.selectRecent(5)).thenReturn(List.of());
         when(noteMapper.selectList(any())).thenReturn(List.of());
@@ -178,18 +156,12 @@ class DashboardServiceImplTest {
         when(paperMapper.countPinned()).thenReturn(0L);
         when(paperMapper.countCreatedSince(any())).thenReturn(0L);
         when(folderService.getTree()).thenReturn(List.of());
-        when(itemMapper.countOverdue(any())).thenReturn(0L);
-        when(itemMapper.countDueBetween(any(), any())).thenReturn(0L);
-        when(itemMapper.countThisWeek(any(), any())).thenReturn(0L);
         when(noteMapper.selectList(any())).thenReturn(List.of());
         when(annotationMapper.selectList(any())).thenReturn(List.of());
     }
 
     private void stubEmptyOther() {
         when(folderService.getTree()).thenReturn(List.of());
-        when(itemMapper.countOverdue(any())).thenReturn(0L);
-        when(itemMapper.countDueBetween(any(), any())).thenReturn(0L);
-        when(itemMapper.countThisWeek(any(), any())).thenReturn(0L);
         when(taskMapper.countByStatus(any())).thenReturn(0L);
         when(taskMapper.selectRecent(5)).thenReturn(List.of());
         when(noteMapper.selectList(any())).thenReturn(List.of());

@@ -26,7 +26,7 @@
     <el-result
       v-else-if="error"
       icon="error"
-      title="无法打开论文研究"
+      title="无法打开论文分析"
       :sub-title="error"
       class="research-state"
     >
@@ -300,9 +300,7 @@ function returnToLibrary() {
 
 function safeReturnTarget(value) {
   const target = String(Array.isArray(value) ? value[0] : value || '')
-  if (target === '/archive'
-      || target.startsWith('/reading-plans')
-      || target.startsWith('/writing')) return target
+  if (target === '/archive' || target.startsWith('/writing')) return target
   return '/library'
 }
 </script>

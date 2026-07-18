@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * 首页看板聚合数据 DTO。
  * <p>
- * 一次性返回论文库、阅读计划、异步任务、最近动态的统计信息，
+ * 一次性返回论文库、异步任务、最近动态的统计信息，
  * 减少前端多次请求并避免在数据库上做复杂连接查询。
  */
 public class DashboardDto {
@@ -16,9 +16,6 @@ public class DashboardDto {
 
     /** 文件夹堆积 Top N（按论文数降序） */
     private List<FolderBacklog> folderBacklog;
-
-    /** 阅读计划统计 */
-    private ReadingPlanStats readingPlanStats;
 
     /** 异步任务统计 */
     private TaskStats taskStats;
@@ -34,9 +31,6 @@ public class DashboardDto {
 
     public List<FolderBacklog> getFolderBacklog() { return folderBacklog; }
     public void setFolderBacklog(List<FolderBacklog> folderBacklog) { this.folderBacklog = folderBacklog; }
-
-    public ReadingPlanStats getReadingPlanStats() { return readingPlanStats; }
-    public void setReadingPlanStats(ReadingPlanStats readingPlanStats) { this.readingPlanStats = readingPlanStats; }
 
     public TaskStats getTaskStats() { return taskStats; }
     public void setTaskStats(TaskStats taskStats) { this.taskStats = taskStats; }
@@ -90,19 +84,6 @@ public class DashboardDto {
         public void setName(String name) { this.name = name; }
         public int getPaperCount() { return paperCount; }
         public void setPaperCount(int paperCount) { this.paperCount = paperCount; }
-    }
-
-    public static class ReadingPlanStats {
-        private long overdue;
-        private long dueSoon;
-        private long thisWeek;
-
-        public long getOverdue() { return overdue; }
-        public void setOverdue(long overdue) { this.overdue = overdue; }
-        public long getDueSoon() { return dueSoon; }
-        public void setDueSoon(long dueSoon) { this.dueSoon = dueSoon; }
-        public long getThisWeek() { return thisWeek; }
-        public void setThisWeek(long thisWeek) { this.thisWeek = thisWeek; }
     }
 
     public static class TaskStats {

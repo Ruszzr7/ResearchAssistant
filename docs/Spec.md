@@ -31,7 +31,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 | 后端 | Java 17、Spring Boot 3.2.6、Maven、MyBatis Plus |
 | 数据 | MySQL 8；Flyway 版本化迁移，MySQL 保存任务/RAG/证据元数据 |
 | AI | LangChain4j 1.15.1；OpenAI 兼容 Chat / Embedding API |
-| PDF | PDFBox；可选 Marker / MinerU / Grobid 外部命令 |
+| PDF | PDF.js + PDFBox；公式区域使用现有框选识别，外部版面解析器暂不启用 |
 | 向量 | 默认内存存储，可切换 Qdrant；MySQL 保存分片元数据 |
 
 当前没有 Redis 和 Pinia 运行依赖。异步任务使用 Spring 线程池，状态、步骤和结果写入 MySQL。
@@ -43,7 +43,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 - 文件夹树、标签、多条件分页筛选、排序、置顶、批量移动/删除。
 - PDF 上传、浏览器预览、DOI / arXiv 元数据补全、文本/公式/图表提取。
 - PDF.js 阅读器支持高亮、下划线、便签、手写圈注、AI 批注和笔记双向链接。
-- 阅读状态、页码、阅读时长、阅读计划、本周清单和逾期提醒。
+- 阅读状态、页码和阅读时长；阅读计划模块已移除。
 
 ### 4.2 AI 与检索
 
@@ -70,7 +70,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 | 分组 | 代表接口 |
 |---|---|
 | 文库 | `/api/papers`、`/api/folders`、`/api/tags` |
-| 阅读 | `/api/papers/{id}/reading-progress`、`/api/reading-plans` |
+| 阅读 | `/api/papers/{id}/reading-progress` |
 | Agent | `/api/agent/process`、`/api/agent/compare`、`/api/agent/gap`、`/api/agent/chat` |
 | 工作流 | `/api/agent/workflow/{key}`、`/api/agent/workflow/{taskId}/confirm` |
 | 任务 | `/api/agent/tasks`、`/api/agent/task/{taskId}/cancel` |
@@ -87,7 +87,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 - RAG 一致性巡检通过 `/api/rag/consistency` 比对 MySQL active 指针、active version 元数据和 active chunk 数量，审计写入 `rag_consistency_audit` 不影响只读巡检结果。
 - PDF 存放在 `app.storage.pdf-dir`，默认 `./data/papers`。
 - API Key 支持 `RA_API_KEY` 等环境变量覆盖；配置 `RA_MASTER_KEY` 后使用 AES-GCM 加密保存。
-- 测试使用 `test` profile 的 H2 内存库，不得依赖开发库中的论文、任务或阅读计划数据。
+- 测试使用 `test` profile 的 H2 内存库，不得依赖开发库中的论文或任务数据。
 
 ## 6.1 部署与可运维性
 
