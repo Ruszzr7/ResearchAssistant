@@ -12,7 +12,7 @@ Research Assistant 是一个本地运行的 AI 科研助手，面向 CS / AI / E
 Vue 3 + Vite
         │ REST / SSE
 Spring Boot
-  ├─ 论文、文件夹、标签、阅读、笔记、写作业务
+  ├─ 论文、文件夹、标签、阅读标注、论文记忆、写作业务
   ├─ Skill Registry / Planner / Workflow Engine
   ├─ LangChain4j（OpenAI 兼容模型）
   ├─ 多源检索（arXiv、Crossref、Semantic Scholar、OpenAlex、IEEE、ACM）
@@ -42,7 +42,9 @@ MySQL / 本地 PDF / 可选 Qdrant
 
 - 文件夹树、标签、多条件分页筛选、排序、置顶、批量移动/删除。
 - PDF 上传、浏览器预览、DOI / arXiv 元数据补全、文本/公式/图表提取。
-- PDF.js 阅读器支持高亮、下划线、便签、手写圈注、AI 批注和笔记双向链接。
+- PDF.js 阅读器默认使用文字选择，支持高亮、下划线、选区笔记、页面批注、全文搜索与公式区域框选；笔记和批注具有不同图标、固定内容锚点及可拖动显示位置。
+- 右侧批注列表支持跳转、完成和删除；完成项以绿色显示。高亮/下划线直接显示范围拖柄与删除 ×，不再提供独立“调整”模式。
+- 论文助手提供“论文精读 / 缺陷分析 / 论文对比”三项入口；当前完成论文精读，后两项明确保留为后续范围。
 - 阅读状态、页码和阅读时长；阅读计划模块已移除。
 
 ### 4.2 AI 与检索
@@ -80,7 +82,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 | Agent | `/api/agent/process`、`/api/agent/compare`、`/api/agent/gap`、`/api/agent/chat` |
 | 工作流 | `/api/agent/workflow/{key}`、`/api/agent/workflow/{taskId}/confirm` |
 | 任务 | `/api/agent/tasks`、`/api/agent/task/{taskId}/cancel` |
-| 阅读批注 | `/api/papers/{paperId}/annotations`、`/api/papers/{paperId}/notes` |
+| 阅读标注 | `/api/papers/{paperId}/annotations` |
 | 写作 | `/api/writing/projects`、`/api/writing/outline`、`/api/writing/related-work` |
 | 设置 | `/api/settings`、`/api/settings/test` |
 

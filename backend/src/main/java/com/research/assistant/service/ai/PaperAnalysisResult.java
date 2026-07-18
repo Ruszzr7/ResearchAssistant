@@ -9,7 +9,7 @@ import java.util.List;
  * 论文精读结构化分析结果 —— 供 LangChain4j AiServices 直接反序列化。
  * <p>
  * 字段与 {@link com.research.assistant.entity.PaperAnalysis} 一一对应，
- * 通过 {@link com.research.assistant.service.PaperProcessingService} 映射后持久化。
+ * 用于结构化分析质量评估与离线评测。
  */
 @Data
 public class PaperAnalysisResult {

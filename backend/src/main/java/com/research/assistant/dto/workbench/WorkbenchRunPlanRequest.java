@@ -1,5 +1,6 @@
 package com.research.assistant.dto.workbench;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.research.assistant.service.pdf.layout.SelectionAnchor;
 import com.research.assistant.service.workbench.WorkbenchIntent;
 import com.research.assistant.service.workbench.WorkbenchInvocation;
@@ -13,6 +14,7 @@ import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
+@JsonIgnoreProperties("conversationContext")
 public record WorkbenchRunPlanRequest(
         @NotEmpty @Size(max = 8) List<@NotNull @Positive Long> paperIds,
         @Size(max = 4_000) String question,
@@ -22,9 +24,7 @@ public record WorkbenchRunPlanRequest(
         @Min(1) @Max(6) Integer maxSteps,
         @Min(256) @Max(60_000) Integer tokenBudget,
         @Size(max = 64) String sourceRunId,
-        @Size(max = 64) String conversationId,
-        // Legacy request field: accepted for compatibility but never trusted or persisted as prompt context.
-        @Size(max = 6_000) String conversationContext) {
+        @Size(max = 64) String conversationId) {
 
     public WorkbenchInvocation toInvocation() {
         return new WorkbenchInvocation(
@@ -36,7 +36,6 @@ public record WorkbenchRunPlanRequest(
                 maxSteps == null ? 6 : maxSteps,
                 tokenBudget == null ? 0 : tokenBudget,
                 sourceRunId,
-                conversationId,
-                "");
+                conversationId);
     }
 }

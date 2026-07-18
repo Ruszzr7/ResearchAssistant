@@ -100,7 +100,7 @@ class PaperMemoryObservationServiceTest {
         WorkbenchInvocation invocation = new WorkbenchInvocation(
                 List.of(paperId), question, WorkbenchIntent.ASK_SELECTION,
                 WorkbenchPlan.Scope.SELECTION, anchor, 6, 10_000,
-                "", "session-91", "");
+                "", "session-91");
         WorkbenchPlan plan = new WorkbenchRuleRouter().route(invocation);
         LocalDateTime now = LocalDateTime.now();
         return new WorkbenchRunTrace(

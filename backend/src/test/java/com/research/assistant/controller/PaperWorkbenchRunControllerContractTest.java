@@ -66,7 +66,6 @@ class PaperWorkbenchRunControllerContractTest {
         ArgumentCaptor<WorkbenchInvocation> invocation = ArgumentCaptor.forClass(WorkbenchInvocation.class);
         verify(service).plan(invocation.capture());
         assertThat(invocation.getValue().conversationId()).isEqualTo("session-91");
-        assertThat(invocation.getValue().conversationContext()).isEmpty();
     }
 
     @Test

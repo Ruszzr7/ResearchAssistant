@@ -143,7 +143,7 @@ class WorkbenchExecutionEngineTest {
     void selectionFollowUpUsesTheAnchorHistoryAndWholePaperRetrieval() {
         WorkbenchInvocation invocation = new WorkbenchInvocation(
                 List.of(7L), "它和全文实验结果有什么关系？", WorkbenchIntent.ASK_SELECTION,
-                null, anchor(7L), 6, 10_000, "", "selection-thread_1", "");
+                null, anchor(7L), 6, 10_000, "", "selection-thread_1");
         WorkbenchRunTrace planned = traceService.plan(invocation);
 
         engine.execute(planned.runId(), "task-selection-follow-up", null);

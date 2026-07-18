@@ -1,10 +1,12 @@
 package com.research.assistant.service.workbench;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.research.assistant.service.pdf.layout.SelectionAnchor;
 
 import java.util.List;
 
 /** Validated input boundary shared by the router and persisted run trace. */
+@JsonIgnoreProperties("conversationContext")
 public record WorkbenchInvocation(List<Long> paperIds,
                                   String question,
                                   WorkbenchIntent intent,
@@ -13,15 +15,13 @@ public record WorkbenchInvocation(List<Long> paperIds,
                                   int maxSteps,
                                   int tokenBudget,
                                   String sourceRunId,
-                                  String conversationId,
-                                  String conversationContext) {
+                                  String conversationId) {
     public WorkbenchInvocation {
         paperIds = paperIds == null ? List.of() : paperIds.stream().distinct().toList();
         question = question == null ? "" : question.trim();
         intent = intent == null ? WorkbenchIntent.AUTO : intent;
         sourceRunId = sourceRunId == null ? "" : sourceRunId.trim();
         conversationId = conversationId == null ? "" : conversationId.trim();
-        conversationContext = conversationContext == null ? "" : conversationContext.trim();
     }
 
     public WorkbenchInvocation(List<Long> paperIds,
@@ -33,7 +33,7 @@ public record WorkbenchInvocation(List<Long> paperIds,
                                int tokenBudget,
                                String sourceRunId) {
         this(paperIds, question, intent, requestedScope, selectionAnchor, maxSteps, tokenBudget,
-                sourceRunId, "", "");
+                sourceRunId, "");
     }
 
     public WorkbenchInvocation(List<Long> paperIds,
@@ -44,6 +44,6 @@ public record WorkbenchInvocation(List<Long> paperIds,
                                int maxSteps,
                                int tokenBudget) {
         this(paperIds, question, intent, requestedScope, selectionAnchor, maxSteps, tokenBudget,
-                "", "", "");
+                "", "");
     }
 }

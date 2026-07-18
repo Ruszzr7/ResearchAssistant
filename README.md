@@ -71,7 +71,7 @@ Windows 下可直接使用以下启动入口：
 
 后端测试使用独立 H2 内存数据库，不读取开发库数据。
 
-更多架构和接口说明见 [docs/Spec.md](docs/Spec.md)，阶段记录见 [docs/progress.md](docs/progress.md)。
+更多架构和接口说明见 [docs/Spec.md](docs/Spec.md)，阶段记录见 [docs/progress.md](docs/progress.md)，八阶段重设计的逐项结论见 [docs/redesign-acceptance.md](docs/redesign-acceptance.md)。
 
 ## Mission 13 交付边界
 

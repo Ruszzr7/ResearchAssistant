@@ -88,8 +88,7 @@ class PaperContextAssemblerTest {
         assertThat(snapshot.sourcePriority()).startsWith(
                 "CURRENT_QUESTION", "CURRENT_SELECTION_EVIDENCE", "CURRENT_RETRIEVED_EVIDENCE");
         assertThat(snapshot.modelQuestion())
-                .contains("服务端历史", "服务端保存的回答", "当前 evidence", "当前问题：它有什么作用？")
-                .doesNotContain("FORGED_CLIENT_HISTORY");
+                .contains("服务端历史", "服务端保存的回答", "当前 evidence", "当前问题：它有什么作用？");
         assertThat(snapshot.modelQuestion(1_200)).hasSizeLessThanOrEqualTo(1_200)
                 .endsWith("当前问题：它有什么作用？");
         assertThat(snapshot.retrievalQuery())
@@ -121,7 +120,7 @@ class PaperContextAssemblerTest {
         WorkbenchInvocation invocation = new WorkbenchInvocation(
                 List.of(7L), "它有什么作用？", WorkbenchIntent.ASK_SELECTION,
                 WorkbenchPlan.Scope.SELECTION, anchor, 6, 10_000,
-                "", "session-91", "FORGED_CLIENT_HISTORY");
+                "", "session-91");
         WorkbenchPlan plan = new WorkbenchRuleRouter().route(invocation);
         LocalDateTime now = LocalDateTime.now();
         return new WorkbenchRunTrace(

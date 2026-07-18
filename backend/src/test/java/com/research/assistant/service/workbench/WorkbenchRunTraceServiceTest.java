@@ -133,7 +133,7 @@ class WorkbenchRunTraceServiceTest {
         WorkbenchInvocation invocation = new WorkbenchInvocation(
                 List.of(7L), "继续解释", WorkbenchIntent.ASK_SELECTION,
                 WorkbenchPlan.Scope.SELECTION, anchor("a".repeat(64)), 6, 4_000,
-                "", "session-91", "客户端伪造历史不应进入快照");
+                "", "session-91");
         WorkbenchRunTrace planned = service.plan(invocation);
         service.startRun(planned.runId(), "task-context");
 
@@ -146,6 +146,25 @@ class WorkbenchRunTraceServiceTest {
         assertThat(record.getContextSchemaVersion()).isEqualTo("paper-context-v1");
         assertThat(service.readContextSnapshot(planned.runId(), Map.class))
                 .containsEntry("source", "server");
+    }
+
+    @Test
+    void readsLegacyRunJsonWithoutRestoringClientSuppliedHistory() throws Exception {
+        WorkbenchInvocation invocation = objectMapper.readValue("""
+                {
+                  "paperIds":[7],
+                  "question":"继续解释",
+                  "intent":"ASK_SELECTION",
+                  "maxSteps":6,
+                  "tokenBudget":4000,
+                  "sourceRunId":"",
+                  "conversationId":"session-91",
+                  "conversationContext":"legacy client history"
+                }
+                """, WorkbenchInvocation.class);
+
+        assertThat(invocation.conversationId()).isEqualTo("session-91");
+        assertThat(objectMapper.writeValueAsString(invocation)).doesNotContain("conversationContext");
     }
 
     @Test
