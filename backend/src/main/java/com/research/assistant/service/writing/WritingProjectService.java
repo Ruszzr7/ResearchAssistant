@@ -6,6 +6,7 @@ import com.research.assistant.dto.WritingProjectDto;
 import com.research.assistant.dto.WritingProjectRequest;
 import com.research.assistant.entity.WritingProject;
 import com.research.assistant.entity.WritingProjectPaper;
+import com.research.assistant.mapper.WritingClaimEvidenceMapper;
 import com.research.assistant.mapper.WritingProjectMapper;
 import com.research.assistant.mapper.WritingProjectPaperMapper;
 import com.research.assistant.service.note.NoteService;
@@ -28,13 +29,16 @@ public class WritingProjectService {
 
     private final WritingProjectMapper projectMapper;
     private final WritingProjectPaperMapper linkMapper;
+    private final WritingClaimEvidenceMapper evidenceMapper;
     private final NoteService noteService;
 
     public WritingProjectService(WritingProjectMapper projectMapper,
                                  WritingProjectPaperMapper linkMapper,
+                                 WritingClaimEvidenceMapper evidenceMapper,
                                  NoteService noteService) {
         this.projectMapper = projectMapper;
         this.linkMapper = linkMapper;
+        this.evidenceMapper = evidenceMapper;
         this.noteService = noteService;
     }
 
@@ -61,6 +65,8 @@ public class WritingProjectService {
         project.setTitle(request.getTitle().trim());
         project.setTopic(request.getTopic());
         project.setDraftContent(request.getDraftContent());
+        project.setOutlineJson(request.getOutlineJson());
+        project.setRelatedWork(request.getRelatedWork());
         projectMapper.insert(project);
         return toDto(project, List.of());
     }
@@ -71,6 +77,8 @@ public class WritingProjectService {
         if (request.getTitle() != null) project.setTitle(request.getTitle().trim());
         if (request.getTopic() != null) project.setTopic(request.getTopic());
         if (request.getDraftContent() != null) project.setDraftContent(request.getDraftContent());
+        if (request.getOutlineJson() != null) project.setOutlineJson(request.getOutlineJson());
+        if (request.getRelatedWork() != null) project.setRelatedWork(request.getRelatedWork());
         projectMapper.updateById(project);
         return toDto(project, paperIdsByProjectId(id));
     }
@@ -102,6 +110,9 @@ public class WritingProjectService {
 
     @Transactional
     public void removePaper(Long projectId, Long paperId) {
+        if (evidenceMapper.countByProjectAndPaper(projectId, paperId) > 0) {
+            throw new IllegalArgumentException("该论文仍被论点证据引用，请先移除相关证据");
+        }
         linkMapper.delete(
                 new LambdaQueryWrapper<WritingProjectPaper>()
                         .eq(WritingProjectPaper::getProjectId, projectId)

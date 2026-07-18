@@ -4,6 +4,8 @@ import com.research.assistant.dto.NoteDto;
 import com.research.assistant.dto.NoteRequest;
 import com.research.assistant.dto.WritingProjectDto;
 import com.research.assistant.dto.WritingProjectRequest;
+import com.research.assistant.dto.WritingClaimRequest;
+import com.research.assistant.dto.WritingEvidenceRequest;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.WritingProjectPaper;
 import com.research.assistant.mapper.PaperMapper;
@@ -42,6 +44,9 @@ class WritingProjectServiceTest {
 
     @Autowired
     private NoteService noteService;
+
+    @Autowired
+    private WritingEvidenceService evidenceService;
 
     @Test
     void createAndGetProject() {
@@ -121,6 +126,43 @@ class WritingProjectServiceTest {
         assertThatThrownBy(() -> service.addPaper(project.getId(), paper.getId()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("已加入");
+    }
+
+    @Test
+    void generatedContentShouldBePersisted() {
+        WritingProjectDto project = service.createProject(projectReq("proj"));
+        WritingProjectRequest update = projectReq("proj");
+        update.setOutlineJson("{\"sections\":[]}");
+        update.setRelatedWork("durable related work");
+
+        WritingProjectDto saved = service.updateProject(project.getId(), update);
+
+        assertThat(saved.getOutlineJson()).isEqualTo("{\"sections\":[]}");
+        assertThat(saved.getRelatedWork()).isEqualTo("durable related work");
+    }
+
+    @Test
+    void paperReferencedByClaimEvidenceCannotBeRemoved() {
+        Paper paper = new Paper();
+        paper.setTitle("evidence source");
+        paperMapper.insert(paper);
+        WritingProjectDto project = service.createProject(projectReq("proj"));
+        service.addPaper(project.getId(), paper.getId());
+
+        WritingClaimRequest claimRequest = new WritingClaimRequest();
+        claimRequest.setSectionName("引言");
+        claimRequest.setClaimText("A supported claim");
+        var claim = evidenceService.createClaim(project.getId(), claimRequest);
+
+        WritingEvidenceRequest evidenceRequest = new WritingEvidenceRequest();
+        evidenceRequest.setPaperId(paper.getId());
+        evidenceRequest.setRelationType("SUPPORTS");
+        evidenceRequest.setQuoteText("Evidence from the paper.");
+        evidenceService.addEvidence(claim.getId(), evidenceRequest);
+
+        assertThatThrownBy(() -> service.removePaper(project.getId(), paper.getId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("仍被论点证据引用");
     }
 
     private WritingProjectRequest projectReq(String title) {

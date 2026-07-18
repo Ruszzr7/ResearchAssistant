@@ -32,6 +32,34 @@ export function listProjectNotes(id) {
   return api.get('/writing/projects/' + id + '/notes')
 }
 
+export function listWritingClaims(id) {
+  return api.get('/writing/projects/' + id + '/claims')
+}
+
+export function createWritingClaim(id, data) {
+  return api.post('/writing/projects/' + id + '/claims', data)
+}
+
+export function updateWritingClaim(claimId, data) {
+  return api.put('/writing/claims/' + claimId, data)
+}
+
+export function deleteWritingClaim(claimId) {
+  return api.delete('/writing/claims/' + claimId)
+}
+
+export function createWritingEvidence(claimId, data) {
+  return api.post('/writing/claims/' + claimId + '/evidence', data)
+}
+
+export function updateWritingEvidence(evidenceId, data) {
+  return api.put('/writing/evidence/' + evidenceId, data)
+}
+
+export function deleteWritingEvidence(evidenceId) {
+  return api.delete('/writing/evidence/' + evidenceId)
+}
+
 export function generateOutline(data) {
   return api.post('/writing/outline', data)
 }

@@ -330,6 +330,34 @@ CREATE TABLE research_message (
     FOREIGN KEY (session_id) REFERENCES research_session(id) ON DELETE CASCADE
 );
 
+CREATE TABLE writing_claim (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    project_id BIGINT NOT NULL,
+    section_name VARCHAR(120) NOT NULL,
+    claim_text TEXT NOT NULL,
+    position_no INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES writing_project(id) ON DELETE CASCADE
+);
+
+CREATE TABLE writing_claim_evidence (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    claim_id BIGINT NOT NULL,
+    paper_id BIGINT NOT NULL,
+    research_session_id BIGINT,
+    relation_type VARCHAR(16) NOT NULL,
+    page_number INT,
+    locator VARCHAR(255),
+    quote_text TEXT NOT NULL,
+    note VARCHAR(1000),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (claim_id) REFERENCES writing_claim(id) ON DELETE CASCADE,
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE,
+    FOREIGN KEY (research_session_id) REFERENCES research_session(id) ON DELETE SET NULL
+);
+
 CREATE TABLE paper_workbench_run (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     run_id VARCHAR(36) NOT NULL UNIQUE,

@@ -3,6 +3,7 @@ package com.research.assistant.controller;
 import com.research.assistant.common.Result;
 import com.research.assistant.dto.*;
 import com.research.assistant.service.writing.WritingAssistantService;
+import com.research.assistant.service.writing.WritingEvidenceService;
 import com.research.assistant.service.writing.WritingProjectService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
@@ -19,11 +20,14 @@ public class WritingController {
 
     private final WritingProjectService writingProjectService;
     private final WritingAssistantService writingAssistantService;
+    private final WritingEvidenceService writingEvidenceService;
 
     public WritingController(WritingProjectService writingProjectService,
-                             WritingAssistantService writingAssistantService) {
+                             WritingAssistantService writingAssistantService,
+                             WritingEvidenceService writingEvidenceService) {
         this.writingProjectService = writingProjectService;
         this.writingAssistantService = writingAssistantService;
+        this.writingEvidenceService = writingEvidenceService;
     }
 
     // ===== 写作项目 CRUD =====
@@ -78,6 +82,49 @@ public class WritingController {
     @GetMapping("/projects/{id}/notes")
     public Result<List<NoteDto>> listProjectNotes(@PathVariable Long id) {
         return Result.ok(writingProjectService.listNotesForProject(id));
+    }
+
+    // ===== Claim-evidence matrix =====
+
+    @GetMapping("/projects/{id}/claims")
+    public Result<List<WritingClaimDto>> listClaims(@PathVariable long id) {
+        return Result.ok(writingEvidenceService.listClaims(id));
+    }
+
+    @PostMapping("/projects/{id}/claims")
+    public Result<WritingClaimDto> createClaim(@PathVariable long id,
+                                               @RequestBody @Valid WritingClaimRequest request) {
+        return Result.ok(writingEvidenceService.createClaim(id, request));
+    }
+
+    @PutMapping("/claims/{claimId}")
+    public Result<WritingClaimDto> updateClaim(@PathVariable long claimId,
+                                               @RequestBody @Valid WritingClaimRequest request) {
+        return Result.ok(writingEvidenceService.updateClaim(claimId, request));
+    }
+
+    @DeleteMapping("/claims/{claimId}")
+    public Result<Void> deleteClaim(@PathVariable long claimId) {
+        writingEvidenceService.deleteClaim(claimId);
+        return Result.ok();
+    }
+
+    @PostMapping("/claims/{claimId}/evidence")
+    public Result<WritingEvidenceDto> addEvidence(@PathVariable long claimId,
+                                                  @RequestBody @Valid WritingEvidenceRequest request) {
+        return Result.ok(writingEvidenceService.addEvidence(claimId, request));
+    }
+
+    @PutMapping("/evidence/{evidenceId}")
+    public Result<WritingEvidenceDto> updateEvidence(@PathVariable long evidenceId,
+                                                     @RequestBody @Valid WritingEvidenceRequest request) {
+        return Result.ok(writingEvidenceService.updateEvidence(evidenceId, request));
+    }
+
+    @DeleteMapping("/evidence/{evidenceId}")
+    public Result<Void> deleteEvidence(@PathVariable long evidenceId) {
+        writingEvidenceService.deleteEvidence(evidenceId);
+        return Result.ok();
     }
 
     // ===== AI 生成/检查 =====
