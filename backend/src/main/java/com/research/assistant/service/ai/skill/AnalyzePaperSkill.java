@@ -5,6 +5,7 @@ import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.PaperProcessingService;
+import com.research.assistant.service.memory.PaperMemoryService;
 import com.research.assistant.service.rag.RagIndexingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,12 +22,15 @@ public class AnalyzePaperSkill implements Skill<Long, PaperAnalysis> {
 
     private final PaperMapper paperMapper;
     private final PaperProcessingService processingService;
+    private final PaperMemoryService paperMemoryService;
     private final RagIndexingService ragIndexingService;
 
     public AnalyzePaperSkill(PaperMapper paperMapper, PaperProcessingService processingService,
+                             PaperMemoryService paperMemoryService,
                              RagIndexingService ragIndexingService) {
         this.paperMapper = paperMapper;
         this.processingService = processingService;
+        this.paperMemoryService = paperMemoryService;
         this.ragIndexingService = ragIndexingService;
     }
 
@@ -52,6 +56,9 @@ public class AnalyzePaperSkill implements Skill<Long, PaperAnalysis> {
         updateStatus(paperId, ProcessingStatus.PROCESSING);
 
         try {
+            ctx.stage("正在解析 PDF 版面并建立论文结构…");
+            paperMemoryService.ensureStructure(paperId, false);
+            ctx.stage("正在理解论文内容…");
             PaperAnalysis analysis = processingService.process(paperId);
             updateStatus(paperId, ProcessingStatus.COMPLETED);
             indexForRag(paperId);

@@ -121,6 +121,26 @@ CREATE TABLE paper_layout_artifact (
     FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
 );
 
+CREATE TABLE paper_memory (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id BIGINT NOT NULL,
+    document_hash CHAR(64) NOT NULL,
+    layout_parser_version VARCHAR(128) NOT NULL,
+    schema_version VARCHAR(48) NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'STRUCTURED',
+    structure_json CLOB NOT NULL,
+    chunk_summaries_json CLOB,
+    profile_json CLOB,
+    memory_quality_json CLOB,
+    revision INT NOT NULL DEFAULT 1,
+    last_error_code VARCHAR(64),
+    generated_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (paper_id, document_hash, layout_parser_version, schema_version),
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
+);
+
 CREATE TABLE paper_formula_region (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id BIGINT NOT NULL,

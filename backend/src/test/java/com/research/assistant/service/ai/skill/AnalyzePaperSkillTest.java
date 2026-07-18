@@ -5,6 +5,7 @@ import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.PaperProcessingService;
+import com.research.assistant.service.memory.PaperMemoryService;
 import com.research.assistant.service.rag.RagIndexingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,7 @@ class AnalyzePaperSkillTest {
 
     private PaperMapper paperMapper;
     private PaperProcessingService processingService;
+    private PaperMemoryService paperMemoryService;
     private RagIndexingService ragIndexingService;
     private AnalyzePaperSkill skill;
 
@@ -31,8 +33,10 @@ class AnalyzePaperSkillTest {
     void setUp() {
         paperMapper = mock(PaperMapper.class);
         processingService = mock(PaperProcessingService.class);
+        paperMemoryService = mock(PaperMemoryService.class);
         ragIndexingService = mock(RagIndexingService.class);
-        skill = new AnalyzePaperSkill(paperMapper, processingService, ragIndexingService);
+        skill = new AnalyzePaperSkill(
+                paperMapper, processingService, paperMemoryService, ragIndexingService);
     }
 
     @Test
@@ -50,6 +54,7 @@ class AnalyzePaperSkillTest {
                 .filter(p -> ProcessingStatus.COMPLETED.equals(p.getProcessingStatus()))
                 .findFirst().orElseThrow();
         assertEquals(1L, completed.getId());
+        verify(paperMemoryService).ensureStructure(1L, false);
         verify(ragIndexingService).indexPaper(1L);
     }
 
@@ -71,6 +76,17 @@ class AnalyzePaperSkillTest {
         when(processingService.process(3L)).thenThrow(new RuntimeException("pdf broken"));
 
         assertThrows(RuntimeException.class, () -> skill.execute(new SkillContext("test"), 3L));
+        verify(ragIndexingService, never()).indexPaper(any());
+    }
+
+    @Test
+    void shouldStopBeforeLlmWhenStructuredParsingFails() {
+        when(paperMemoryService.ensureStructure(4L, false))
+                .thenThrow(new IllegalStateException("layout failed"));
+
+        assertThrows(RuntimeException.class, () -> skill.execute(new SkillContext("test"), 4L));
+
+        verify(processingService, never()).process(any());
         verify(ragIndexingService, never()).indexPaper(any());
     }
 }
