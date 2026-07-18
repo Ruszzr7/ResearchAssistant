@@ -13,6 +13,8 @@ public class PaperWorkbenchRunRecord {
     private String runId;
     private String taskId;
     private Long researchSessionId;
+    private Long primaryPaperId;
+    private String conversationId;
     private String workflow;
     private String scope;
     private String status;
@@ -20,6 +22,8 @@ public class PaperWorkbenchRunRecord {
     private String requestJson;
     private String planJson;
     private String artifactVersionsJson;
+    private String contextSchemaVersion;
+    private String contextSnapshotJson;
     private Boolean evidenceRequired;
     private Integer maxSteps;
     private Integer tokenBudget;
@@ -45,6 +49,10 @@ public class PaperWorkbenchRunRecord {
     public void setTaskId(String taskId) { this.taskId = taskId; }
     public Long getResearchSessionId() { return researchSessionId; }
     public void setResearchSessionId(Long researchSessionId) { this.researchSessionId = researchSessionId; }
+    public Long getPrimaryPaperId() { return primaryPaperId; }
+    public void setPrimaryPaperId(Long primaryPaperId) { this.primaryPaperId = primaryPaperId; }
+    public String getConversationId() { return conversationId; }
+    public void setConversationId(String conversationId) { this.conversationId = conversationId; }
     public String getWorkflow() { return workflow; }
     public void setWorkflow(String workflow) { this.workflow = workflow; }
     public String getScope() { return scope; }
@@ -59,6 +67,10 @@ public class PaperWorkbenchRunRecord {
     public void setPlanJson(String planJson) { this.planJson = planJson; }
     public String getArtifactVersionsJson() { return artifactVersionsJson; }
     public void setArtifactVersionsJson(String artifactVersionsJson) { this.artifactVersionsJson = artifactVersionsJson; }
+    public String getContextSchemaVersion() { return contextSchemaVersion; }
+    public void setContextSchemaVersion(String contextSchemaVersion) { this.contextSchemaVersion = contextSchemaVersion; }
+    public String getContextSnapshotJson() { return contextSnapshotJson; }
+    public void setContextSnapshotJson(String contextSnapshotJson) { this.contextSnapshotJson = contextSnapshotJson; }
     public Boolean getEvidenceRequired() { return evidenceRequired; }
     public void setEvidenceRequired(Boolean evidenceRequired) { this.evidenceRequired = evidenceRequired; }
     public Integer getMaxSteps() { return maxSteps; }

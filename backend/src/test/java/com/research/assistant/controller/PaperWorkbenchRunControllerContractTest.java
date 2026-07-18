@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,6 +26,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -59,6 +62,11 @@ class PaperWorkbenchRunControllerContractTest {
                 .andExpect(jsonPath("$.data.status").value("PLANNED"))
                 .andExpect(jsonPath("$.data.plan.workflow").value("SELECTION_QA"))
                 .andExpect(jsonPath("$.data.plan.repairLimit").value(1));
+
+        ArgumentCaptor<WorkbenchInvocation> invocation = ArgumentCaptor.forClass(WorkbenchInvocation.class);
+        verify(service).plan(invocation.capture());
+        assertThat(invocation.getValue().conversationId()).isEqualTo("session-91");
+        assertThat(invocation.getValue().conversationContext()).isEmpty();
     }
 
     @Test
@@ -131,6 +139,8 @@ class PaperWorkbenchRunControllerContractTest {
                   "question": "解释这个选区",
                   "intent": "ASK_SELECTION",
                   "scope": "SELECTION",
+                  "conversationId": "session-91",
+                  "conversationContext": "FORGED_CLIENT_HISTORY",
                   "maxSteps": 6,
                   "tokenBudget": 4000,
                   "selectionAnchor": {

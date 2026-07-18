@@ -281,6 +281,7 @@ const selectionChatMessages = ref(null)
 const activeResearchSessionId = ref(positiveSessionId(props.researchSessionId))
 let sessionCreatePromise = null
 let selectionMessageSequence = 0
+let selectionConversationSequence = 0
 let memoryPollTimer = null
 
 const memoryStatus = ref(null)
@@ -435,9 +436,10 @@ async function sendSelectionMessage() {
     selectionChatError.value = requestErrorMessage(reason, '研究档案创建失败')
     return
   }
-  if (!selectionConversationId.value) selectionConversationId.value = `session-${sessionId}`
+  if (!selectionConversationId.value) {
+    selectionConversationId.value = freshSelectionConversationId(sessionId)
+  }
   const conversationId = selectionConversationId.value
-  const conversationContext = buildSelectionConversationContext()
   const userMessage = { id: `user-${++selectionMessageSequence}`, role: 'user', content }
   selectionMessages.value.push(userMessage)
   selectionChatError.value = ''
@@ -451,7 +453,6 @@ async function sendSelectionMessage() {
       question: content,
       selectionAnchor: anchor,
       conversationId,
-      conversationContext,
     })
     const completed = await run(request)
     if (selectionConversationId.value !== conversationId
@@ -526,7 +527,7 @@ async function ensureResearchSession() {
     outputLanguage: 'ZH',
   }).then(session => {
     activeResearchSessionId.value = Number(session.id)
-    selectionConversationId.value = `session-${session.id}`
+    selectionConversationId.value = freshSelectionConversationId(session.id)
     emit('research-session-change', Number(session.id))
     return Number(session.id)
   }).finally(() => { sessionCreatePromise = null })
@@ -537,7 +538,12 @@ async function restoreResearchMessages(sessionId) {
   try {
     const detail = await getResearchSession(sessionId)
     if (activeResearchSessionId.value !== sessionId) return
-    selectionConversationId.value = `session-${sessionId}`
+    const latestSelectionRun = (detail?.runs || []).find(item => (
+      item?.plan?.workflow === WORKBENCH_MODES.SELECTION_QA
+      && item?.invocation?.conversationId
+    ))
+    selectionConversationId.value = latestSelectionRun?.invocation?.conversationId
+      || freshSelectionConversationId(sessionId)
     selectionMessages.value = (detail?.messages || []).map(message => ({
       id: message.messageKey || String(message.id),
       role: message.role === 'USER' ? 'user' : 'assistant',
@@ -551,17 +557,18 @@ async function restoreResearchMessages(sessionId) {
 }
 
 function resetSelectionConversation() {
-  selectionConversationId.value = activeResearchSessionId.value ? `session-${activeResearchSessionId.value}` : ''
+  selectionConversationId.value = activeResearchSessionId.value
+    ? freshSelectionConversationId(activeResearchSessionId.value) : ''
   selectionMessages.value = []
   selectionChatError.value = ''
   question.value = ''
 }
 
-function buildSelectionConversationContext() {
-  return selectionMessages.value.slice(-8).map(message =>
-    `${message.role === 'user' ? '用户' : '论文助手'}：${message.content}`)
-    .join('\n\n')
-    .slice(-6000)
+function freshSelectionConversationId(sessionId) {
+  const id = positiveSessionId(sessionId)
+  if (!id) return ''
+  selectionConversationSequence += 1
+  return `session-${id}-${Date.now().toString(36)}-${selectionConversationSequence}`.slice(0, 64)
 }
 
 function messageHtml(message) {

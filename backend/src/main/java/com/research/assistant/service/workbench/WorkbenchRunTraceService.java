@@ -57,6 +57,9 @@ public class WorkbenchRunTraceService {
         LocalDateTime now = LocalDateTime.now();
         PaperWorkbenchRunRecord run = new PaperWorkbenchRunRecord();
         run.setRunId(runId);
+        run.setPrimaryPaperId(invocation.paperIds().get(0));
+        run.setConversationId(invocation.conversationId().isBlank()
+                ? null : invocation.conversationId());
         run.setWorkflow(plan.workflow().name());
         run.setScope(plan.scope().name());
         run.setStatus(WorkbenchRunStatus.PLANNED.name());
@@ -124,6 +127,26 @@ public class WorkbenchRunTraceService {
         WorkbenchRunTrace trace = findTrace(runId);
         if (trace == null) throw new IllegalArgumentException("workbench run does not exist");
         return trace;
+    }
+
+    /** Stores the exact bounded server-owned context once so task retries are reproducible. */
+    @Transactional
+    public void saveContextSnapshot(String runId, String schemaVersion, Object snapshot) {
+        PaperWorkbenchRunRecord run = requireRun(runId);
+        WorkbenchRunStatus status = WorkbenchRunStatus.valueOf(run.getStatus());
+        if (status != WorkbenchRunStatus.RUNNING) {
+            throw new IllegalStateException("context can only be saved while a run is active");
+        }
+        if (run.getContextSnapshotJson() != null && !run.getContextSnapshotJson().isBlank()) return;
+        run.setContextSchemaVersion(truncate(schemaVersion, 64));
+        run.setContextSnapshotJson(writeNullable(snapshot));
+        run.setUpdatedAt(LocalDateTime.now());
+        runMapper.updateById(run);
+    }
+
+    public <T> T readContextSnapshot(String runId, Class<T> type) {
+        PaperWorkbenchRunRecord run = requireRun(runId);
+        return readNullable(run.getContextSnapshotJson(), type);
     }
 
     /** Returns a bounded, newest-first history so the PDF reader can recover after a reload. */

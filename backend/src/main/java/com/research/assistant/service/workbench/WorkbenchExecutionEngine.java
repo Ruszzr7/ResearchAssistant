@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.async.AsyncTaskExecutionException;
+import com.research.assistant.service.memory.PaperMemoryObservationService;
 import com.research.assistant.service.pdf.layout.LayoutEvidence;
 import com.research.assistant.service.pdf.layout.LocalEvidenceResult;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
@@ -13,6 +14,8 @@ import com.research.assistant.service.pdf.layout.SelectionAnchor;
 import com.research.assistant.service.pdf.layout.SelectionAnchorResolver;
 import com.research.assistant.service.pdf.layout.StaleLayoutArtifactException;
 import org.springframework.dao.DataAccessException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -28,6 +31,8 @@ import java.util.function.Supplier;
 @Component
 public class WorkbenchExecutionEngine {
 
+    private static final Logger log = LoggerFactory.getLogger(WorkbenchExecutionEngine.class);
+
     private final WorkbenchRunTraceService traceService;
     private final PaperLayoutArtifactService artifactService;
     private final SelectionAnchorResolver anchorResolver;
@@ -37,6 +42,8 @@ public class WorkbenchExecutionEngine {
     private final WorkbenchEvidenceGate evidenceGate;
     private final WorkbenchOutputQualityGate outputQualityGate;
     private final WorkbenchAnalysisReportService reportService;
+    private final PaperContextAssembler contextAssembler;
+    private final PaperMemoryObservationService observationService;
     private final PaperMapper paperMapper;
     private final ObjectMapper objectMapper;
 
@@ -49,6 +56,8 @@ public class WorkbenchExecutionEngine {
                                     WorkbenchEvidenceGate evidenceGate,
                                     WorkbenchOutputQualityGate outputQualityGate,
                                     WorkbenchAnalysisReportService reportService,
+                                    PaperContextAssembler contextAssembler,
+                                    PaperMemoryObservationService observationService,
                                     PaperMapper paperMapper,
                                     ObjectMapper objectMapper) {
         this.traceService = traceService;
@@ -60,6 +69,8 @@ public class WorkbenchExecutionEngine {
         this.evidenceGate = evidenceGate;
         this.outputQualityGate = outputQualityGate;
         this.reportService = reportService;
+        this.contextAssembler = contextAssembler;
+        this.observationService = observationService;
         this.paperMapper = paperMapper;
         this.objectMapper = objectMapper;
     }
@@ -67,7 +78,11 @@ public class WorkbenchExecutionEngine {
     public WorkbenchWorkflowResult execute(String runId, String taskId, Consumer<String> stageUpdater) {
         Consumer<String> stage = stageUpdater == null ? ignored -> { } : stageUpdater;
         WorkbenchRunTrace trace = traceService.prepareExecutionAttempt(runId, taskId);
-        if (trace.status() == WorkbenchRunStatus.COMPLETED) return resultFromTrace(trace);
+        if (trace.status() == WorkbenchRunStatus.COMPLETED) {
+            WorkbenchWorkflowResult completed = resultFromTrace(trace);
+            rememberSelectionSafely(trace, completed);
+            return completed;
+        }
         try {
             WorkbenchWorkflowResult result = switch (trace.plan().workflow()) {
                 case SELECTION_QA, ANNOTATION_SUGGESTION -> executeSelection(trace, stage);
@@ -76,6 +91,7 @@ public class WorkbenchExecutionEngine {
                 case PAPER_COMPARISON, RESEARCH_GAP -> executeComparison(trace, stage);
             };
             traceService.completeRun(runId, result, result.evidence().size());
+            rememberSelectionSafely(traceService.requireTrace(runId), result);
             return result;
         } catch (WorkbenchModelException e) {
             failRunIfTerminal(runId, e.code(), e.getMessage(), e.retryable());
@@ -109,21 +125,26 @@ public class WorkbenchExecutionEngine {
                 anchor -> Map.of("kind", anchor.kind().name(), "confidence", anchor.confidence(),
                         "blockCount", anchor.blockIds().size()));
 
+        stage.accept("正在组装本轮上下文…");
+        PaperContextSnapshot context = contextAssembler.assemble(trace, canonicalAnchor);
+
         stage.accept("正在检索局部证据…");
         LocalEvidenceResult local = deterministicStep(
                 trace.runId(), 1,
                 Map.of("paperId", artifact.paperId(), "anchorKind", canonicalAnchor.kind().name()),
                 () -> localEvidenceService.retrieve(
-                        artifact, canonicalAnchor, trace.invocation().question(), 8),
+                        artifact, canonicalAnchor, context.retrievalQuery(), 8),
                 result -> Map.of("evidenceCount", result.evidence().size(),
                         "regionFallback", result.regionFallback()));
 
         stage.accept("正在检索整篇论文的相关证据…");
         List<LayoutEvidence> paperEvidence = wholePaperEvidenceService.retrievePaper(
-                artifact, selectionRetrievalQuery(trace.invocation(), canonicalAnchor), 12, 8_000);
+                artifact, context.retrievalQuery(), 12, 8_000);
         List<LayoutEvidence> combinedEvidence = mergeSelectionEvidence(
                 local.evidence(), paperEvidence, 18, 14_000);
-        return modelAndGate(trace, combinedEvidence, local.regionFallback(), stage, 2, 3);
+        String boundedModelQuestion = context.modelQuestion(selectionModelContextBudget(trace));
+        return modelAndGate(trace, combinedEvidence, local.regionFallback(), stage, 2, 3,
+                boundedModelQuestion, context);
     }
 
     private WorkbenchWorkflowResult executePaperAnalysis(WorkbenchRunTrace trace, Consumer<String> stage) {
@@ -142,7 +163,8 @@ public class WorkbenchExecutionEngine {
                         artifact, fullPaperQuery(trace.invocation().question()), 48,
                         evidenceCharacterBudget(trace, 36_000)),
                 value -> Map.of("evidenceCount", value.size(), "sectionCount", sectionCount(value)));
-        WorkbenchWorkflowResult result = modelAndGate(trace, evidence, false, stage, 2, 3);
+        WorkbenchWorkflowResult result = modelAndGate(trace, evidence, false, stage, 2, 3,
+                trace.invocation().question(), null);
 
         stage.accept("正在保存证据化分析…");
         persistenceStep(trace.runId(), 4, () -> reportService.persist(
@@ -166,7 +188,8 @@ public class WorkbenchExecutionEngine {
                         artifact, paperImprovementQuery(trace.invocation().question()), 48,
                         evidenceCharacterBudget(trace, 36_000)),
                 value -> Map.of("evidenceCount", value.size(), "sectionCount", sectionCount(value)));
-        return modelAndGate(trace, evidence, false, stage, 2, 3);
+        return modelAndGate(trace, evidence, false, stage, 2, 3,
+                trace.invocation().question(), null);
     }
 
     private WorkbenchWorkflowResult executeComparison(WorkbenchRunTrace trace, Consumer<String> stage) {
@@ -186,7 +209,8 @@ public class WorkbenchExecutionEngine {
                         evidenceCharacterBudget(trace, 42_000)),
                 value -> Map.of("evidenceCount", value.size(),
                         "representedPapers", value.stream().map(LayoutEvidence::paperId).distinct().count()));
-        return modelAndGate(trace, evidence, false, stage, 2, 3);
+        return modelAndGate(trace, evidence, false, stage, 2, 3,
+                trace.invocation().question(), null);
     }
 
     private WorkbenchWorkflowResult modelAndGate(WorkbenchRunTrace initialTrace,
@@ -194,7 +218,9 @@ public class WorkbenchExecutionEngine {
                                                   boolean regionFallback,
                                                   Consumer<String> stage,
                                                   int modelStepIndex,
-                                                  int gateStepIndex) {
+                                                  int gateStepIndex,
+                                                  String modelQuestion,
+                                                  PaperContextSnapshot context) {
         if (evidence == null || evidence.isEmpty()) {
             throw new StepFailure("NO_EVIDENCE", "该范围没有可安全引用的论文证据", false);
         }
@@ -207,7 +233,8 @@ public class WorkbenchExecutionEngine {
 
         stage.accept("正在基于证据生成回答…");
         WorkbenchModelService.ModelCall call = modelStep(
-                trace, modelStepIndex, evidence, null, List.of(), firstCallBudget(trace));
+                trace, modelStepIndex, evidence, null, List.of(), firstCallBudget(trace),
+                modelQuestion, context);
         WorkbenchEvidenceGate.GateResult gateResult = gateStep(
                 traceService.requireTrace(trace.runId()), gateStepIndex,
                 call.output(), call.structured(), evidence, 0);
@@ -218,7 +245,7 @@ public class WorkbenchExecutionEngine {
             WorkbenchRunTrace repairTrace = traceService.requireTrace(trace.runId());
             WorkbenchModelService.ModelCall repaired = modelStep(
                     repairTrace, modelStepIndex, evidence, call.output(), gateResult.issues(),
-                    remainingTokenBudget(repairTrace));
+                    remainingTokenBudget(repairTrace), modelQuestion, context);
             gateResult = gateStep(
                     traceService.requireTrace(trace.runId()), gateStepIndex,
                     repaired.output(), repaired.structured(), evidence, 1);
@@ -243,14 +270,28 @@ public class WorkbenchExecutionEngine {
                                                        List<LayoutEvidence> evidence,
                                                        WorkbenchModelOutput previous,
                                                        List<String> repairIssues,
-                                                       int callBudget) {
-        traceService.startStep(trace.runId(), stepIndex,
-                Map.of("evidenceCount", evidence.size(), "callTokenBudget", callBudget,
-                        "repair", previous != null));
+                                                       int callBudget,
+                                                       String modelQuestion,
+                                                       PaperContextSnapshot context) {
+        Map<String, Object> inputSummary = new LinkedHashMap<>();
+        inputSummary.put("evidenceCount", evidence.size());
+        inputSummary.put("callTokenBudget", callBudget);
+        inputSummary.put("repair", previous != null);
+        if (context != null) {
+            inputSummary.put("contextSchemaVersion", context.schemaVersion());
+            inputSummary.put("conversationTurns", context.conversationTurns().size());
+            inputSummary.put("memoryObservations", context.relevantObservations().size());
+            inputSummary.put("profileIncluded", !context.profileContext().isBlank());
+            inputSummary.put("contextCharacters", context.budget().usedCharacters());
+            inputSummary.put("modelContextCharacters", modelQuestion.length());
+            inputSummary.put("contextTruncated", context.truncated());
+            inputSummary.put("sourcePriority", context.sourcePriority());
+        }
+        traceService.startStep(trace.runId(), stepIndex, inputSummary);
         long started = System.nanoTime();
         try {
             WorkbenchModelService.ModelCall call = modelService.generate(
-                    trace.plan().workflow(), modelQuestion(trace.invocation()), paperTitles(trace.invocation().paperIds()),
+                    trace.plan().workflow(), modelQuestion, paperTitles(trace.invocation().paperIds()),
                     evidence, callBudget, previous, repairIssues);
             traceService.completeStep(trace.runId(), stepIndex,
                     modelSuccessSummary(call),
@@ -261,31 +302,6 @@ public class WorkbenchExecutionEngine {
                     modelFailureSummary(e), e.promptTokens(), e.completionTokens(), elapsed(started));
             throw e;
         }
-    }
-
-    private String modelQuestion(WorkbenchInvocation invocation) {
-        if (invocation.conversationContext().isBlank()) return invocation.question();
-        return """
-                以下是同一选区对话的最近历史，仅用于理解代词和追问关系；它不是论文证据，
-                任何论文事实仍必须引用本次 evidence：
-                %s
-
-                当前问题：%s
-                """.formatted(invocation.conversationContext(), invocation.question());
-    }
-
-    private String selectionRetrievalQuery(WorkbenchInvocation invocation, SelectionAnchor anchor) {
-        String selectedText = anchor == null || anchor.anchorText() == null ? "" : anchor.anchorText().trim();
-        String history = invocation.conversationContext();
-        StringBuilder query = new StringBuilder(invocation.question());
-        if (!selectedText.isBlank()) {
-            query.append("\n选区：").append(selectedText, 0, Math.min(selectedText.length(), 1_200));
-        }
-        if (!history.isBlank()) {
-            int start = Math.max(0, history.length() - 1_200);
-            query.append("\n最近追问：").append(history.substring(start));
-        }
-        return query.toString();
     }
 
     private List<LayoutEvidence> mergeSelectionEvidence(List<LayoutEvidence> local,
@@ -313,6 +329,10 @@ public class WorkbenchExecutionEngine {
 
     private int safeLength(String value) {
         return value == null ? 0 : value.length();
+    }
+
+    private int selectionModelContextBudget(WorkbenchRunTrace trace) {
+        return Math.max(1_200, Math.min(2_000, trace.plan().tokenBudget() / 5));
     }
 
     private Map<String, Object> modelSuccessSummary(WorkbenchModelService.ModelCall call) {
@@ -531,6 +551,16 @@ public class WorkbenchExecutionEngine {
         if (status != WorkbenchRunStatus.COMPLETED && status != WorkbenchRunStatus.FAILED
                 && status != WorkbenchRunStatus.CANCELLED) {
             traceService.failRun(runId, code, message);
+        }
+    }
+
+    private void rememberSelectionSafely(WorkbenchRunTrace trace, WorkbenchWorkflowResult result) {
+        if (result.workflow() != WorkbenchPlan.Workflow.SELECTION_QA) return;
+        try {
+            observationService.remember(trace, result);
+        } catch (RuntimeException memoryError) {
+            log.warn("paper_observation_update_failed runId={} errorType={}",
+                    trace.runId(), memoryError.getClass().getSimpleName());
         }
     }
 

@@ -360,6 +360,8 @@ CREATE TABLE paper_workbench_run (
     run_id VARCHAR(36) NOT NULL UNIQUE,
     task_id VARCHAR(36),
     research_session_id BIGINT,
+    primary_paper_id BIGINT,
+    conversation_id VARCHAR(64),
     workflow VARCHAR(48) NOT NULL,
     scope VARCHAR(24) NOT NULL,
     status VARCHAR(24) NOT NULL DEFAULT 'PLANNED',
@@ -367,6 +369,8 @@ CREATE TABLE paper_workbench_run (
     request_json TEXT NOT NULL,
     plan_json TEXT NOT NULL,
     artifact_versions_json TEXT NOT NULL,
+    context_schema_version VARCHAR(64),
+    context_snapshot_json TEXT,
     evidence_required BOOLEAN NOT NULL DEFAULT TRUE,
     max_steps INT NOT NULL,
     token_budget INT NOT NULL,
@@ -384,6 +388,42 @@ CREATE TABLE paper_workbench_run (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (research_session_id) REFERENCES research_session(id) ON DELETE SET NULL
+);
+
+CREATE TABLE paper_conversation_turn (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id BIGINT NOT NULL,
+    conversation_id VARCHAR(64) NOT NULL,
+    source_run_id VARCHAR(36) NOT NULL UNIQUE,
+    document_hash CHAR(64) NOT NULL,
+    parser_version VARCHAR(128) NOT NULL,
+    question VARCHAR(4000) NOT NULL,
+    answer TEXT NOT NULL,
+    selection_block_ids_json TEXT NOT NULL,
+    claims_json TEXT NOT NULL,
+    evidence_refs_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
+);
+
+CREATE TABLE paper_memory_observation (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id BIGINT NOT NULL,
+    document_hash CHAR(64) NOT NULL,
+    parser_version VARCHAR(128) NOT NULL,
+    claim_fingerprint CHAR(64) NOT NULL,
+    claim_text TEXT NOT NULL,
+    evidence_refs_json TEXT NOT NULL,
+    source_run_id VARCHAR(36) NOT NULL,
+    source_conversation_id VARCHAR(64),
+    confirmation_count INT NOT NULL DEFAULT 1,
+    status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_confirmed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (paper_id, document_hash, parser_version, claim_fingerprint),
+    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
 );
 
 CREATE TABLE paper_workbench_step (

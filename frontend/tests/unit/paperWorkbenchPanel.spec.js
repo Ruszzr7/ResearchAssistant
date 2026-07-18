@@ -150,7 +150,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(mocks.state.run).toHaveBeenCalledWith(expect.objectContaining({
       question: '这段方法解决什么问题？',
       selectionAnchor: textAnchor,
-      conversationId: 'session-91',
+      conversationId: expect.stringMatching(/^session-91-/),
     }))
     expect(wrapper.text()).toContain('该方法解决估计问题')
   })
@@ -179,9 +179,57 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     const first = mocks.state.run.mock.calls[0][0]
     const second = mocks.state.run.mock.calls[1][0]
     expect(second.conversationId).toBe(first.conversationId)
-    expect(second.conversationContext).toContain('用户：第一问')
-    expect(second.conversationContext).toContain('论文助手：第一轮回答')
+    expect(second).not.toHaveProperty('conversationContext')
     expect(wrapper.findAll('.chat-message')).toHaveLength(4)
+  })
+
+  it('starts a new server conversation when the selected content changes', async () => {
+    mocks.state.run.mockResolvedValue({
+      runId: 'turn', result: { answer: '回答', claims: [], evidence: [] },
+    })
+    const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
+    await flushPromises()
+    await confirmButton(wrapper).trigger('click')
+    await wrapper.get('.assistant-composer textarea').setValue('第一问')
+    await sendButton(wrapper).trigger('click')
+    await flushPromises()
+    const firstConversation = mocks.state.run.mock.calls[0][0].conversationId
+
+    await wrapper.setProps({
+      selection: { text: 'A different selected passage.' },
+      selectionAnchor: { ...textAnchor, page: 3 },
+    })
+    await flushPromises()
+    await confirmButton(wrapper).trigger('click')
+    await wrapper.get('.assistant-composer textarea').setValue('新选区问题')
+    await sendButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(mocks.state.run.mock.calls[1][0].conversationId).not.toBe(firstConversation)
+  })
+
+  it('restores the latest server conversation id from the research archive', async () => {
+    mocks.getResearchSession.mockResolvedValue({
+      messages: [],
+      runs: [{
+        plan: { workflow: 'SELECTION_QA' },
+        invocation: { conversationId: 'session-91-restored' },
+      }],
+    })
+    mocks.state.run.mockResolvedValue({
+      runId: 'restored-turn', result: { answer: '恢复回答', claims: [], evidence: [] },
+    })
+    const wrapper = mountPanel({
+      researchSessionId: 91, selection: textSelection, selectionAnchor: textAnchor,
+    })
+    await flushPromises()
+    await confirmButton(wrapper).trigger('click')
+    await wrapper.get('.assistant-composer textarea').setValue('继续追问')
+    await sendButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(mocks.state.run.mock.calls[0][0].conversationId).toBe('session-91-restored')
+    expect(mocks.createResearchSession).not.toHaveBeenCalled()
   })
 
   it('renders the editable formula card and accepts only a confirmed formula anchor', async () => {

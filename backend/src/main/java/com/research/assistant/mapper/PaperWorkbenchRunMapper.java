@@ -12,8 +12,9 @@ import java.time.LocalDateTime;
 @Mapper
 public interface PaperWorkbenchRunMapper extends BaseMapper<PaperWorkbenchRunRecord> {
 
-    String COLUMNS = "id, run_id, task_id, research_session_id, workflow, scope, status, paper_ids_json, request_json, "
-            + "plan_json, artifact_versions_json, evidence_required, max_steps, token_budget, repair_count, "
+    String COLUMNS = "id, run_id, task_id, research_session_id, primary_paper_id, conversation_id, "
+            + "workflow, scope, status, paper_ids_json, request_json, plan_json, artifact_versions_json, "
+            + "context_schema_version, context_snapshot_json, evidence_required, max_steps, token_budget, repair_count, "
             + "evidence_count, prompt_tokens, completion_tokens, total_tokens, latency_ms, result_json, "
             + "error_code, error_message, started_at, completed_at, created_at, updated_at";
 

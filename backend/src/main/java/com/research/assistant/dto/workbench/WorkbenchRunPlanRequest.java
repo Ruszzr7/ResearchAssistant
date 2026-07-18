@@ -23,6 +23,7 @@ public record WorkbenchRunPlanRequest(
         @Min(256) @Max(60_000) Integer tokenBudget,
         @Size(max = 64) String sourceRunId,
         @Size(max = 64) String conversationId,
+        // Legacy request field: accepted for compatibility but never trusted or persisted as prompt context.
         @Size(max = 6_000) String conversationContext) {
 
     public WorkbenchInvocation toInvocation() {
@@ -36,6 +37,6 @@ public record WorkbenchRunPlanRequest(
                 tokenBudget == null ? 0 : tokenBudget,
                 sourceRunId,
                 conversationId,
-                conversationContext);
+                "");
     }
 }

@@ -6,6 +6,7 @@ import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.PaperWorkbenchRunMapper;
 import com.research.assistant.mapper.PaperWorkbenchStepMapper;
 import com.research.assistant.service.async.AsyncTaskExecutionException;
+import com.research.assistant.service.memory.PaperMemoryObservationService;
 import com.research.assistant.service.pdf.layout.DocumentBlockRole;
 import com.research.assistant.service.pdf.layout.LayoutEvidence;
 import com.research.assistant.service.pdf.layout.LocalEvidenceResult;
@@ -60,6 +61,8 @@ class WorkbenchExecutionEngineTest {
     private WorkbenchEvidenceRetrievalService wholeEvidenceService;
     private WorkbenchModelService modelService;
     private WorkbenchAnalysisReportService reportService;
+    private PaperContextAssembler contextAssembler;
+    private PaperMemoryObservationService observationService;
     private PaperMapper paperMapper;
     private WorkbenchRunTraceService traceService;
     private WorkbenchExecutionEngine engine;
@@ -72,6 +75,8 @@ class WorkbenchExecutionEngineTest {
         wholeEvidenceService = mock(WorkbenchEvidenceRetrievalService.class);
         modelService = mock(WorkbenchModelService.class);
         reportService = mock(WorkbenchAnalysisReportService.class);
+        contextAssembler = mock(PaperContextAssembler.class);
+        observationService = mock(PaperMemoryObservationService.class);
         paperMapper = mock(PaperMapper.class);
 
         when(artifactService.ensureArtifact(anyLong(), eq(false)))
@@ -88,13 +93,15 @@ class WorkbenchExecutionEngineTest {
         when(paperMapper.selectById(anyLong())).thenAnswer(invocation -> paper(invocation.getArgument(0)));
         when(modelService.generate(any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList()))
                 .thenAnswer(invocation -> modelCall(invocation.getArgument(0)));
+        when(contextAssembler.assemble(any(), any())).thenAnswer(invocation ->
+                context(invocation.getArgument(0)));
 
         traceService = new WorkbenchRunTraceService(
                 runMapper, stepMapper, new WorkbenchRuleRouter(), artifactService, objectMapper);
         engine = new WorkbenchExecutionEngine(
                 traceService, artifactService, anchorResolver, localEvidenceService, wholeEvidenceService,
                 modelService, new WorkbenchEvidenceGate(), new WorkbenchOutputQualityGate(), reportService,
-                paperMapper, objectMapper);
+                contextAssembler, observationService, paperMapper, objectMapper);
     }
 
     @Test
@@ -105,6 +112,7 @@ class WorkbenchExecutionEngineTest {
 
         assertThat(selectionResult.workflow()).isEqualTo(WorkbenchPlan.Workflow.SELECTION_QA);
         assertThat(selectionResult.evidence()).singleElement().satisfies(item -> assertThat(item.selected()).isTrue());
+        verify(observationService).remember(any(), eq(selectionResult));
         assertCompleted(selection.runId(), 4);
 
         WorkbenchRunTrace annotation = traceService.plan(invocation(
@@ -118,11 +126,24 @@ class WorkbenchExecutionEngineTest {
     }
 
     @Test
+    void completedSelectionReplayReconcilesMemoryWithoutCallingTheModelAgain() {
+        WorkbenchRunTrace planned = traceService.plan(invocation(
+                WorkbenchIntent.ASK_SELECTION, List.of(7L), anchor(7L), "解释选区", 6_000));
+
+        WorkbenchWorkflowResult first = engine.execute(planned.runId(), "task-selection-replay", null);
+        WorkbenchWorkflowResult replayed = engine.execute(planned.runId(), "task-selection-replay", null);
+
+        assertThat(replayed).isEqualTo(first);
+        verify(observationService, times(2)).remember(any(), eq(first));
+        verify(modelService, times(1)).generate(
+                any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList());
+    }
+
+    @Test
     void selectionFollowUpUsesTheAnchorHistoryAndWholePaperRetrieval() {
         WorkbenchInvocation invocation = new WorkbenchInvocation(
                 List.of(7L), "它和全文实验结果有什么关系？", WorkbenchIntent.ASK_SELECTION,
-                null, anchor(7L), 6, 10_000, "", "selection-thread_1",
-                "用户：这段方法解决什么问题？\n论文助手：它处理有限块长可靠性。");
+                null, anchor(7L), 6, 10_000, "", "selection-thread_1", "");
         WorkbenchRunTrace planned = traceService.plan(invocation);
 
         engine.execute(planned.runId(), "task-selection-follow-up", null);
@@ -130,13 +151,17 @@ class WorkbenchExecutionEngineTest {
         ArgumentCaptor<String> retrievalQuery = ArgumentCaptor.forClass(String.class);
         verify(wholeEvidenceService).retrievePaper(any(), retrievalQuery.capture(), eq(12), eq(8_000));
         assertThat(retrievalQuery.getValue())
-                .contains("它和全文实验结果有什么关系？", "选区：selected", "最近追问：");
+                .contains("它和全文实验结果有什么关系？", "当前选区：selected", "历史追问：");
 
         ArgumentCaptor<String> modelQuestion = ArgumentCaptor.forClass(String.class);
         verify(modelService).generate(eq(WorkbenchPlan.Workflow.SELECTION_QA), modelQuestion.capture(),
                 anyMap(), anyList(), anyInt(), any(), anyList());
         assertThat(modelQuestion.getValue())
-                .contains("同一选区对话的最近历史", "它处理有限块长可靠性", "当前问题：它和全文实验结果有什么关系？");
+                .contains("同一论文与同一对话的服务端历史", "它处理有限块长可靠性",
+                        "当前问题：它和全文实验结果有什么关系？");
+        assertThat(traceService.requireTrace(planned.runId()).steps().get(2).inputSummary().toString())
+                .contains("paper-context-v1", "conversationTurns=1", "sourcePriority",
+                        "modelContextCharacters");
     }
 
     @Test
@@ -290,6 +315,20 @@ class WorkbenchExecutionEngineTest {
                                            String question,
                                            int tokenBudget) {
         return new WorkbenchInvocation(paperIds, question, intent, null, anchor, 6, tokenBudget);
+    }
+
+    private PaperContextSnapshot context(WorkbenchRunTrace trace) {
+        WorkbenchPlan.ArtifactVersion version = trace.artifactVersions().get(0);
+        List<PaperContextSnapshot.ConversationItem> turns = trace.invocation().conversationId().isBlank()
+                ? List.of()
+                : List.of(new PaperContextSnapshot.ConversationItem(
+                        1, "这段方法解决什么问题？", "它处理有限块长可靠性。"));
+        return new PaperContextSnapshot(
+                PaperContextSnapshot.SCHEMA_VERSION, version.paperId(), version.documentHash(),
+                version.parserVersion(), trace.invocation().conversationId(), trace.invocation().question(),
+                "selected", List.of("p1-b0001"), "", turns, List.of(),
+                List.of("CURRENT_QUESTION", "CURRENT_SELECTION_EVIDENCE"),
+                new PaperContextSnapshot.Budget(8_000, 8, 30, 0, 0), false, Instant.now());
     }
 
     private WorkbenchModelService.ModelCall modelCall(WorkbenchPlan.Workflow workflow) {

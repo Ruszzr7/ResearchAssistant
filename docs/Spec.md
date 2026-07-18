@@ -50,6 +50,8 @@ MySQL / 本地 PDF / 可选 Qdrant
 - 论文结构化精读、对比、追问和研究主题相关度评分。
 - 导入后的本地 PDFBox 版面制品生成版本化结构事实；后台按章节/语义分块理解并生成可恢复的全局论文画像。分块结果逐个检查点保存，状态区分处理中、部分就绪、就绪与失败，不阻塞用户先做选区问答。
 - 论文记忆中的模型论断只能引用当前 PDF 版本内的稳定 block ID；无来源或越界引用在持久化前过滤。GROBID 仅作为未来可选增强，不是默认部署依赖，也不调用云解析服务。
+- 选区问答上下文由服务端按固定优先级与独立字符预算组装，前端只发送会话 ID。当前 evidence 是事实与引用的唯一来源；对话历史、论文画像和旧观察只作为追问理解及检索提示。首次执行冻结上下文快照，重试不得重新吸收后来的记忆。
+- 通过证据门禁的问答按论文、PDF hash 与解析版本保存：完整轮次承担短期连续对话，grounded claim 去重后承担长期观察。相同 claim 可累计确认与证据，不同 claim 不自动覆盖；跨论文知识关系留给后续论文对比功能。
 - 库内 Gap 分析、外部来源验证、引用网络扩展和时间加权。
 - 多源检索、去重、排序、引用网络扩展和用户确认后批量入库。
 - 论文分析、摘要、方法、数据集、实验和 PDF 分片可生成 embedding；问答、推荐和 Gap 验证优先走 RAG，可选 LLM 重排序。
@@ -59,6 +61,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 - Skill Registry：原子能力统一注册、描述和测试。
 - Planner + PlanExecutor：将自然语言目标转换为顺序 Skill 计划。
 - Workflow Engine：`paper-import`、`literature-survey`、`gap-research`。
+- 论文精读使用规则路由的固定 Workflow 管理检索、模型调用、Evidence Gate、重试和记忆更新；Skill 保持为可复用原子能力，不允许开放式工具循环跳过引用门禁。
 - 支持异步任务、阶段提示、持久化步骤、失败点重试、取消、执行超时和带过期状态的 `PENDING_USER` 人机确认；可恢复任务通过 MySQL task_type/context 调度，具有队列容量、并发上限、租约和幂等键保护，旧版闭包任务仅兼容进程内执行。
 
 ### 4.4 写作与交互
@@ -88,6 +91,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 - 正式运行由 `backend/src/main/resources/db/migration` 下的 Flyway 迁移负责初始化和升级；`V12.1` 是无损基线，`V13` 增加 RAG 一致性审计表，`V13.1` 修复旧库实际 schema 缺失。`schema.sql` 与 `schema-upgrade-*.sql` 仅作历史参考。
 - 已有数据库切换到 Flyway 前必须备份并核验 schema；只允许在确认数据库对应基线后临时使用 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true`，禁止对未知版本数据库盲目 baseline。
 - RAG 一致性巡检通过 `/api/rag/consistency` 比对 MySQL active 指针、active version 元数据和 active chunk 数量，审计写入 `rag_consistency_audit` 不影响只读巡检结果。
+- MySQL 同时保存版本化论文结构/画像、服务端对话轮次、长期 grounded observations 和冻结的上下文快照；当前不增加 Redis、图数据库或独立知识库。向量后端只负责候选原文证据召回，不能成为 citation 真源。
 - PDF 存放在 `app.storage.pdf-dir`，默认 `./data/papers`。
 - API Key 支持 `RA_API_KEY` 等环境变量覆盖；配置 `RA_MASTER_KEY` 后使用 AES-GCM 加密保存。
 - 测试使用 `test` profile 的 H2 内存库，不得依赖开发库中的论文或任务数据。

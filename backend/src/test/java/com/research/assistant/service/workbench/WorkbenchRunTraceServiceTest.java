@@ -129,6 +129,26 @@ class WorkbenchRunTraceServiceTest {
     }
 
     @Test
+    void freezesServerContextAndIndexesTheConversation() {
+        WorkbenchInvocation invocation = new WorkbenchInvocation(
+                List.of(7L), "继续解释", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.SELECTION, anchor("a".repeat(64)), 6, 4_000,
+                "", "session-91", "客户端伪造历史不应进入快照");
+        WorkbenchRunTrace planned = service.plan(invocation);
+        service.startRun(planned.runId(), "task-context");
+
+        service.saveContextSnapshot(planned.runId(), "paper-context-v1", Map.of("source", "server"));
+        service.saveContextSnapshot(planned.runId(), "paper-context-v2", Map.of("source", "replaced"));
+
+        var record = runMapper.selectByRunId(planned.runId());
+        assertThat(record.getPrimaryPaperId()).isEqualTo(7L);
+        assertThat(record.getConversationId()).isEqualTo("session-91");
+        assertThat(record.getContextSchemaVersion()).isEqualTo("paper-context-v1");
+        assertThat(service.readContextSnapshot(planned.runId(), Map.class))
+                .containsEntry("source", "server");
+    }
+
+    @Test
     void taskRetryReplaysUncheckedModelButPreservesApprovedCheckpoint() {
         WorkbenchRunTrace planned = service.plan(selectionInvocation(anchor("a".repeat(64))));
         service.prepareExecutionAttempt(planned.runId(), "task-recovery");
