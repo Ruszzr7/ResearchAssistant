@@ -21,6 +21,11 @@ public interface AgentOrchestrator {
      */
     PaperAnalysis processPaper(Long paperId);
 
+    /** Same pipeline with a persisted async-stage callback. */
+    default PaperAnalysis processPaper(Long paperId, java.util.function.Consumer<String> stageUpdater) {
+        return processPaper(paperId);
+    }
+
     /**
      * 横向对比多篇论文。
      *

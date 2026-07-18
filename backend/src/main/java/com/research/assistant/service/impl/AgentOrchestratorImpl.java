@@ -59,9 +59,20 @@ public class AgentOrchestratorImpl implements AgentOrchestrator {
     }
 
     @Override
-    @Transactional
     public PaperAnalysis processPaper(Long paperId) {
         return execute(analyzePaperSkill, paperId, "process-" + paperId, "论文处理失败");
+    }
+
+    @Override
+    public PaperAnalysis processPaper(Long paperId, java.util.function.Consumer<String> stageUpdater) {
+        try {
+            return analyzePaperSkill.execute(
+                    new SkillContext("process-" + paperId, stageUpdater), paperId);
+        } catch (RuntimeException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new RuntimeException("论文处理失败: " + exception.getMessage(), exception);
+        }
     }
 
     @Override

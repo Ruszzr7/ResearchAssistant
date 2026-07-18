@@ -14,6 +14,34 @@
     </nav>
 
     <template v-if="activeProductTab === 'reading'">
+      <section
+        v-if="showMemoryStatus"
+        class="memory-status"
+        :class="`is-${String(memoryStatus?.status || '').toLowerCase()}`"
+        aria-live="polite"
+      >
+        <div v-if="memoryActive" class="memory-orbit" aria-hidden="true"><span /></div>
+        <div v-else class="memory-status__mark" aria-hidden="true">{{ memoryStatus?.status === 'PARTIAL' ? '!' : '✦' }}</div>
+        <div class="memory-status__body">
+          <b>{{ memoryStatus?.stageText || '正在准备论文记忆…' }}</b>
+          <small v-if="memoryStatus?.totalChunks">
+            已处理 {{ memoryProcessedChunks }}/{{ memoryStatus.totalChunks }} 个分块
+            <template v-if="memoryStatus.failedChunks"> · {{ memoryStatus.failedChunks }} 个待重试</template>
+          </small>
+          <small v-else>全文理解在后台运行，不影响先选取内容提问。</small>
+          <div v-if="memoryActive && memoryStatus?.totalChunks" class="memory-progress" aria-hidden="true">
+            <span :style="{ width: `${memoryStatus.progress || 0}%` }" />
+          </div>
+        </div>
+        <button
+          v-if="memoryStatus?.canStart"
+          type="button"
+          class="memory-status__action"
+          :disabled="memoryStarting"
+          @click="startMemoryUnderstanding"
+        >{{ memoryStarting ? '启动中…' : (memoryStatus?.canRetry ? '重试' : '开始理解') }}</button>
+      </section>
+
       <section class="capture-section">
         <div class="capture-switch" :class="{ 'is-formula': captureMode === 'formula' }" role="tablist" aria-label="精读内容选取方式">
           <span class="capture-switch__indicator" aria-hidden="true" />
@@ -188,8 +216,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { getPaperMemoryStatus, startPaperUnderstanding } from '@/api/paperMemory.js'
 import { translateTexts } from '@/api/workbench.js'
 import {
   appendResearchMessages,
@@ -252,6 +281,17 @@ const selectionChatMessages = ref(null)
 const activeResearchSessionId = ref(positiveSessionId(props.researchSessionId))
 let sessionCreatePromise = null
 let selectionMessageSequence = 0
+let memoryPollTimer = null
+
+const memoryStatus = ref(null)
+const memoryStarting = ref(false)
+const memoryActive = computed(() => memoryStatus.value?.status === 'UNDERSTANDING')
+const memoryProcessedChunks = computed(() => (
+  Number(memoryStatus.value?.completedChunks || 0) + Number(memoryStatus.value?.failedChunks || 0)
+))
+const showMemoryStatus = computed(() => Boolean(
+  memoryStatus.value && memoryStatus.value.status !== 'READY',
+))
 
 const selectionTargetLanguage = computed(() => oppositeLanguage(detectTextLanguage(props.selection?.text)))
 const textSelectionIdentity = computed(() => {
@@ -304,11 +344,51 @@ watch(() => props.researchSessionId, nextId => {
   activeResearchSessionId.value = normalized
   if (normalized) void restoreResearchMessages(normalized)
 })
+watch(() => props.paper.id, () => { void loadMemoryStatus() })
 
 onMounted(async () => {
+  await loadMemoryStatus()
   try { await loadRecent(props.paper.id) } catch { /* History is optional. */ }
   if (activeResearchSessionId.value) await restoreResearchMessages(activeResearchSessionId.value)
 })
+onBeforeUnmount(() => clearTimeout(memoryPollTimer))
+
+async function loadMemoryStatus() {
+  clearTimeout(memoryPollTimer)
+  memoryPollTimer = null
+  const paperId = Number(props.paper.id)
+  try {
+    const status = await getPaperMemoryStatus(paperId)
+    if (Number(props.paper.id) !== paperId) return
+    memoryStatus.value = status
+    if (status?.status === 'UNDERSTANDING') {
+      memoryPollTimer = setTimeout(() => { void loadMemoryStatus() }, 1800)
+    }
+  } catch { /* Memory readiness must not block PDF reading. */ }
+}
+
+async function startMemoryUnderstanding() {
+  if (memoryStarting.value || !memoryStatus.value?.canStart) return
+  memoryStarting.value = true
+  try {
+    const revision = Number(memoryStatus.value?.revision || 0)
+    await startPaperUnderstanding(
+      props.paper.id,
+      `paper-memory-ui:${props.paper.id}:${revision}`,
+    )
+    memoryStatus.value = {
+      ...memoryStatus.value,
+      status: 'UNDERSTANDING',
+      stageText: '论文理解任务已提交…',
+      canStart: false,
+    }
+    memoryPollTimer = setTimeout(() => { void loadMemoryStatus() }, 800)
+  } catch (reason) {
+    ElMessage.error(requestErrorMessage(reason, '论文理解任务启动失败'))
+  } finally {
+    memoryStarting.value = false
+  }
+}
 
 function selectProductTab(tab) {
   if (running.value || tab === activeProductTab.value) return
@@ -562,6 +642,25 @@ function requestErrorMessage(reason, fallback) {
 .product-tabs button.active::after { background: var(--ra-link); }
 .product-tabs button:disabled { cursor: wait; opacity: .55; }
 section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
+.memory-status { display: flex; align-items: center; gap: 9px; padding-block: 9px; background: color-mix(in srgb, var(--ra-link) 5%, var(--ra-panel-bg)); }
+.memory-orbit { position: relative; flex: 0 0 24px; width: 24px; height: 24px; border: 1px solid color-mix(in srgb, var(--ra-link) 28%, transparent); border-radius: 50%; animation: memory-orbit 1.4s linear infinite; }
+.memory-orbit::before, .memory-orbit span { position: absolute; border-radius: 50%; background: var(--ra-link); content: ''; }
+.memory-orbit::before { top: 1px; left: 9px; width: 5px; height: 5px; }
+.memory-orbit span { top: 8px; left: 8px; width: 7px; height: 7px; opacity: .32; animation: memory-pulse 1.2s ease-in-out infinite; }
+.memory-status__mark { display: grid; flex: 0 0 24px; width: 24px; height: 24px; border-radius: 50%; place-items: center; color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 10%, transparent); font-size: 12px; font-weight: 700; }
+.memory-status.is-partial .memory-status__mark, .memory-status.is-failed .memory-status__mark { color: var(--el-color-warning); background: color-mix(in srgb, var(--el-color-warning) 12%, transparent); }
+.memory-status__body { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.memory-status__body b { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.memory-status__body small { color: var(--ra-text-tertiary); font-size: 9px; line-height: 1.35; }
+.memory-progress { height: 2px; margin-top: 4px; overflow: hidden; border-radius: 2px; background: var(--ra-border); }
+.memory-progress span { display: block; height: 100%; border-radius: inherit; background: var(--ra-link); transition: width .25s ease; }
+.memory-status__action { flex: 0 0 auto; padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--ra-link) 40%, var(--ra-border)); border-radius: 6px; color: var(--ra-link); background: var(--ra-panel-bg); cursor: pointer; font-size: 9px; }
+.memory-status__action:disabled { cursor: wait; opacity: .55; }
+@keyframes memory-orbit { to { transform: rotate(360deg); } }
+@keyframes memory-pulse { 50% { opacity: .7; transform: scale(1.25); } }
+@media (prefers-reduced-motion: reduce) {
+  .memory-orbit, .memory-orbit span { animation: none; }
+}
 .capture-section { padding-bottom: 10px; }
 .capture-switch {
   position: relative;

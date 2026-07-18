@@ -65,7 +65,7 @@ public class WorkflowRegistry {
         return new WorkflowDefinition(
                 "paper-import",
                 "论文入库流水线",
-                "为已上传 PDF 的论文自动补全元数据并推荐标签和文件夹；阅读状态由用户直接维护，深度分析由用户单独触发。",
+                "为已上传 PDF 的论文自动补全元数据并推荐标签和文件夹；PDF 结构化记忆由独立后台任务并行建立。",
                 List.of(
                         new WorkflowStepDefinition(
                                 "元数据补全",

@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   createResearchSession: vi.fn(),
   getResearchSession: vi.fn(),
   appendResearchMessages: vi.fn(),
+  getPaperMemoryStatus: vi.fn(),
+  startPaperUnderstanding: vi.fn(),
   state: {
     trace: { __v_isRef: true, value: null },
     running: { __v_isRef: true, value: false },
@@ -18,6 +20,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/api/workbench.js', () => ({ translateTexts: mocks.translateTexts }))
+vi.mock('@/api/paperMemory.js', () => ({
+  getPaperMemoryStatus: mocks.getPaperMemoryStatus,
+  startPaperUnderstanding: mocks.startPaperUnderstanding,
+}))
 vi.mock('@/api/researchArchive.js', () => ({
   createResearchSession: mocks.createResearchSession,
   getResearchSession: mocks.getResearchSession,
@@ -57,6 +63,12 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     mocks.createResearchSession.mockReset().mockResolvedValue({ id: 91 })
     mocks.getResearchSession.mockReset().mockResolvedValue({ messages: [], runs: [] })
     mocks.appendResearchMessages.mockReset().mockResolvedValue([])
+    mocks.getPaperMemoryStatus.mockReset().mockResolvedValue({
+      paperId: 1, status: 'READY', stageText: '论文记忆已就绪', progress: 100,
+      totalChunks: 4, completedChunks: 4, failedChunks: 0,
+      canStart: false, canRetry: false, revision: 2,
+    })
+    mocks.startPaperUnderstanding.mockReset().mockResolvedValue({ taskId: 'memory-task-1' })
     mocks.state.trace.value = null
     mocks.state.running.value = false
     mocks.state.error.value = ''
@@ -94,6 +106,26 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.setProps({ captureMode: 'formula' })
     expect(wrapper.get('.capture-switch').classes()).toContain('is-formula')
     expect(wrapper.findAll('.capture-switch button')[1].classes()).toContain('active')
+  })
+
+  it('shows non-blocking whole-paper understanding progress and retries partial memory', async () => {
+    mocks.getPaperMemoryStatus.mockResolvedValue({
+      paperId: 1, status: 'PARTIAL', stageText: '论文记忆部分就绪，可重试失败分块',
+      progress: 100, totalChunks: 5, completedChunks: 4, failedChunks: 1,
+      canStart: true, canRetry: true, revision: 3,
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.memory-status').text()).toContain('部分就绪')
+    expect(wrapper.get('.memory-status').text()).toContain('5/5')
+    expect(wrapper.get('.memory-status').text()).toContain('1 个待重试')
+    await wrapper.get('.memory-status__action').trigger('click')
+    await flushPromises()
+
+    expect(mocks.startPaperUnderstanding).toHaveBeenCalledWith(1, 'paper-memory-ui:1:3')
+    expect(wrapper.get('.memory-status').text()).toContain('任务已提交')
+    wrapper.unmount()
   })
 
   it('requires explicit text confirmation before enabling the GPT-style composer', async () => {

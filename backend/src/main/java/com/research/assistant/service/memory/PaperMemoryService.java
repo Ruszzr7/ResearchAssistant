@@ -89,7 +89,16 @@ public class PaperMemoryService {
         record.setMemoryQualityJson(write(structure.quality(), "论文结构质量无法序列化"));
         record.setChunkSummariesJson(null);
         record.setProfileJson(null);
+        record.setUnderstandingVersion(null);
+        record.setStageText("PDF 结构已就绪");
+        record.setTotalChunks(0);
+        record.setCompletedChunks(0);
+        record.setFailedChunks(0);
+        record.setPromptTokens(0);
+        record.setCompletionTokens(0);
         record.setLastErrorCode(null);
+        record.setUnderstandingStartedAt(null);
+        record.setUnderstandingCompletedAt(null);
         record.setRevision(existing == null || existing.getRevision() == null
                 ? 1 : existing.getRevision() + 1);
         record.setGeneratedAt(toLocalDateTime(structure.generatedAt()));

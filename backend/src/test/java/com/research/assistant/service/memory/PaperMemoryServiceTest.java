@@ -100,6 +100,9 @@ class PaperMemoryServiceTest {
         assertThat(inserted.getStructureJson()).contains("paper-structure-v1", "Memory paper", "body");
         assertThat(inserted.getChunkSummariesJson()).isNull();
         assertThat(inserted.getProfileJson()).isNull();
+        assertThat(inserted.getUnderstandingVersion()).isNull();
+        assertThat(inserted.getStageText()).isEqualTo("PDF 结构已就绪");
+        assertThat(inserted.getTotalChunks()).isZero();
     }
 
     @Test

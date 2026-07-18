@@ -4,16 +4,17 @@ import com.research.assistant.constant.ProcessingStatus;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperMapper;
-import com.research.assistant.service.PaperProcessingService;
+import com.research.assistant.service.memory.PaperAnalysisProjectionService;
 import com.research.assistant.service.memory.PaperMemoryService;
+import com.research.assistant.service.memory.PaperUnderstandingResult;
+import com.research.assistant.service.memory.PaperUnderstandingService;
 import com.research.assistant.service.rag.RagIndexingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 论文精读 Skill：触发 PDF 提取、文本清洗、LLM 结构化分析并持久化。
+ * 论文精读 Skill：建立结构事实，分块理解，汇总全局画像并投影兼容分析。
  */
 @Component
 public class AnalyzePaperSkill implements Skill<Long, PaperAnalysis> {
@@ -21,16 +22,20 @@ public class AnalyzePaperSkill implements Skill<Long, PaperAnalysis> {
     private static final Logger log = LoggerFactory.getLogger(AnalyzePaperSkill.class);
 
     private final PaperMapper paperMapper;
-    private final PaperProcessingService processingService;
     private final PaperMemoryService paperMemoryService;
+    private final PaperUnderstandingService understandingService;
+    private final PaperAnalysisProjectionService projectionService;
     private final RagIndexingService ragIndexingService;
 
-    public AnalyzePaperSkill(PaperMapper paperMapper, PaperProcessingService processingService,
+    public AnalyzePaperSkill(PaperMapper paperMapper,
                              PaperMemoryService paperMemoryService,
+                             PaperUnderstandingService understandingService,
+                             PaperAnalysisProjectionService projectionService,
                              RagIndexingService ragIndexingService) {
         this.paperMapper = paperMapper;
-        this.processingService = processingService;
         this.paperMemoryService = paperMemoryService;
+        this.understandingService = understandingService;
+        this.projectionService = projectionService;
         this.ragIndexingService = ragIndexingService;
     }
 
@@ -41,7 +46,7 @@ public class AnalyzePaperSkill implements Skill<Long, PaperAnalysis> {
 
     @Override
     public String description() {
-        return "对单篇论文进行 PDF 提取与结构化精读分析。输入：{\"paperId\": Long}；输出：PaperAnalysis。";
+        return "对单篇论文进行版面解析、分块理解与全局画像生成。输入：{\"paperId\": Long}；输出：PaperAnalysis。";
     }
 
     @Override
@@ -50,16 +55,20 @@ public class AnalyzePaperSkill implements Skill<Long, PaperAnalysis> {
     }
 
     @Override
-    @Transactional
     public PaperAnalysis execute(SkillContext ctx, Long paperId) {
-        ctx.stage("正在提取 PDF 文本…");
+        ctx.stage("正在准备论文解析…");
         updateStatus(paperId, ProcessingStatus.PROCESSING);
 
         try {
             ctx.stage("正在解析 PDF 版面并建立论文结构…");
             paperMemoryService.ensureStructure(paperId, false);
-            ctx.stage("正在理解论文内容…");
-            PaperAnalysis analysis = processingService.process(paperId);
+            PaperUnderstandingResult understanding = understandingService.understand(
+                    paperId, false, ctx::stage);
+            if (!understanding.usable()) {
+                throw new IllegalStateException("论文理解未产生可用分块摘要");
+            }
+            ctx.stage("正在保存论文全局画像…");
+            PaperAnalysis analysis = projectionService.project(paperId, understanding);
             updateStatus(paperId, ProcessingStatus.COMPLETED);
             indexForRag(paperId);
             ctx.stage("分析完成");

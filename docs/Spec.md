@@ -48,6 +48,8 @@ MySQL / 本地 PDF / 可选 Qdrant
 ### 4.2 AI 与检索
 
 - 论文结构化精读、对比、追问和研究主题相关度评分。
+- 导入后的本地 PDFBox 版面制品生成版本化结构事实；后台按章节/语义分块理解并生成可恢复的全局论文画像。分块结果逐个检查点保存，状态区分处理中、部分就绪、就绪与失败，不阻塞用户先做选区问答。
+- 论文记忆中的模型论断只能引用当前 PDF 版本内的稳定 block ID；无来源或越界引用在持久化前过滤。GROBID 仅作为未来可选增强，不是默认部署依赖，也不调用云解析服务。
 - 库内 Gap 分析、外部来源验证、引用网络扩展和时间加权。
 - 多源检索、去重、排序、引用网络扩展和用户确认后批量入库。
 - 论文分析、摘要、方法、数据集、实验和 PDF 分片可生成 embedding；问答、推荐和 Gap 验证优先走 RAG，可选 LLM 重排序。
@@ -71,6 +73,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 |---|---|
 | 文库 | `/api/papers`、`/api/folders`、`/api/tags` |
 | 阅读 | `/api/papers/{id}/reading-progress` |
+| 论文记忆 | `/api/papers/{id}/memory`、`/api/papers/{id}/memory/understand` |
 | Agent | `/api/agent/process`、`/api/agent/compare`、`/api/agent/gap`、`/api/agent/chat` |
 | 工作流 | `/api/agent/workflow/{key}`、`/api/agent/workflow/{taskId}/confirm` |
 | 任务 | `/api/agent/tasks`、`/api/agent/task/{taskId}/cancel` |

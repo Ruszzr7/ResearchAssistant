@@ -4,8 +4,10 @@ import com.research.assistant.constant.ProcessingStatus;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperMapper;
-import com.research.assistant.service.PaperProcessingService;
+import com.research.assistant.service.memory.PaperAnalysisProjectionService;
 import com.research.assistant.service.memory.PaperMemoryService;
+import com.research.assistant.service.memory.PaperUnderstandingResult;
+import com.research.assistant.service.memory.PaperUnderstandingService;
 import com.research.assistant.service.rag.RagIndexingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,26 +26,31 @@ import static org.mockito.Mockito.when;
 class AnalyzePaperSkillTest {
 
     private PaperMapper paperMapper;
-    private PaperProcessingService processingService;
     private PaperMemoryService paperMemoryService;
+    private PaperUnderstandingService understandingService;
+    private PaperAnalysisProjectionService projectionService;
     private RagIndexingService ragIndexingService;
     private AnalyzePaperSkill skill;
 
     @BeforeEach
     void setUp() {
         paperMapper = mock(PaperMapper.class);
-        processingService = mock(PaperProcessingService.class);
         paperMemoryService = mock(PaperMemoryService.class);
+        understandingService = mock(PaperUnderstandingService.class);
+        projectionService = mock(PaperAnalysisProjectionService.class);
         ragIndexingService = mock(RagIndexingService.class);
         skill = new AnalyzePaperSkill(
-                paperMapper, processingService, paperMemoryService, ragIndexingService);
+                paperMapper, paperMemoryService, understandingService,
+                projectionService, ragIndexingService);
     }
 
     @Test
     void shouldIndexPaperAfterSuccessfulAnalysis() {
         PaperAnalysis analysis = new PaperAnalysis();
         analysis.setPaperId(1L);
-        when(processingService.process(1L)).thenReturn(analysis);
+        PaperUnderstandingResult understanding = usableUnderstanding(1L);
+        when(understandingService.understand(any(), any(Boolean.class), any())).thenReturn(understanding);
+        when(projectionService.project(1L, understanding)).thenReturn(analysis);
 
         PaperAnalysis result = skill.execute(new SkillContext("test"), 1L);
 
@@ -62,7 +69,9 @@ class AnalyzePaperSkillTest {
     void shouldNotFailWhenRagIndexingFails() {
         PaperAnalysis analysis = new PaperAnalysis();
         analysis.setPaperId(2L);
-        when(processingService.process(2L)).thenReturn(analysis);
+        PaperUnderstandingResult understanding = usableUnderstanding(2L);
+        when(understandingService.understand(any(), any(Boolean.class), any())).thenReturn(understanding);
+        when(projectionService.project(2L, understanding)).thenReturn(analysis);
         doThrow(new RuntimeException("qdrant down")).when(ragIndexingService).indexPaper(2L);
 
         PaperAnalysis result = skill.execute(new SkillContext("test"), 2L);
@@ -73,7 +82,8 @@ class AnalyzePaperSkillTest {
 
     @Test
     void shouldNotIndexPaperWhenAnalysisFails() {
-        when(processingService.process(3L)).thenThrow(new RuntimeException("pdf broken"));
+        when(understandingService.understand(any(), any(Boolean.class), any()))
+                .thenThrow(new RuntimeException("pdf broken"));
 
         assertThrows(RuntimeException.class, () -> skill.execute(new SkillContext("test"), 3L));
         verify(ragIndexingService, never()).indexPaper(any());
@@ -86,7 +96,13 @@ class AnalyzePaperSkillTest {
 
         assertThrows(RuntimeException.class, () -> skill.execute(new SkillContext("test"), 4L));
 
-        verify(processingService, never()).process(any());
+        verify(understandingService, never()).understand(any(), any(Boolean.class), any());
         verify(ragIndexingService, never()).indexPaper(any());
+    }
+
+    private PaperUnderstandingResult usableUnderstanding(Long paperId) {
+        return new PaperUnderstandingResult(
+                10L, paperId, PaperUnderstandingService.STATUS_READY,
+                1, 1, 0, 12, 5, java.util.List.of(), null);
     }
 }

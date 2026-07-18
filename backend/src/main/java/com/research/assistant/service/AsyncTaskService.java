@@ -113,7 +113,8 @@ public class AsyncTaskService {
         });
         registerIfAbsent(TASK_PROCESS_PAPER, context -> {
             context.stage("正在分析论文…");
-            agentOrchestrator.processPaper(toLong(context.arguments().get("paperId")));
+            agentOrchestrator.processPaper(
+                    toLong(context.arguments().get("paperId")), context::stage);
             return Map.of("paperId", toLong(context.arguments().get("paperId")), "processed", true);
         });
         registerIfAbsent(TASK_DOWNLOAD_ARXIV, context -> {

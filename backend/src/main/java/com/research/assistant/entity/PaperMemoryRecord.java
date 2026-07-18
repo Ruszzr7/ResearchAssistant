@@ -1,6 +1,8 @@
 package com.research.assistant.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -18,11 +20,27 @@ public class PaperMemoryRecord {
     private String schemaVersion;
     private String status;
     private String structureJson;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String chunkSummariesJson;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String profileJson;
     private String memoryQualityJson;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String understandingVersion;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String stageText;
     private Integer revision;
+    private Integer totalChunks;
+    private Integer completedChunks;
+    private Integer failedChunks;
+    private Integer promptTokens;
+    private Integer completionTokens;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String lastErrorCode;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private LocalDateTime understandingStartedAt;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private LocalDateTime understandingCompletedAt;
     private LocalDateTime generatedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -47,10 +65,28 @@ public class PaperMemoryRecord {
     public void setProfileJson(String profileJson) { this.profileJson = profileJson; }
     public String getMemoryQualityJson() { return memoryQualityJson; }
     public void setMemoryQualityJson(String memoryQualityJson) { this.memoryQualityJson = memoryQualityJson; }
+    public String getUnderstandingVersion() { return understandingVersion; }
+    public void setUnderstandingVersion(String understandingVersion) { this.understandingVersion = understandingVersion; }
+    public String getStageText() { return stageText; }
+    public void setStageText(String stageText) { this.stageText = stageText; }
     public Integer getRevision() { return revision; }
     public void setRevision(Integer revision) { this.revision = revision; }
+    public Integer getTotalChunks() { return totalChunks; }
+    public void setTotalChunks(Integer totalChunks) { this.totalChunks = totalChunks; }
+    public Integer getCompletedChunks() { return completedChunks; }
+    public void setCompletedChunks(Integer completedChunks) { this.completedChunks = completedChunks; }
+    public Integer getFailedChunks() { return failedChunks; }
+    public void setFailedChunks(Integer failedChunks) { this.failedChunks = failedChunks; }
+    public Integer getPromptTokens() { return promptTokens; }
+    public void setPromptTokens(Integer promptTokens) { this.promptTokens = promptTokens; }
+    public Integer getCompletionTokens() { return completionTokens; }
+    public void setCompletionTokens(Integer completionTokens) { this.completionTokens = completionTokens; }
     public String getLastErrorCode() { return lastErrorCode; }
     public void setLastErrorCode(String lastErrorCode) { this.lastErrorCode = lastErrorCode; }
+    public LocalDateTime getUnderstandingStartedAt() { return understandingStartedAt; }
+    public void setUnderstandingStartedAt(LocalDateTime understandingStartedAt) { this.understandingStartedAt = understandingStartedAt; }
+    public LocalDateTime getUnderstandingCompletedAt() { return understandingCompletedAt; }
+    public void setUnderstandingCompletedAt(LocalDateTime understandingCompletedAt) { this.understandingCompletedAt = understandingCompletedAt; }
     public LocalDateTime getGeneratedAt() { return generatedAt; }
     public void setGeneratedAt(LocalDateTime generatedAt) { this.generatedAt = generatedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }

@@ -105,7 +105,7 @@ public class PaperServiceImpl implements PaperService {
     public Paper create(Paper paper) {
         normalizeAuthors(paper);
         paperMapper.insert(paper);
-        // 入库后自动触发 AI 分析（异步）
+        // 入库后自动触发结构解析与论文记忆构建（异步）
         if (paper.getPdfPath() != null && !paper.getPdfPath().isBlank()) {
             triggerAsyncProcessing(paper.getId());
         }
@@ -212,7 +212,7 @@ public class PaperServiceImpl implements PaperService {
         if (file != null && !file.isEmpty()) {
             uploadPdf(paper.getId(), file);
         }
-        // 仅上传了 PDF 才自动触发 AI 分析，避免无 PDF 时异步任务直接失败
+        // 仅上传了 PDF 才自动触发论文记忆，避免无 PDF 时异步任务直接失败
         if (paper.getPdfPath() != null && !paper.getPdfPath().isBlank()) {
             triggerAsyncProcessing(paper.getId());
         }
@@ -296,7 +296,7 @@ public class PaperServiceImpl implements PaperService {
                         .set("folder_id", folderId));
     }
 
-    /** 异步触发 AI 分析，不阻塞入库响应 */
+    /** 异步触发结构解析、分块理解和全局画像，不阻塞入库响应。 */
     private void triggerAsyncProcessing(Long paperId) {
         asyncTaskService.processPaperAsync(paperId);
     }

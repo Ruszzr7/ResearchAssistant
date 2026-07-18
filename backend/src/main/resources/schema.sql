@@ -260,8 +260,17 @@ CREATE TABLE IF NOT EXISTS paper_memory (
     chunk_summaries_json   MEDIUMTEXT,
     profile_json           MEDIUMTEXT,
     memory_quality_json    TEXT,
+    understanding_version VARCHAR(64),
+    stage_text             VARCHAR(255),
     revision               INT          NOT NULL DEFAULT 1,
+    total_chunks           INT          NOT NULL DEFAULT 0,
+    completed_chunks       INT          NOT NULL DEFAULT 0,
+    failed_chunks          INT          NOT NULL DEFAULT 0,
+    prompt_tokens          INT          NOT NULL DEFAULT 0,
+    completion_tokens      INT          NOT NULL DEFAULT 0,
     last_error_code        VARCHAR(64),
+    understanding_started_at   DATETIME(6),
+    understanding_completed_at DATETIME(6),
     generated_at           DATETIME(6)  NOT NULL,
     created_at             DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at             DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -270,6 +279,7 @@ CREATE TABLE IF NOT EXISTS paper_memory (
     ),
     INDEX idx_memory_paper_updated (paper_id, updated_at),
     INDEX idx_memory_status_updated (status, updated_at),
+    INDEX idx_memory_understanding_version (paper_id, understanding_version, status),
     FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

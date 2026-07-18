@@ -69,4 +69,19 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /** Bounded parallelism for independent paper-memory chunk model calls. */
+    @Bean(name = "paperMemoryExecutor")
+    public ThreadPoolTaskExecutor paperMemoryExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("paper-memory-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.initialize();
+        return executor;
+    }
 }

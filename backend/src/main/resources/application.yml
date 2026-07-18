@@ -49,6 +49,10 @@ management:
 
 # Application
 app:
+  paper-memory:
+    # Section-aware chunks are summarized with bounded two-way parallelism.
+    chunk-target-chars: ${PAPER_MEMORY_CHUNK_TARGET_CHARS:6000}
+    chunk-max-chars: ${PAPER_MEMORY_CHUNK_MAX_CHARS:8000}
   rag:
     index-retention: ${RAG_INDEX_RETENTION:7d}
     index-cleanup-cron: ${RAG_INDEX_CLEANUP_CRON:0 45 3 * * *}
