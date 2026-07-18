@@ -2,7 +2,7 @@
   <section class="formula-region-card" aria-label="当前公式区域">
     <div class="formula-region-card__heading">
       <div>
-        <b>当前公式区域</b>
+        <b>识别公式</b>
         <small>第 {{ region?.page }} 页</small>
       </div>
       <button type="button" aria-label="清除公式区域" @click="$emit('clear')">×</button>
@@ -53,7 +53,7 @@
         :loading="confirming"
         :disabled="!canConfirm"
         @click="$emit('confirm', draftLatex.trim())"
-      >{{ recognition.confirmed ? '保存校正' : '确认并用于问答' }}</el-button>
+      >{{ recognition.confirmed ? '保存校正并固定' : '确认并固定' }}</el-button>
     </div>
   </section>
 </template>

@@ -394,13 +394,15 @@
         :formula-loading="formulaRecognitionLoading"
         :formula-confirming="formulaConfirming"
         :formula-error="formulaRecognitionError"
+        :capture-mode="workbenchCaptureMode"
         :initial-mode="initialWorkbenchMode"
         :initial-paper-ids="initialWorkbenchPaperIds"
         :research-session-id="researchSessionId"
         @clear-selection="clearPendingTextSelection"
-        @clear-formula="clearFormulaRegion"
+        @clear-formula="clearFormulaAndContinueCapture"
         @retry-formula="recognizeCurrentFormulaRegion"
         @confirm-formula="confirmCurrentFormulaRegion"
+        @capture-mode-change="selectWorkbenchCaptureMode"
         @jump-evidence="jumpToEvidence"
         @mode-change="$emit('workbench-mode-change', $event)"
         @paper-ids-change="$emit('workbench-paper-ids-change', $event)"
@@ -571,6 +573,9 @@ const formulaRecognition = ref(null)
 const formulaRecognitionLoading = ref(false)
 const formulaConfirming = ref(false)
 const formulaRecognitionError = ref('')
+const workbenchCaptureMode = computed(() => (
+  currentTool.value === 'formula' || formulaRegion.value ? 'formula' : 'text'
+))
 const evidenceFocus = ref(null)
 const workbenchPanelVisible = ref(true)
 const workbenchWidthRatio = ref(readWorkbenchRatio())
@@ -1624,6 +1629,11 @@ function clearFormulaRegion() {
   formulaRecognitionError.value = ''
 }
 
+function clearFormulaAndContinueCapture() {
+  clearFormulaRegion()
+  if (currentTool.value !== 'formula') activateFormula()
+}
+
 function beginFormulaRegionSelection(event, page) {
   if (currentTool.value !== 'formula' || event.button !== 0) return
   const overlay = event.currentTarget
@@ -1755,6 +1765,16 @@ function activateFormula() {
   selectedAnnotation.value = null
   notePreview.value = null
   workbenchPanelVisible.value = true
+}
+
+function selectWorkbenchCaptureMode(mode) {
+  workbenchPanelVisible.value = true
+  if (mode === 'formula') {
+    if (currentTool.value !== 'formula') activateFormula()
+    return
+  }
+  setTool('select')
+  clearFormulaRegion()
 }
 
 function openSelectionNote() {

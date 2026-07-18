@@ -38,6 +38,7 @@ describe('FormulaRegionCard', () => {
     expect(wrapper.text()).toContain('待确认')
     expect(wrapper.text()).toContain('图像识别候选')
     await wrapper.get('textarea').setValue('\\int_0^1 x\\,dx')
+    expect(wrapper.get('.formula-region-card__rendered').text()).toContain('∫')
     await wrapper.findAll('.formula-region-card__actions button')[1].trigger('click')
 
     expect(wrapper.emitted('confirm')?.[0]).toEqual(['\\int_0^1 x\\,dx'])
