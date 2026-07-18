@@ -14,6 +14,7 @@ public class AnnotationRequest {
     private String color;
     @Size(max = 4000, message = "批注长度不能超过 4000")
     private String note;
+    private Boolean completed;
     private Map<String, Object> coordinates;
 
     public String getType() { return type; }
@@ -24,6 +25,8 @@ public class AnnotationRequest {
     public void setColor(String color) { this.color = color; }
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
+    public Boolean getCompleted() { return completed; }
+    public void setCompleted(Boolean completed) { this.completed = completed; }
     public Map<String, Object> getCoordinates() { return coordinates; }
     public void setCoordinates(Map<String, Object> coordinates) { this.coordinates = coordinates; }
 }

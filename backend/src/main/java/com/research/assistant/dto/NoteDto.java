@@ -3,9 +3,7 @@ package com.research.assistant.dto;
 import java.time.LocalDateTime;
 import java.util.Map;
 
-/**
- * 笔记 DTO。
- */
+/** 写作工作台使用的选区笔记视图。数据源是 paper_annotation(NOTE)。 */
 public class NoteDto {
 
     private Long id;
@@ -14,8 +12,6 @@ public class NoteDto {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    /** 当从某篇论文查询笔记时，携带该论文与此笔记的链接信息 */
-    private Long linkId;
     private Integer page;
     private Map<String, Object> coordinates;
     private String anchorText;
@@ -34,9 +30,6 @@ public class NoteDto {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
-
-    public Long getLinkId() { return linkId; }
-    public void setLinkId(Long linkId) { this.linkId = linkId; }
 
     public Integer getPage() { return page; }
     public void setPage(Integer page) { this.page = page; }

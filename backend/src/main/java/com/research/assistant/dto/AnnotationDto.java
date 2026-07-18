@@ -16,6 +16,8 @@ public class AnnotationDto {
     private String note;
     private Map<String, Object> coordinates;
     private Boolean aiGenerated;
+    private Boolean completed;
+    private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -44,6 +46,12 @@ public class AnnotationDto {
 
     public Boolean getAiGenerated() { return aiGenerated; }
     public void setAiGenerated(Boolean aiGenerated) { this.aiGenerated = aiGenerated; }
+
+    public Boolean getCompleted() { return completed; }
+    public void setCompleted(Boolean completed) { this.completed = completed; }
+
+    public LocalDateTime getCompletedAt() { return completedAt; }
+    public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

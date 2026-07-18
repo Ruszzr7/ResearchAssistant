@@ -162,22 +162,19 @@ CREATE TABLE rag_index_version (
     UNIQUE (paper_id, version_no)
 );
 
-CREATE TABLE note (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    title VARCHAR(255),
-    content TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE paper_note_link (
+CREATE TABLE paper_annotation (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id BIGINT NOT NULL,
-    note_id BIGINT NOT NULL,
+    type VARCHAR(32) NOT NULL,
     page INT,
-    coordinates_json TEXT,
-    anchor_text TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    color VARCHAR(16),
+    note TEXT,
+    coordinates_json TEXT NOT NULL,
+    ai_generated BOOLEAN DEFAULT FALSE,
+    completed BOOLEAN NOT NULL DEFAULT FALSE,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE writing_project (

@@ -78,12 +78,15 @@ public class AiAnnotationService {
         List<AnnotationDto> saved = new ArrayList<>();
         for (AiAnnotationCandidate c : candidates) {
             AnchorLocation location = locateAnchor(paper, c.anchorText(), saved.size());
+            String type = location.anchored() ? mapType(c.category()) : "NOTE";
             AnnotationRequest request = new AnnotationRequest();
-            request.setType(location.anchored() ? mapType(c.category()) : "NOTE");
+            request.setType(type);
             request.setPage(location.page());
             request.setColor(mapColor(c.category()));
             request.setNote(c.note());
-            request.setCoordinates(location.coordinates());
+            request.setCoordinates("NOTE".equals(type)
+                    ? selectionNoteCoordinates(location.coordinates(), c.anchorText())
+                    : location.coordinates());
             saved.add(annotationService.create(paperId, request, true));
         }
         return saved;
@@ -175,6 +178,46 @@ public class AiAnnotationService {
             case "ISSUE" -> "#f44336";
             default -> "#ffeb3b";
         };
+    }
+
+    private Map<String, Object> selectionNoteCoordinates(Map<String, Object> source, String anchorText) {
+        Map<String, Object> coordinates = new LinkedHashMap<>(source == null ? Map.of() : source);
+        Object quadsValue = coordinates.get("quads");
+        List<?> quads = quadsValue instanceof List<?> values ? values : List.of();
+        coordinates.put("anchorKind", "SELECTION");
+        coordinates.put("anchorText", anchorText == null ? "" : anchorText);
+        coordinates.put("anchorQuads", quads);
+        coordinates.put("notePosition", notePositionForQuads(quads));
+        return coordinates;
+    }
+
+    private Map<String, Object> notePositionForQuads(List<?> quads) {
+        double maxX = 0;
+        double minY = 0.08;
+        double maxY = 0.12;
+        boolean found = false;
+        for (Object value : quads) {
+            if (!(value instanceof Map<?, ?> quad)) continue;
+            maxX = Math.max(maxX, Math.max(number(quad.get("x2"), 0), number(quad.get("x3"), 0)));
+            double top = Math.min(number(quad.get("y1"), 0.1), number(quad.get("y3"), 0.1));
+            double bottom = Math.max(number(quad.get("y1"), 0.1), number(quad.get("y3"), 0.1));
+            if (!found) {
+                minY = top;
+                maxY = bottom;
+                found = true;
+            } else {
+                minY = Math.min(minY, top);
+                maxY = Math.max(maxY, bottom);
+            }
+        }
+        if (!found) return Map.of("x", 0.9, "y", 0.1);
+        return Map.of(
+                "x", clamp(maxX + 0.045),
+                "y", clamp((minY + maxY) / 2));
+    }
+
+    private double number(Object value, double fallback) {
+        return value instanceof Number number ? number.doubleValue() : fallback;
     }
 
     private AnchorLocation locateAnchor(Paper paper, String anchorText, int ordinal) {

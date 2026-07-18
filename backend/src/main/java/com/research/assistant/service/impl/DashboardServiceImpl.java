@@ -4,11 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.research.assistant.dto.DashboardDto;
 import com.research.assistant.entity.AsyncTaskRecord;
 import com.research.assistant.entity.Folder;
-import com.research.assistant.entity.Note;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnnotation;
 import com.research.assistant.mapper.AsyncTaskRecordMapper;
-import com.research.assistant.mapper.NoteMapper;
 import com.research.assistant.mapper.PaperAnnotationMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.DashboardService;
@@ -37,18 +35,15 @@ public class DashboardServiceImpl implements DashboardService {
     private final PaperMapper paperMapper;
     private final FolderService folderService;
     private final AsyncTaskRecordMapper asyncTaskRecordMapper;
-    private final NoteMapper noteMapper;
     private final PaperAnnotationMapper paperAnnotationMapper;
 
     public DashboardServiceImpl(PaperMapper paperMapper,
                                 FolderService folderService,
                                 AsyncTaskRecordMapper asyncTaskRecordMapper,
-                                NoteMapper noteMapper,
                                 PaperAnnotationMapper paperAnnotationMapper) {
         this.paperMapper = paperMapper;
         this.folderService = folderService;
         this.asyncTaskRecordMapper = asyncTaskRecordMapper;
-        this.noteMapper = noteMapper;
         this.paperAnnotationMapper = paperAnnotationMapper;
     }
 
@@ -132,18 +127,20 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     private List<DashboardDto.RecentNote> buildRecentNotes() {
-        List<Note> notes = noteMapper.selectList(
-                new LambdaQueryWrapper<Note>()
-                        .orderByDesc(Note::getCreatedAt)
+        List<PaperAnnotation> notes = paperAnnotationMapper.selectList(
+                new LambdaQueryWrapper<PaperAnnotation>()
+                        .eq(PaperAnnotation::getType, "NOTE")
+                        .orderByDesc(PaperAnnotation::getCreatedAt)
                         .last("LIMIT " + RECENT_LIMIT));
         return notes.stream()
-                .map(n -> new DashboardDto.RecentNote(n.getId(), n.getTitle(), n.getCreatedAt()))
+                .map(n -> new DashboardDto.RecentNote(n.getId(), summarize(n.getNote()), n.getCreatedAt()))
                 .toList();
     }
 
     private List<DashboardDto.RecentAnnotation> buildRecentAnnotations() {
         List<PaperAnnotation> annotations = paperAnnotationMapper.selectList(
                 new LambdaQueryWrapper<PaperAnnotation>()
+                        .eq(PaperAnnotation::getType, "COMMENT")
                         .orderByDesc(PaperAnnotation::getCreatedAt)
                         .last("LIMIT " + RECENT_LIMIT));
         if (annotations.isEmpty()) {
@@ -165,5 +162,10 @@ public class DashboardServiceImpl implements DashboardService {
                         a.getNote(),
                         a.getCreatedAt()))
                 .toList();
+    }
+
+    private String summarize(String value) {
+        String normalized = value == null ? "" : value.strip().replaceAll("\\s+", " ");
+        return normalized.length() <= 48 ? normalized : normalized.substring(0, 48) + "…";
     }
 }

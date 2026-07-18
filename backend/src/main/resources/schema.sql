@@ -233,42 +233,19 @@ CREATE TABLE IF NOT EXISTS rag_index_version (
 CREATE TABLE IF NOT EXISTS paper_annotation (
     id               BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id         BIGINT       NOT NULL COMMENT '所属论文 ID',
-    type             VARCHAR(32)  NOT NULL COMMENT 'HIGHLIGHT / UNDERLINE / NOTE / FREEHAND',
+    type             VARCHAR(32)  NOT NULL COMMENT 'HIGHLIGHT / UNDERLINE / NOTE / COMMENT / FREEHAND',
     page             INT          NOT NULL COMMENT '页码（从 1 开始）',
     color            VARCHAR(16)           COMMENT '颜色，例如 #ffeb3b',
     note             TEXT                  COMMENT '批注文字',
     coordinates_json TEXT         NOT NULL COMMENT '归一化坐标与页面信息 JSON',
     ai_generated     TINYINT(1)   DEFAULT 0 COMMENT '是否由 AI 自动生成',
+    completed        TINYINT(1)   NOT NULL DEFAULT 0 COMMENT 'COMMENT 是否已完成',
+    completed_at     DATETIME              COMMENT 'COMMENT 完成时间',
     created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_annotation_paper (paper_id),
+    INDEX idx_annotation_paper_type (paper_id, type, page),
     FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
--- 阶段 6.4.8：笔记与论文双向链接
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS note (
-    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
-    title       VARCHAR(255),
-    content     TEXT,
-    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS paper_note_link (
-    id               BIGINT AUTO_INCREMENT PRIMARY KEY,
-    paper_id         BIGINT       NOT NULL,
-    note_id          BIGINT       NOT NULL,
-    page             INT                   COMMENT '页码（从 1 开始）',
-    coordinates_json TEXT                  COMMENT '归一化坐标 JSON',
-    anchor_text      TEXT                  COMMENT '选中原文片段',
-    created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_link_paper (paper_id),
-    INDEX idx_link_note (note_id),
-    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE,
-    FOREIGN KEY (note_id) REFERENCES note(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================

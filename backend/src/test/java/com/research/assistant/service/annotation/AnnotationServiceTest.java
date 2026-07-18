@@ -61,23 +61,63 @@ class AnnotationServiceTest {
         when(mapper.selectById(5L)).thenReturn(annotation(5L, "HIGHLIGHT", 1));
         AnnotationRequest request = request("UNDERLINE", 1, "#ffff00", null);
 
-        AnnotationDto dto = service.update(5L, request);
+        AnnotationDto dto = service.update(10L, 5L, request);
 
         verify(mapper).updateById(any(PaperAnnotation.class));
         assertThat(dto.getType()).isEqualTo("UNDERLINE");
     }
 
     @Test
+    void shouldCompleteOnlyPageComments() {
+        when(mapper.selectById(6L)).thenReturn(annotation(6L, "COMMENT", 4));
+        AnnotationRequest request = request("COMMENT", 4, "#f44336", "review this claim");
+        request.setCompleted(true);
+
+        AnnotationDto dto = service.update(10L, 6L, request);
+
+        assertThat(dto.getCompleted()).isTrue();
+        assertThat(dto.getCompletedAt()).isNotNull();
+        verify(mapper).updateById(org.mockito.ArgumentMatchers.<PaperAnnotation>argThat(
+                entity -> Boolean.TRUE.equals(entity.getCompleted())));
+
+        AnnotationRequest noteRequest = request("NOTE", 4, "#f44336", "selection note");
+        noteRequest.setCompleted(true);
+        when(mapper.selectById(7L)).thenReturn(annotation(7L, "NOTE", 4));
+        assertThat(service.update(10L, 7L, noteRequest).getCompleted()).isFalse();
+    }
+
+    @Test
     void shouldThrowWhenUpdatingMissingAnnotation() {
         when(mapper.selectById(99L)).thenReturn(null);
 
-        assertThrows(IllegalArgumentException.class, () -> service.update(99L, request("NOTE", 1, "#fff", "")));
+        assertThrows(IllegalArgumentException.class, () -> service.update(10L, 99L, request("NOTE", 1, "#fff", "content")));
+    }
+
+    @Test
+    void shouldRejectMarkerAnnotationsWithoutTheirRequiredAnchor() {
+        AnnotationRequest note = request("NOTE", 1, "#f44336", "content");
+        note.setCoordinates(Map.of("anchorText", "text"));
+        assertThrows(IllegalArgumentException.class, () -> service.create(10L, note));
+
+        AnnotationRequest comment = request("COMMENT", 1, "#f44336", "content");
+        comment.setCoordinates(Map.of("notePosition", Map.of("x", 0.2, "y", 0.2)));
+        assertThrows(IllegalArgumentException.class, () -> service.create(10L, comment));
     }
 
     @Test
     void shouldDeleteAnnotation() {
-        service.delete(7L);
+        when(mapper.selectById(7L)).thenReturn(annotation(7L, "HIGHLIGHT", 1));
+        service.delete(10L, 7L);
         verify(mapper).deleteById(7L);
+    }
+
+    @Test
+    void shouldRejectCrossPaperUpdateAndDelete() {
+        when(mapper.selectById(7L)).thenReturn(annotation(7L, "HIGHLIGHT", 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.update(99L, 7L, request("HIGHLIGHT", 1, "#f44336", null)));
+        assertThrows(IllegalArgumentException.class, () -> service.delete(99L, 7L));
+        verify(mapper, never()).deleteById(7L);
     }
 
     private PaperAnnotation annotation(Long id, String type, int page) {
@@ -99,6 +139,12 @@ class AnnotationServiceTest {
         r.setNote(note);
         Map<String, Object> coords = new LinkedHashMap<>();
         coords.put("x", 0.1);
+        Map<String, Object> quad = Map.of(
+                "x1", 0.1, "y1", 0.2, "x2", 0.3, "y2", 0.2,
+                "x3", 0.3, "y3", 0.16, "x4", 0.1, "y4", 0.16);
+        if ("NOTE".equals(type)) coords.put("anchorQuads", List.of(quad));
+        if ("COMMENT".equals(type)) coords.put("anchorPoint", Map.of("x", 0.1, "y", 0.2));
+        if ("HIGHLIGHT".equals(type) || "UNDERLINE".equals(type)) coords.put("quads", List.of(quad));
         r.setCoordinates(coords);
         return r;
     }

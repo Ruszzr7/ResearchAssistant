@@ -15,7 +15,7 @@ public class PaperAnnotation {
 
     private Long paperId;
 
-    /** HIGHLIGHT / UNDERLINE / NOTE / FREEHAND */
+    /** HIGHLIGHT / UNDERLINE / NOTE / COMMENT / FREEHAND */
     private String type;
 
     private Integer page;
@@ -23,7 +23,7 @@ public class PaperAnnotation {
     /** 颜色，例如 #ffeb3b */
     private String color;
 
-    /** 批注文字内容（便签或高亮附注） */
+    /** 笔记、批注或文字标记的附加内容。 */
     private String note;
 
     /**
@@ -46,6 +46,11 @@ public class PaperAnnotation {
      */
     @TableField("ai_generated")
     private Boolean aiGenerated;
+
+    /** 仅 COMMENT 使用；完成后在阅读器和批注列表中显示为绿色。 */
+    private Boolean completed;
+
+    private LocalDateTime completedAt;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
@@ -78,6 +83,12 @@ public class PaperAnnotation {
 
     public Boolean getAiGenerated() { return aiGenerated; }
     public void setAiGenerated(Boolean aiGenerated) { this.aiGenerated = aiGenerated; }
+
+    public Boolean getCompleted() { return completed; }
+    public void setCompleted(Boolean completed) { this.completed = completed; }
+
+    public LocalDateTime getCompletedAt() { return completedAt; }
+    public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

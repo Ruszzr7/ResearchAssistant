@@ -1,4 +1,5 @@
 const MINIMUM_RANGE_WIDTH = 0.006
+const MARKER_TYPES = new Set(['NOTE', 'COMMENT'])
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
@@ -42,10 +43,7 @@ export function resizeTextAnnotationQuads(quads, edge, pointerX) {
 }
 
 /**
- * 把当前 PDF 文本选区转换为用户手写批注草稿。
- *
- * 草稿仍使用 NOTE 类型，以复用可拖动 emoji、指向线和既有编辑/删除能力；
- * anchorKind 用于与页面任意位置创建的自由便签区分。
+ * 把当前 PDF 文本选区转换为用户笔记草稿。
  */
 export function buildSelectionNoteDraft({ localId, paperId, color, selection, notePosition }) {
   const group = selection?.groups?.[0]
@@ -60,6 +58,7 @@ export function buildSelectionNoteDraft({ localId, paperId, color, selection, no
     page: group.pageNum,
     color,
     note: '',
+    completed: false,
     coordinates: {
       coordinateSpace: 'viewport',
       pageWidth: viewport.width,
@@ -75,18 +74,66 @@ export function buildSelectionNoteDraft({ localId, paperId, color, selection, no
   }
 }
 
-export function annotationContextPlacement(points, pageWidth, pageHeight, menuWidth = 178) {
-  const safePoints = Array.isArray(points) && points.length
-    ? points.filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y))
-    : []
-  const source = safePoints.length ? safePoints : [{ x: 12, y: 52 }]
-  const width = Math.max(0, Number(pageWidth) || 0)
-  const height = Math.max(0, Number(pageHeight) || 0)
-  const menu = Math.max(0, Number(menuWidth) || 0)
-  const minX = Math.min(...source.map(point => point.x))
-  const minY = Math.min(...source.map(point => point.y))
-  return {
-    left: clamp(minX, 8, Math.max(8, width - menu - 8)),
-    top: clamp(minY - 42, 8, Math.max(8, height - 48)),
+/**
+ * 把页面点击位置转换为批注草稿。anchorPoint 永远保持在原内容位置，
+ * notePosition 可以独立拖动，两者之间由阅读器绘制虚线。
+ */
+export function buildPageCommentDraft({
+  localId,
+  paperId,
+  page,
+  color,
+  viewport,
+  anchorPoint,
+  notePosition,
+}) {
+  if (!viewport || !Number.isFinite(anchorPoint?.x) || !Number.isFinite(anchorPoint?.y)) return null
+  const anchor = {
+    x: clamp(anchorPoint.x, 0.02, 0.98),
+    y: clamp(anchorPoint.y, 0.02, 0.98),
   }
+  const marker = notePosition || {
+    x: clamp(anchor.x + 0.055, 0.04, 0.96),
+    y: clamp(anchor.y - 0.035, 0.04, 0.96),
+  }
+  return {
+    localId,
+    paperId,
+    type: 'COMMENT',
+    page,
+    color,
+    note: '',
+    completed: false,
+    coordinates: {
+      coordinateSpace: 'viewport',
+      pageWidth: viewport.width,
+      pageHeight: viewport.height,
+      rotation: viewport.rotation,
+      scale: viewport.scale,
+      anchorKind: 'POINT',
+      anchorPoint: anchor,
+      notePosition: {
+        x: clamp(marker.x, 0.02, 0.98),
+        y: clamp(marker.y, 0.02, 0.98),
+      },
+    },
+  }
+}
+
+export function isMarkerAnnotation(annotation) {
+  return MARKER_TYPES.has(annotation?.type)
+}
+
+export function isSelectionNote(annotation) {
+  return annotation?.type === 'NOTE'
+}
+
+export function isPageComment(annotation) {
+  return annotation?.type === 'COMMENT'
+}
+
+export function annotationDisplayColor(annotation) {
+  return isPageComment(annotation) && annotation?.completed
+    ? '#4caf50'
+    : annotation?.color || '#f44336'
 }

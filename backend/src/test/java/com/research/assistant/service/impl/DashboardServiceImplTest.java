@@ -3,11 +3,9 @@ package com.research.assistant.service.impl;
 import com.research.assistant.dto.DashboardDto;
 import com.research.assistant.entity.AsyncTaskRecord;
 import com.research.assistant.entity.Folder;
-import com.research.assistant.entity.Note;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperAnnotation;
 import com.research.assistant.mapper.AsyncTaskRecordMapper;
-import com.research.assistant.mapper.NoteMapper;
 import com.research.assistant.mapper.PaperAnnotationMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.FolderService;
@@ -28,11 +26,10 @@ class DashboardServiceImplTest {
     private final PaperMapper paperMapper = mock(PaperMapper.class);
     private final FolderService folderService = mock(FolderService.class);
     private final AsyncTaskRecordMapper taskMapper = mock(AsyncTaskRecordMapper.class);
-    private final NoteMapper noteMapper = mock(NoteMapper.class);
     private final PaperAnnotationMapper annotationMapper = mock(PaperAnnotationMapper.class);
 
     private final DashboardServiceImpl service = new DashboardServiceImpl(
-            paperMapper, folderService, taskMapper, noteMapper, annotationMapper);
+            paperMapper, folderService, taskMapper, annotationMapper);
 
     @Test
     void aggregateReturnsPaperStats() {
@@ -75,13 +72,14 @@ class DashboardServiceImplTest {
 
     @Test
     void recentNotesAreMapped() {
-        Note note = new Note();
+        PaperAnnotation note = new PaperAnnotation();
         note.setId(1L);
-        note.setTitle("Hello");
+        note.setType("NOTE");
+        note.setNote("Hello");
         note.setCreatedAt(LocalDateTime.of(2026, 7, 10, 10, 0));
 
         stubEmptyCounts();
-        when(noteMapper.selectList(any())).thenReturn(List.of(note));
+        when(annotationMapper.selectList(any())).thenReturn(List.of(note), List.of());
 
         DashboardDto dto = service.aggregate();
 
@@ -94,6 +92,7 @@ class DashboardServiceImplTest {
         PaperAnnotation a = new PaperAnnotation();
         a.setId(1L);
         a.setPaperId(10L);
+        a.setType("COMMENT");
         a.setPage(3);
         a.setNote("note");
         a.setCreatedAt(LocalDateTime.now());
@@ -103,7 +102,7 @@ class DashboardServiceImplTest {
         paper.setTitle("Test Paper");
 
         stubEmptyCounts();
-        when(annotationMapper.selectList(any())).thenReturn(List.of(a));
+        when(annotationMapper.selectList(any())).thenReturn(List.of(), List.of(a));
         when(paperMapper.selectBatchIds(List.of(10L))).thenReturn(List.of(paper));
 
         DashboardDto dto = service.aggregate();
@@ -146,7 +145,6 @@ class DashboardServiceImplTest {
         when(folderService.getTree()).thenReturn(List.of());
         when(taskMapper.countByStatus(any())).thenReturn(0L);
         when(taskMapper.selectRecent(5)).thenReturn(List.of());
-        when(noteMapper.selectList(any())).thenReturn(List.of());
         when(annotationMapper.selectList(any())).thenReturn(List.of());
     }
 
@@ -156,7 +154,6 @@ class DashboardServiceImplTest {
         when(paperMapper.countPinned()).thenReturn(0L);
         when(paperMapper.countCreatedSince(any())).thenReturn(0L);
         when(folderService.getTree()).thenReturn(List.of());
-        when(noteMapper.selectList(any())).thenReturn(List.of());
         when(annotationMapper.selectList(any())).thenReturn(List.of());
     }
 
@@ -164,7 +161,6 @@ class DashboardServiceImplTest {
         when(folderService.getTree()).thenReturn(List.of());
         when(taskMapper.countByStatus(any())).thenReturn(0L);
         when(taskMapper.selectRecent(5)).thenReturn(List.of());
-        when(noteMapper.selectList(any())).thenReturn(List.of());
         when(annotationMapper.selectList(any())).thenReturn(List.of());
     }
 }

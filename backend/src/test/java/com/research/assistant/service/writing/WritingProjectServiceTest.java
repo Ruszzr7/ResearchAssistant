@@ -1,7 +1,7 @@
 package com.research.assistant.service.writing;
 
+import com.research.assistant.dto.AnnotationRequest;
 import com.research.assistant.dto.NoteDto;
-import com.research.assistant.dto.NoteRequest;
 import com.research.assistant.dto.WritingProjectDto;
 import com.research.assistant.dto.WritingProjectRequest;
 import com.research.assistant.dto.WritingClaimRequest;
@@ -11,7 +11,7 @@ import com.research.assistant.entity.WritingProjectPaper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.WritingProjectMapper;
 import com.research.assistant.mapper.WritingProjectPaperMapper;
-import com.research.assistant.service.note.NoteService;
+import com.research.assistant.service.annotation.AnnotationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,6 +20,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,7 +44,7 @@ class WritingProjectServiceTest {
     private PaperMapper paperMapper;
 
     @Autowired
-    private NoteService noteService;
+    private AnnotationService annotationService;
 
     @Autowired
     private WritingEvidenceService evidenceService;
@@ -69,10 +70,18 @@ class WritingProjectServiceTest {
         paper.setTitle("Note Source");
         paperMapper.insert(paper);
 
-        NoteRequest noteReq = new NoteRequest();
-        noteReq.setTitle("关键发现");
-        noteReq.setContent("这是笔记内容");
-        noteService.create(paper.getId(), noteReq);
+        AnnotationRequest noteReq = new AnnotationRequest();
+        noteReq.setType("NOTE");
+        noteReq.setPage(2);
+        noteReq.setColor("#f44336");
+        noteReq.setNote("这是笔记内容");
+        noteReq.setCoordinates(Map.of(
+                "anchorKind", "SELECTION",
+                "anchorText", "关键发现",
+                "anchorQuads", List.of(Map.of(
+                        "x1", 0.1, "y1", 0.2, "x2", 0.3, "y2", 0.2,
+                        "x3", 0.3, "y3", 0.16, "x4", 0.1, "y4", 0.16))));
+        annotationService.create(paper.getId(), noteReq);
 
         WritingProjectDto project = service.createProject(projectReq("proj"));
         service.addPaper(project.getId(), paper.getId());

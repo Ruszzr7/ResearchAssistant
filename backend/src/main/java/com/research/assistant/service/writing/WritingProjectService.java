@@ -1,6 +1,7 @@
 package com.research.assistant.service.writing;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.research.assistant.dto.AnnotationDto;
 import com.research.assistant.dto.NoteDto;
 import com.research.assistant.dto.WritingProjectDto;
 import com.research.assistant.dto.WritingProjectRequest;
@@ -9,7 +10,7 @@ import com.research.assistant.entity.WritingProjectPaper;
 import com.research.assistant.mapper.WritingClaimEvidenceMapper;
 import com.research.assistant.mapper.WritingProjectMapper;
 import com.research.assistant.mapper.WritingProjectPaperMapper;
-import com.research.assistant.service.note.NoteService;
+import com.research.assistant.service.annotation.AnnotationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -30,16 +31,16 @@ public class WritingProjectService {
     private final WritingProjectMapper projectMapper;
     private final WritingProjectPaperMapper linkMapper;
     private final WritingClaimEvidenceMapper evidenceMapper;
-    private final NoteService noteService;
+    private final AnnotationService annotationService;
 
     public WritingProjectService(WritingProjectMapper projectMapper,
                                  WritingProjectPaperMapper linkMapper,
                                  WritingClaimEvidenceMapper evidenceMapper,
-                                 NoteService noteService) {
+                                 AnnotationService annotationService) {
         this.projectMapper = projectMapper;
         this.linkMapper = linkMapper;
         this.evidenceMapper = evidenceMapper;
-        this.noteService = noteService;
+        this.annotationService = annotationService;
     }
 
     public List<WritingProjectDto> listProjects() {
@@ -120,14 +121,37 @@ public class WritingProjectService {
     }
 
     /**
-     * 聚合项目关联的所有论文的阅读笔记。
+     * 聚合项目关联论文中锚定到选区的 NOTE；页面 COMMENT 不进入写作素材。
      */
     public List<NoteDto> listNotesForProject(Long projectId) {
         List<Long> paperIds = paperIdsByProjectId(projectId);
         return paperIds.stream()
-                .flatMap(pid -> noteService.listByPaper(pid).stream())
-                .distinct()
+                .flatMap(pid -> annotationService.listByPaper(pid).stream())
+                .filter(annotation -> "NOTE".equals(annotation.getType()))
+                .map(this::toNoteDto)
                 .toList();
+    }
+
+    private NoteDto toNoteDto(AnnotationDto annotation) {
+        NoteDto dto = new NoteDto();
+        dto.setId(annotation.getId());
+        dto.setContent(annotation.getNote());
+        dto.setPage(annotation.getPage());
+        dto.setCoordinates(annotation.getCoordinates());
+        Object anchor = annotation.getCoordinates() == null
+                ? null : annotation.getCoordinates().get("anchorText");
+        String anchorText = anchor == null ? "" : String.valueOf(anchor).trim();
+        dto.setAnchorText(anchorText);
+        String titleSource = anchorText.isBlank() ? annotation.getNote() : anchorText;
+        dto.setTitle(shorten(titleSource, 42));
+        dto.setCreatedAt(annotation.getCreatedAt());
+        dto.setUpdatedAt(annotation.getUpdatedAt());
+        return dto;
+    }
+
+    private String shorten(String value, int limit) {
+        String normalized = value == null ? "" : value.strip().replaceAll("\\s+", " ");
+        return normalized.length() <= limit ? normalized : normalized.substring(0, limit) + "…";
     }
 
     private List<Long> paperIdsByProjectId(Long projectId) {

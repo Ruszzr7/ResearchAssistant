@@ -2,6 +2,7 @@ package com.research.assistant.service.annotation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.dto.AnnotationDto;
+import com.research.assistant.dto.AnnotationRequest;
 import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.mapper.PaperAnalysisMapper;
@@ -9,6 +10,7 @@ import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.LLMService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -94,6 +96,10 @@ class AiAnnotationServiceTest {
 
         assertThat(service.generateAndSave(1L)).hasSize(1);
         verify(llmService).chat(anyString(), contains("PDF 正文片段"));
+        ArgumentCaptor<AnnotationRequest> request = ArgumentCaptor.forClass(AnnotationRequest.class);
+        verify(annotationService).create(eq(1L), request.capture(), eq(true));
+        assertThat(request.getValue().getType()).isEqualTo("NOTE");
+        assertThat((List<?>) request.getValue().getCoordinates().get("anchorQuads")).isNotEmpty();
     }
 
     private Paper paper(Long id) {

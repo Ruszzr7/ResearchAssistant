@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  annotationContextPlacement,
+  annotationDisplayColor,
+  buildPageCommentDraft,
   buildSelectionNoteDraft,
+  isMarkerAnnotation,
+  isPageComment,
+  isSelectionNote,
   resizeTextAnnotationQuads,
 } from '@/utils/pdfAnnotation.js'
 
@@ -30,8 +34,8 @@ describe('PDF text annotation range resizing', () => {
   })
 })
 
-describe('PDF selection comment draft', () => {
-  it('binds a manual note to the exact selected quads and text', () => {
+describe('PDF selection note draft', () => {
+  it('binds a selection note to the exact selected quads and text', () => {
     const draft = buildSelectionNoteDraft({
       localId: 12,
       paperId: 7,
@@ -70,11 +74,35 @@ describe('PDF selection comment draft', () => {
   })
 })
 
-describe('PDF annotation context placement', () => {
-  it('places the menu above the annotation and keeps it inside the page', () => {
-    expect(annotationContextPlacement([{ x: 400, y: 100 }], 500, 700, 178))
-      .toEqual({ left: 314, top: 58 })
-    expect(annotationContextPlacement([{ x: 2, y: 10 }], 500, 700, 178))
-      .toEqual({ left: 8, top: 8 })
+describe('PDF page comment draft', () => {
+  it('keeps the content anchor separate from the draggable comment marker', () => {
+    const draft = buildPageCommentDraft({
+      localId: 13,
+      paperId: 7,
+      page: 4,
+      color: '#f44336',
+      viewport: { width: 600, height: 800, rotation: 0, scale: 1.5 },
+      anchorPoint: { x: 0.4, y: 0.5 },
+    })
+
+    expect(draft).toMatchObject({
+      type: 'COMMENT',
+      page: 4,
+      completed: false,
+      coordinates: {
+        anchorKind: 'POINT',
+        anchorPoint: { x: 0.4, y: 0.5 },
+      },
+    })
+    expect(draft.coordinates.notePosition.x).toBeCloseTo(0.455)
+    expect(draft.coordinates.notePosition.y).toBeCloseTo(0.465)
+    expect(isMarkerAnnotation(draft)).toBe(true)
+    expect(isPageComment(draft)).toBe(true)
+    expect(isSelectionNote(draft)).toBe(false)
+  })
+
+  it('uses green as the display color only after a comment is completed', () => {
+    expect(annotationDisplayColor({ type: 'COMMENT', color: '#f44336', completed: true })).toBe('#4caf50')
+    expect(annotationDisplayColor({ type: 'NOTE', color: '#2196f3', completed: true })).toBe('#2196f3')
   })
 })

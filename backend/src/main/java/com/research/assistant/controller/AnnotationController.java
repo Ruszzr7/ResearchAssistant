@@ -40,14 +40,15 @@ public class AnnotationController {
 
     @PutMapping("/{annotationId}")
     public Result<AnnotationDto> update(
+            @PathVariable Long paperId,
             @PathVariable Long annotationId,
             @RequestBody @Valid AnnotationRequest request) {
-        return Result.ok(annotationService.update(annotationId, request));
+        return Result.ok(annotationService.update(paperId, annotationId, request));
     }
 
     @DeleteMapping("/{annotationId}")
-    public Result<Void> delete(@PathVariable Long annotationId) {
-        annotationService.delete(annotationId);
+    public Result<Void> delete(@PathVariable Long paperId, @PathVariable Long annotationId) {
+        annotationService.delete(paperId, annotationId);
         return Result.ok();
     }
 
