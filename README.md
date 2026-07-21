@@ -5,7 +5,7 @@
 ## 快速启动
 
 1. 安装 JDK 17+、Node.js 和 MySQL 8。
-2. 正式部署使用 Flyway 自动初始化/升级数据库；旧库切换前先阅读 [docs/migrations.md](docs/migrations.md)。`schema.sql` 仅保留为历史参考。
+2. 正式部署使用 Flyway 自动初始化/升级数据库；旧库切换前先阅读 [docs/migrations.md](docs/migrations.md)。
 3. 在 `backend` 目录运行 `mvnw.cmd spring-boot:run`。
 4. 在 `frontend` 目录运行 `npm.cmd install` 和 `npm.cmd run dev`。
 5. 打开 `http://localhost:5173`，在设置页填写 OpenAI 兼容 API 的 Base URL、模型和 API Key。

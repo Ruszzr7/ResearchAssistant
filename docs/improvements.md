@@ -22,7 +22,3 @@
 - 当前保持单机 Spring 线程池 + MySQL，不引入 Redis。
 - 当前 Workflow 只承诺顺序执行、重试和人机确认，不承诺分布式调度。
 - 当前 Docker Compose 已完成静态配置和脚本，真实容器压测应在具备 Docker 的部署环境执行。
-
-## 面试定位
-
-这是一个以 Java 17/Spring Boot 为工程骨架、以 LangChain4j 为 AI 接入层的本地科研 Agent。核心亮点是把 LLM、RAG、异步任务、可暂停 Workflow、人机确认、证据链和可运维部署串成可运行系统。

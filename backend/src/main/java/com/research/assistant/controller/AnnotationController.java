@@ -3,7 +3,6 @@ package com.research.assistant.controller;
 import com.research.assistant.dto.AnnotationDto;
 import com.research.assistant.dto.AnnotationRequest;
 import com.research.assistant.common.Result;
-import com.research.assistant.service.annotation.AiAnnotationService;
 import com.research.assistant.service.annotation.AnnotationService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
@@ -18,12 +17,9 @@ import java.util.List;
 public class AnnotationController {
 
     private final AnnotationService annotationService;
-    private final AiAnnotationService aiAnnotationService;
 
-    public AnnotationController(AnnotationService annotationService,
-                                AiAnnotationService aiAnnotationService) {
+    public AnnotationController(AnnotationService annotationService) {
         this.annotationService = annotationService;
-        this.aiAnnotationService = aiAnnotationService;
     }
 
     @GetMapping
@@ -50,10 +46,5 @@ public class AnnotationController {
     public Result<Void> delete(@PathVariable Long paperId, @PathVariable Long annotationId) {
         annotationService.delete(paperId, annotationId);
         return Result.ok();
-    }
-
-    @PostMapping("/ai-generate")
-    public Result<List<AnnotationDto>> aiGenerate(@PathVariable Long paperId) {
-        return Result.ok(aiAnnotationService.generateAndSave(paperId));
     }
 }

@@ -26,7 +26,7 @@ docker compose --profile qdrant up -d --build
 
 ## Flyway
 
-新库由 Spring Boot 启动时执行 `backend/src/main/resources/db/migration`。正式部署不再手动执行 `schema.sql` 或 `schema-upgrade-*.sql`。
+新库由 Spring Boot 启动时执行 `backend/src/main/resources/db/migration`。该 Flyway 目录是唯一数据库结构真源。
 
 已有数据库切换前必须先备份，并确认 schema 完整；只有完成检查后，才临时设置 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true` 启动一次。新库保持 `false`。
 

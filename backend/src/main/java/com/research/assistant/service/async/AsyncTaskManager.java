@@ -15,7 +15,6 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.DependsOn;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.task.AsyncTaskExecutor;
@@ -46,7 +45,6 @@ import java.util.stream.Collectors;
  * 通过租约和条件更新认领，服务重启后由调度器继续执行。</p>
  */
 @Service
-@DependsOn("asyncTaskSchemaInitializer")
 public class AsyncTaskManager {
 
     private static final Logger log = LoggerFactory.getLogger(AsyncTaskManager.class);

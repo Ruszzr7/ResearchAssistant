@@ -59,7 +59,6 @@ app:
   async:
     # 生产环境启动时将上次未完成任务标记为 FAILED；测试环境关闭，避免触碰测试数据。
     mark-orphaned-on-startup: true
-    schema-init-enabled: true
     pending-user-ttl: ${ASYNC_PENDING_USER_TTL:24h}
     execution-timeout: ${ASYNC_TASK_TIMEOUT:30m}
     dispatch-batch-size: ${ASYNC_DISPATCH_BATCH_SIZE:10}

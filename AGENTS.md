@@ -41,6 +41,6 @@ Plan → Explain → Code → Test → Review。每个实质功能完成后更�
 后端测试：cd backend && mvnw.cmd test
 ```
 
-首次启动由 Flyway 自动初始化/升级 MySQL；`schema.sql` 仅作历史参考。请在设置页或环境变量中配置模型。设置 `RA_MASTER_KEY` 后 API Key 才会使用 AES-GCM 加密保存。
+首次启动由 Flyway 自动初始化/升级 MySQL；不要手工维护第二套建表脚本。请在设置页或环境变量中配置模型。设置 `RA_MASTER_KEY` 后 API Key 才会使用 AES-GCM 加密保存。
 
 源码和 Markdown 等文本统一使用 UTF-8；PowerShell 读取中文文件使用 `Get-Content -Encoding utf8`，Bash/WSL 使用 UTF-8 locale，Windows `.bat` 保留 `chcp 65001`。
