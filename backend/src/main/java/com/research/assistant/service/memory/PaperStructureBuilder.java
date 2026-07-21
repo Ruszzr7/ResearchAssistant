@@ -74,6 +74,7 @@ public class PaperStructureBuilder {
         List<DocumentBlock> content = ordered.stream()
                 .filter(block -> !EXCLUDED_ROLES.contains(block.role()))
                 .toList();
+        List<PaperStructure.PageIndex> pages = buildPages(ordered, content, artifact.pageCount());
         List<String> readingOrder = content.stream().map(DocumentBlock::id).toList();
         List<SectionDraft> drafts = buildSectionDrafts(content);
         List<PaperStructure.Section> sections = drafts.stream().map(SectionDraft::freeze).toList();
@@ -102,6 +103,7 @@ public class PaperStructureBuilder {
                         splitKeywords(paper.getKeywords()),
                         paper.getAbstractText()),
                 artifact.pageCount(),
+                pages,
                 readingOrder,
                 sections,
                 elements,
@@ -110,6 +112,30 @@ public class PaperStructureBuilder {
                 quality,
                 artifact.generatedAt()
         );
+    }
+
+    private List<PaperStructure.PageIndex> buildPages(List<DocumentBlock> all,
+                                                       List<DocumentBlock> content,
+                                                       int pageCount) {
+        Set<String> contentIds = content.stream().map(DocumentBlock::id)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        List<PaperStructure.PageIndex> pages = new ArrayList<>();
+        for (int page = 1; page <= pageCount; page++) {
+            int pageNumber = page;
+            List<DocumentBlock> pageBlocks = all.stream()
+                    .filter(block -> block.page() == pageNumber)
+                    .toList();
+            List<String> blockIds = pageBlocks.stream().map(DocumentBlock::id).toList();
+            List<String> pageContentIds = pageBlocks.stream().map(DocumentBlock::id)
+                    .filter(contentIds::contains).toList();
+            Map<String, Integer> roleCounts = new TreeMap<>();
+            pageBlocks.forEach(block -> roleCounts.merge(block.role().name(), 1, Integer::sum));
+            int first = pageBlocks.stream().mapToInt(DocumentBlock::readingOrder).min().orElse(-1);
+            int last = pageBlocks.stream().mapToInt(DocumentBlock::readingOrder).max().orElse(-1);
+            pages.add(new PaperStructure.PageIndex(
+                    pageNumber, blockIds, pageContentIds, first, last, roleCounts));
+        }
+        return List.copyOf(pages);
     }
 
     private List<SectionDraft> buildSectionDrafts(List<DocumentBlock> blocks) {
@@ -195,7 +221,7 @@ public class PaperStructureBuilder {
             List<String> related = block.role() == DocumentBlockRole.CAPTION
                     ? relatedVisualBlockIds(blocks, block) : List.of();
             result.add(new PaperStructure.Element(
-                    "element-" + String.format(Locale.ROOT, "%04d", result.size() + 1),
+                    "element:" + block.id(),
                     block.role().name(),
                     block.page(),
                     block.readingOrder(),

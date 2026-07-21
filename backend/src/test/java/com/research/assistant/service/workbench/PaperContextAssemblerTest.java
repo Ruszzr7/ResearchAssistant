@@ -7,6 +7,7 @@ import com.research.assistant.service.memory.PaperConversationTurn;
 import com.research.assistant.service.memory.PaperMemoryEvidenceRef;
 import com.research.assistant.service.memory.PaperMemoryObservation;
 import com.research.assistant.service.memory.PaperMemoryObservationService;
+import com.research.assistant.service.memory.PaperStructure;
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.pdf.layout.SelectionAnchor;
 import com.research.assistant.service.pdf.layout.SelectionAnchorKind;
@@ -74,7 +75,7 @@ class PaperContextAssemblerTest {
                   }]
                 }
                 """);
-        when(memoryMapper.selectVersion(7L, HASH, PARSER, "paper-structure-v1"))
+        when(memoryMapper.selectVersion(7L, HASH, PARSER, PaperStructure.SCHEMA_VERSION))
                 .thenReturn(memory);
 
         PaperContextSnapshot snapshot = assembler.assemble(trace, trace.invocation().selectionAnchor());

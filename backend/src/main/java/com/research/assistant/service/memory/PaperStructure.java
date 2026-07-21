@@ -15,6 +15,7 @@ public record PaperStructure(String schemaVersion,
                              Source source,
                              Metadata metadata,
                              int pageCount,
+                             List<PageIndex> pages,
                              List<String> readingOrder,
                              List<Section> sections,
                              List<Element> elements,
@@ -23,15 +24,47 @@ public record PaperStructure(String schemaVersion,
                              Quality quality,
                              Instant generatedAt) {
 
-    public static final String SCHEMA_VERSION = "paper-structure-v1";
+    public static final String SCHEMA_VERSION = "paper-structure-v2";
 
     public PaperStructure {
         schemaVersion = safe(schemaVersion, SCHEMA_VERSION);
+        pages = copy(pages);
         readingOrder = copy(readingOrder);
         sections = copy(sections);
         elements = copy(elements);
         crossPageContinuations = copy(crossPageContinuations);
         generatedAt = generatedAt == null ? Instant.now() : generatedAt;
+    }
+
+    /** Compatibility constructor for callers created before page indexes were added. */
+    public PaperStructure(String schemaVersion,
+                          Long paperId,
+                          Source source,
+                          Metadata metadata,
+                          int pageCount,
+                          List<String> readingOrder,
+                          List<Section> sections,
+                          List<Element> elements,
+                          List<CrossPageContinuation> crossPageContinuations,
+                          Statistics statistics,
+                          Quality quality,
+                          Instant generatedAt) {
+        this(schemaVersion, paperId, source, metadata, pageCount, List.of(),
+                readingOrder, sections, elements, crossPageContinuations,
+                statistics, quality, generatedAt);
+    }
+
+    public record PageIndex(int page,
+                            List<String> blockIds,
+                            List<String> contentBlockIds,
+                            int readingOrderStart,
+                            int readingOrderEnd,
+                            Map<String, Integer> roleCounts) {
+        public PageIndex {
+            blockIds = copy(blockIds);
+            contentBlockIds = copy(contentBlockIds);
+            roleCounts = roleCounts == null ? Map.of() : Map.copyOf(roleCounts);
+        }
     }
 
     public record Source(String documentHash,

@@ -73,6 +73,9 @@ class PaperStructureBuilderTest {
                 .containsExactly("RSMA", "finite blocklength", "URLLC");
         assertThat(structure.readingOrder()).contains("title", "formula", "reference")
                 .doesNotContain("footer");
+        assertThat(structure.pages()).hasSize(3);
+        assertThat(structure.pages().get(2).blockIds()).containsExactly("references-heading", "reference", "footer");
+        assertThat(structure.pages().get(2).contentBlockIds()).containsExactly("references-heading", "reference");
         assertThat(structure.sections()).extracting(PaperStructure.Section::kind)
                 .contains("ABSTRACT", "SECTION", "REFERENCES");
         PaperStructure.Section method = structure.sections().stream()
@@ -88,6 +91,7 @@ class PaperStructureBuilderTest {
         });
         PaperStructure.Element caption = structure.elements().stream()
                 .filter(element -> "CAPTION".equals(element.type())).findFirst().orElseThrow();
+        assertThat(caption.id()).isEqualTo("element:caption");
         assertThat(caption.label()).isEqualTo("Figure 1.");
         assertThat(caption.relatedBlockIds()).containsExactly("figure");
         assertThat(structure.quality().regionOnlyElements()).isEqualTo(1);
@@ -97,6 +101,17 @@ class PaperStructureBuilderTest {
         PaperStructure restored = objectMapper.readValue(json, PaperStructure.class);
         assertThat(restored.sections()).isEqualTo(structure.sections());
         assertThat(restored.source().documentHash()).isEqualTo("a".repeat(64));
+        PaperStructureValidator.validate(restored, artifact);
+
+        PaperStructure invalid = new PaperStructure(
+                structure.schemaVersion(), structure.paperId(), structure.source(), structure.metadata(),
+                structure.pageCount(), structure.pages(), List.of("invented-block"), structure.sections(),
+                structure.elements(), structure.crossPageContinuations(), structure.statistics(),
+                structure.quality(), structure.generatedAt());
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> PaperStructureValidator.validate(invalid, artifact))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("阅读顺序");
     }
 
     private DocumentBlock block(String id,

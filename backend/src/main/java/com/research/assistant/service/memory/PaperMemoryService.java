@@ -55,20 +55,21 @@ public class PaperMemoryService {
                 PaperStructure.SCHEMA_VERSION);
         if (!forceRefresh && existing != null) {
             try {
-                return fromRecord(existing);
+                return fromRecord(existing, artifact);
             } catch (IllegalStateException exception) {
                 log.warn("paper_memory_cache_invalid paperId={} recordId={}", paperId, existing.getId());
             }
         }
 
         PaperStructure structure = structureBuilder.build(paper, artifact);
+        PaperStructureValidator.validate(structure, artifact);
         PaperMemoryRecord saved = saveStructure(existing, structure);
         PaperMemoryRecord persisted = memoryMapper.selectVersion(
                 paperId,
                 artifact.documentHash(),
                 artifact.parserVersion(),
                 PaperStructure.SCHEMA_VERSION);
-        return fromRecord(persisted == null ? saved : persisted);
+        return fromRecord(persisted == null ? saved : persisted, artifact);
     }
 
     public PaperMemoryState latestStructure(Long paperId) {
@@ -142,6 +143,12 @@ public class PaperMemoryService {
         } catch (JsonProcessingException | IllegalArgumentException exception) {
             throw new IllegalStateException("论文记忆结构无法读取", exception);
         }
+    }
+
+    private PaperMemoryState fromRecord(PaperMemoryRecord record, PaperLayoutArtifact artifact) {
+        PaperMemoryState state = fromRecord(record);
+        PaperStructureValidator.validate(state.structure(), artifact);
+        return state;
     }
 
     private String write(Object value, String message) {

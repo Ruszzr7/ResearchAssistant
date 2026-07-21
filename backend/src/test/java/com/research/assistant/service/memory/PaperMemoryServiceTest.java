@@ -97,7 +97,7 @@ class PaperMemoryServiceTest {
         PaperMemoryRecord inserted = captor.getValue();
         assertThat(inserted.getDocumentHash()).isEqualTo("b".repeat(64));
         assertThat(inserted.getLayoutParserVersion()).isEqualTo("parser+semantic");
-        assertThat(inserted.getStructureJson()).contains("paper-structure-v1", "Memory paper", "body");
+        assertThat(inserted.getStructureJson()).contains(PaperStructure.SCHEMA_VERSION, "Memory paper", "body");
         assertThat(inserted.getChunkSummariesJson()).isNull();
         assertThat(inserted.getProfileJson()).isNull();
         assertThat(inserted.getUnderstandingVersion()).isNull();
@@ -117,6 +117,24 @@ class PaperMemoryServiceTest {
         PaperMemoryState state = service.ensureStructure(9L, false);
 
         assertThat(state.revision()).isEqualTo(4);
+        verify(memoryMapper).updateById(cached);
+    }
+
+    @Test
+    void shouldRebuildParseableCacheThatInventsABlockIdentity() throws Exception {
+        com.fasterxml.jackson.databind.node.ObjectNode root = (com.fasterxml.jackson.databind.node.ObjectNode)
+                objectMapper.readTree(objectMapper.writeValueAsString(structure));
+        ((com.fasterxml.jackson.databind.node.ArrayNode) root.path("readingOrder")).add("invented-block");
+        PaperMemoryRecord cached = record(47L, objectMapper.writeValueAsString(root));
+        cached.setRevision(2);
+        when(memoryMapper.selectVersion(
+                9L, "b".repeat(64), "parser+semantic", PaperStructure.SCHEMA_VERSION))
+                .thenReturn(cached);
+        when(structureBuilder.build(paper, artifact)).thenReturn(structure);
+
+        PaperMemoryState state = service.ensureStructure(9L, false);
+
+        assertThat(state.revision()).isEqualTo(3);
         verify(memoryMapper).updateById(cached);
     }
 

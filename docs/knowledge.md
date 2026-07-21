@@ -153,6 +153,7 @@
 - PDF.js 的 `textContent.items` 与 TextLayer DOM 不是一一对应：空字符串 item 会保留在源码数组中但不生成 span，空白字符串则仍生成 span。因此统一文字映射必须同时维护原始 `itemIndex` 和渲染 `spanIndex`，搜索、选区和字符级高亮分别使用对应身份。
 - 可恢复的前端文字锚点应把 PDF 指纹、页码、原始 itemIndex、spanIndex 与字符偏移和 viewport 归一化几何一起保存。重新渲染可用字符范围恢复原文，PDF 指纹或索引结构不匹配时必须拒绝恢复；手动拖动标记范围后应清除已失真的字符锚点，而不是继续声称其精确。
 - 公式框选应直接规范化 PDF.js 当前 viewport 的左上角坐标；页面旋转已经体现在 viewport 宽高和渲染方向中，后端 PDFRenderer 以相同可见方向渲染后即可按归一化矩形裁剪。裁剪前必须复核原文件 SHA-256 与版面产物一致，避免文件替换竞态把新图像绑定到旧证据版本。
+- 结构化论文 JSON 不能只做到“可反序列化”：缓存命中时仍需对照当前 `PaperLayoutArtifact` 校验 paperId、PDF hash、parser version、页数、逐页 block 覆盖、章节/元素引用和跨页关系。结构元素 ID 应由稳定 block ID 派生，不能用会因前插元素而整体漂移的顺序编号。
 
 ## 8. 安全、部署与验证
 
