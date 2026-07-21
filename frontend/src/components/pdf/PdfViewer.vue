@@ -534,7 +534,12 @@ import {
 } from '@/utils/pdfAnnotation.js'
 import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
-import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
+import {
+  boundingBoxToViewportQuad,
+  buildSelectionTextAnchor,
+  cloneSelectionTextAnchor,
+  selectionToAnchorPayload,
+} from '@/utils/pdfSelectionAnchor.js'
 import { formulaRegionSvgRect, normalizedFormulaRegion } from '@/utils/formulaRegionSelection.js'
 import {
   buildFailedPdfPageSearchRecord,
@@ -584,6 +589,7 @@ const overlayRefs = ref({})
 // 非响应式的本地索引：它只为后续自定义选区提供几何事实，不改变当前原生
 // Selection 或后端的 PaperLayoutArtifact 持久化链路。
 const pageLayoutIndexes = new Map()
+const pageTextMaps = new Map()
 // PDF.js 的文档对象包含私有字段，不能被 Vue 深层代理，否则调用 getPage/render
 // 时会报 "Cannot read from private field"。
 const pdfDoc = shallowRef(null)
@@ -788,6 +794,7 @@ onUnmounted(() => {
   cancelAllPageRenders()
   pdfDoc.value?.destroy()
   pageLayoutIndexes.clear()
+  pageTextMaps.clear()
   pageSearchRecords.clear()
   if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
   viewerBodyResizeObserver?.disconnect()
@@ -1097,6 +1104,7 @@ async function loadDocument() {
     cancelAllPageRenders()
     renderQueueRequested = false
     pageLayoutIndexes.clear()
+    pageTextMaps.clear()
     pageSearchRecords.clear()
     searchResults.value = []
     activeSearchResultIndex.value = -1
@@ -1369,7 +1377,17 @@ async function renderPage(pageState) {
     })
     await tl.render()
     if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
-    const layoutIndex = buildRenderedPageLayoutIndex(textLayer, pageState, viewport)
+    const pageTextMap = buildPdfPageSearchRecord(pageState.pageNum, textContent.items, {
+      documentFingerprint: documentRef.fingerprints?.[0] || '',
+      pageWidth: viewport.width,
+      pageHeight: viewport.height,
+      rotation: viewport.rotation,
+      scale: viewport.scale,
+    })
+    pageTextMaps.set(pageState.pageNum, pageTextMap)
+    pageSearchRecords.set(pageState.pageNum, pageTextMap)
+    searchIndexProgress.value = pageSearchRecords.size
+    const layoutIndex = buildRenderedPageLayoutIndex(textLayer, pageState, viewport, pageTextMap)
     pageLayoutIndexes.set(pageState.pageNum, layoutIndex)
     // 仅作为开发期可见的只读诊断，不参与样式或交互。它让真实 PDF 的
     // layout index 挂接可被自动化验收，同时避免把完整文本暴露到 dataset。
@@ -1447,12 +1465,18 @@ function invalidatePageSurface(pageNum) {
   activePageRenderTasks.get(pageNum)?.cancel()
 }
 
-function buildRenderedPageLayoutIndex(textLayer, pageState, viewport) {
+function buildRenderedPageLayoutIndex(textLayer, pageState, viewport, pageTextMap) {
   const layerRect = textLayer.getBoundingClientRect()
+  const runBySpanIndex = new Map((pageTextMap?.runs || [])
+    .filter(run => Number.isInteger(run.spanIndex))
+    .map(run => [run.spanIndex, run]))
   const textItems = Array.from(textLayer.querySelectorAll('span')).map((span, index) => {
     const rect = span.getBoundingClientRect()
+    const sourceRun = runBySpanIndex.get(index)
     return {
       id: `span-${index}`,
+      spanIndex: index,
+      itemIndex: sourceRun?.itemIndex ?? index,
       text: span.textContent || '',
       x: rect.left - layerRect.left,
       y: rect.top - layerRect.top,
@@ -1626,9 +1650,14 @@ function applyLayoutSelection(drag, selection) {
   if (!pageElement) return
   const quads = selectionSegmentsToViewportQuads(selection.segments, drag.layoutIndex, drag.layer, pageElement)
   if (!quads.length) return
+  const pageTextMap = pageTextMaps.get(drag.pageNum)
   pendingTextSelection.value = {
     groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
-    text: selection.text
+    text: selection.text,
+    textAnchor: buildSelectionTextAnchor(selection, drag.layoutIndex, {
+      documentFingerprint: pageTextMap?.documentFingerprint,
+      textMapVersion: pageTextMap?.version,
+    }),
   }
 }
 
@@ -1732,7 +1761,10 @@ async function applyTextAnnotation(type) {
           pageHeight: group.pageState.viewport.height,
           rotation: group.pageState.viewport.rotation,
           scale: group.pageState.viewport.scale,
-          quads: group.quads
+          quads: group.quads,
+          anchorKind: 'SELECTION',
+          anchorText: String(selection.text || '').slice(0, 500),
+          textAnchor: cloneSelectionTextAnchor(selection.textAnchor),
         }
       }
       await persistNewAnnotation(annotation)
@@ -2164,6 +2196,9 @@ function resizeAnnotationRange(resize, event) {
   const result = resizeTextAnnotationQuads(quads, resize.edge, rawPointerX)
   if (!result.changed) return
   resize.annotation.coordinates.quads = result.quads
+  // Manual geometry adjustment no longer guarantees the old character range.
+  // Keep anchorText for display, but never persist a knowingly stale range.
+  resize.annotation.coordinates.textAnchor = null
   resize.moved = true
 }
 

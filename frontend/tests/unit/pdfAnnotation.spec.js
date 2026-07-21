@@ -111,4 +111,32 @@ describe('PDF selection comment draft', () => {
     expect(annotationDisplayColor({ type: 'COMMENT', color: '#f44336', completed: true })).toBe('#4caf50')
     expect(annotationDisplayColor({ type: 'NOTE', color: '#2196f3', completed: true })).toBe('#2196f3')
   })
+
+  it('persists an independent copy of the exact text anchor', () => {
+    const textAnchor = {
+      version: 1,
+      page: 2,
+      documentFingerprint: 'fingerprint',
+      textMapVersion: 1,
+      ranges: [{ itemIndex: 8, spanIndex: 7, startOffset: 2, endOffset: 6 }],
+    }
+    const draft = buildSelectionCommentDraft({
+      localId: 1,
+      paperId: 9,
+      color: '#f44336',
+      selection: {
+        text: 'text',
+        textAnchor,
+        groups: [{
+          pageNum: 2,
+          pageState: { viewport: { width: 600, height: 800, rotation: 0, scale: 1.5 } },
+          quads: multiLineQuads,
+        }],
+      },
+      notePosition: { x: 0.3, y: 0.4 },
+    })
+
+    expect(draft.coordinates.textAnchor).toEqual(textAnchor)
+    expect(draft.coordinates.textAnchor).not.toBe(textAnchor)
+  })
 })

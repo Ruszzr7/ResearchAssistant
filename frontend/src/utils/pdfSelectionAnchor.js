@@ -72,6 +72,76 @@ export function selectionToAnchorPayload(selection) {
   }
 }
 
+/**
+ * Persist a character-level client anchor beside normalized geometry. The
+ * backend still resolves canonical evidence from boxes and document hash; this
+ * reference lets the viewer reconstruct the exact PDF.js text range after a
+ * TextLayer rerender without confusing source item indexes with DOM spans.
+ */
+export function buildSelectionTextAnchor(selection, layoutIndex, {
+  documentFingerprint = '',
+  textMapVersion = 1,
+} = {}) {
+  const ranges = (selection?.segments || []).flatMap(segment => {
+    const run = layoutIndex?.runs?.find(candidate => candidate.id === segment.runId)
+    if (!run || !Number.isInteger(run.itemIndex) || !Number.isInteger(run.spanIndex)) return []
+    const leadingOffset = Number(run.textStartOffset) || 0
+    return [{
+      itemIndex: run.itemIndex,
+      spanIndex: run.spanIndex,
+      startOffset: leadingOffset + segment.startOffset,
+      endOffset: leadingOffset + segment.endOffset,
+    }]
+  })
+  if (!ranges.length) return null
+  return {
+    version: 1,
+    page: Number(layoutIndex?.pageNum) || 1,
+    documentFingerprint: String(documentFingerprint || ''),
+    textMapVersion: Number(textMapVersion) || 1,
+    ranges,
+  }
+}
+
+export function restoreSelectionText(textAnchor, pageTextMap) {
+  if (!textAnchor || !pageTextMap) return { status: 'INVALID', text: '' }
+  if (Number(textAnchor.page) !== Number(pageTextMap.page)) return { status: 'PAGE_MISMATCH', text: '' }
+  if (textAnchor.documentFingerprint && pageTextMap.documentFingerprint
+    && textAnchor.documentFingerprint !== pageTextMap.documentFingerprint) {
+    return { status: 'DOCUMENT_MISMATCH', text: '' }
+  }
+
+  const runByItem = new Map((pageTextMap.runs || []).map(run => [run.itemIndex, run]))
+  const parts = []
+  for (const range of textAnchor.ranges || []) {
+    const run = runByItem.get(range.itemIndex)
+    if (!run || run.spanIndex !== range.spanIndex) return { status: 'RANGE_MISMATCH', text: '' }
+    const start = Math.max(0, Math.min(run.rawText.length, Number(range.startOffset) || 0))
+    const end = Math.max(start, Math.min(run.rawText.length, Number(range.endOffset) || 0))
+    if (end > start) parts.push(run.rawText.slice(start, end))
+  }
+  return {
+    status: parts.length ? 'READY' : 'INVALID',
+    text: parts.join(' ').replace(/\s+/g, ' ').trim(),
+  }
+}
+
+export function cloneSelectionTextAnchor(textAnchor) {
+  if (!textAnchor) return null
+  return {
+    version: Number(textAnchor.version) || 1,
+    page: Number(textAnchor.page) || 1,
+    documentFingerprint: String(textAnchor.documentFingerprint || ''),
+    textMapVersion: Number(textAnchor.textMapVersion) || 1,
+    ranges: (textAnchor.ranges || []).map(range => ({
+      itemIndex: Number(range.itemIndex),
+      spanIndex: Number(range.spanIndex),
+      startOffset: Number(range.startOffset),
+      endOffset: Number(range.endOffset),
+    })),
+  }
+}
+
 export function boundingBoxToViewportQuad(box) {
   if (!box) return null
   const x = clamp(box.x)

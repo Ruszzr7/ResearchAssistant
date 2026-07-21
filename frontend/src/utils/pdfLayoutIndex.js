@@ -82,7 +82,11 @@ export function normalizeTextRuns(items, { pageWidth = MIN_PAGE_SIZE, pageHeight
 
     return [{
       id: String(item?.id || `run-${sourceIndex}`),
-      sourceIndex,
+      // sourceIndex remains the DOM TextLayer span index for geometry lookup.
+      sourceIndex: nonNegativeInteger(item?.spanIndex, sourceIndex),
+      spanIndex: nonNegativeInteger(item?.spanIndex, sourceIndex),
+      // itemIndex points at the unfiltered PDF.js textContent.items entry.
+      itemIndex: nonNegativeInteger(item?.itemIndex, sourceIndex),
       text,
       sourceText,
       textStartOffset,
@@ -657,6 +661,11 @@ function finiteNumber(value) {
 function positiveNumber(value, fallback) {
   const number = Number(value)
   return Number.isFinite(number) && number > 0 ? number : fallback
+}
+
+function nonNegativeInteger(value, fallback) {
+  const number = Number(value)
+  return Number.isInteger(number) && number >= 0 ? number : fallback
 }
 
 function median(values) {

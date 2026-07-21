@@ -10,6 +10,17 @@ function textRun(id, text, x, y, width = 90, height = 12, extra = {}) {
 }
 
 describe('PDF rendered layout index', () => {
+  it('keeps DOM span and original PDF.js item indexes as separate identities', () => {
+    const index = buildPdfPageLayoutIndex({
+      pageNum: 1,
+      pageWidth: 600,
+      pageHeight: 800,
+      textItems: [textRun('mapped', 'target', 10, 10, 40, 12, { spanIndex: 7, itemIndex: 9 })],
+    })
+
+    expect(index.runs[0]).toMatchObject({ sourceIndex: 7, spanIndex: 7, itemIndex: 9 })
+  })
+
   it('splits same-baseline left and right column runs into separate visual lines', () => {
     const runs = normalizeTextRuns([
       textRun('left-a', 'left column', 50, 100, 100),

@@ -1,3 +1,5 @@
+import { cloneSelectionTextAnchor } from '@/utils/pdfSelectionAnchor.js'
+
 const MINIMUM_RANGE_WIDTH = 0.006
 const MARKER_TYPES = new Set(['NOTE', 'COMMENT'])
 
@@ -67,6 +69,7 @@ function buildSelectionMarkerDraft(type, { localId, paperId, color, selection, n
       notePosition,
       anchorKind: 'SELECTION',
       anchorText: String(selection.text || '').slice(0, 500),
+      textAnchor: cloneSelectionTextAnchor(selection.textAnchor),
     },
   }
 }
