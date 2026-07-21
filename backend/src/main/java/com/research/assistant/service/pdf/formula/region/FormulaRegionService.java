@@ -64,7 +64,7 @@ public class FormulaRegionService {
         }
         Paper paper = requirePaper(paperId);
         File pdf = fileResolver.resolveRequired(paper.getPdfPath());
-        FormulaRegionImage image = imageService.render(pdf, page, bbox);
+        FormulaRegionImage image = imageService.render(pdf, page, bbox, artifact.documentHash());
         String regionKey = FormulaRegionGeometry.regionKey(page, bbox);
 
         PaperFormulaRegionRecord existing = regionMapper.selectCurrent(

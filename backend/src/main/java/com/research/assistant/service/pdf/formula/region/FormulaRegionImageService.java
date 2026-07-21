@@ -1,6 +1,8 @@
 package com.research.assistant.service.pdf.formula.region;
 
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
+import com.research.assistant.service.pdf.layout.PdfDocumentFingerprint;
+import com.research.assistant.service.pdf.layout.StaleLayoutArtifactException;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.rendering.ImageType;
@@ -24,7 +26,16 @@ public class FormulaRegionImageService {
     static final int MAX_HEIGHT = 1000;
 
     FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box) {
+        return render(pdf, pageNumber, box, "");
+    }
+
+    FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box,
+                              String expectedDocumentHash) {
         FormulaRegionGeometry.validate(box);
+        if (expectedDocumentHash != null && !expectedDocumentHash.isBlank()
+                && !expectedDocumentHash.equals(PdfDocumentFingerprint.sha256(pdf))) {
+            throw new StaleLayoutArtifactException();
+        }
         try (PDDocument document = Loader.loadPDF(pdf)) {
             if (pageNumber < 1 || pageNumber > document.getNumberOfPages()) {
                 throw new IllegalArgumentException("公式页码超出 PDF 范围");

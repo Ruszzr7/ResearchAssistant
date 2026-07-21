@@ -1,3 +1,8 @@
+import {
+  denormalizeViewportRectangle,
+  normalizeViewportRectangle,
+} from '@/utils/pdfCoordinates.js'
+
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value))
 }
@@ -14,20 +19,9 @@ export function normalizedFormulaRegion(start, end, pageRect, minimumPixels = 8)
   const width = Math.abs(endX - startX)
   const height = Math.abs(endY - startY)
   if (width < minimumPixels || height < minimumPixels) return null
-  return {
-    x: left / pageRect.width,
-    y: top / pageRect.height,
-    width: width / pageRect.width,
-    height: height / pageRect.height,
-  }
+  return normalizeViewportRectangle({ x: left, y: top, width, height }, pageRect)
 }
 
 export function formulaRegionSvgRect(box, pageWidth, pageHeight) {
-  if (!box || !pageWidth || !pageHeight) return null
-  return {
-    x: box.x * pageWidth,
-    y: box.y * pageHeight,
-    width: box.width * pageWidth,
-    height: box.height * pageHeight,
-  }
+  return denormalizeViewportRectangle(box, { width: pageWidth, height: pageHeight })
 }

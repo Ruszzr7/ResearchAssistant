@@ -48,7 +48,7 @@ class FormulaRegionServiceTest {
         paper.setPdfPath("paper.pdf");
         when(paperMapper.selectById(7L)).thenReturn(paper);
         when(fileResolver.resolveRequired("paper.pdf")).thenReturn(new File("paper.pdf"));
-        when(imageService.render(any(), any(Integer.class), any()))
+        when(imageService.render(any(), any(Integer.class), any(), any()))
                 .thenReturn(new FormulaRegionImage(new byte[]{1, 2, 3}, 100, 30));
         doAnswer(invocation -> {
             PaperFormulaRegionRecord record = invocation.getArgument(0);

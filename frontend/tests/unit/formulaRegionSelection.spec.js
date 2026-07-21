@@ -27,8 +27,26 @@ describe('formula region selection', () => {
       { x: 10, y: 10 }, { x: 14, y: 16 },
       { left: 0, top: 0, width: 600, height: 800 },
     )).toBeNull()
-    expect(formulaRegionSvgRect(
+    const svgRect = formulaRegionSvgRect(
       { x: 0.2, y: 0.25, width: 0.5, height: 0.1 }, 600, 800,
-    )).toEqual({ x: 120, y: 200, width: 300, height: 80 })
+    )
+    expect(svgRect.x).toBeCloseTo(120)
+    expect(svgRect.y).toBeCloseTo(200)
+    expect(svgRect.width).toBeCloseTo(300)
+    expect(svgRect.height).toBeCloseTo(80)
+  })
+
+  it('roundtrips a rotated viewport using its rendered dimensions', () => {
+    const pageRect = { left: 40, top: 60, width: 800, height: 600, rotation: 90 }
+    const normalized = normalizedFormulaRegion(
+      { x: 560, y: 120 }, { x: 680, y: 300 }, pageRect,
+    )
+
+    expect(normalized).toEqual({ x: 0.65, y: 0.1, width: 0.15, height: 0.3 })
+    const restored = formulaRegionSvgRect(normalized, pageRect.width, pageRect.height)
+    expect(restored.x).toBeCloseTo(520)
+    expect(restored.y).toBeCloseTo(60)
+    expect(restored.width).toBeCloseTo(120)
+    expect(restored.height).toBeCloseTo(180)
   })
 })

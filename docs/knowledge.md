@@ -152,6 +152,7 @@
 - 论文记忆的缓存身份至少包含 `paperId + PDF SHA-256 + layout parser version + memory schema version`。文件替换、解析规则升级或记忆 schema 升级都应自然生成新版本；GROBID 只保留为可选增强器，默认部署不能要求额外服务或云解析 API。
 - PDF.js 的 `textContent.items` 与 TextLayer DOM 不是一一对应：空字符串 item 会保留在源码数组中但不生成 span，空白字符串则仍生成 span。因此统一文字映射必须同时维护原始 `itemIndex` 和渲染 `spanIndex`，搜索、选区和字符级高亮分别使用对应身份。
 - 可恢复的前端文字锚点应把 PDF 指纹、页码、原始 itemIndex、spanIndex 与字符偏移和 viewport 归一化几何一起保存。重新渲染可用字符范围恢复原文，PDF 指纹或索引结构不匹配时必须拒绝恢复；手动拖动标记范围后应清除已失真的字符锚点，而不是继续声称其精确。
+- 公式框选应直接规范化 PDF.js 当前 viewport 的左上角坐标；页面旋转已经体现在 viewport 宽高和渲染方向中，后端 PDFRenderer 以相同可见方向渲染后即可按归一化矩形裁剪。裁剪前必须复核原文件 SHA-256 与版面产物一致，避免文件替换竞态把新图像绑定到旧证据版本。
 
 ## 8. 安全、部署与验证
 
