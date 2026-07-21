@@ -30,6 +30,27 @@ export function summarizePdfSearchIndex(records = []) {
   return summary
 }
 
+export function describePdfSearchState({
+  query = '',
+  resultCount = 0,
+  activeResultIndex = -1,
+  loading = false,
+  progress = 0,
+  totalPages = 0,
+  summary = {},
+} = {}) {
+  if (loading) return `正在建立索引 ${progress}/${totalPages}`
+  if (!String(query || '').trim()) return ''
+  if (resultCount > 0) return `${Math.max(0, activeResultIndex) + 1} / ${resultCount}`
+  const ready = Math.max(0, Number(summary.ready) || 0)
+  const failed = Math.max(0, Number(summary.failed) || 0)
+  const noTextLayer = Math.max(0, Number(summary.noTextLayer) || 0)
+  if (ready === 0 && failed > 0) return `PDF 文字提取失败（${failed} 页）`
+  if (ready === 0 && noTextLayer > 0) return '当前 PDF 没有可搜索文字'
+  if (failed > 0) return `已索引页面未找到；${failed} 页提取失败`
+  return '未找到匹配内容'
+}
+
 export function findPdfSearchMatches(records, query, limit = MAX_RESULTS) {
   const needle = normalizePdfSearchNeedle(normalizePdfSearchQuery(query))
   if (!needle) return []

@@ -126,11 +126,7 @@
           <button v-if="searchQuery" type="button" aria-label="清除搜索" title="清除搜索" @click="clearPdfSearch">×</button>
         </div>
         <div class="pdf-search-summary">
-          <span v-if="searchIndexLoading">正在建立索引 {{ searchIndexProgress }}/{{ renderedPages.length }}</span>
-          <span v-else-if="searchQuery && searchResults.length">{{ activeSearchResultIndex + 1 }} / {{ searchResults.length }}</span>
-          <span v-else-if="searchQuery && searchIndexSummary.ready === 0 && searchIndexSummary.failed > 0">PDF 文字提取失败</span>
-          <span v-else-if="searchQuery && searchIndexSummary.ready === 0 && searchIndexSummary.noTextLayer > 0">当前 PDF 没有可搜索文字</span>
-          <span v-else-if="searchQuery">未找到匹配内容</span>
+          <span v-if="searchStatusText">{{ searchStatusText }}</span>
           <button
             v-if="!searchIndexLoading && searchIndexSummary.failed > 0"
             type="button"
@@ -544,6 +540,7 @@ import { formulaRegionSvgRect, normalizedFormulaRegion } from '@/utils/formulaRe
 import {
   buildFailedPdfPageSearchRecord,
   buildPdfPageSearchRecord,
+  describePdfSearchState,
   findPdfSearchMatches,
   summarizePdfSearchIndex,
 } from '@/utils/pdfSearch.js'
@@ -621,6 +618,15 @@ const searchIndexSummary = computed(() => {
   void searchIndexProgress.value
   return summarizePdfSearchIndex([...pageSearchRecords.values()])
 })
+const searchStatusText = computed(() => describePdfSearchState({
+  query: searchQuery.value,
+  resultCount: searchResults.value.length,
+  activeResultIndex: activeSearchResultIndex.value,
+  loading: searchIndexLoading.value,
+  progress: searchIndexProgress.value,
+  totalPages: renderedPages.value.length,
+  summary: searchIndexSummary.value,
+}))
 const commentPanelVisible = ref(false)
 const pendingTextSelection = ref(null)
 const selectionAnchor = ref(null)

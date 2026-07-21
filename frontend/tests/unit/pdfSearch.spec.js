@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildFailedPdfPageSearchRecord,
   buildPdfPageSearchRecord,
+  describePdfSearchState,
   findPdfSearchMatches,
   normalizePdfSearchQuery,
   summarizePdfSearchIndex,
@@ -79,6 +80,21 @@ describe('PDF document search', () => {
       buildFailedPdfPageSearchRecord(3, 'TEXT_EXTRACTION_FAILED'),
     ])
     expect(summary).toEqual({ ready: 1, noTextLayer: 1, failed: 1 })
+  })
+
+  it('does not report a definitive zero result when part of the index failed', () => {
+    expect(describePdfSearchState({
+      query: 'federated learning',
+      summary: { ready: 8, noTextLayer: 0, failed: 2 },
+    })).toBe('已索引页面未找到；2 页提取失败')
+    expect(describePdfSearchState({
+      query: 'federated learning',
+      summary: { ready: 0, noTextLayer: 9, failed: 0 },
+    })).toBe('当前 PDF 没有可搜索文字')
+    expect(describePdfSearchState({
+      query: 'federated learning',
+      summary: { ready: 0, noTextLayer: 0, failed: 3 },
+    })).toBe('PDF 文字提取失败（3 页）')
   })
 
   it('returns no matches for an empty query', () => {

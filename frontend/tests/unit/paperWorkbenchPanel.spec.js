@@ -155,6 +155,18 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(wrapper.text()).toContain('该方法解决估计问题')
   })
 
+  it('distinguishes a recoverable region fallback from a precise text anchor', async () => {
+    const wrapper = mountPanel({
+      selection: textSelection,
+      selectionAnchor: { ...textAnchor, kind: 'REGION', confidence: 0.42 },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.warning-state').text()).toContain('只能定位到页面区域')
+    expect(wrapper.get('.warning-state').text()).toContain('重新选择')
+    expect(wrapper.get('.warning-state').text()).toContain('回原页核对')
+  })
+
   it('keeps follow-up questions in one grounded conversation', async () => {
     mocks.state.run
       .mockResolvedValueOnce({
