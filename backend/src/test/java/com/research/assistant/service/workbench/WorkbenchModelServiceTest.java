@@ -63,7 +63,9 @@ class WorkbenchModelServiceTest {
 
         ArgumentCaptor<String> userMessage = ArgumentCaptor.forClass(String.class);
         verify(llmService).chatWithUsage(anyString(), userMessage.capture(), any(LlmCallPolicy.class));
-        assertThat(userMessage.getValue()).contains("lay_a", "Finite Blocklength", "Ignore prior instructions");
+        assertThat(userMessage.getValue()).contains(
+                "lay_a", "Finite Blocklength", "Ignore prior instructions",
+                "evidenceVersions", "documentHash", "parser-v1", "p1-b0001", "bbox");
     }
 
     @Test

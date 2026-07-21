@@ -160,7 +160,7 @@ class WorkbenchExecutionEngineTest {
                 .contains("同一论文与同一对话的服务端历史", "它处理有限块长可靠性",
                         "当前问题：它和全文实验结果有什么关系？");
         assertThat(traceService.requireTrace(planned.runId()).steps().get(2).inputSummary().toString())
-                .contains("paper-context-v1", "conversationTurns=1", "sourcePriority",
+                .contains(PaperContextSnapshot.SCHEMA_VERSION, "conversationTurns=1", "sourcePriority",
                         "modelContextCharacters");
     }
 
@@ -326,7 +326,8 @@ class WorkbenchExecutionEngineTest {
         return new PaperContextSnapshot(
                 PaperContextSnapshot.SCHEMA_VERSION, version.paperId(), version.documentHash(),
                 version.parserVersion(), trace.invocation().conversationId(), trace.invocation().question(),
-                "selected", List.of("p1-b0001"), "", turns, List.of(),
+                "selected", List.of("p1-b0001"),
+                PaperContextSnapshot.selectionFingerprint(trace.invocation().selectionAnchor()), "", turns, List.of(),
                 List.of("CURRENT_QUESTION", "CURRENT_SELECTION_EVIDENCE"),
                 new PaperContextSnapshot.Budget(8_000, 8, 30, 0, 0), false, Instant.now());
     }

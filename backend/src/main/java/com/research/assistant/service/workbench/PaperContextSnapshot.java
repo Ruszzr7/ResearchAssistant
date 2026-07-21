@@ -1,6 +1,12 @@
 package com.research.assistant.service.workbench;
 
+import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
+import com.research.assistant.service.pdf.layout.SelectionAnchor;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 
 /** Persisted, bounded context assembled by the server for one selection question. */
@@ -12,6 +18,7 @@ public record PaperContextSnapshot(String schemaVersion,
                                    String question,
                                    String selectedText,
                                    List<String> selectedBlockIds,
+                                   String selectionFingerprint,
                                    String profileContext,
                                    List<ConversationItem> conversationTurns,
                                    List<ObservationItem> relevantObservations,
@@ -20,7 +27,8 @@ public record PaperContextSnapshot(String schemaVersion,
                                    boolean truncated,
                                    Instant assembledAt) {
 
-    public static final String SCHEMA_VERSION = "paper-context-v1";
+    public static final String SCHEMA_VERSION = "paper-context-v2";
+    public static final int MAX_RETRIEVAL_QUERY_CHARACTERS = 6_000;
 
     public PaperContextSnapshot {
         schemaVersion = safe(schemaVersion, SCHEMA_VERSION);
@@ -30,6 +38,7 @@ public record PaperContextSnapshot(String schemaVersion,
         question = safe(question, "");
         selectedText = safe(selectedText, "");
         selectedBlockIds = copy(selectedBlockIds);
+        selectionFingerprint = safe(selectionFingerprint, "");
         profileContext = safe(profileContext, "");
         conversationTurns = copy(conversationTurns);
         relevantObservations = copy(relevantObservations);
@@ -38,7 +47,7 @@ public record PaperContextSnapshot(String schemaVersion,
         assembledAt = assembledAt == null ? Instant.now() : assembledAt;
     }
 
-    public boolean matches(WorkbenchRunTrace trace) {
+    public boolean matches(WorkbenchRunTrace trace, SelectionAnchor anchor) {
         if (trace == null || !SCHEMA_VERSION.equals(schemaVersion)
                 || trace.invocation().paperIds().size() != 1
                 || trace.artifactVersions().isEmpty()) return false;
@@ -47,7 +56,8 @@ public record PaperContextSnapshot(String schemaVersion,
                 && documentHash.equals(version.documentHash())
                 && parserVersion.equals(version.parserVersion())
                 && question.equals(trace.invocation().question())
-                && conversationId.equals(trace.invocation().conversationId());
+                && conversationId.equals(trace.invocation().conversationId())
+                && selectionFingerprint.equals(selectionFingerprint(anchor));
     }
 
     /** Auxiliary memory is explicitly non-evidential; current evidence remains the only citation source. */
@@ -57,13 +67,18 @@ public record PaperContextSnapshot(String schemaVersion,
 
     /** Renders the highest-priority auxiliary sources inside a separate model-context budget. */
     public String modelQuestion(int maximumCharacters) {
-        int safeMaximum = Math.max(512, maximumCharacters);
-        StringBuilder value = new StringBuilder();
-        value.append("上下文使用规则：当前 evidence（其中 selected=true 的选区证据优先）是论文事实的唯一回答依据；")
-                .append("下面的对话、论文画像和旧观察只用于理解追问与检索方向，不能替代本轮 evidence 或作为引用。")
-                .append("若内容冲突，以当前 PDF 版本和本轮 evidence 为准。\n\n");
-        String suffix = "\n当前问题：" + question;
-        int auxiliaryLimit = Math.max(0, safeMaximum - value.length() - suffix.length());
+        int safeMaximum = Math.max(0, maximumCharacters);
+        if (safeMaximum == 0) return "";
+        String rules = "上下文规则：仅当前 evidence 可支持论文事实，selected=true 的选区证据优先；"
+                + "历史、论文画像和旧观察只帮助理解与检索。冲突时以当前 PDF 版本的本轮 evidence 为准。\n\n";
+        String questionLabel = "\n当前问题：";
+        if (rules.length() + questionLabel.length() >= safeMaximum) {
+            return bounded("当前问题：" + question, safeMaximum);
+        }
+        int questionLimit = safeMaximum - rules.length() - questionLabel.length();
+        String renderedQuestion = bounded(question, questionLimit);
+        String suffix = questionLabel + renderedQuestion;
+        int auxiliaryLimit = Math.max(0, safeMaximum - rules.length() - suffix.length());
         StringBuilder auxiliary = new StringBuilder();
         if (!conversationTurns.isEmpty()) {
             appendWithin(auxiliary, "同一论文与同一对话的服务端历史：\n", auxiliaryLimit);
@@ -96,24 +111,58 @@ public record PaperContextSnapshot(String schemaVersion,
             }
             appendWithin(auxiliary, "\n", auxiliaryLimit);
         }
-        value.append(auxiliary).append(suffix);
-        return value.toString();
+        return rules + auxiliary + suffix;
     }
 
     /** Retrieval may use memories as query expansion, but never returns them as answer evidence. */
     public String retrievalQuery() {
-        StringBuilder value = new StringBuilder(question);
-        if (!selectedText.isBlank()) value.append("\n当前选区：").append(selectedText);
+        return retrievalQuery(MAX_RETRIEVAL_QUERY_CHARACTERS);
+    }
+
+    public String retrievalQuery(int maximumCharacters) {
+        int safeMaximum = Math.max(0, maximumCharacters);
+        StringBuilder value = new StringBuilder();
+        appendWithin(value, question, safeMaximum);
+        if (!selectedText.isBlank()) appendWithin(value, "\n当前选区：" + selectedText, safeMaximum);
         for (ConversationItem item : conversationTurns.stream()
                 .skip(Math.max(0, conversationTurns.size() - 2L)).toList()) {
-            value.append("\n历史追问：").append(item.question())
-                    .append(" ").append(item.answer());
+            appendWithin(value, "\n历史追问：" + item.question() + " " + item.answer(), safeMaximum);
         }
         for (ObservationItem item : relevantObservations) {
-            value.append("\n相关观察：").append(item.claimText());
+            appendWithin(value, "\n相关观察：" + item.claimText(), safeMaximum);
         }
-        if (!profileContext.isBlank()) value.append("\n论文画像：").append(profileContext);
+        if (!profileContext.isBlank()) appendWithin(value, "\n论文画像：" + profileContext, safeMaximum);
         return value.toString();
+    }
+
+    /** Stable identity of the canonical, version-bound selection used to assemble this snapshot. */
+    public static String selectionFingerprint(SelectionAnchor anchor) {
+        if (anchor == null) return "none";
+        StringBuilder canonical = new StringBuilder();
+        component(canonical, anchor.paperId() == null ? "" : anchor.paperId().toString());
+        component(canonical, Integer.toString(anchor.page()));
+        component(canonical, anchor.kind().name());
+        component(canonical, anchor.documentHash());
+        component(canonical, anchor.parserVersion());
+        component(canonical, anchor.anchorText());
+        for (String blockId : anchor.blockIds()) component(canonical, blockId);
+        for (NormalizedBoundingBox box : anchor.boxes()) {
+            component(canonical, Double.toHexString(box.x()));
+            component(canonical, Double.toHexString(box.y()));
+            component(canonical, Double.toHexString(box.width()));
+            component(canonical, Double.toHexString(box.height()));
+        }
+        if (anchor.tokenRange() != null) {
+            component(canonical, Integer.toString(anchor.tokenRange().start()));
+            component(canonical, Integer.toString(anchor.tokenRange().end()));
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception exception) {
+            throw new IllegalStateException("SHA-256 不可用", exception);
+        }
     }
 
     public record ConversationItem(long turnId, String question, String answer) {
@@ -158,6 +207,17 @@ public record PaperContextSnapshot(String schemaVersion,
 
     private static <T> List<T> copy(List<T> values) {
         return values == null ? List.of() : List.copyOf(values);
+    }
+
+    private static String bounded(String value, int maximumCharacters) {
+        String normalized = value == null ? "" : value;
+        return normalized.length() <= maximumCharacters
+                ? normalized : normalized.substring(0, maximumCharacters);
+    }
+
+    private static void component(StringBuilder target, String value) {
+        String safeValue = value == null ? "" : value;
+        target.append(safeValue.length()).append(':').append(safeValue).append('|');
     }
 
     private static void appendWithin(StringBuilder target, String value, int maximumCharacters) {

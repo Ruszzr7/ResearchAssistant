@@ -94,6 +94,7 @@ class PaperContextAssemblerTest {
                 .endsWith("当前问题：它有什么作用？");
         assertThat(snapshot.retrievalQuery())
                 .contains("当前选区：selected text", "历史追问：", "相关观察：");
+        assertThat(snapshot.selectionFingerprint()).hasSize(64);
         verify(traceService).saveContextSnapshot(
                 eq(trace.runId()), eq(PaperContextSnapshot.SCHEMA_VERSION), any(PaperContextSnapshot.class));
     }
@@ -103,7 +104,8 @@ class PaperContextAssemblerTest {
         WorkbenchRunTrace trace = trace("run-retry");
         PaperContextSnapshot frozen = new PaperContextSnapshot(
                 PaperContextSnapshot.SCHEMA_VERSION, 7L, HASH, PARSER, "session-91",
-                "它有什么作用？", "selected text", List.of("p1-b0001"), "frozen profile",
+                "它有什么作用？", "selected text", List.of("p1-b0001"),
+                PaperContextSnapshot.selectionFingerprint(trace.invocation().selectionAnchor()), "frozen profile",
                 List.of(), List.of(), List.of("CURRENT_QUESTION"),
                 new PaperContextSnapshot.Budget(8_000, 13, 0, 0, 14),
                 false, Instant.parse("2026-07-19T00:00:00Z"));
@@ -113,13 +115,62 @@ class PaperContextAssemblerTest {
         assertThat(assembler.assemble(trace, trace.invocation().selectionAnchor())).isSameAs(frozen);
     }
 
+    @Test
+    void rejectsFrozenSnapshotWhenCanonicalSelectionChanges() {
+        WorkbenchRunTrace trace = trace("run-anchor-change");
+        PaperContextSnapshot frozen = new PaperContextSnapshot(
+                PaperContextSnapshot.SCHEMA_VERSION, 7L, HASH, PARSER, "session-91",
+                "它有什么作用？", "old selection", List.of("p1-b0001"), "old-fingerprint", "",
+                List.of(), List.of(), List.of("CURRENT_QUESTION"),
+                new PaperContextSnapshot.Budget(8_000, 13, 0, 0, 0),
+                false, Instant.parse("2026-07-19T00:00:00Z"));
+        when(traceService.readContextSnapshot(trace.runId(), PaperContextSnapshot.class))
+                .thenReturn(frozen);
+        when(observationService.recentConversation(any(Long.class), anyString(), anyString(), anyString(), any(Integer.class)))
+                .thenReturn(List.of());
+        when(observationService.relevantObservations(
+                any(Long.class), anyString(), anyString(), anyString(), anyString(), any(Integer.class)))
+                .thenReturn(List.of());
+
+        PaperContextSnapshot rebuilt = assembler.assemble(trace, trace.invocation().selectionAnchor());
+
+        assertThat(rebuilt).isNotSameAs(frozen);
+        assertThat(rebuilt.selectedText()).isEqualTo("selected text");
+        assertThat(rebuilt.selectionFingerprint()).isEqualTo(
+                PaperContextSnapshot.selectionFingerprint(trace.invocation().selectionAnchor()));
+    }
+
+    @Test
+    void boundsLongQuestionsAndRetrievalExpansionWithoutDroppingSelection() {
+        WorkbenchRunTrace trace = trace("run-bounds", "q".repeat(4_000));
+        when(traceService.readContextSnapshot(trace.runId(), PaperContextSnapshot.class)).thenReturn(null);
+        when(observationService.recentConversation(
+                7L, "session-91", HASH, PARSER, 8)).thenReturn(List.of());
+        when(observationService.relevantObservations(
+                eq(7L), eq(HASH), eq(PARSER), anyString(), eq("session-91"), eq(8)))
+                .thenReturn(List.of());
+
+        PaperContextSnapshot snapshot = assembler.assemble(trace, trace.invocation().selectionAnchor());
+
+        assertThat(snapshot.modelQuestion(1_200)).hasSizeLessThanOrEqualTo(1_200)
+                .contains("当前问题：");
+        assertThat(snapshot.retrievalQuery())
+                .hasSizeLessThanOrEqualTo(PaperContextSnapshot.MAX_RETRIEVAL_QUERY_CHARACTERS)
+                .contains("当前选区：selected text");
+        assertThat(snapshot.retrievalQuery(64)).hasSizeLessThanOrEqualTo(64);
+    }
+
     private WorkbenchRunTrace trace(String runId) {
+        return trace(runId, "它有什么作用？");
+    }
+
+    private WorkbenchRunTrace trace(String runId, String question) {
         SelectionAnchor anchor = new SelectionAnchor(
                 7L, 1, List.of(new NormalizedBoundingBox(0.1, 0.2, 0.3, 0.04)),
                 "selected text", List.of("p1-b0001"), null,
                 SelectionAnchorKind.TEXT, 0.9, HASH, PARSER);
         WorkbenchInvocation invocation = new WorkbenchInvocation(
-                List.of(7L), "它有什么作用？", WorkbenchIntent.ASK_SELECTION,
+                List.of(7L), question, WorkbenchIntent.ASK_SELECTION,
                 WorkbenchPlan.Scope.SELECTION, anchor, 6, 10_000,
                 "", "session-91");
         WorkbenchPlan plan = new WorkbenchRuleRouter().route(invocation);

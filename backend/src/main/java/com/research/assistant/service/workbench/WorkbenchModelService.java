@@ -118,6 +118,7 @@ public class WorkbenchModelService {
         payload.put("instruction", workflowInstruction(workflow));
         payload.put("question", question == null ? "" : question);
         payload.put("paperTitles", paperTitles == null ? Map.of() : paperTitles);
+        payload.put("evidenceVersions", evidenceVersions(evidence));
         payload.put("evidence", evidence == null ? List.of() : evidence.stream()
                 .map(item -> evidencePayload(item, compact)).toList());
         if (compact) {
@@ -156,9 +157,13 @@ public class WorkbenchModelService {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("evidenceId", item.evidenceId());
         value.put("paperId", item.paperId());
+        value.put("blockId", item.blockId());
         value.put("page", item.page());
+        value.put("bbox", item.bbox());
+        value.put("readingOrder", item.readingOrder());
         value.put("selected", item.selected());
         value.put("role", item.role().name());
+        value.put("confidence", item.confidence());
         if (!compact) value.put("sectionPath", item.sectionPath());
         value.put("text", bounded(item.text(), compact ? 1_600 : 4_000));
         value.put("contentMode", item.contentMode().name());
@@ -166,6 +171,22 @@ public class WorkbenchModelService {
             value.put("structuredContent", bounded(item.structuredContent(), compact ? 1_600 : 4_000));
         }
         return value;
+    }
+
+    private List<Map<String, Object>> evidenceVersions(List<LayoutEvidence> evidence) {
+        if (evidence == null || evidence.isEmpty()) return List.of();
+        Map<String, Map<String, Object>> versions = new LinkedHashMap<>();
+        for (LayoutEvidence item : evidence) {
+            String key = item.paperId() + "|" + item.documentHash() + "|" + item.parserVersion();
+            versions.computeIfAbsent(key, ignored -> {
+                Map<String, Object> version = new LinkedHashMap<>();
+                version.put("paperId", item.paperId());
+                version.put("documentHash", item.documentHash());
+                version.put("parserVersion", item.parserVersion());
+                return version;
+            });
+        }
+        return List.copyOf(versions.values());
     }
 
     private Attempt invoke(WorkbenchPlan.Workflow workflow,

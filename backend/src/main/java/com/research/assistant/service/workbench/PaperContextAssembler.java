@@ -51,12 +51,12 @@ public class PaperContextAssembler {
     }
 
     public PaperContextSnapshot assemble(WorkbenchRunTrace trace, SelectionAnchor anchor) {
-        PaperContextSnapshot cached = traceService.readContextSnapshot(
-                trace.runId(), PaperContextSnapshot.class);
-        if (cached != null && cached.matches(trace)) return cached;
         if (trace.invocation().paperIds().size() != 1 || trace.artifactVersions().size() != 1) {
             throw new IllegalArgumentException("选区上下文只支持单篇论文");
         }
+        PaperContextSnapshot cached = traceService.readContextSnapshot(
+                trace.runId(), PaperContextSnapshot.class);
+        if (cached != null && cached.matches(trace, anchor)) return cached;
         long paperId = trace.invocation().paperIds().get(0);
         WorkbenchPlan.ArtifactVersion version = trace.artifactVersions().get(0);
         String selected = bounded(anchor == null ? "" : anchor.anchorText(), MAX_SELECTION_CHARACTERS);
@@ -82,7 +82,8 @@ public class PaperContextAssembler {
                 PaperContextSnapshot.SCHEMA_VERSION, paperId, version.documentHash(),
                 version.parserVersion(), trace.invocation().conversationId(),
                 trace.invocation().question(), selected,
-                anchor == null ? List.of() : anchor.blockIds(), profile.value(),
+                anchor == null ? List.of() : anchor.blockIds(),
+                PaperContextSnapshot.selectionFingerprint(anchor), profile.value(),
                 turns.items(), observations.items(), SOURCE_PRIORITY,
                 new PaperContextSnapshot.Budget(
                         MAX_CONTEXT_CHARACTERS, selected.length(), turns.characters(),

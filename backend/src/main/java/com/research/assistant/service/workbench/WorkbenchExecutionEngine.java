@@ -332,7 +332,9 @@ public class WorkbenchExecutionEngine {
     }
 
     private int selectionModelContextBudget(WorkbenchRunTrace trace) {
-        return Math.max(1_200, Math.min(2_000, trace.plan().tokenBudget() / 5));
+        int auxiliaryCharacters = Math.max(1_200, Math.min(2_000, trace.plan().tokenBudget() / 5));
+        int currentQuestionCharacters = trace.invocation().question().length();
+        return Math.min(6_500, currentQuestionCharacters + auxiliaryCharacters + 256);
     }
 
     private Map<String, Object> modelSuccessSummary(WorkbenchModelService.ModelCall call) {
