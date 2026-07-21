@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "searchCases": [
+    {
+      "id": "ieee-whitespace-preserves-original-item-index",
+      "page": 1,
+      "items": [
+        { "str": "1518" },
+        { "str": " " },
+        { "str": "IEEE WIRELESS COMMUNICATIONS LETTERS, VOL. 13, NO. 5, MAY 2024" },
+        { "str": "Rate-Splitting Multiple Access With Finite Blocklength" },
+        { "str": "and High Mobility for URLLC Transmissions" }
+      ],
+      "query": "Rate-Splitting Multiple Access",
+      "expected": {
+        "status": "READY",
+        "page": 1,
+        "itemIndexes": [3],
+        "exactText": "Rate-Splitting Multiple Access"
+      }
+    },
+    {
+      "id": "split-word-hyphen-and-ligature",
+      "page": 5,
+      "items": [
+        { "str": "micro" },
+        { "str": " " },
+        { "str": "scope and multi-" },
+        { "str": "modal ﬁne-tuning" }
+      ],
+      "query": "multimodal fine tuning",
+      "expected": {
+        "status": "READY",
+        "page": 5,
+        "itemIndexes": [2, 3],
+        "exactText": "multi-modal ﬁne-tuning"
+      }
+    },
+    {
+      "id": "page-without-text-layer",
+      "page": 1,
+      "items": [],
+      "query": "unavailable",
+      "expected": {
+        "status": "NO_TEXT_LAYER",
+        "page": 1,
+        "itemIndexes": [],
+        "exactText": ""
+      }
+    }
+  ],
+  "selectionCases": [
+    {
+      "id": "same-column-multiline-selection",
+      "page": 1,
+      "pageSize": { "width": 918, "height": 1188, "rotation": 0, "scale": 1.5 },
+      "runs": [
+        { "itemIndex": 10, "text": "The proposed method builds", "column": 0, "rect": { "left": 80, "top": 220, "right": 310, "bottom": 238 } },
+        { "itemIndex": 11, "text": "stable selection anchors.", "column": 0, "rect": { "left": 80, "top": 242, "right": 286, "bottom": 260 } },
+        { "itemIndex": 12, "text": "Unrelated right column.", "column": 1, "rect": { "left": 520, "top": 220, "right": 730, "bottom": 238 } }
+      ],
+      "selection": { "startItemIndex": 10, "startOffset": 4, "endItemIndex": 11, "endOffset": 16 },
+      "expected": {
+        "accepted": true,
+        "text": "proposed method builds stable selection",
+        "itemIndexes": [10, 11],
+        "column": 0
+      }
+    },
+    {
+      "id": "cross-column-selection-is-rejected",
+      "page": 1,
+      "pageSize": { "width": 918, "height": 1188, "rotation": 0, "scale": 1.5 },
+      "runs": [
+        { "itemIndex": 20, "text": "Left column text.", "column": 0, "rect": { "left": 80, "top": 300, "right": 260, "bottom": 318 } },
+        { "itemIndex": 21, "text": "Right column text.", "column": 1, "rect": { "left": 520, "top": 300, "right": 710, "bottom": 318 } }
+      ],
+      "selection": { "startItemIndex": 20, "startOffset": 0, "endItemIndex": 21, "endOffset": 5 },
+      "expected": {
+        "accepted": false,
+        "reason": "CROSS_COLUMN",
+        "itemIndexes": []
+      }
+    }
+  ],
+  "formulaCases": [
+    {
+      "id": "viewport-rectangle-roundtrip",
+      "page": 3,
+      "viewport": { "width": 918, "height": 1188, "rotation": 0, "scale": 1.5 },
+      "cssRectangle": { "x": 183.6, "y": 356.4, "width": 367.2, "height": 118.8 },
+      "expectedNormalizedBox": { "x": 0.2, "y": 0.3, "width": 0.4, "height": 0.1 },
+      "maximumRoundtripError": 0.000001
+    },
+    {
+      "id": "zoom-does-not-change-normalized-region",
+      "page": 3,
+      "viewports": [
+        { "width": 612, "height": 792, "rotation": 0, "scale": 1.0 },
+        { "width": 1224, "height": 1584, "rotation": 0, "scale": 2.0 }
+      ],
+      "normalizedBox": { "x": 0.15, "y": 0.22, "width": 0.5, "height": 0.08 },
+      "maximumRoundtripError": 0.000001
+    }
+  ]
+}
