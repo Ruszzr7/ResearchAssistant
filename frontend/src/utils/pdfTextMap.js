@@ -9,23 +9,27 @@ const SEARCH_HYPHENS = new Set(['-', '‐', '‑'])
 
 /**
  * Build the single page-local text contract shared by search and selection.
- * `itemIndex` always refers to the original PDF.js textContent.items position;
- * whitespace-only items remain represented so DOM/TextLayer indexes never drift.
+ * `itemIndex` always refers to the original PDF.js textContent.items position.
+ * `spanIndex` follows PDF.js TextLayer: non-empty items (including whitespace)
+ * create DOM spans, while empty-string items only remain in the source contract.
  */
 export function buildPdfPageTextMap(page, items = [], metadata = {}) {
   const sourceItems = Array.isArray(items) ? items : []
   const runs = []
   let sourceText = ''
   let previousHasEOL = false
+  let nextSpanIndex = 0
 
   sourceItems.forEach((item, itemIndex) => {
     const rawText = String(item?.str || '')
+    const spanIndex = rawText.length > 0 ? nextSpanIndex++ : null
     const separator = sourceText ? (previousHasEOL ? '\n' : ' ') : ''
     sourceText += separator
     const sourceStart = sourceText.length
     sourceText += rawText
     runs.push({
       itemIndex,
+      spanIndex,
       rawText,
       sourceStart,
       sourceEnd: sourceText.length,
@@ -87,6 +91,7 @@ export function buildPdfSearchProjectionFromRuns(runs = []) {
         text += character
         charMap.push({
           itemIndex: Number(run?.itemIndex) || 0,
+          spanIndex: Number.isInteger(run?.spanIndex) ? run.spanIndex : null,
           itemOffset,
           sourceOffset: (Number(run?.sourceStart) || 0) + itemOffset,
         })
@@ -111,6 +116,7 @@ export function projectionRangeToItemRanges(charMap, start, end) {
     }
     ranges.push({
       itemIndex: mapped.itemIndex,
+      spanIndex: mapped.spanIndex,
       startOffset: mapped.itemOffset,
       endOffset: mapped.itemOffset + 1,
     })

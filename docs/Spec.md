@@ -42,7 +42,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 
 - 文件夹树、标签、多条件分页筛选、排序、置顶、批量移动/删除。
 - PDF 上传、浏览器预览、DOI / arXiv 元数据补全、文本/公式/图表提取。
-- PDF.js 阅读器默认使用文字选择，支持高亮、下划线、选区笔记、页面批注、全文搜索与公式区域框选；笔记和批注具有不同图标、固定内容锚点及可拖动显示位置。
+- PDF.js 阅读器默认使用文字选择，支持高亮、下划线、选区笔记、选区批注、全文搜索与公式区域框选；笔记和批注具有不同图标、固定内容锚点及可拖动显示位置，批注只在批注列表打开时展示。
 - 右侧批注列表支持跳转、完成和删除；完成项以绿色显示。高亮/下划线直接显示范围拖柄与删除 ×，不再提供独立“调整”模式。
 - 论文助手提供“论文精读 / 缺陷分析 / 论文对比”三项入口；当前完成论文精读，后两项明确保留为后续范围。
 - 阅读状态、页码和阅读时长；阅读计划模块已移除。
@@ -90,7 +90,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 
 ## 6. 数据与安全约定
 
-- 正式运行由 `backend/src/main/resources/db/migration` 下的 Flyway 迁移负责初始化和升级；`V12.1` 是无损基线，`V13` 增加 RAG 一致性审计表，`V13.1` 修复旧库实际 schema 缺失。`schema.sql` 与 `schema-upgrade-*.sql` 仅作历史参考。
+- 正式运行只由 `backend/src/main/resources/db/migration` 下的 Flyway 迁移负责初始化和升级；`V12.1` 是无损基线，`V13` 增加 RAG 一致性审计表，`V13.1` 修复旧库实际 schema 缺失。项目不再维护第二套手工建表或升级脚本。
 - 已有数据库切换到 Flyway 前必须备份并核验 schema；只允许在确认数据库对应基线后临时使用 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true`，禁止对未知版本数据库盲目 baseline。
 - RAG 一致性巡检通过 `/api/rag/consistency` 比对 MySQL active 指针、active version 元数据和 active chunk 数量，审计写入 `rag_consistency_audit` 不影响只读巡检结果。
 - MySQL 同时保存版本化论文结构/画像、服务端对话轮次、长期 grounded observations 和冻结的上下文快照；当前不增加 Redis、图数据库或独立知识库。向量后端只负责候选原文证据召回，不能成为 citation 真源。

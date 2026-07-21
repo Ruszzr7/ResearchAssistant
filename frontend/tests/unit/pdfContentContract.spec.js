@@ -25,8 +25,23 @@ describe('PDF page text contract', () => {
 
     expect(map.status).toBe(PDF_TEXT_MAP_STATUS.READY)
     expect(map.runs).toHaveLength(fixture.items.length)
-    expect(map.runs[1]).toMatchObject({ itemIndex: 1, rawText: ' ' })
+    expect(map.runs[1]).toMatchObject({ itemIndex: 1, spanIndex: 1, rawText: ' ' })
     expect(ranges.map(range => range.itemIndex)).toEqual(fixture.expected.itemIndexes)
+  })
+
+  it('tracks original item indexes separately from TextLayer spans for empty items', () => {
+    const map = buildPdfPageTextMap(1, [
+      { str: 'before' },
+      { str: '', hasEOL: true },
+      { str: 'target' },
+    ])
+    const start = map.normalizedText.indexOf('target')
+    const ranges = projectionRangeToItemRanges(map.charMap, start, start + 'target'.length)
+
+    expect(map.runs.map(run => run.spanIndex)).toEqual([0, null, 1])
+    expect(ranges).toEqual([
+      expect.objectContaining({ itemIndex: 2, spanIndex: 1, startOffset: 0 }),
+    ])
   })
 
   it('maps NFKC ligatures and split words back to their source items', () => {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   annotationDisplayColor,
-  buildPageCommentDraft,
+  buildSelectionCommentDraft,
   buildSelectionNoteDraft,
   isMarkerAnnotation,
-  isPageComment,
+  isCommentAnnotation,
   isSelectionNote,
   resizeTextAnnotationQuads,
 } from '@/utils/pdfAnnotation.js'
@@ -74,15 +74,21 @@ describe('PDF selection note draft', () => {
   })
 })
 
-describe('PDF page comment draft', () => {
-  it('keeps the content anchor separate from the draggable comment marker', () => {
-    const draft = buildPageCommentDraft({
+describe('PDF selection comment draft', () => {
+  it('binds a comment to selected text while keeping its marker draggable', () => {
+    const draft = buildSelectionCommentDraft({
       localId: 13,
       paperId: 7,
-      page: 4,
       color: '#f44336',
-      viewport: { width: 600, height: 800, rotation: 0, scale: 1.5 },
-      anchorPoint: { x: 0.4, y: 0.5 },
+      selection: {
+        text: 'Claim under review',
+        groups: [{
+          pageNum: 4,
+          pageState: { viewport: { width: 600, height: 800, rotation: 0, scale: 1.5 } },
+          quads: multiLineQuads,
+        }],
+      },
+      notePosition: { x: 0.84, y: 0.45 },
     })
 
     expect(draft).toMatchObject({
@@ -90,14 +96,14 @@ describe('PDF page comment draft', () => {
       page: 4,
       completed: false,
       coordinates: {
-        anchorKind: 'POINT',
-        anchorPoint: { x: 0.4, y: 0.5 },
+        anchorKind: 'SELECTION',
+        anchorText: 'Claim under review',
+        notePosition: { x: 0.84, y: 0.45 },
       },
     })
-    expect(draft.coordinates.notePosition.x).toBeCloseTo(0.455)
-    expect(draft.coordinates.notePosition.y).toBeCloseTo(0.465)
+    expect(draft.coordinates.anchorQuads).toEqual(multiLineQuads)
     expect(isMarkerAnnotation(draft)).toBe(true)
-    expect(isPageComment(draft)).toBe(true)
+    expect(isCommentAnnotation(draft)).toBe(true)
     expect(isSelectionNote(draft)).toBe(false)
   })
 

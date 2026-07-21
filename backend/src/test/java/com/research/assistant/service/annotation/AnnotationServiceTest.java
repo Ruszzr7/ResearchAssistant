@@ -105,6 +105,19 @@ class AnnotationServiceTest {
     }
 
     @Test
+    void shouldAcceptSelectionAnchoredCommentsAndLegacyPointComments() {
+        AnnotationRequest selectionComment = request("COMMENT", 1, "#f44336", "selection comment");
+        selectionComment.getCoordinates().remove("anchorPoint");
+        selectionComment.getCoordinates().put("anchorQuads", List.of(Map.of(
+                "x1", 0.1, "y1", 0.2, "x2", 0.3, "y2", 0.2,
+                "x3", 0.3, "y3", 0.16, "x4", 0.1, "y4", 0.16)));
+
+        assertThat(service.create(10L, selectionComment).getType()).isEqualTo("COMMENT");
+        assertThat(service.create(10L, request("COMMENT", 1, "#f44336", "legacy point comment")).getType())
+                .isEqualTo("COMMENT");
+    }
+
+    @Test
     void shouldDeleteAnnotation() {
         when(mapper.selectById(7L)).thenReturn(annotation(7L, "HIGHLIGHT", 1));
         service.delete(10L, 7L);

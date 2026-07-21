@@ -8,7 +8,32 @@
       <div class="pdf-toolbar-center">
         <div class="zoom-controls" aria-label="PDF 缩放">
           <el-button size="small" :disabled="zoomPercent <= zoomOptions[0]" @click="changeZoom(-1)">−</el-button>
-          <span class="zoom-value" aria-live="polite">{{ zoomPercent }}%</span>
+          <div class="zoom-menu" @click.stop>
+            <el-popover
+              v-model:visible="zoomMenuVisible"
+              trigger="click"
+              placement="bottom"
+              :width="76"
+              :teleported="true"
+              popper-class="pdf-zoom-popper"
+            >
+              <template #reference>
+                <button type="button" class="zoom-value" aria-label="选择页面大小" aria-haspopup="menu" @mousedown.prevent>
+                  {{ zoomPercent }}%
+                </button>
+              </template>
+              <div class="zoom-option-list" role="menu" aria-label="页面大小">
+                <button
+                  v-for="option in zoomOptions"
+                  :key="option"
+                  type="button"
+                  role="menuitem"
+                  :class="{ active: option === zoomPercent }"
+                  @click="selectZoomOption(option)"
+                >{{ option }}%</button>
+              </div>
+            </el-popover>
+          </div>
           <el-button size="small" :disabled="zoomPercent >= zoomOptions[zoomOptions.length - 1]" @click="changeZoom(1)">+</el-button>
         </div>
         <span class="toolbar-separator" aria-hidden="true" />
@@ -35,32 +60,42 @@
         </el-button-group>
         <el-button size="small" @mousedown.prevent @click="openSelectionNote">笔记</el-button>
         <el-button-group size="small" aria-label="批注工具">
-          <el-button :type="currentTool === 'comment' ? 'primary' : 'default'" @mousedown.prevent @click="activateComment">批注</el-button>
-          <el-button :type="commentPanelVisible ? 'primary' : 'default'" @click="commentPanelVisible = !commentPanelVisible">批注列表</el-button>
+          <el-button @mousedown.prevent @click="openSelectionComment">批注</el-button>
+          <el-button :type="commentPanelVisible ? 'primary' : 'default'" @click="toggleCommentPanel">批注列表</el-button>
         </el-button-group>
         <div class="annotation-color-menu" @click.stop>
-          <button
-            type="button"
-            class="annotation-color-trigger"
-            :title="`标记颜色：${colorName(currentColor)}`"
-            :aria-label="`标记颜色：${colorName(currentColor)}`"
-            :style="{ '--annotation-color': currentColor }"
-            @mousedown.prevent
-            @click="colorMenuVisible = !colorMenuVisible"
-          ><span aria-hidden="true" /></button>
-          <div v-if="colorMenuVisible" class="annotation-color-list" role="menu" aria-label="选择标记颜色">
-            <button
-              v-for="color in annotationColors"
-              :key="color"
-              type="button"
-              class="annotation-color-option"
-              :class="{ active: currentColor === color }"
-              :style="{ backgroundColor: color }"
-              :title="colorName(color)"
-              :aria-label="colorName(color)"
-              @click="selectAnnotationColor(color)"
-            />
-          </div>
+          <el-popover
+            v-model:visible="colorMenuVisible"
+            trigger="click"
+            placement="bottom"
+            :width="44"
+            :teleported="true"
+            popper-class="pdf-annotation-color-popper"
+          >
+            <template #reference>
+              <button
+                type="button"
+                class="annotation-color-trigger"
+                :title="`标记颜色：${colorName(currentColor)}`"
+                :aria-label="`标记颜色：${colorName(currentColor)}`"
+                :style="{ '--annotation-color': currentColor }"
+                @mousedown.prevent
+              ><span aria-hidden="true" /></button>
+            </template>
+            <div class="annotation-color-list" role="menu" aria-label="选择标记颜色">
+              <button
+                v-for="color in annotationColors"
+                :key="color"
+                type="button"
+                class="annotation-color-option"
+                :class="{ active: currentColor === color }"
+                :style="{ backgroundColor: color }"
+                :title="colorName(color)"
+                :aria-label="colorName(color)"
+                @click="selectAnnotationColor(color)"
+              />
+            </div>
+          </el-popover>
         </div>
       </div>
       <div class="pdf-toolbar-right">
@@ -93,8 +128,15 @@
         <div class="pdf-search-summary">
           <span v-if="searchIndexLoading">正在建立索引 {{ searchIndexProgress }}/{{ renderedPages.length }}</span>
           <span v-else-if="searchQuery && searchResults.length">{{ activeSearchResultIndex + 1 }} / {{ searchResults.length }}</span>
-          <span v-else-if="searchQuery">未找到结果</span>
-          <span v-else>输入文字开始搜索</span>
+          <span v-else-if="searchQuery && searchIndexSummary.ready === 0 && searchIndexSummary.failed > 0">PDF 文字提取失败</span>
+          <span v-else-if="searchQuery && searchIndexSummary.ready === 0 && searchIndexSummary.noTextLayer > 0">当前 PDF 没有可搜索文字</span>
+          <span v-else-if="searchQuery">未找到匹配内容</span>
+          <button
+            v-if="!searchIndexLoading && searchIndexSummary.failed > 0"
+            type="button"
+            class="pdf-search-retry"
+            @click="retryPdfSearchIndex"
+          >重试失败页</button>
           <span class="pdf-search-navigation">
             <button type="button" :disabled="!searchResults.length" aria-label="上一个结果" @click="activateNextSearchResult(-1)">↑</button>
             <button type="button" :disabled="!searchResults.length" aria-label="下一个结果" @click="activateNextSearchResult(1)">↓</button>
@@ -145,14 +187,12 @@
             class="annotation-overlay"
             :style="layerStyle(page)"
             :class="{
-              'comment-mode': currentTool === 'comment',
               'formula-mode': currentTool === 'formula'
             }"
             @pointerdown="beginFormulaRegionSelection($event, page)"
             @pointermove="onOverlayPointerMove"
             @pointerup="onOverlayPointerUp"
             @pointercancel="onOverlayPointerUp"
-            @click="onOverlayClick"
           >
           <g v-if="selectionGroupForPage(page.pageNum)" class="text-selection-preview">
             <polygon
@@ -189,7 +229,7 @@
               selected: selectedAnnotation?.localId === ann.localId,
               'marker-annotation': isMarkerAnnotation(ann),
               'text-annotation': isResizableAnnotation(ann),
-              completed: isPageComment(ann) && ann.completed
+              completed: isCommentAnnotation(ann) && ann.completed
             }"
           >
             <g v-if="ann.type === 'HIGHLIGHT'">
@@ -295,12 +335,12 @@
                 text-anchor="middle"
               >N</text>
               <path
-                v-if="isPageComment(ann)"
+                v-if="isCommentAnnotation(ann)"
                 class="comment-marker"
                 :d="commentMarkerPath(notePoint(ann.coordinates, page))"
                 :fill="annotationDisplayColor(ann)"
               ><title>{{ ann.note || '批注' }}</title></path>
-              <g v-if="isPageComment(ann)" class="comment-marker-dots" aria-hidden="true">
+              <g v-if="isCommentAnnotation(ann)" class="comment-marker-dots" aria-hidden="true">
                 <circle :cx="notePoint(ann.coordinates, page).x - 4" :cy="notePoint(ann.coordinates, page).y - 12" r="1.2" />
                 <circle :cx="notePoint(ann.coordinates, page).x" :cy="notePoint(ann.coordinates, page).y - 12" r="1.2" />
                 <circle :cx="notePoint(ann.coordinates, page).x + 4" :cy="notePoint(ann.coordinates, page).y - 12" r="1.2" />
@@ -316,7 +356,7 @@
           >
             <div class="note-content-popover__text">{{ notePreview.note || '（空内容）' }}</div>
             <div class="note-content-popover__actions">
-              <span v-if="isPageComment(notePreview) && notePreview.completed" class="completed-label">已完成</span>
+              <span v-if="isCommentAnnotation(notePreview) && notePreview.completed" class="completed-label">已完成</span>
               <el-button link type="primary" size="small" @click="openAnnotationEditor(notePreview)">编辑</el-button>
               <el-button link type="danger" size="small" @click="deleteAnnotationImmediately(notePreview)">删除</el-button>
             </div>
@@ -333,7 +373,7 @@
       >
         <header class="side-panel-header">
           <strong>批注</strong>
-          <button type="button" aria-label="关闭批注列表" title="关闭批注列表" @click="commentPanelVisible = false">×</button>
+          <button type="button" aria-label="关闭批注列表" title="关闭批注列表" @click="closeCommentPanel">×</button>
         </header>
         <div class="pdf-comment-list">
           <article
@@ -411,9 +451,9 @@
 
     </div>
 
-    <!-- 选区笔记与页面批注共用保存链路，但使用不同语义和图标。 -->
+    <!-- 选区笔记与选区批注共用保存链路，但使用不同语义和图标。 -->
     <el-dialog v-model="noteDialogVisible" :title="noteDialogTitle" width="420px" @closed="noteEditTarget = null">
-      <div v-if="noteDialogIsSelectionNote" class="selection-comment-anchor">
+      <div v-if="noteDialogHasSelectionAnchor" class="selection-comment-anchor">
         <span>关联原文</span>
         <p>{{ noteDialogAnchorText }}</p>
       </div>
@@ -485,10 +525,10 @@ import { listAnnotations, createAnnotation, updateAnnotation, deleteAnnotation }
 import PaperWorkbenchPanel from '@/components/pdf/PaperWorkbenchPanel.vue'
 import {
   annotationDisplayColor,
-  buildPageCommentDraft,
+  buildSelectionCommentDraft,
   buildSelectionNoteDraft,
   isMarkerAnnotation,
-  isPageComment,
+  isCommentAnnotation,
   isSelectionNote,
   resizeTextAnnotationQuads,
 } from '@/utils/pdfAnnotation.js'
@@ -496,7 +536,12 @@ import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
 import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import { boundingBoxToViewportQuad, selectionToAnchorPayload } from '@/utils/pdfSelectionAnchor.js'
 import { formulaRegionSvgRect, normalizedFormulaRegion } from '@/utils/formulaRegionSelection.js'
-import { buildPdfPageSearchRecord, findPdfSearchMatches } from '@/utils/pdfSearch.js'
+import {
+  buildFailedPdfPageSearchRecord,
+  buildPdfPageSearchRecord,
+  findPdfSearchMatches,
+  summarizePdfSearchIndex,
+} from '@/utils/pdfSearch.js'
 import {
   confirmFormulaRegion,
   recognizeFormulaRegion,
@@ -550,7 +595,8 @@ const currentPage = ref(1)
 const baseEstimatedPageHeight = 900
 const zoomPercent = ref(100)
 const renderedZoomPercent = ref(100)
-const zoomOptions = [50, 75, 100, 125, 150, 200, 300]
+const zoomOptions = [50, 100, 125, 150, 200]
+const zoomMenuVisible = ref(false)
 const estimatedPageHeight = computed(() => baseEstimatedPageHeight * zoomPercent.value / 100)
 const annotations = ref([])
 const selectedAnnotation = ref(null)
@@ -563,6 +609,12 @@ const searchResults = ref([])
 const activeSearchResultIndex = ref(-1)
 const searchIndexLoading = ref(false)
 const searchIndexProgress = ref(0)
+const searchIndexSummary = computed(() => {
+  // pageSearchRecords is deliberately non-reactive; progress invalidates this
+  // projection after every indexed page batch.
+  void searchIndexProgress.value
+  return summarizePdfSearchIndex([...pageSearchRecords.values()])
+})
 const commentPanelVisible = ref(false)
 const pendingTextSelection = ref(null)
 const selectionAnchor = ref(null)
@@ -617,6 +669,7 @@ const notePreview = ref(null)
 const noteDialogIsSelectionNote = computed(() => isSelectionNote(noteEditTarget.value))
 const noteDialogTitle = computed(() => noteDialogIsSelectionNote.value ? '添加笔记' : '添加批注')
 const noteDialogAnchorText = computed(() => noteEditTarget.value?.coordinates?.anchorText || '')
+const noteDialogHasSelectionAnchor = computed(() => Boolean(noteDialogAnchorText.value))
 const annotationEditorVisible = ref(false)
 const annotationEditorTarget = ref(null)
 const annotationEditorText = ref('')
@@ -643,8 +696,10 @@ let searchDebounceTimer = null
 let searchRequestId = 0
 let evidenceFocusTimer = null
 
-const pageAnnotations = computed(() => (pageNum) => annotations.value.filter(a => a.page === pageNum))
-const panelComments = computed(() => annotations.value.filter(isPageComment))
+const pageAnnotations = computed(() => (pageNum) => annotations.value.filter(annotation => (
+  annotation.page === pageNum && (!isCommentAnnotation(annotation) || commentPanelVisible.value)
+)))
+const panelComments = computed(() => annotations.value.filter(isCommentAnnotation))
 const selectionGroupForPage = computed(() => (pageNum) => (
   pendingTextSelection.value?.groups?.find(group => group.pageNum === pageNum) || null
 ))
@@ -838,9 +893,15 @@ async function performPdfSearch() {
   if (searchResults.value.length) await activateSearchResult(0)
 }
 
-async function ensurePdfSearchIndex() {
+async function ensurePdfSearchIndex({ retryFailed = false } = {}) {
   const documentRef = pdfDoc.value
   const pageCount = documentRef?.numPages || 0
+  if (retryFailed) {
+    for (const [pageNumber, record] of pageSearchRecords.entries()) {
+      if (record?.status === 'FAILED') pageSearchRecords.delete(pageNumber)
+    }
+    searchIndexProgress.value = pageSearchRecords.size
+  }
   if (!documentRef || !pageCount || pageSearchRecords.size === pageCount) return
   if (searchIndexPromise) return searchIndexPromise
 
@@ -854,9 +915,20 @@ async function ensurePdfSearchIndex() {
         try {
           const page = await documentRef.getPage(pageNumber)
           const textContent = await page.getTextContent()
-          return buildPdfPageSearchRecord(pageNumber, textContent.items)
-        } catch {
-          return buildPdfPageSearchRecord(pageNumber, [])
+          const viewport = page.getViewport({ scale: 1 })
+          return buildPdfPageSearchRecord(pageNumber, textContent.items, {
+            documentFingerprint: documentRef.fingerprints?.[0] || '',
+            pageWidth: viewport.width,
+            pageHeight: viewport.height,
+            rotation: viewport.rotation,
+            scale: viewport.scale,
+          })
+        } catch (error) {
+          return buildFailedPdfPageSearchRecord(
+            pageNumber,
+            error?.name || 'TEXT_EXTRACTION_FAILED',
+            { documentFingerprint: documentRef.fingerprints?.[0] || '' },
+          )
         }
       }))
       if (pdfDoc.value !== documentRef) return
@@ -868,6 +940,12 @@ async function ensurePdfSearchIndex() {
     searchIndexLoading.value = false
   })
   return searchIndexPromise
+}
+
+async function retryPdfSearchIndex() {
+  searchRequestId += 1
+  await ensurePdfSearchIndex({ retryFailed: true })
+  if (searchPanelVisible.value && searchQuery.value.trim()) await performPdfSearch()
 }
 
 function activateNextSearchResult(direction) {
@@ -888,24 +966,40 @@ async function activateSearchResult(index) {
 }
 
 function refreshVisibleSearchHighlights() {
-  for (const page of visiblePages.value) applySearchHighlightsToPage(page.pageNum)
+  rebuildSearchHighlights()
 }
 
 function clearSearchHighlights() {
-  for (const layer of Object.values(textLayerRefs.value)) {
-    layer?.querySelectorAll?.('.pdf-search-match, .pdf-search-current').forEach(span => {
-      span.classList.remove('pdf-search-match', 'pdf-search-current')
-    })
+  if (globalThis.CSS?.highlights) {
+    CSS.highlights.delete('pdf-search-match')
+    CSS.highlights.delete('pdf-search-current')
   }
+  containerRef.value
+    ?.querySelectorAll?.('.text-layer .pdf-search-match, .text-layer .pdf-search-current')
+    .forEach(span => span.classList.remove('pdf-search-match', 'pdf-search-current'))
 }
 
 function applySearchHighlightsToPage(pageNum) {
-  const layer = textLayerRefs.value[pageNum]
-  if (!layer) return
-  const spans = layer.querySelectorAll('span')
-  spans.forEach(span => span.classList.remove('pdf-search-match', 'pdf-search-current'))
+  if (!textLayerElementForPage(pageNum)) return
+  rebuildSearchHighlights()
+}
+
+function rebuildSearchHighlights() {
+  clearSearchHighlights()
+  const supportsCustomHighlights = Boolean(globalThis.CSS?.highlights && globalThis.Highlight)
+  const matchRanges = []
+  const currentRanges = []
+
   searchResults.value.forEach((result, resultIndex) => {
-    if (result.page !== pageNum) return
+    const layer = textLayerElementForPage(result.page)
+    if (!layer) return
+    const ranges = createSearchDomRanges(layer, result)
+    if (supportsCustomHighlights) {
+      matchRanges.push(...ranges)
+      if (resultIndex === activeSearchResultIndex.value) currentRanges.push(...ranges)
+      return
+    }
+    const spans = layer.querySelectorAll('span')
     result.spanIndexes.forEach(spanIndex => {
       const span = spans[spanIndex]
       if (!span) return
@@ -913,24 +1007,71 @@ function applySearchHighlightsToPage(pageNum) {
       if (resultIndex === activeSearchResultIndex.value) span.classList.add('pdf-search-current')
     })
   })
+
+  if (supportsCustomHighlights) {
+    CSS.highlights.set('pdf-search-match', new Highlight(...matchRanges))
+    CSS.highlights.set('pdf-search-current', new Highlight(...currentRanges))
+  }
+}
+
+function createSearchDomRanges(layer, result) {
+  const spans = layer?.querySelectorAll?.('span') || []
+  return (result?.itemRanges || []).flatMap(itemRange => {
+    const span = spans[itemRange.spanIndex]
+    const textNode = span ? firstTextNode(span) : null
+    if (!textNode) return []
+    const length = textNode.data.length
+    const start = Math.max(0, Math.min(length, Number(itemRange.startOffset) || 0))
+    const end = Math.max(start, Math.min(length, Number(itemRange.endOffset) || 0))
+    if (end <= start) return []
+    const range = document.createRange()
+    range.setStart(textNode, start)
+    range.setEnd(textNode, end)
+    return [range]
+  })
+}
+
+function firstTextNode(element) {
+  for (const node of element?.childNodes || []) {
+    if (node.nodeType === Node.TEXT_NODE) return node
+  }
+  return null
 }
 
 function scrollActiveSearchMatchIntoView(result) {
   const container = containerRef.value
-  const layer = textLayerRefs.value[result.page]
+  const layer = textLayerElementForPage(result.page)
+  const range = createSearchDomRanges(layer, result)[0]
   const span = layer?.querySelectorAll?.('span')?.[result.spanIndexes?.[0]]
-  if (!container || !span) return
+  if (!container || (!range && !span)) return
   const containerRect = container.getBoundingClientRect()
-  const spanRect = span.getBoundingClientRect()
-  container.scrollTop += spanRect.top - containerRect.top - container.clientHeight * 0.3
-  if (spanRect.left < containerRect.left || spanRect.right > containerRect.right) {
-    container.scrollLeft += spanRect.left - containerRect.left - container.clientWidth * 0.25
+  const targetRect = range?.getBoundingClientRect?.() || span.getBoundingClientRect()
+  container.scrollTop += targetRect.top - containerRect.top - container.clientHeight * 0.3
+  if (targetRect.left < containerRect.left || targetRect.right > containerRect.right) {
+    container.scrollLeft += targetRect.left - containerRect.left - container.clientWidth * 0.25
   }
+}
+
+function textLayerElementForPage(pageNum) {
+  return textLayerRefs.value[pageNum]
+    || containerRef.value?.querySelector?.(`.pdf-page[data-page="${Number(pageNum)}"] .text-layer`)
+    || null
 }
 
 function selectAnnotationColor(color) {
   currentColor.value = color
   colorMenuVisible.value = false
+}
+
+function toggleCommentPanel() {
+  if (commentPanelVisible.value) closeCommentPanel()
+  else commentPanelVisible.value = true
+}
+
+function closeCommentPanel() {
+  commentPanelVisible.value = false
+  if (isCommentAnnotation(selectedAnnotation.value)) selectedAnnotation.value = null
+  if (isCommentAnnotation(notePreview.value)) notePreview.value = null
 }
 
 async function jumpToPanelComment(annotation) {
@@ -940,7 +1081,7 @@ async function jumpToPanelComment(annotation) {
 }
 
 async function completePanelComment(annotation) {
-  if (!isPageComment(annotation) || annotation.completed) return
+  if (!isCommentAnnotation(annotation) || annotation.completed) return
   annotation.completed = true
   try {
     await persistUpdatedAnnotation(annotation)
@@ -1350,6 +1491,11 @@ async function setZoom(value) {
   await renderAtCurrentZoom()
 }
 
+function selectZoomOption(value) {
+  zoomMenuVisible.value = false
+  void setZoom(value)
+}
+
 async function renderAtCurrentZoom() {
   if (!pdfDoc.value || renderedZoomPercent.value === zoomPercent.value) return
   const container = containerRef.value
@@ -1571,7 +1717,6 @@ async function applyTextAnnotation(type) {
     return
   }
   let savedCount = 0
-  let latestAnnotation = null
   try {
     for (const group of selection.groups) {
       const annotation = {
@@ -1591,10 +1736,9 @@ async function applyTextAnnotation(type) {
         }
       }
       await persistNewAnnotation(annotation)
-      latestAnnotation = annotation
       savedCount += 1
     }
-    selectedAnnotation.value = latestAnnotation
+    selectedAnnotation.value = null
     ElMessage.success(type === 'HIGHLIGHT'
       ? `已自动保存 ${savedCount} 条高亮`
       : `已自动保存 ${savedCount} 条下划线`)
@@ -1750,10 +1894,6 @@ function setTool(tool) {
   if (tool !== 'formula' && tool !== 'select') clearFormulaRegion()
 }
 
-function activateComment() {
-  setTool(currentTool.value === 'comment' ? 'select' : 'comment')
-}
-
 function activateFormula() {
   if (currentTool.value === 'formula') {
     currentTool.value = 'select'
@@ -1785,6 +1925,16 @@ function openSelectionNote() {
     return
   }
   openAnchoredNote(selection)
+}
+
+function openSelectionComment() {
+  const selection = pendingTextSelection.value
+  if (!selection?.groups?.length) {
+    ElMessage.warning('请先拖动选中文本，再添加批注')
+    setTool('select')
+    return
+  }
+  openAnchoredComment(selection)
 }
 
 function findPageElement(node) {
@@ -1821,29 +1971,6 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
 
-function onOverlayClick(e) {
-  if (currentTool.value !== 'comment' || noteDialogVisible.value) return
-  const pageEl = findPageElement(e.target)
-  if (!pageEl) return
-  const pageNum = Number(pageEl.dataset.page)
-  const pageState = renderedPages.value.find(p => p.pageNum === pageNum)
-  if (!pageState?.viewport) return
-  const rect = pageEl.getBoundingClientRect()
-  if (!rect.width || !rect.height) return
-  const x = clamp((e.clientX - rect.left) / rect.width, 0.02, 0.98)
-  const y = clamp((e.clientY - rect.top) / rect.height, 0.02, 0.98)
-  noteEditTarget.value = buildPageCommentDraft({
-    localId: nextLocalId++,
-    paperId: props.paper.id,
-    page: pageNum,
-    color: currentColor.value,
-    viewport: pageState.viewport,
-    anchorPoint: { x, y },
-  })
-  noteEditText.value = ''
-  noteDialogVisible.value = true
-}
-
 function openAnchoredNote(selection) {
   const group = selection.groups[0]
   if (!group?.pageState?.viewport || !group.quads?.length) {
@@ -1851,6 +1978,23 @@ function openAnchoredNote(selection) {
     return
   }
   noteEditTarget.value = buildSelectionNoteDraft({
+    localId: nextLocalId++,
+    paperId: props.paper.id,
+    color: currentColor.value,
+    selection,
+    notePosition: notePositionNearAnchor(group.quads),
+  })
+  noteEditText.value = ''
+  noteDialogVisible.value = true
+}
+
+function openAnchoredComment(selection) {
+  const group = selection.groups[0]
+  if (!group?.pageState?.viewport || !group.quads?.length) {
+    ElMessage.warning('未能获取所选文字的位置，请重新选择后再试')
+    return
+  }
+  noteEditTarget.value = buildSelectionCommentDraft({
     localId: nextLocalId++,
     paperId: props.paper.id,
     color: currentColor.value,
@@ -1873,12 +2017,11 @@ async function confirmNote() {
   noteSaving.value = true
   try {
     await persistNewAnnotation(target)
-    selectedAnnotation.value = target
-    notePreview.value = target
+    selectedAnnotation.value = null
+    notePreview.value = null
     currentTool.value = 'select'
     noteDialogVisible.value = false
-    if (isSelectionNote(target)) clearPendingTextSelection()
-    if (isPageComment(target)) commentPanelVisible.value = true
+    clearPendingTextSelection()
     ElMessage.success(isSelectionNote(target) ? '笔记已保存' : '批注已保存')
   } catch (e) {
     ElMessage.error(`${isSelectionNote(target) ? '笔记' : '批注'}保存失败：${requestErrorMessage(e)}`)
@@ -2087,7 +2230,7 @@ async function deleteAnnotationImmediately(annotation) {
     if (annotationEditorTarget.value?.localId === annotation.localId) {
       annotationEditorVisible.value = false
     }
-    ElMessage.success(`${isSelectionNote(annotation) ? '笔记' : isPageComment(annotation) ? '批注' : '标记'}已删除`)
+    ElMessage.success(`${isSelectionNote(annotation) ? '笔记' : isCommentAnnotation(annotation) ? '批注' : '标记'}已删除`)
   } catch (e) {
     ElMessage.error('删除失败：' + requestErrorMessage(e))
   }
@@ -2193,7 +2336,7 @@ function notePoint(coords, page) {
 function markerAnchorPoint(annotation, page) {
   const coords = annotation?.coordinates
   if (!page.viewport || !coords) return null
-  if (isPageComment(annotation) && Number.isFinite(coords.anchorPoint?.x) && Number.isFinite(coords.anchorPoint?.y)) {
+  if (isCommentAnnotation(annotation) && Number.isFinite(coords.anchorPoint?.x) && Number.isFinite(coords.anchorPoint?.y)) {
     const [x, y] = annotationPoint(coords.anchorPoint.x, coords.anchorPoint.y, page, coords)
     return { x, y }
   }
@@ -2240,6 +2383,7 @@ function openSelectionNoteFromContext() {
 
 function onWindowClick() {
   if (contextMenu.value.visible) contextMenu.value.visible = false
+  if (zoomMenuVisible.value) zoomMenuVisible.value = false
   if (colorMenuVisible.value) colorMenuVisible.value = false
   if (notePreview.value) notePreview.value = null
 }
@@ -2339,10 +2483,43 @@ function colorName(color) {
   gap: 6px;
 }
 .zoom-value {
+  min-height: 26px;
   min-width: 42px;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 4px;
   color: var(--ra-text-secondary);
+  background: transparent;
+  cursor: pointer;
   font-size: 12px;
   text-align: center;
+}
+.zoom-value:hover,
+.zoom-value:focus-visible {
+  color: var(--ra-link);
+  background: var(--ra-hover-bg);
+  outline: none;
+}
+.zoom-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.zoom-option-list button {
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--ra-text);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: center;
+}
+.zoom-option-list button:hover,
+.zoom-option-list button.active {
+  color: var(--ra-link);
+  background: var(--ra-hover-bg);
 }
 .toolbar-separator {
   width: 1px;
@@ -2411,30 +2588,22 @@ function colorName(color) {
   border-color: var(--ra-link);
 }
 .annotation-color-trigger > span {
-  width: 15px;
-  height: 15px;
+  width: 12px;
+  height: 12px;
   border: 1px solid rgba(127, 127, 127, 0.55);
   border-radius: 50%;
   background: var(--annotation-color);
 }
 .annotation-color-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 12;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 7px;
-  padding: 7px 6px;
-  border: 1px solid var(--ra-border);
-  border-radius: 7px;
-  background: var(--ra-panel-bg);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+  padding: 0;
 }
 .annotation-color-option {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   padding: 0;
   border: 1px solid rgba(127, 127, 127, 0.55);
   border-radius: 50%;
@@ -2524,6 +2693,7 @@ function colorName(color) {
   color: var(--ra-text);
   background: transparent;
   font: inherit;
+  font-size: 12px;
 }
 .pdf-search-box button {
   flex: 0 0 auto;
@@ -2542,6 +2712,20 @@ function colorName(color) {
 .pdf-search-navigation {
   display: flex;
   gap: 2px;
+  margin-left: auto;
+}
+.pdf-search-retry {
+  margin-left: auto;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--ra-link);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+}
+.pdf-search-retry:hover {
+  background: var(--ra-hover-bg);
 }
 .pdf-search-navigation button {
   width: 24px;
@@ -2719,6 +2903,15 @@ function colorName(color) {
   background: rgba(255, 145, 0, 0.78);
   box-shadow: 0 0 0 1px rgba(230, 81, 0, 0.65);
 }
+:global(::highlight(pdf-search-match)) {
+  color: transparent;
+  background: rgba(255, 213, 79, 0.58);
+}
+:global(::highlight(pdf-search-current)) {
+  color: transparent;
+  background: rgba(255, 145, 0, 0.78);
+  text-decoration: underline rgba(230, 81, 0, 0.85) 1px;
+}
 .text-layer ::selection {
   background: rgba(0, 0, 255, 0.25);
   background: color-mix(in srgb, AccentColor, transparent 75%);
@@ -2730,11 +2923,9 @@ function colorName(color) {
   z-index: 2;
   pointer-events: none;
 }
-.annotation-overlay.comment-mode,
 .annotation-overlay.formula-mode {
   pointer-events: auto;
 }
-.annotation-overlay.comment-mode,
 .annotation-overlay.formula-mode {
   cursor: crosshair;
   touch-action: none;
@@ -2746,8 +2937,6 @@ function colorName(color) {
 .annotation-overlay > g.text-annotation {
   pointer-events: all;
 }
-.annotation-overlay.comment-mode > g.marker-annotation,
-.annotation-overlay.comment-mode > g.text-annotation,
 .annotation-overlay.formula-mode > g.marker-annotation,
 .annotation-overlay.formula-mode > g.text-annotation {
   pointer-events: none;
@@ -2905,6 +3094,16 @@ function colorName(color) {
 .annotation-color.active {
   outline: 2px solid var(--ra-link);
   outline-offset: 1px;
+}
+:global(.pdf-zoom-popper) {
+  min-width: 76px !important;
+  padding: 5px !important;
+  z-index: 22000 !important;
+}
+:global(.pdf-annotation-color-popper) {
+  min-width: 44px !important;
+  padding: 6px 5px !important;
+  z-index: 22000 !important;
 }
 .context-menu {
   position: fixed;

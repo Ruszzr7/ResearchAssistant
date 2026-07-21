@@ -42,10 +42,7 @@ export function resizeTextAnnotationQuads(quads, edge, pointerX) {
   return { quads: nextQuads, changed: true }
 }
 
-/**
- * 把当前 PDF 文本选区转换为用户笔记草稿。
- */
-export function buildSelectionNoteDraft({ localId, paperId, color, selection, notePosition }) {
+function buildSelectionMarkerDraft(type, { localId, paperId, color, selection, notePosition }) {
   const group = selection?.groups?.[0]
   const viewport = group?.pageState?.viewport
   if (!viewport || !Array.isArray(group.quads) || group.quads.length === 0) return null
@@ -54,7 +51,7 @@ export function buildSelectionNoteDraft({ localId, paperId, color, selection, no
   return {
     localId,
     paperId,
-    type: 'NOTE',
+    type,
     page: group.pageNum,
     color,
     note: '',
@@ -75,49 +72,18 @@ export function buildSelectionNoteDraft({ localId, paperId, color, selection, no
 }
 
 /**
- * 把页面点击位置转换为批注草稿。anchorPoint 永远保持在原内容位置，
- * notePosition 可以独立拖动，两者之间由阅读器绘制虚线。
+ * 把当前 PDF 文本选区转换为用户笔记草稿。
  */
-export function buildPageCommentDraft({
-  localId,
-  paperId,
-  page,
-  color,
-  viewport,
-  anchorPoint,
-  notePosition,
-}) {
-  if (!viewport || !Number.isFinite(anchorPoint?.x) || !Number.isFinite(anchorPoint?.y)) return null
-  const anchor = {
-    x: clamp(anchorPoint.x, 0.02, 0.98),
-    y: clamp(anchorPoint.y, 0.02, 0.98),
-  }
-  const marker = notePosition || {
-    x: clamp(anchor.x + 0.055, 0.04, 0.96),
-    y: clamp(anchor.y - 0.035, 0.04, 0.96),
-  }
-  return {
-    localId,
-    paperId,
-    type: 'COMMENT',
-    page,
-    color,
-    note: '',
-    completed: false,
-    coordinates: {
-      coordinateSpace: 'viewport',
-      pageWidth: viewport.width,
-      pageHeight: viewport.height,
-      rotation: viewport.rotation,
-      scale: viewport.scale,
-      anchorKind: 'POINT',
-      anchorPoint: anchor,
-      notePosition: {
-        x: clamp(marker.x, 0.02, 0.98),
-        y: clamp(marker.y, 0.02, 0.98),
-      },
-    },
-  }
+export function buildSelectionNoteDraft(options) {
+  return buildSelectionMarkerDraft('NOTE', options)
+}
+
+/**
+ * 把当前 PDF 文本选区转换为批注草稿。批注与笔记共享稳定的文字锚点，
+ * 但批注只在批注列表打开时展示，并拥有独立的完成状态。
+ */
+export function buildSelectionCommentDraft(options) {
+  return buildSelectionMarkerDraft('COMMENT', options)
 }
 
 export function isMarkerAnnotation(annotation) {
@@ -128,12 +94,12 @@ export function isSelectionNote(annotation) {
   return annotation?.type === 'NOTE'
 }
 
-export function isPageComment(annotation) {
+export function isCommentAnnotation(annotation) {
   return annotation?.type === 'COMMENT'
 }
 
 export function annotationDisplayColor(annotation) {
-  return isPageComment(annotation) && annotation?.completed
+  return isCommentAnnotation(annotation) && annotation?.completed
     ? '#4caf50'
     : annotation?.color || '#f44336'
 }

@@ -109,8 +109,10 @@ public class AnnotationService {
         if ("NOTE".equals(type) && !hasList(coordinates, "anchorQuads")) {
             throw new IllegalArgumentException("笔记必须锚定选区");
         }
-        if ("COMMENT".equals(type) && !(coordinates != null && coordinates.get("anchorPoint") instanceof Map)) {
-            throw new IllegalArgumentException("批注必须锚定页面内容");
+        if ("COMMENT".equals(type)
+                && !hasList(coordinates, "anchorQuads")
+                && !(coordinates != null && coordinates.get("anchorPoint") instanceof Map)) {
+            throw new IllegalArgumentException("批注必须锚定选区或页面内容");
         }
         if (("HIGHLIGHT".equals(type) || "UNDERLINE".equals(type)) && !hasList(coordinates, "quads")) {
             throw new IllegalArgumentException("文字标记缺少选区坐标");
