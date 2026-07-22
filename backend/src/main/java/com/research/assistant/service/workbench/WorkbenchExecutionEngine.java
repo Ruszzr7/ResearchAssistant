@@ -122,7 +122,9 @@ public class WorkbenchExecutionEngine {
                         trace.invocation().selectionAnchor().boxes(),
                         trace.invocation().selectionAnchor().anchorText(),
                         trace.invocation().selectionAnchor().kind()),
-                anchor -> Map.of("kind", anchor.kind().name(), "confidence", anchor.confidence(),
+                anchor -> Map.of("kind", anchor.kind().name(),
+                        "mappingStatus", anchor.mappingStatus().name(),
+                        "contentType", anchor.contentType().name(), "confidence", anchor.confidence(),
                         "blockCount", anchor.blockIds().size()));
 
         stage.accept("正在组装本轮上下文…");

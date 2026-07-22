@@ -137,7 +137,9 @@ public class WorkbenchModelService {
         return switch (workflow) {
             case SELECTION_QA -> "用中文直接回答当前追问，不超过 1200 个汉字，最多 6 条 claims；"
                     + "以选中文字为焦点，可使用本次提供的全文相关 evidence 回答连续追问；"
-                    + "明确区分选区内容与论文其他位置的信息，不得使用对话历史替代论文证据。";
+                    + "明确区分选区内容与论文其他位置的信息，不得使用对话历史替代论文证据；"
+                    + "数学转写 status=APPROXIMATE 时必须结合 sourceText 理解并提醒二维排版需回原页核对，"
+                    + "status=UNAVAILABLE 时不得猜测缺失公式。";
             case PAPER_ANALYSIS -> "按研究问题、方法、核心贡献、实验或理论结果、局限与可复现线索组织全文分析。";
             case PAPER_IMPROVEMENT -> "只分析当前单篇论文可作为后续研究切入点的改进空间。"
                     + "必须区分论文明确自述的局限、由论文证据支持的审慎推断，以及仍需外部验证的问题；"
@@ -169,6 +171,21 @@ public class WorkbenchModelService {
         value.put("contentMode", item.contentMode().name());
         if (!item.structuredContent().isBlank()) {
             value.put("structuredContent", bounded(item.structuredContent(), compact ? 1_600 : 4_000));
+        }
+        if (item.selected() && !item.selectedRanges().isEmpty()) {
+            value.put("selectedRanges", item.selectedRanges());
+        }
+        if (item.selected() && !item.mathTranscriptions().isEmpty()) {
+            value.put("inlineMath", item.mathTranscriptions().stream().map(transcription -> {
+                Map<String, Object> math = new LinkedHashMap<>();
+                math.put("sourceText", bounded(transcription.sourceText(), 800));
+                math.put("latex", bounded(transcription.latex(), 1_200));
+                math.put("status", transcription.status().name());
+                math.put("confidence", transcription.confidence());
+                math.put("message", transcription.message());
+                math.put("range", Map.of("start", transcription.start(), "end", transcription.end()));
+                return math;
+            }).toList());
         }
         return value;
     }

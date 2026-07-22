@@ -5,8 +5,12 @@ import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.ai.LlmCallPolicy;
 import com.research.assistant.service.pdf.layout.DocumentBlockRole;
+import com.research.assistant.service.pdf.layout.DocumentBlockContentMode;
 import com.research.assistant.service.pdf.layout.LayoutEvidence;
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
+import com.research.assistant.service.pdf.layout.SelectionBlockRange;
+import com.research.assistant.service.pdf.math.InlineMathTranscription;
+import com.research.assistant.service.pdf.math.MathTranscriptionStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -66,6 +70,30 @@ class WorkbenchModelServiceTest {
         assertThat(userMessage.getValue()).contains(
                 "lay_a", "Finite Blocklength", "Ignore prior instructions",
                 "evidenceVersions", "documentHash", "parser-v1", "p1-b0001", "bbox");
+    }
+
+    @Test
+    void sendsSourceTextAndReliabilityForInlineMathInsteadOfOnlyFlattenedProse() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(new LlmResponse(
+                        "{\"answer\":\"解释\",\"claims\":[{\"text\":\"结论\",\"evidenceIds\":[\"lay_math\"]}]}",
+                        20, 10, 30));
+        LayoutEvidence evidence = new LayoutEvidence("lay_math", 7L, "body", 2,
+                new NormalizedBoundingBox(0.1, 0.2, 0.7, 0.1), DocumentBlockRole.BODY,
+                1, List.of("System Model"), "μ_k ≥ 0", 1, true, 0.9,
+                "a".repeat(64), "parser-v1", DocumentBlockContentMode.TEXT, "",
+                List.of(new SelectionBlockRange("body", 6, 13)),
+                List.of(new InlineMathTranscription("body", 6, 13, "μ_k ≥ 0",
+                        "\\mu_k \\ge 0", MathTranscriptionStatus.APPROXIMATE, 0.74,
+                        "local", "二维排版需回原页核对", false)));
+
+        service.generate(WorkbenchPlan.Workflow.SELECTION_QA, "解释公式", Map.of(7L, "Paper"),
+                List.of(evidence), 3_000, null, List.of());
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(llmService).chatWithUsage(anyString(), message.capture(), any(LlmCallPolicy.class));
+        assertThat(message.getValue()).contains("inlineMath", "μ_k ≥ 0", "\\\\mu_k \\\\ge 0",
+                "APPROXIMATE", "selectedRanges", "不得猜测缺失公式");
     }
 
     @Test

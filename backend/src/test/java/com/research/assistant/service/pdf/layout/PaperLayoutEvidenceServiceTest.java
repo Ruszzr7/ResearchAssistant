@@ -1,5 +1,8 @@
 package com.research.assistant.service.pdf.layout;
 
+import com.research.assistant.service.pdf.math.InlineMathTranscription;
+import com.research.assistant.service.pdf.math.InlineMathTranscriptionService;
+import com.research.assistant.service.pdf.math.MathTranscriptionStatus;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -7,6 +10,9 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class PaperLayoutEvidenceServiceTest {
 
@@ -36,6 +42,39 @@ class PaperLayoutEvidenceServiceTest {
                 .extracting(LayoutEvidence::blockId)
                 .containsExactly("body-2");
         assertThat(result.evidence()).allMatch(item -> item.evidenceId().startsWith("lay_"));
+        LayoutEvidence selected = result.evidence().stream().filter(LayoutEvidence::selected)
+                .findFirst().orElseThrow();
+        assertThat(selected.text()).isEqualTo("selected paragraph evidence");
+        assertThat(selected.selectedRanges()).hasSize(1);
+    }
+
+    @Test
+    void enrichesOnlyTheSelectedMathFragmentsForTheModel() {
+        String text = "where p_c ∈ ℂ, satisfying μ_k ≥ 0 and Σ μ_k = 1";
+        DocumentBlock mathBlock = new DocumentBlock("math", 1,
+                new NormalizedBoundingBox(0.08, 0.2, 0.82, 0.15), DocumentBlockRole.BODY,
+                0, List.of("SYSTEM MODEL"), text, null, null, 0.9);
+        mathBlock = new PaperMathContentEnricher().enrich(mathBlock);
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(9L, "m".repeat(64),
+                "parser+inline-math-v1", 0.9, Instant.now(), 1, List.of(mathBlock));
+        InlineMathTranscriptionService transcriptionService = mock(InlineMathTranscriptionService.class);
+        when(transcriptionService.transcribe(any(), any(), any())).thenAnswer(invocation -> {
+            InlineMathFragment fragment = invocation.getArgument(2);
+            return new InlineMathTranscription("math", fragment.start(), fragment.end(),
+                    fragment.sourceText(), "\\mu_k \\ge 0", MathTranscriptionStatus.APPROXIMATE,
+                    0.74, "local", "回原页核对", false);
+        });
+        PaperLayoutEvidenceService mathService = new PaperLayoutEvidenceService(
+                policy, resolver, null, transcriptionService);
+        SelectionAnchor anchor = resolver.resolve(artifact, 1, List.of(mathBlock.bbox()), text, null);
+
+        LocalEvidenceResult result = mathService.retrieve(artifact, anchor, "解释公式", 3);
+
+        LayoutEvidence selected = result.evidence().get(0);
+        assertThat(selected.selected()).isTrue();
+        assertThat(selected.mathTranscriptions()).isNotEmpty();
+        assertThat(selected.mathTranscriptions())
+                .allMatch(item -> item.status() == MathTranscriptionStatus.APPROXIMATE);
     }
 
     @Test

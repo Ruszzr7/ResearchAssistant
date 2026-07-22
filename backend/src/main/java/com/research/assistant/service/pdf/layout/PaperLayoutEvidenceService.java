@@ -1,6 +1,8 @@
 package com.research.assistant.service.pdf.layout;
 
 import com.research.assistant.service.pdf.formula.region.ConfirmedFormulaRegionService;
+import com.research.assistant.service.pdf.math.InlineMathTranscription;
+import com.research.assistant.service.pdf.math.InlineMathTranscriptionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -23,19 +25,28 @@ public class PaperLayoutEvidenceService {
     private final PaperLayoutEvidencePolicy evidencePolicy;
     private final SelectionAnchorResolver anchorResolver;
     private final ConfirmedFormulaRegionService confirmedFormulaRegions;
+    private final InlineMathTranscriptionService mathTranscriptionService;
 
     public PaperLayoutEvidenceService(PaperLayoutEvidencePolicy evidencePolicy,
                                       SelectionAnchorResolver anchorResolver) {
-        this(evidencePolicy, anchorResolver, null);
+        this(evidencePolicy, anchorResolver, null, null);
+    }
+
+    public PaperLayoutEvidenceService(PaperLayoutEvidencePolicy evidencePolicy,
+                                      SelectionAnchorResolver anchorResolver,
+                                      ConfirmedFormulaRegionService confirmedFormulaRegions) {
+        this(evidencePolicy, anchorResolver, confirmedFormulaRegions, null);
     }
 
     @Autowired
     public PaperLayoutEvidenceService(PaperLayoutEvidencePolicy evidencePolicy,
                                       SelectionAnchorResolver anchorResolver,
-                                      ConfirmedFormulaRegionService confirmedFormulaRegions) {
+                                      ConfirmedFormulaRegionService confirmedFormulaRegions,
+                                      InlineMathTranscriptionService mathTranscriptionService) {
         this.evidencePolicy = evidencePolicy;
         this.anchorResolver = anchorResolver;
         this.confirmedFormulaRegions = confirmedFormulaRegions;
+        this.mathTranscriptionService = mathTranscriptionService;
     }
 
     public LocalEvidenceResult retrieve(PaperLayoutArtifact artifact,
@@ -48,7 +59,8 @@ public class PaperLayoutEvidenceService {
                 anchor.page(),
                 anchor.boxes(),
                 anchor.anchorText(),
-                anchor.kind());
+                anchor.kind(),
+                anchor.clientTextAnchor());
         if (confirmedFormulaRegions != null) {
             java.util.Optional<LayoutEvidence> confirmed = confirmedFormulaRegions.evidence(
                     artifact, resolvedAnchor);
@@ -75,7 +87,8 @@ public class PaperLayoutEvidenceService {
         }
         if (selected.isEmpty()) {
             return new LocalEvidenceResult(
-                    resolvedAnchor, List.of(), resolvedAnchor.kind() == SelectionAnchorKind.REGION);
+                    resolvedAnchor, List.of(),
+                    resolvedAnchor.evidenceUse() != SelectionEvidenceUse.CLAIM_EVIDENCE);
         }
 
         List<DocumentBlock> orderedSelected = selected.stream()
@@ -111,10 +124,12 @@ public class PaperLayoutEvidenceService {
                 .sorted(Comparator.comparingInt(item -> item.block().readingOrder()))
                 .toList();
         List<LayoutEvidence> evidence = chosen.stream()
-                .map(item -> toEvidence(artifact, item.block(), item.score(), item.selected()))
+                .map(item -> toEvidence(artifact, item.block(), item.score(), item.selected(),
+                        resolvedAnchor))
                 .toList();
         return new LocalEvidenceResult(
-                resolvedAnchor, evidence, resolvedAnchor.kind() == SelectionAnchorKind.REGION);
+                resolvedAnchor, evidence,
+                resolvedAnchor.evidenceUse() != SelectionEvidenceUse.CLAIM_EVIDENCE);
     }
 
     private void addNeighbour(List<ScoredBlock> candidates,
@@ -134,6 +149,14 @@ public class PaperLayoutEvidenceService {
     /** Shared stable evidence projection used by local and whole-paper workbench retrieval. */
     public LayoutEvidence toEvidence(PaperLayoutArtifact artifact, DocumentBlock block,
                                      double score, boolean selected) {
+        return toEvidence(artifact, block, score, selected, null);
+    }
+
+    private LayoutEvidence toEvidence(PaperLayoutArtifact artifact, DocumentBlock block,
+                                      double score, boolean selected, SelectionAnchor anchor) {
+        List<SelectionBlockRange> ranges = selected && anchor != null
+                ? anchor.blockRanges().stream().filter(range -> range.blockId().equals(block.id())).toList()
+                : List.of();
         return new LayoutEvidence(
                 evidenceId(artifact, block),
                 artifact.paperId(),
@@ -143,24 +166,47 @@ public class PaperLayoutEvidenceService {
                 block.role(),
                 block.readingOrder(),
                 block.sectionPath(),
-                evidenceText(block),
+                evidenceText(block, ranges),
                 score,
                 selected,
                 block.confidence(),
                 artifact.documentHash(),
                 artifact.parserVersion(),
                 block.contentMode(),
-                structuredContent(block)
+                structuredContent(block),
+                ranges,
+                mathTranscriptions(artifact, block, ranges, selected)
         );
     }
 
-    private String evidenceText(DocumentBlock block) {
-        if (block.contentMode() != DocumentBlockContentMode.REGION) return block.text();
+    private String evidenceText(DocumentBlock block, List<SelectionBlockRange> ranges) {
+        if (block.contentMode() != DocumentBlockContentMode.REGION) {
+            if (ranges.isEmpty()) return block.text();
+            return ranges.stream().map(range -> block.text().substring(
+                            Math.min(range.start(), block.text().length()),
+                            Math.min(range.end(), block.text().length())))
+                    .filter(value -> !value.isBlank())
+                    .reduce("", (left, right) -> left.isBlank() ? right : left + " … " + right);
+        }
         return switch (block.role()) {
             case FORMULA -> "[公式区域：未获得可信 LaTeX，仅可按页面区域定位和核对]";
             case TABLE -> "[表格区域：未获得可信单元格结构，仅可按页面区域定位和核对]";
             default -> "[视觉区域：没有可安全引用的精确文本]";
         };
+    }
+
+    private List<InlineMathTranscription> mathTranscriptions(PaperLayoutArtifact artifact,
+                                                             DocumentBlock block,
+                                                             List<SelectionBlockRange> ranges,
+                                                             boolean selected) {
+        if (!selected || mathTranscriptionService == null
+                || block.mathProfile().level() == MathContentLevel.NONE) return List.of();
+        return block.mathProfile().fragments().stream()
+                .filter(fragment -> ranges.isEmpty() || ranges.stream().anyMatch(range ->
+                        fragment.end() > range.start() && fragment.start() < range.end()))
+                .limit(24)
+                .map(fragment -> mathTranscriptionService.transcribe(artifact, block, fragment))
+                .toList();
     }
 
     private String structuredContent(DocumentBlock block) {

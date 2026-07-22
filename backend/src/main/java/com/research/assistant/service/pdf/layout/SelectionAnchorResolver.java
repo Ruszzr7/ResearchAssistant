@@ -198,6 +198,11 @@ public class SelectionAnchorResolver {
                                                        SelectionMappingStatus mappingStatus,
                                                        SelectionContentType contentType) {
         if (contentType == SelectionContentType.REFERENCE) return SelectionEvidenceUse.METADATA_ONLY;
+        boolean unstructuredVisualContent = blocks.stream().anyMatch(block ->
+                block.contentMode() == DocumentBlockContentMode.REGION
+                        && (block.role() == DocumentBlockRole.FORMULA
+                        || block.role() == DocumentBlockRole.TABLE));
+        if (unstructuredVisualContent) return SelectionEvidenceUse.VISUAL_ONLY;
         if (mappingStatus == SelectionMappingStatus.REGION
                 || blocks.stream().noneMatch(evidencePolicy::isAllowed)) {
             return SelectionEvidenceUse.VISUAL_ONLY;

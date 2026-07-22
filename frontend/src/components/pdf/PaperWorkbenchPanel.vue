@@ -118,6 +118,9 @@
           <div v-else-if="selectionMappingIsRegion" class="warning-state" role="status">
             当前选区只能定位到页面区域，未建立可信的精确文本映射。可重新选择更清晰的文字；若继续固定，回答会明确要求回原页核对。
           </div>
+          <div v-else-if="selectionIsMathRich" class="math-rich-state" role="status">
+            已精确定位文字；检测到多个行内数学片段。提问时会同时提供 PDF 原文和本地 LaTeX 辅助，近似转写仍以原页排版为准。
+          </div>
           <div v-else-if="!textSelectionConfirmed" class="content-confirm-hint">确认后才会作为对话依据，继续拖选可重新调整范围。</div>
         </section>
 
@@ -302,6 +305,9 @@ const selectionMappingIsRegion = computed(() => (
   props.selectionAnchor?.mappingStatus
     ? props.selectionAnchor.mappingStatus === 'REGION'
     : props.selectionAnchor?.kind === 'REGION'
+))
+const selectionIsMathRich = computed(() => (
+  props.selectionAnchor?.contentType === 'MATH_RICH_TEXT'
 ))
 const textSelectionIdentity = computed(() => {
   if (!props.selection?.text) return ''
@@ -781,6 +787,7 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .muted-state, .error-state { padding-top: 8px; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.45; }
 .error-state { color: var(--el-color-danger); }
 .warning-state { margin-top: 8px; padding: 7px 8px; border-radius: 5px; color: #8a5a00; background: #fff7e6; font-size: 10px; line-height: 1.45; }
+.math-rich-state { margin-top: 8px; padding: 7px 8px; border-radius: 5px; color: #245f73; background: #edf8fb; font-size: 10px; line-height: 1.45; }
 .future-feature { display: grid; min-height: 420px; border-bottom: 0; place-items: center; align-content: center; text-align: center; }
 .future-feature__badge { padding: 3px 8px; border-radius: 999px; color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 10%, transparent); font-size: 9px; }
 .future-feature h3 { margin: 10px 0 5px; font-size: 15px; }

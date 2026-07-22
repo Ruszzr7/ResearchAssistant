@@ -167,6 +167,23 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(wrapper.get('.warning-state').text()).toContain('回原页核对')
   })
 
+  it('explains local math enhancement for an exact math-rich selection', async () => {
+    const wrapper = mountPanel({
+      selection: textSelection,
+      selectionAnchor: {
+        ...textAnchor,
+        mappingStatus: 'EXACT',
+        contentType: 'MATH_RICH_TEXT',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.warning-state').exists()).toBe(false)
+    expect(wrapper.get('.math-rich-state').text()).toContain('多个行内数学片段')
+    expect(wrapper.get('.math-rich-state').text()).toContain('本地 LaTeX')
+    expect(wrapper.get('.math-rich-state').text()).toContain('原页排版为准')
+  })
+
   it('keeps follow-up questions in one grounded conversation', async () => {
     mocks.state.run
       .mockResolvedValueOnce({
