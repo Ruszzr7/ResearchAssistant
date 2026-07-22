@@ -55,6 +55,22 @@ describe('PDF selection anchor geometry', () => {
     expect(payload.boxes[0].height).toBeCloseTo(0.03)
   })
 
+  it('sends the versioned PDF.js character anchor with geometry', () => {
+    const payload = selectionToAnchorPayload({
+      text: 'selected',
+      groups: [{ pageNum: 2, quads: [quad(0.1, 0.2, 0.3, 0.23)] }],
+      textAnchor: {
+        version: 1, page: 2, documentFingerprint: 'fingerprint', textMapVersion: 1,
+        ranges: [{ itemIndex: 7, spanIndex: 0, startOffset: 2, endOffset: 10 }],
+      },
+    })
+
+    expect(payload.clientTextAnchor).toEqual({
+      version: 1, page: 2, documentFingerprint: 'fingerprint', textMapVersion: 1,
+      ranges: [{ itemIndex: 7, spanIndex: 0, startOffset: 2, endOffset: 10 }],
+    })
+  })
+
   it('converts a top-left backend bbox into the viewer quad orientation', () => {
     expect(boundingBoxToViewportQuad({ x: 0.1, y: 0.2, width: 0.3, height: 0.05 }))
       .toEqual({

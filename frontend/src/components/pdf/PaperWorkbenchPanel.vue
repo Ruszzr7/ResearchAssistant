@@ -115,7 +115,7 @@
           <div v-if="selectionTranslationError" class="error-state">{{ selectionTranslationError }}</div>
           <div v-if="selectionLoading" class="muted-state">正在准备所选内容…</div>
           <div v-else-if="selectionError" class="error-state">{{ selectionError }}</div>
-          <div v-else-if="selectionAnchor?.kind === 'REGION'" class="warning-state" role="status">
+          <div v-else-if="selectionMappingIsRegion" class="warning-state" role="status">
             当前选区只能定位到页面区域，未建立可信的精确文本映射。可重新选择更清晰的文字；若继续固定，回答会明确要求回原页核对。
           </div>
           <div v-else-if="!textSelectionConfirmed" class="content-confirm-hint">确认后才会作为对话依据，继续拖选可重新调整范围。</div>
@@ -298,6 +298,11 @@ const showMemoryStatus = computed(() => Boolean(
 ))
 
 const selectionTargetLanguage = computed(() => oppositeLanguage(detectTextLanguage(props.selection?.text)))
+const selectionMappingIsRegion = computed(() => (
+  props.selectionAnchor?.mappingStatus
+    ? props.selectionAnchor.mappingStatus === 'REGION'
+    : props.selectionAnchor?.kind === 'REGION'
+))
 const textSelectionIdentity = computed(() => {
   if (!props.selection?.text) return ''
   const page = props.selectionAnchor?.page || props.selection?.groups?.[0]?.pageNum || ''

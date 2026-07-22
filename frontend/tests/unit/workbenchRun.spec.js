@@ -29,6 +29,17 @@ describe('PDF workbench request boundary', () => {
     })
   })
 
+  it('uses mapping status instead of legacy kind for reference selections', () => {
+    const request = buildWorkbenchPlanRequest({
+      mode: WORKBENCH_MODES.SELECTION_QA,
+      paperId: 7,
+      question: '解释这条参考文献',
+      selectionAnchor: { kind: 'REGION', mappingStatus: 'EXACT', page: 8 },
+    })
+
+    expect(request.scope).toBe('SELECTION')
+  })
+
   it('sends only a conversation id and leaves history assembly to the server', () => {
     const selection = buildWorkbenchPlanRequest({
       mode: WORKBENCH_MODES.SELECTION_QA,

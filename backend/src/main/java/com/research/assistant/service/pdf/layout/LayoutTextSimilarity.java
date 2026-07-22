@@ -2,7 +2,6 @@ package com.research.assistant.service.pdf.layout;
 
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Locale;
 import java.util.Set;
 
 public final class LayoutTextSimilarity {
@@ -31,7 +30,8 @@ public final class LayoutTextSimilarity {
 
     private static Set<String> tokens(String value) {
         Set<String> result = new HashSet<>();
-        Arrays.stream(value.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+"))
+        Arrays.stream(java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC)
+                        .toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}\\p{N}]+"))
                 .map(String::trim)
                 .filter(token -> token.length() > 1)
                 .forEach(result::add);
@@ -39,11 +39,7 @@ public final class LayoutTextSimilarity {
     }
 
     private static String compact(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.toLowerCase(Locale.ROOT)
-                .replaceAll("[^\\p{L}\\p{N}]", "");
+        return LayoutTextNormalizer.compact(value);
     }
 
     private static double prefixSimilarity(String first, String second) {

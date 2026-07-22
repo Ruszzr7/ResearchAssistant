@@ -142,6 +142,9 @@ public record PaperContextSnapshot(String schemaVersion,
         component(canonical, anchor.paperId() == null ? "" : anchor.paperId().toString());
         component(canonical, Integer.toString(anchor.page()));
         component(canonical, anchor.kind().name());
+        component(canonical, anchor.mappingStatus().name());
+        component(canonical, anchor.contentType().name());
+        component(canonical, anchor.evidenceUse().name());
         component(canonical, anchor.documentHash());
         component(canonical, anchor.parserVersion());
         component(canonical, anchor.anchorText());
@@ -155,6 +158,23 @@ public record PaperContextSnapshot(String schemaVersion,
         if (anchor.tokenRange() != null) {
             component(canonical, Integer.toString(anchor.tokenRange().start()));
             component(canonical, Integer.toString(anchor.tokenRange().end()));
+        }
+        for (com.research.assistant.service.pdf.layout.SelectionBlockRange range : anchor.blockRanges()) {
+            component(canonical, range.blockId());
+            component(canonical, Integer.toString(range.start()));
+            component(canonical, Integer.toString(range.end()));
+        }
+        if (anchor.clientTextAnchor() != null) {
+            component(canonical, Integer.toString(anchor.clientTextAnchor().version()));
+            component(canonical, Integer.toString(anchor.clientTextAnchor().page()));
+            component(canonical, anchor.clientTextAnchor().documentFingerprint());
+            component(canonical, Integer.toString(anchor.clientTextAnchor().textMapVersion()));
+            for (com.research.assistant.service.pdf.layout.ClientTextRange range : anchor.clientTextAnchor().ranges()) {
+                component(canonical, Integer.toString(range.itemIndex()));
+                component(canonical, Integer.toString(range.spanIndex()));
+                component(canonical, Integer.toString(range.startOffset()));
+                component(canonical, Integer.toString(range.endOffset()));
+            }
         }
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")

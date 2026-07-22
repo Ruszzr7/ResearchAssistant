@@ -13,5 +13,6 @@ public record SelectionAnchorRequest(
         @Min(1) @Max(100000) int page,
         @NotEmpty @Size(max = 100) List<@Valid SelectionBoxRequest> boxes,
         @Size(max = 8000) String anchorText,
-        SelectionAnchorKind preferredKind) {
+        SelectionAnchorKind preferredKind,
+        @Valid ClientTextAnchorRequest clientTextAnchor) {
 }

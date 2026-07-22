@@ -57,7 +57,10 @@ export function buildWorkbenchPlanRequest({
     throw new Error('请先完成跨论文对比')
   }
 
-  const scope = selectionAnchor?.kind === 'REGION' && needsSelection ? 'REGION' : config.scope
+  const regionOnly = selectionAnchor?.mappingStatus
+    ? selectionAnchor.mappingStatus === 'REGION'
+    : selectionAnchor?.kind === 'REGION'
+  const scope = regionOnly && needsSelection ? 'REGION' : config.scope
   const normalizedConversationId = String(conversationId || '').trim()
   return {
     paperIds,

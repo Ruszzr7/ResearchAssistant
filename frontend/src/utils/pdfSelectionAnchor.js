@@ -65,10 +65,12 @@ export function selectionToAnchorPayload(selection) {
   if (!group?.pageNum) return null
   const boxes = selectionQuadsToBoxes(group.quads)
   if (!boxes.length) return null
+  const clientTextAnchor = cloneSelectionTextAnchor(selection.textAnchor)
   return {
     page: group.pageNum,
     boxes,
-    anchorText: String(selection.text || '').slice(0, 8000)
+    anchorText: String(selection.text || '').slice(0, 8000),
+    ...(clientTextAnchor ? { clientTextAnchor } : {}),
   }
 }
 

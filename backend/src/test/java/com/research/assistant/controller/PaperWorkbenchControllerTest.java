@@ -67,7 +67,7 @@ class PaperWorkbenchControllerTest {
     @Test
     void resolvesSelectionWithoutTrustingClientBlockIds() throws Exception {
         when(artifactService.ensureArtifact(42L, false)).thenReturn(artifact);
-        when(anchorResolver.resolve(eq(artifact), eq(1), anyList(), eq("selected text"), eq(null)))
+        when(anchorResolver.resolve(eq(artifact), eq(1), anyList(), eq("selected text"), eq(null), eq(null)))
                 .thenReturn(anchor);
 
         mvc.perform(post("/api/papers/42/workbench/selection-anchor")

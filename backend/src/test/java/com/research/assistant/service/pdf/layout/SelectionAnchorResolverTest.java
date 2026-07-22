@@ -31,6 +31,10 @@ class SelectionAnchorResolverTest {
         assertThat(anchor.parserVersion()).isEqualTo("parser+semantic");
         assertThat(anchor.confidence()).isGreaterThan(0.8);
         assertThat(anchor.tokenRange()).isNotNull();
+        assertThat(anchor.mappingStatus()).isEqualTo(SelectionMappingStatus.EXACT);
+        assertThat(anchor.contentType()).isEqualTo(SelectionContentType.PLAIN_TEXT);
+        assertThat(anchor.evidenceUse()).isEqualTo(SelectionEvidenceUse.CLAIM_EVIDENCE);
+        assertThat(anchor.blockRanges()).containsExactly(new SelectionBlockRange("body-1", 13, 56));
     }
 
     @Test
@@ -44,6 +48,43 @@ class SelectionAnchorResolverTest {
 
         assertThat(anchor.kind()).isEqualTo(SelectionAnchorKind.REGION);
         assertThat(anchor.blockIds()).containsExactly("header-1");
+        assertThat(anchor.mappingStatus()).isEqualTo(SelectionMappingStatus.EXACT);
+        assertThat(anchor.evidenceUse()).isEqualTo(SelectionEvidenceUse.VISUAL_ONLY);
+    }
+
+    @Test
+    void keepsExactReferenceMappingSeparateFromEvidenceEligibility() {
+        SelectionAnchor anchor = resolver.resolve(
+                artifact(),
+                2,
+                List.of(new NormalizedBoundingBox(0.08, 0.20, 0.40, 0.20)),
+                "[1] A reference that must not become evidence",
+                null);
+
+        assertThat(anchor.kind()).isEqualTo(SelectionAnchorKind.REGION);
+        assertThat(anchor.mappingStatus()).isEqualTo(SelectionMappingStatus.EXACT);
+        assertThat(anchor.contentType()).isEqualTo(SelectionContentType.REFERENCE);
+        assertThat(anchor.evidenceUse()).isEqualTo(SelectionEvidenceUse.METADATA_ONLY);
+    }
+
+    @Test
+    void recoversOffsetsAcrossUnicodeLigaturesAndSoftHyphens() {
+        PaperLayoutArtifact source = new PaperLayoutArtifact(
+                9L, "b".repeat(64), "parser", 0.9, Instant.now(), 1,
+                List.of(block("unicode", 1, 0, DocumentBlockRole.BODY,
+                        new NormalizedBoundingBox(0.1, 0.2, 0.7, 0.1),
+                        "An efﬁcient rate-\u00ADsplitting method")));
+
+        SelectionAnchor anchor = resolver.resolve(source, 1,
+                List.of(new NormalizedBoundingBox(0.1, 0.2, 0.7, 0.1)),
+                "efficient rate splitting", null);
+
+        assertThat(anchor.mappingStatus()).isEqualTo(SelectionMappingStatus.EXACT);
+        assertThat(anchor.blockRanges()).hasSize(1);
+        assertThat(anchor.blockRanges().get(0).blockId()).isEqualTo("unicode");
+        assertThat(source.blocks().get(0).text().substring(
+                anchor.blockRanges().get(0).start(), anchor.blockRanges().get(0).end()))
+                .isEqualTo("efﬁcient rate-\u00ADsplitting");
     }
 
     @Test

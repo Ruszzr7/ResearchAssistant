@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 
 /** Maps untrusted viewport geometry back to versioned semantic layout blocks. */
 @Service
@@ -34,7 +33,19 @@ public class SelectionAnchorResolver {
                                    List<NormalizedBoundingBox> boxes,
                                    String anchorText,
                                    SelectionAnchorKind preferredKind) {
+        return resolve(artifact, page, boxes, anchorText, preferredKind, null);
+    }
+
+    public SelectionAnchor resolve(PaperLayoutArtifact artifact,
+                                   int page,
+                                   List<NormalizedBoundingBox> boxes,
+                                   String anchorText,
+                                   SelectionAnchorKind preferredKind,
+                                   ClientTextAnchor clientTextAnchor) {
         validate(artifact, page, boxes);
+        if (clientTextAnchor != null && clientTextAnchor.page() != page) {
+            throw new IllegalArgumentException("client text anchor page mismatch");
+        }
         String safeText = anchorText == null ? "" : anchorText.strip();
         if (preferredKind == SelectionAnchorKind.FORMULA && confirmedFormulaRegions != null) {
             java.util.Optional<SelectionAnchor> confirmed = confirmedFormulaRegions.resolve(
@@ -64,6 +75,11 @@ public class SelectionAnchorResolver {
         double confidence = clamp(0.58 * geometryAgreement + 0.27 * textAgreement + 0.15 * blockConfidence);
         SelectionAnchorKind kind = determineKind(
                 preferredKind, blocks, safeText, geometryAgreement, textAgreement, confidence);
+        List<SelectionBlockRange> blockRanges = LayoutTextNormalizer.locate(blocks, safeText);
+        SelectionMappingStatus mappingStatus = determineMappingStatus(
+                blocks, safeText, geometryAgreement, textAgreement, blockRanges);
+        SelectionContentType contentType = determineContentType(blocks);
+        SelectionEvidenceUse evidenceUse = determineEvidenceUse(blocks, mappingStatus, contentType);
 
         return new SelectionAnchor(
                 artifact.paperId(),
@@ -71,11 +87,16 @@ public class SelectionAnchorResolver {
                 boxes,
                 safeText,
                 blocks.stream().map(DocumentBlock::id).toList(),
-                exactRange(blocks, safeText),
+                legacyTokenRange(blockRanges),
                 kind,
                 confidence,
                 artifact.documentHash(),
-                artifact.parserVersion()
+                artifact.parserVersion(),
+                mappingStatus,
+                contentType,
+                evidenceUse,
+                blockRanges,
+                clientTextAnchor
         );
     }
 
@@ -144,14 +165,46 @@ public class SelectionAnchorResolver {
         return SelectionAnchorKind.REGION;
     }
 
-    private SelectionTokenRange exactRange(List<DocumentBlock> blocks, String anchorText) {
-        if (blocks.size() != 1 || anchorText.isBlank()) {
-            return null;
+    private SelectionMappingStatus determineMappingStatus(List<DocumentBlock> blocks,
+                                                          String anchorText,
+                                                          double geometryAgreement,
+                                                          double textAgreement,
+                                                          List<SelectionBlockRange> blockRanges) {
+        if (blocks.isEmpty() || geometryAgreement < 0.30) return SelectionMappingStatus.REGION;
+        if (!anchorText.isBlank() && !blockRanges.isEmpty()) return SelectionMappingStatus.EXACT;
+        if (!anchorText.isBlank() && textAgreement >= 0.55) return SelectionMappingStatus.PARTIAL;
+        return geometryAgreement >= 0.55 ? SelectionMappingStatus.PARTIAL : SelectionMappingStatus.REGION;
+    }
+
+    private SelectionContentType determineContentType(List<DocumentBlock> blocks) {
+        if (blocks.isEmpty()) return SelectionContentType.UNKNOWN;
+        if (blocks.stream().allMatch(block -> block.role() == DocumentBlockRole.REFERENCE)) {
+            return SelectionContentType.REFERENCE;
         }
-        String blockText = blocks.get(0).text();
-        int start = blockText.toLowerCase(Locale.ROOT)
-                .indexOf(anchorText.toLowerCase(Locale.ROOT));
-        return start < 0 ? null : new SelectionTokenRange(start, start + anchorText.length());
+        if (blocks.stream().allMatch(block -> block.role() == DocumentBlockRole.FORMULA)) {
+            return SelectionContentType.FORMULA;
+        }
+        if (blocks.stream().allMatch(block -> block.role() == DocumentBlockRole.TABLE)) {
+            return SelectionContentType.TABLE;
+        }
+        return SelectionContentType.PLAIN_TEXT;
+    }
+
+    private SelectionEvidenceUse determineEvidenceUse(List<DocumentBlock> blocks,
+                                                       SelectionMappingStatus mappingStatus,
+                                                       SelectionContentType contentType) {
+        if (contentType == SelectionContentType.REFERENCE) return SelectionEvidenceUse.METADATA_ONLY;
+        if (mappingStatus == SelectionMappingStatus.REGION
+                || blocks.stream().noneMatch(evidencePolicy::isAllowed)) {
+            return SelectionEvidenceUse.VISUAL_ONLY;
+        }
+        return SelectionEvidenceUse.CLAIM_EVIDENCE;
+    }
+
+    private SelectionTokenRange legacyTokenRange(List<SelectionBlockRange> ranges) {
+        if (ranges.size() != 1) return null;
+        SelectionBlockRange range = ranges.get(0);
+        return new SelectionTokenRange(range.start(), range.end());
     }
 
     private void validate(PaperLayoutArtifact artifact,

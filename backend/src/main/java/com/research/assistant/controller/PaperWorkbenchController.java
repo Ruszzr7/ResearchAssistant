@@ -57,9 +57,10 @@ public class PaperWorkbenchController {
         SelectionAnchor anchor = anchorResolver.resolve(
                 artifact,
                 request.page(),
-                request.boxes().stream().map(box -> box.toBoundingBox()).toList(),
-                request.anchorText(),
-                request.preferredKind());
+                  request.boxes().stream().map(box -> box.toBoundingBox()).toList(),
+                  request.anchorText(),
+                  request.preferredKind(),
+                  request.clientTextAnchor() == null ? null : request.clientTextAnchor().toModel());
         return Result.ok(anchor);
     }
 
