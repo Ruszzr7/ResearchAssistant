@@ -127,12 +127,6 @@
         </div>
         <div class="pdf-search-summary">
           <span v-if="searchStatusText">{{ searchStatusText }}</span>
-          <button
-            v-if="!searchIndexLoading && searchIndexSummary.failed > 0"
-            type="button"
-            class="pdf-search-retry"
-            @click="retryPdfSearchIndex"
-          >重试失败页</button>
           <span class="pdf-search-navigation">
             <button type="button" :disabled="!searchResults.length" aria-label="上一个结果" @click="activateNextSearchResult(-1)">↑</button>
             <button type="button" :disabled="!searchResults.length" aria-label="下一个结果" @click="activateNextSearchResult(1)">↓</button>
@@ -541,22 +535,12 @@ import {
   isSelectionNote,
   resizeTextAnnotationQuads,
 } from '@/utils/pdfAnnotation.js'
-import { buildPdfPageLayoutIndex } from '@/utils/pdfLayoutIndex.js'
-import { createSameColumnSelection, findLayoutRunAtPoint } from '@/utils/pdfLayoutSelection.js'
 import {
   boundingBoxToViewportQuad,
-  buildSelectionTextAnchor,
   cloneSelectionTextAnchor,
   selectionToAnchorPayload,
 } from '@/utils/pdfSelectionAnchor.js'
 import { formulaRegionSvgRect, normalizedFormulaRegion } from '@/utils/formulaRegionSelection.js'
-import {
-  buildFailedPdfPageSearchRecord,
-  buildPdfPageSearchRecord,
-  describePdfSearchState,
-  findPdfSearchMatches,
-  summarizePdfSearchIndex,
-} from '@/utils/pdfSearch.js'
 import {
   confirmFormulaRegion,
   recognizeFormulaRegion,
@@ -598,18 +582,12 @@ const searchInputRef = ref(null)
 const canvasRefs = ref({})
 const textLayerRefs = ref({})
 const overlayRefs = ref({})
-// 非响应式的本地索引：它只为后续自定义选区提供几何事实，不改变当前原生
-// Selection 或后端的 PaperLayoutArtifact 持久化链路。
-const pageLayoutIndexes = new Map()
-const pageTextMaps = new Map()
 // PDF.js 的文档对象包含私有字段，不能被 Vue 深层代理，否则调用 getPage/render
 // 时会报 "Cannot read from private field"。
 const pdfDoc = shallowRef(null)
 let pdfInteractionEngine = null
 const pdfInteractionReady = ref(false)
-const pdfInteractionError = ref('')
 const renderedPages = ref([])
-const pageSearchRecords = new Map()
 const visiblePageStart = ref(1)
 const visiblePageEnd = ref(1)
 const currentPage = ref(1)
@@ -629,13 +607,6 @@ const searchQuery = ref('')
 const searchResults = ref([])
 const activeSearchResultIndex = ref(-1)
 const searchIndexLoading = ref(false)
-const searchIndexProgress = ref(0)
-const searchIndexSummary = computed(() => {
-  // pageSearchRecords is deliberately non-reactive; progress invalidates this
-  // projection after every indexed page batch.
-  void searchIndexProgress.value
-  return summarizePdfSearchIndex([...pageSearchRecords.values()])
-})
 const searchStatusText = computed(() => {
   if (!searchQuery.value.trim()) return ''
   if (searchIndexLoading.value) return '正在搜索…'
@@ -718,7 +689,6 @@ let suppressAnnotationClickId = null
 let layoutSelectionDrag = null
 let formulaRegionDrag = null
 let selectionContextRequestId = 0
-let searchIndexPromise = null
 let searchDebounceTimer = null
 let searchRequestId = 0
 let evidenceFocusTimer = null
@@ -817,9 +787,6 @@ onUnmounted(() => {
   void pdfInteractionEngine?.close?.()
   pdfInteractionEngine = null
   pdfInteractionReady.value = false
-  pageLayoutIndexes.clear()
-  pageTextMaps.clear()
-  pageSearchRecords.clear()
   if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
   viewerBodyResizeObserver?.disconnect()
   viewerBodyResizeObserver = null
@@ -886,7 +853,6 @@ function closeSearchPanel() {
   searchRequestId += 1
   searchResults.value = []
   activeSearchResultIndex.value = -1
-  clearSearchHighlights()
 }
 
 function clearPdfSearch() {
@@ -894,7 +860,6 @@ function clearPdfSearch() {
   searchRequestId += 1
   searchResults.value = []
   activeSearchResultIndex.value = -1
-  clearSearchHighlights()
   searchInputRef.value?.focus?.()
 }
 
@@ -912,7 +877,6 @@ async function performPdfSearch() {
   if (!query) {
     searchResults.value = []
     activeSearchResultIndex.value = -1
-    clearSearchHighlights()
     return
   }
   if (!pdfInteractionReady.value || !pdfInteractionEngine) {
@@ -938,7 +902,6 @@ async function performPdfSearch() {
     context: formatPdfiumSearchContext(match.context),
   }))
   activeSearchResultIndex.value = searchResults.value.length ? 0 : -1
-  refreshVisibleSearchHighlights()
   if (searchResults.value.length) await activateSearchResult(0)
 }
 
@@ -949,61 +912,6 @@ function formatPdfiumSearchContext(context) {
   return `${prefix}${context.before || ''}${context.match || ''}${context.after || ''}${suffix}`
     .replace(/\s+/g, ' ')
     .trim()
-}
-
-async function ensurePdfSearchIndex({ retryFailed = false } = {}) {
-  const documentRef = pdfDoc.value
-  const pageCount = documentRef?.numPages || 0
-  if (retryFailed) {
-    for (const [pageNumber, record] of pageSearchRecords.entries()) {
-      if (record?.status === 'FAILED') pageSearchRecords.delete(pageNumber)
-    }
-    searchIndexProgress.value = pageSearchRecords.size
-  }
-  if (!documentRef || !pageCount || pageSearchRecords.size === pageCount) return
-  if (searchIndexPromise) return searchIndexPromise
-
-  searchIndexLoading.value = true
-  searchIndexProgress.value = pageSearchRecords.size
-  searchIndexPromise = (async () => {
-    for (let start = 1; start <= pageCount; start += 6) {
-      const pageNumbers = Array.from({ length: Math.min(6, pageCount - start + 1) }, (_, index) => start + index)
-        .filter(pageNumber => !pageSearchRecords.has(pageNumber))
-      const records = await Promise.all(pageNumbers.map(async pageNumber => {
-        try {
-          const page = await documentRef.getPage(pageNumber)
-          const textContent = await page.getTextContent()
-          const viewport = page.getViewport({ scale: 1 })
-          return buildPdfPageSearchRecord(pageNumber, textContent.items, {
-            documentFingerprint: documentRef.fingerprints?.[0] || '',
-            pageWidth: viewport.width,
-            pageHeight: viewport.height,
-            rotation: viewport.rotation,
-            scale: viewport.scale,
-          })
-        } catch (error) {
-          return buildFailedPdfPageSearchRecord(
-            pageNumber,
-            error?.name || 'TEXT_EXTRACTION_FAILED',
-            { documentFingerprint: documentRef.fingerprints?.[0] || '' },
-          )
-        }
-      }))
-      if (pdfDoc.value !== documentRef) return
-      records.forEach(record => pageSearchRecords.set(record.page, record))
-      searchIndexProgress.value = pageSearchRecords.size
-    }
-  })().finally(() => {
-    searchIndexPromise = null
-    searchIndexLoading.value = false
-  })
-  return searchIndexPromise
-}
-
-async function retryPdfSearchIndex() {
-  searchRequestId += 1
-  await ensurePdfSearchIndex({ retryFailed: true })
-  if (searchPanelVisible.value && searchQuery.value.trim()) await performPdfSearch()
 }
 
 function activateNextSearchResult(direction) {
@@ -1019,88 +927,13 @@ async function activateSearchResult(index) {
   activeSearchResultIndex.value = index
   await goToPage(result.page)
   await nextTick()
-  refreshVisibleSearchHighlights()
   scrollActiveSearchMatchIntoView(result)
-}
-
-function refreshVisibleSearchHighlights() {
-  // SVG highlights directly project PDFium rectangles.
-}
-
-function clearSearchHighlights() {
-  if (globalThis.CSS?.highlights) {
-    CSS.highlights.delete('pdf-search-match')
-    CSS.highlights.delete('pdf-search-current')
-  }
-  containerRef.value
-    ?.querySelectorAll?.('.text-layer .pdf-search-match, .text-layer .pdf-search-current')
-    .forEach(span => span.classList.remove('pdf-search-match', 'pdf-search-current'))
 }
 
 function searchRectsForPage(pageNum) {
   return searchResults.value
     .map((result, index) => ({ ...result, active: index === activeSearchResultIndex.value }))
     .filter(result => result.page === pageNum && result.rects?.length)
-}
-
-function applySearchHighlightsToPage(pageNum) {
-  if (!textLayerElementForPage(pageNum)) return
-  rebuildSearchHighlights()
-}
-
-function rebuildSearchHighlights() {
-  if (pdfInteractionReady.value) return
-  clearSearchHighlights()
-  const supportsCustomHighlights = Boolean(globalThis.CSS?.highlights && globalThis.Highlight)
-  const matchRanges = []
-  const currentRanges = []
-
-  searchResults.value.forEach((result, resultIndex) => {
-    const layer = textLayerElementForPage(result.page)
-    if (!layer) return
-    const ranges = createSearchDomRanges(layer, result)
-    if (supportsCustomHighlights) {
-      matchRanges.push(...ranges)
-      if (resultIndex === activeSearchResultIndex.value) currentRanges.push(...ranges)
-      return
-    }
-    const spans = layer.querySelectorAll('span')
-    result.spanIndexes.forEach(spanIndex => {
-      const span = spans[spanIndex]
-      if (!span) return
-      span.classList.add('pdf-search-match')
-      if (resultIndex === activeSearchResultIndex.value) span.classList.add('pdf-search-current')
-    })
-  })
-
-  if (supportsCustomHighlights) {
-    CSS.highlights.set('pdf-search-match', new Highlight(...matchRanges))
-    CSS.highlights.set('pdf-search-current', new Highlight(...currentRanges))
-  }
-}
-
-function createSearchDomRanges(layer, result) {
-  const spans = layer?.querySelectorAll?.('span') || []
-  return (result?.itemRanges || []).flatMap(itemRange => {
-    const span = spans[itemRange.spanIndex]
-    const textNode = span ? firstTextNode(span) : null
-    if (!textNode) return []
-    const length = textNode.data.length
-    const start = Math.max(0, Math.min(length, Number(itemRange.startOffset) || 0))
-    const end = Math.max(start, Math.min(length, Number(itemRange.endOffset) || 0))
-    if (end <= start) return []
-    const range = document.createRange()
-    range.setStart(textNode, start)
-    range.setEnd(textNode, end)
-    return [range]
-  })
-}
-
-function firstTextNode(element) {
-  for (const node of element?.childNodes || []) {
-    if (node.nodeType === Node.TEXT_NODE) return node
-  }
-  return null
 }
 
 function scrollActiveSearchMatchIntoView(result) {
@@ -1118,22 +951,6 @@ function scrollActiveSearchMatchIntoView(result) {
     }
     return
   }
-  const layer = textLayerElementForPage(result.page)
-  const range = createSearchDomRanges(layer, result)[0]
-  const span = layer?.querySelectorAll?.('span')?.[result.spanIndexes?.[0]]
-  if (!container || (!range && !span)) return
-  const containerRect = container.getBoundingClientRect()
-  const targetRect = range?.getBoundingClientRect?.() || span.getBoundingClientRect()
-  container.scrollTop += targetRect.top - containerRect.top - container.clientHeight * 0.3
-  if (targetRect.left < containerRect.left || targetRect.right > containerRect.right) {
-    container.scrollLeft += targetRect.left - containerRect.left - container.clientWidth * 0.25
-  }
-}
-
-function textLayerElementForPage(pageNum) {
-  return textLayerRefs.value[pageNum]
-    || containerRef.value?.querySelector?.(`.pdf-page[data-page="${Number(pageNum)}"] .text-layer`)
-    || null
 }
 
 function selectAnnotationColor(color) {
@@ -1174,19 +991,14 @@ async function loadDocument() {
   try {
     cancelAllPageRenders()
     renderQueueRequested = false
-    pageLayoutIndexes.clear()
-    pageTextMaps.clear()
-    pageSearchRecords.clear()
     searchResults.value = []
     activeSearchResultIndex.value = -1
-    searchIndexProgress.value = 0
     pdfPageWidthAt100.value = 0
     const url = `/api/papers/${props.paper.id}/pdf`
     const loading = pdfjsLib.getDocument(url)
     await pdfInteractionEngine?.close?.()
     pdfInteractionEngine = createPdfInteractionEngine()
     pdfInteractionReady.value = false
-    pdfInteractionError.value = ''
     const [renderDocument] = await Promise.all([
       loading.promise,
       pdfInteractionEngine.open({ id: `paper-${props.paper.id}`, url }),
@@ -1218,7 +1030,6 @@ async function loadDocument() {
       await jumpToEvidence(props.initialEvidence)
     }
   } catch (e) {
-    pdfInteractionError.value = e.message || String(e)
     ElMessage.error('PDF 加载失败：' + (e.message || e))
   }
 }
@@ -1437,50 +1248,23 @@ async function renderPage(pageState) {
     }
   }
   if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
+  // Materialize PDFium glyph geometry before exposing the interaction surface,
+  // so the first pointer-down does not race an uncached page extraction.
+  try {
+    await pdfInteractionEngine?.getPage(pageState.pageNum - 1)
+  } catch (error) {
+    pageState.renderFailed = true
+    return false
+  }
+  if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
   pageState.canvasReady = true
 
   textLayer.replaceChildren()
   textLayer.style.width = viewport.width + 'px'
   textLayer.style.height = viewport.height + 'px'
-  // PDF.js TextLayer 会用 CSS 变量计算每个 span 的字体大小。缺少该变量时，
-  // 浏览器会把 calc(...) 视为无效并回退到 16px，造成可选文字与 canvas 字形错位。
-  textLayer.style.setProperty('--scale-factor', String(viewport.scale))
-  textLayer.dataset.layoutIndexed = 'false'
-  delete textLayer.dataset.layoutLines
-  delete textLayer.dataset.layoutColumns
-  try {
-    const textContent = await page.getTextContent()
-    if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
-    const tl = new pdfjsLib.TextLayer({
-      textContentSource: textContent,
-      container: textLayer,
-      viewport
-    })
-    await tl.render()
-    if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
-    const pageTextMap = buildPdfPageSearchRecord(pageState.pageNum, textContent.items, {
-      documentFingerprint: documentRef.fingerprints?.[0] || '',
-      pageWidth: viewport.width,
-      pageHeight: viewport.height,
-      rotation: viewport.rotation,
-      scale: viewport.scale,
-    })
-    pageTextMaps.set(pageState.pageNum, pageTextMap)
-    pageSearchRecords.set(pageState.pageNum, pageTextMap)
-    searchIndexProgress.value = pageSearchRecords.size
-    const layoutIndex = buildRenderedPageLayoutIndex(textLayer, pageState, viewport, pageTextMap)
-    pageLayoutIndexes.set(pageState.pageNum, layoutIndex)
-    // 仅作为开发期可见的只读诊断，不参与样式或交互。它让真实 PDF 的
-    // layout index 挂接可被自动化验收，同时避免把完整文本暴露到 dataset。
-    textLayer.dataset.layoutIndexed = 'true'
-    textLayer.dataset.layoutLines = String(layoutIndex.stats.lineCount)
-    textLayer.dataset.layoutColumns = String(layoutIndex.stats.columnCount)
-  } catch (e) {
-    // 某些 PDF 没有文本层，忽略
-  }
+  textLayer.dataset.interactionEngine = 'pdfium'
   if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
   pageState.rendered = true
-  applySearchHighlightsToPage(pageState.pageNum)
   return true
 }
 
@@ -1493,12 +1277,9 @@ function pageWrapStyle(page) {
 }
 
 function layerStyle(page) {
-  const scale = Number(page?.viewport?.scale)
   return {
     width: page.width ? page.width + 'px' : '100%',
     height: page.height ? page.height + 'px' : '100%',
-    // 与 PDF.js TextLayer 的内部字体/坐标计算保持同一个缩放比例。
-    '--scale-factor': Number.isFinite(scale) && scale > 0 ? String(scale) : '1'
   }
 }
 
@@ -1542,38 +1323,7 @@ function invalidatePageSurface(pageNum) {
   pageState.rendered = false
   pageState.canvasReady = false
   pageState.renderFailed = false
-  pageLayoutIndexes.delete(pageNum)
   activePageRenderTasks.get(pageNum)?.cancel()
-}
-
-function buildRenderedPageLayoutIndex(textLayer, pageState, viewport, pageTextMap) {
-  const layerRect = textLayer.getBoundingClientRect()
-  const runBySpanIndex = new Map((pageTextMap?.runs || [])
-    .filter(run => Number.isInteger(run.spanIndex))
-    .map(run => [run.spanIndex, run]))
-  const textItems = Array.from(textLayer.querySelectorAll('span')).map((span, index) => {
-    const rect = span.getBoundingClientRect()
-    const sourceRun = runBySpanIndex.get(index)
-    return {
-      id: `span-${index}`,
-      spanIndex: index,
-      itemIndex: sourceRun?.itemIndex ?? index,
-      text: span.textContent || '',
-      hasEOL: Boolean(sourceRun?.hasEOL),
-      fontName: sourceRun?.fontName || '',
-      transform: sourceRun?.transform || [],
-      x: rect.left - layerRect.left,
-      y: rect.top - layerRect.top,
-      width: rect.width,
-      height: rect.height
-    }
-  })
-  return buildPdfPageLayoutIndex({
-    pageNum: pageState.pageNum,
-    pageWidth: viewport.width,
-    pageHeight: viewport.height,
-    textItems
-  })
 }
 
 function onScroll() {
@@ -1612,7 +1362,6 @@ async function renderAtCurrentZoom() {
   clearPendingTextSelection()
   cancelAllPageRenders()
   renderQueueRequested = false
-  pageLayoutIndexes.clear()
 
   for (const page of renderedPages.value) {
     page.surfaceVersion += 1
@@ -1715,10 +1464,11 @@ async function pdfiumEndpointAtPoint(pageNum, layer, clientX, clientY) {
 function applyPdfiumSelection(drag, selection) {
   const quads = (selection.rects || []).map(boundingBoxToViewportQuad).filter(Boolean)
   if (!quads.length || !selection.text?.trim()) return
+  const contentSegments = segmentPdfSelection(selection.runs, selection.pageSize)
   pendingTextSelection.value = {
     groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
     text: selection.text,
-    contentSegments: segmentPdfSelection(selection.runs, selection.pageSize),
+    contentSegments,
     textAnchor: {
       version: 2,
       engine: 'PDFIUM',
@@ -1726,88 +1476,8 @@ function applyPdfiumSelection(drag, selection) {
       charStart: selection.charStart,
       charEnd: selection.charEnd,
       documentFingerprint: pdfDoc.value?.fingerprints?.[0] || '',
-      contentSegments: segmentPdfSelection(selection.runs, selection.pageSize),
+      contentSegments,
     },
-  }
-}
-
-function layoutSelectionEndpointAtPoint(layoutIndex, layer, clientX, clientY) {
-  if (!layoutIndex || !layer) return null
-  const caretEndpoint = layoutSelectionCaretEndpoint(layoutIndex, layer, clientX, clientY)
-  if (caretEndpoint) return caretEndpoint
-  const layerRect = layer.getBoundingClientRect()
-  const run = findLayoutRunAtPoint(layoutIndex, clientX - layerRect.left, clientY - layerRect.top)
-  if (!run) return null
-  const span = layer.querySelectorAll('span')[run.sourceIndex]
-  const offset = textOffsetAtPoint(span, run, clientX, clientY)
-  return offset == null ? null : { runId: run.id, offset }
-}
-
-function layoutSelectionCaretEndpoint(layoutIndex, layer, clientX, clientY) {
-  let node = null
-  let offset = null
-  if (document.caretPositionFromPoint) {
-    const position = document.caretPositionFromPoint(clientX, clientY)
-    node = position?.offsetNode || null
-    offset = position?.offset
-  } else if (document.caretRangeFromPoint) {
-    const range = document.caretRangeFromPoint(clientX, clientY)
-    node = range?.startContainer || null
-    offset = range?.startOffset
-  }
-  if (!node || !Number.isFinite(offset)) return null
-
-  const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node
-  const span = element?.closest?.('span')
-  if (!span || !layer.contains(span)) return null
-  const spans = Array.from(layer.querySelectorAll('span'))
-  const spanIndex = spans.indexOf(span)
-  if (spanIndex < 0) return null
-  const run = layoutIndex.runs?.find(candidate => (
-    candidate.sourceIndex === spanIndex && candidate.orientation === 'horizontal'
-  ))
-  if (!run) return null
-  const logicalOffset = Number(offset) - (run.textStartOffset || 0)
-  return { runId: run.id, offset: clamp(logicalOffset, 0, run.text.length) }
-}
-
-function textOffsetAtPoint(span, run, clientX, clientY) {
-  const textNode = textNodeIn(span)
-  if (!textNode) return null
-  const rect = span.getBoundingClientRect()
-  if (!rect.width || !rect.height) return null
-
-  const pointX = clamp(clientX, rect.left + 0.5, rect.right - 0.5)
-  const pointY = clamp(clientY, rect.top + 0.5, rect.bottom - 0.5)
-  let domOffset = null
-  if (document.caretPositionFromPoint) {
-    const position = document.caretPositionFromPoint(pointX, pointY)
-    if (position && span.contains(position.offsetNode)) domOffset = position.offset
-  } else if (document.caretRangeFromPoint) {
-    const range = document.caretRangeFromPoint(pointX, pointY)
-    if (range && span.contains(range.startContainer)) domOffset = range.startOffset
-  }
-  if (!Number.isFinite(domOffset)) {
-    domOffset = Math.round((pointX - rect.left) / rect.width * textNode.data.length)
-  }
-
-  const logicalOffset = domOffset - (run.textStartOffset || 0)
-  return clamp(logicalOffset, 0, run.text.length)
-}
-
-function applyLayoutSelection(drag, selection) {
-  const pageElement = findPageElement(drag.layer)
-  if (!pageElement) return
-  const quads = selectionSegmentsToViewportQuads(selection.segments, drag.layoutIndex, drag.layer, pageElement)
-  if (!quads.length) return
-  const pageTextMap = pageTextMaps.get(drag.pageNum)
-  pendingTextSelection.value = {
-    groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
-    text: selection.text,
-    textAnchor: buildSelectionTextAnchor(selection, drag.layoutIndex, {
-      documentFingerprint: pageTextMap?.documentFingerprint,
-      textMapVersion: pageTextMap?.version,
-    }),
   }
 }
 
@@ -1848,44 +1518,6 @@ async function jumpToEvidence(item) {
     evidenceFocus.value = null
     evidenceFocusTimer = null
   }, 8000)
-}
-
-function selectionSegmentsToViewportQuads(segments, layoutIndex, layer, pageElement) {
-  const runById = new Map(layoutIndex.runs.map(run => [run.id, run]))
-  const pageRect = pageElement.getBoundingClientRect()
-  return segments.flatMap(segment => {
-    const run = runById.get(segment.runId)
-    const span = run ? layer.querySelectorAll('span')[run.sourceIndex] : null
-    const textNode = textNodeIn(span)
-    if (!run || !textNode) return []
-
-    const start = clamp((run.textStartOffset || 0) + segment.startOffset, 0, textNode.data.length)
-    const end = clamp((run.textStartOffset || 0) + segment.endOffset, 0, textNode.data.length)
-    if (end <= start) return []
-    const range = document.createRange()
-    range.setStart(textNode, start)
-    range.setEnd(textNode, end)
-    return clientRectsToViewportQuads(range.getClientRects(), pageRect)
-  })
-}
-
-function textNodeIn(span) {
-  if (!span) return null
-  return [...span.childNodes].find(node => node.nodeType === Node.TEXT_NODE) || null
-}
-
-function clientRectsToViewportQuads(rects, pageRect) {
-  const quads = []
-  for (const rect of Array.from(rects)) {
-    const left = Math.max(rect.left, pageRect.left)
-    const right = Math.min(rect.right, pageRect.right)
-    const top = Math.max(rect.top, pageRect.top)
-    const bottom = Math.min(rect.bottom, pageRect.bottom)
-    if (right > left && bottom > top) {
-      quads.push(rectToViewportQuad({ left, right, top, bottom }, pageRect))
-    }
-  }
-  return quads
 }
 
 async function applyTextAnnotation(type) {
@@ -2126,14 +1758,6 @@ function findPageElement(node) {
     el = el.parentElement
   }
   return null
-}
-
-function rectToViewportQuad(rect, pageRect) {
-  const x1 = (rect.left - pageRect.left) / pageRect.width
-  const x2 = (rect.right - pageRect.left) / pageRect.width
-  const y1 = (rect.bottom - pageRect.top) / pageRect.height
-  const y3 = (rect.top - pageRect.top) / pageRect.height
-  return { x1, y1, x2, y2: y1, x3: x2, y3, x4: x1, y4: y3 }
 }
 
 function notePositionNearAnchor(quads) {
@@ -2907,19 +2531,6 @@ function colorName(color) {
   gap: 2px;
   margin-left: auto;
 }
-.pdf-search-retry {
-  margin-left: auto;
-  padding: 2px 5px;
-  border: 0;
-  border-radius: 4px;
-  color: var(--ra-link);
-  background: transparent;
-  cursor: pointer;
-  font-size: 11px;
-}
-.pdf-search-retry:hover {
-  background: var(--ra-hover-bg);
-}
 .pdf-search-navigation button {
   width: 24px;
   height: 24px;
@@ -3073,41 +2684,10 @@ function colorName(color) {
   text-size-adjust: none;
   forced-color-adjust: none;
   transform-origin: 0 0;
-  caret-color: CanvasText;
-  user-select: text;
-  cursor: default;
-  z-index: 1;
-}
-.text-layer :deep(span),
-.text-layer :deep(br) {
-  color: transparent;
-  position: absolute;
-  white-space: pre;
-  transform-origin: 0% 0%;
-}
-.text-layer :deep(span) {
+  user-select: none;
   cursor: text;
-}
-.text-layer :deep(span.pdf-search-match) {
-  border-radius: 2px;
-  background: rgba(255, 213, 79, 0.58);
-}
-.text-layer :deep(span.pdf-search-current) {
-  background: rgba(255, 145, 0, 0.78);
-  box-shadow: 0 0 0 1px rgba(230, 81, 0, 0.65);
-}
-:global(::highlight(pdf-search-match)) {
-  color: transparent;
-  background: rgba(255, 213, 79, 0.58);
-}
-:global(::highlight(pdf-search-current)) {
-  color: transparent;
-  background: rgba(255, 145, 0, 0.78);
-  text-decoration: underline rgba(230, 81, 0, 0.85) 1px;
-}
-.text-layer ::selection {
-  background: rgba(0, 0, 255, 0.25);
-  background: color-mix(in srgb, AccentColor, transparent 75%);
+  touch-action: none;
+  z-index: 1;
 }
 .annotation-overlay {
   position: absolute;

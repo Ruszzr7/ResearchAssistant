@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildSelectionTextAnchor,
   boundingBoxToViewportQuad,
-  restoreSelectionText,
   selectionQuadsToBoxes,
   selectionToAnchorPayload
 } from '@/utils/pdfSelectionAnchor.js'
-import { buildPdfPageTextMap } from '@/utils/pdfTextMap.js'
 
 function quad(x1, top, x2, bottom) {
   return { x1, y1: bottom, x2, y2: bottom, x3: x2, y3: top, x4: x1, y4: top }
@@ -108,42 +105,4 @@ describe('PDF selection anchor geometry', () => {
       })
   })
 
-  it('restores an exact character range after the TextLayer is rebuilt', () => {
-    const pageMap = buildPdfPageTextMap(5, [
-      { str: 'before' },
-      { str: '' },
-      { str: 'Federated edge learning' },
-    ], { documentFingerprint: 'pdf-fingerprint' })
-    const layoutIndex = {
-      pageNum: 5,
-      runs: [{
-        id: 'span-1', itemIndex: 2, spanIndex: 1,
-        textStartOffset: 0, text: 'Federated edge learning',
-      }],
-    }
-    const textAnchor = buildSelectionTextAnchor({
-      segments: [{ runId: 'span-1', startOffset: 10, endOffset: 23 }],
-    }, layoutIndex, {
-      documentFingerprint: 'pdf-fingerprint',
-      textMapVersion: pageMap.version,
-    })
-
-    expect(textAnchor.ranges).toEqual([{
-      itemIndex: 2, spanIndex: 1, startOffset: 10, endOffset: 23,
-    }])
-    expect(restoreSelectionText(textAnchor, pageMap)).toEqual({ status: 'READY', text: 'edge learning' })
-  })
-
-  it('rejects a text anchor from another PDF version', () => {
-    const pageMap = buildPdfPageTextMap(1, [{ str: 'same-looking text' }], {
-      documentFingerprint: 'new-pdf',
-    })
-    const restored = restoreSelectionText({
-      page: 1,
-      documentFingerprint: 'old-pdf',
-      ranges: [{ itemIndex: 0, spanIndex: 0, startOffset: 0, endOffset: 4 }],
-    }, pageMap)
-
-    expect(restored).toEqual({ status: 'DOCUMENT_MISMATCH', text: '' })
-  })
 })

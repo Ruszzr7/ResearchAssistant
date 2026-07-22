@@ -48,6 +48,8 @@ try {
   assert.ok(result.pageThreePrecoderRects > 0)
   assert.ok(result.pageThreeDenseMathSegments >= 5)
   assert.equal(result.pageThreeDenseHasCoefficient, true)
+  assert.ok(result.pageThreeDenseMinimumX > 0.5)
+  assert.ok(result.pageThreeHitDelta <= 10)
   console.log(JSON.stringify(result))
 } finally {
   await browser.close()

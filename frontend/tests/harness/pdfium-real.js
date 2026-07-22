@@ -19,6 +19,11 @@ async function run() {
       ? await engine.select(2, Math.max(0, pageThreeMatch.charStart - 25), pageThreeMatch.charEnd + 600)
       : null
     const denseSegments = segmentPdfSelection(denseSelection?.runs, denseSelection?.pageSize)
+    const hitRect = pageThreeMatch?.rects?.[0]
+    const hit = hitRect ? await engine.hitTest(2, {
+      x: hitRect.x + hitRect.width / 2,
+      y: hitRect.y + hitRect.height / 2,
+    }) : null
     return {
       pageCount: documentInfo.pageCount,
       coefficientPages: [...new Set(coefficient.map(match => match.pageIndex + 1))],
@@ -26,6 +31,8 @@ async function run() {
       pageThreePrecoderRects: selected?.rects?.length || 0,
       pageThreeDenseMathSegments: denseSegments.filter(segment => segment.type !== 'TEXT').length,
       pageThreeDenseHasCoefficient: /global power coefficient/i.test(denseSelection?.text || ''),
+      pageThreeDenseMinimumX: Math.min(...(denseSelection?.rects || []).map(rect => rect.x)),
+      pageThreeHitDelta: hit ? Math.abs(hit.charIndex - pageThreeMatch.charStart) : null,
     }
   } finally {
     await engine.close()

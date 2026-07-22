@@ -165,6 +165,10 @@
 - 数学密集正文不等同于扫描件，也不应默认触发整页 OCR。若 PDF 已有可靠文字层，可先以 Unicode 数学区段、希腊字母、上下标、关系运算符和显式 LaTeX 语法做确定性检测，把命中的原文字符范围与信号持久化；这一步只负责识别“哪里可能是数学”，不伪造 LaTeX。只有检测为数学密集且现有字符不足以表达二维结构时，才进入后续按需转写降级链。
 - 行内数学转写结果必须表达精度等级：PDF 中已有 LaTeX 可标为 `READY`，由 Unicode 线性文字本地转换的结果只能是 `APPROXIMATE`，缺字或二维关系无法确认时为 `UNAVAILABLE`。缓存身份需包含 PDF hash、解析版本、block、原文字符范围、原文 hash 和 provider 版本；不可把近似 LaTeX 当作用户确认过的公式证据。
 - 数学密集选区交给模型时，不能只发送被 PDF 提取器压平后的段落，也不能只发送本地生成的 LaTeX。结构化 evidence 应同时携带精确 block 字符范围、原始 `sourceText`、转写 `latex`、`READY/APPROXIMATE/UNAVAILABLE` 状态、置信度和原页坐标；`APPROXIMATE` 只作理解辅助，`UNAVAILABLE` 必须禁止模型补猜。局部 evidence 的正文应裁到实际选区范围，邻接块才保留完整段落。
+- PDF 页面渲染与文字交互事实层应解耦。canvas 可继续由 PDF.js 负责，但字形命中、字符顺序、选区矩形、字符范围回读和全文搜索必须来自同一个成熟引擎；不能再把 TextLayer DOM、矩形聚类和自研分栏猜测混成第二套文字事实。
+- 浏览器 PDF 交互锚点的稳定身份是 `PDF fingerprint + page + page-local charStart/charEnd + normalized rects`。缩放只改变显示投影，不改变字符范围或归一化坐标；搜索命中和文字选择应共享这一契约。
+- PDFium 富文本 run 的字体和几何可以帮助区分正文、段内数学和独立公式，但分类只能作为辅助。服务端必须先确认数学 `sourceText` 属于完整选区原文，再调用可替换转写 provider；引用仍绑定当前 PDF 版本的规范 evidence ID。
+- 有可靠文字层的数学论文不需要默认 OCR。先复用 PDF 引擎字符事实，再做确定性 Unicode/字体分段与本地近似 LaTeX；只有扫描件或二维结构确实无法恢复时，才进入明确的视觉/OCR 降级，而且不得把候选结果冒充原文。
 
 ## 8. 安全、部署与验证
 
