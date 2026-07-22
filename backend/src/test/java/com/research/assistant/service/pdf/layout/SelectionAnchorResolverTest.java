@@ -88,6 +88,24 @@ class SelectionAnchorResolverTest {
     }
 
     @Test
+    void identifiesAnExactlyMappedMathRichParagraph() {
+        DocumentBlock block = block("math-rich", 1, 0, DocumentBlockRole.BODY,
+                new NormalizedBoundingBox(0.08, 0.20, 0.80, 0.18),
+                "where p_c ∈ C^{N_t×1}, satisfying ||p_c||² = 1, ∀k ∈ K");
+        block = new PaperMathContentEnricher().enrich(block);
+        PaperLayoutArtifact source = new PaperLayoutArtifact(
+                9L, "c".repeat(64), "parser+semantic+inline-math-v1", 0.9,
+                Instant.now(), 1, List.of(block));
+
+        SelectionAnchor anchor = resolver.resolve(source, 1, List.of(block.bbox()),
+                block.text(), null);
+
+        assertThat(anchor.mappingStatus()).isEqualTo(SelectionMappingStatus.EXACT);
+        assertThat(anchor.contentType()).isEqualTo(SelectionContentType.MATH_RICH_TEXT);
+        assertThat(anchor.evidenceUse()).isEqualTo(SelectionEvidenceUse.CLAIM_EVIDENCE);
+    }
+
+    @Test
     void keepsFormulaKindOnlyWhenAFormulaBlockIsActuallyHit() {
         SelectionAnchor anchor = resolver.resolve(
                 artifact(),

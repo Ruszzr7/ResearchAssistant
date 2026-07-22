@@ -30,6 +30,7 @@ public class PaperLayoutArtifactService {
     private final PaperLayoutArtifactMapper artifactMapper;
     private final PaperLayoutParser parser;
     private final PaperLayoutSemanticEnricher semanticEnricher;
+    private final PaperMathContentEnricher mathContentEnricher;
     private final PaperPdfFileResolver fileResolver;
     private final ObjectMapper objectMapper;
 
@@ -37,12 +38,14 @@ public class PaperLayoutArtifactService {
                                       PaperLayoutArtifactMapper artifactMapper,
                                       PaperLayoutParser parser,
                                       PaperLayoutSemanticEnricher semanticEnricher,
+                                      PaperMathContentEnricher mathContentEnricher,
                                       PaperPdfFileResolver fileResolver,
                                       ObjectMapper objectMapper) {
         this.paperMapper = paperMapper;
         this.artifactMapper = artifactMapper;
         this.parser = parser;
         this.semanticEnricher = semanticEnricher;
+        this.mathContentEnricher = mathContentEnricher;
         this.fileResolver = fileResolver;
         this.objectMapper = objectMapper;
     }
@@ -54,7 +57,8 @@ public class PaperLayoutArtifactService {
         }
         File pdf = fileResolver.resolveRequired(paper.getPdfPath());
         String documentHash = PdfDocumentFingerprint.sha256(pdf);
-        String artifactVersion = parser.parserVersion() + "+" + semanticEnricher.version();
+        String artifactVersion = parser.parserVersion() + "+" + semanticEnricher.version()
+                + "+" + mathContentEnricher.version();
         PaperLayoutArtifactRecord cached = artifactMapper.selectReady(
                 paperId, documentHash, artifactVersion);
 
@@ -67,8 +71,8 @@ public class PaperLayoutArtifactService {
         }
 
         PaperLayoutArtifact raw = parser.parse(paperId, pdf, documentHash);
-        PaperLayoutArtifact enriched = semanticEnricher.enrich(raw, new PaperLayoutHints(
-                paper.getTitle(), paper.getAuthors(), paper.getAbstractText()));
+        PaperLayoutArtifact enriched = mathContentEnricher.enrich(semanticEnricher.enrich(
+                raw, new PaperLayoutHints(paper.getTitle(), paper.getAuthors(), paper.getAbstractText())));
         save(enriched, cached);
         PaperLayoutArtifactRecord persisted = artifactMapper.selectReady(
                 paperId, documentHash, artifactVersion);

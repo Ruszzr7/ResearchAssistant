@@ -187,6 +187,10 @@ public class SelectionAnchorResolver {
         if (blocks.stream().allMatch(block -> block.role() == DocumentBlockRole.TABLE)) {
             return SelectionContentType.TABLE;
         }
+        if (blocks.stream().anyMatch(block ->
+                block.mathProfile().level() == MathContentLevel.MATH_RICH)) {
+            return SelectionContentType.MATH_RICH_TEXT;
+        }
         return SelectionContentType.PLAIN_TEXT;
     }
 

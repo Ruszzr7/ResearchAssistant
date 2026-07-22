@@ -15,13 +15,15 @@ public record DocumentBlock(String id,
                             String latex,
                             String tableText,
                             double confidence,
-                            DocumentBlockContentMode contentMode) {
+                            DocumentBlockContentMode contentMode,
+                            MathContentProfile mathProfile) {
 
     public DocumentBlock {
         sectionPath = sectionPath == null ? List.of() : List.copyOf(sectionPath);
         text = text == null ? "" : text;
         confidence = Math.max(0, Math.min(1, confidence));
         contentMode = contentMode == null ? inferContentMode(role, latex, tableText) : contentMode;
+        mathProfile = mathProfile == null ? MathContentProfile.none("") : mathProfile;
     }
 
     /** Compatibility constructor for existing deterministic parsers and fixtures. */
@@ -36,7 +38,23 @@ public record DocumentBlock(String id,
                          String tableText,
                          double confidence) {
         this(id, page, bbox, role, readingOrder, sectionPath, text, latex, tableText,
-                confidence, null);
+                confidence, null, null);
+    }
+
+    /** Compatibility constructor for callers that explicitly set the content mode. */
+    public DocumentBlock(String id,
+                         int page,
+                         NormalizedBoundingBox bbox,
+                         DocumentBlockRole role,
+                         int readingOrder,
+                         List<String> sectionPath,
+                         String text,
+                         String latex,
+                         String tableText,
+                         double confidence,
+                         DocumentBlockContentMode contentMode) {
+        this(id, page, bbox, role, readingOrder, sectionPath, text, latex, tableText,
+                confidence, contentMode, null);
     }
 
     private static DocumentBlockContentMode inferContentMode(DocumentBlockRole role,
