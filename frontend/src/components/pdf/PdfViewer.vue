@@ -2736,6 +2736,14 @@ function colorName(color) {
   font: inherit;
   font-size: 12px;
 }
+.pdf-search-box input::-webkit-search-cancel-button,
+.pdf-search-box input::-webkit-search-decoration {
+  appearance: none;
+  display: none;
+}
+.pdf-search-box input::-ms-clear {
+  display: none;
+}
 .pdf-search-box button {
   flex: 0 0 auto;
   padding: 5px 9px;
