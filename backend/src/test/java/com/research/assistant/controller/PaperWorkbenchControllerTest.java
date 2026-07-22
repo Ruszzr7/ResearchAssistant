@@ -95,7 +95,10 @@ class PaperWorkbenchControllerTest {
                                 {"page":1,"boxes":[{"x":0.1,"y":0.2,"width":0.3,"height":0.04}],
                                  "anchorText":"selected text","clientTextAnchor":{"version":2,"page":1,
                                  "documentFingerprint":"fingerprint","textMapVersion":1,"ranges":[],
-                                 "engine":"PDFIUM","charStart":120,"charEnd":132}}
+                                 "engine":"PDFIUM","charStart":120,"charEnd":132,
+                                 "contentSegments":[{"type":"INLINE_MATH","charStart":120,
+                                 "charEnd":125,"text":"selected","fonts":["CMMI10"],
+                                 "rect":{"x":0.1,"y":0.2,"width":0.1,"height":0.02}}]}}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));

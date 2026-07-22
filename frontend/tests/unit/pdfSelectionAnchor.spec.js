@@ -94,6 +94,7 @@ describe('PDF selection anchor geometry', () => {
       charStart: 840,
       charEnd: 862,
       ranges: [],
+      contentSegments: [],
     })
   })
 

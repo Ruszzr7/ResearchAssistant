@@ -15,11 +15,14 @@ public record ClientTextAnchorRequest(@Min(1) int version,
                                       @Size(max = 100) List<@Valid ClientTextRangeRequest> ranges,
                                       @Size(max = 32) String engine,
                                       @Min(0) Integer charStart,
-                                      @Min(0) Integer charEnd) {
+                                      @Min(0) Integer charEnd,
+                                      @Size(max = 100) List<@Valid ClientContentSegmentRequest> contentSegments) {
 
     public ClientTextAnchor toModel() {
         return new ClientTextAnchor(version, page, documentFingerprint, textMapVersion,
                 ranges == null ? List.of() : ranges.stream().map(ClientTextRangeRequest::toModel).toList(),
-                engine, charStart, charEnd);
+                engine, charStart, charEnd,
+                contentSegments == null ? List.of()
+                        : contentSegments.stream().map(ClientContentSegmentRequest::toModel).toList());
     }
 }

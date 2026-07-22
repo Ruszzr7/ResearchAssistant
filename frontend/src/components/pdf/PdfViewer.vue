@@ -1726,6 +1726,7 @@ function applyPdfiumSelection(drag, selection) {
       charStart: selection.charStart,
       charEnd: selection.charEnd,
       documentFingerprint: pdfDoc.value?.fingerprints?.[0] || '',
+      contentSegments: segmentPdfSelection(selection.runs, selection.pageSize),
     },
   }
 }

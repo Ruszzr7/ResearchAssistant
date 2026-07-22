@@ -145,6 +145,14 @@ export function cloneSelectionTextAnchor(textAnchor) {
       charStart,
       charEnd,
       ranges: [],
+      contentSegments: (textAnchor.contentSegments || []).slice(0, 100).map(segment => ({
+        type: String(segment.type || 'TEXT'),
+        charStart: Math.max(charStart, Number(segment.charStart) || charStart),
+        charEnd: Math.min(charEnd, Number(segment.charEnd) || charEnd),
+        text: String(segment.text || '').slice(0, 1200),
+        fonts: (segment.fonts || []).slice(0, 8).map(font => String(font).slice(0, 128)),
+        rect: segment.rect ? { ...segment.rect } : null,
+      })).filter(segment => segment.text && segment.charEnd >= segment.charStart),
     }
   }
   return {

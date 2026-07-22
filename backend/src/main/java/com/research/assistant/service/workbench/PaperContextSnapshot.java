@@ -172,6 +172,13 @@ public record PaperContextSnapshot(String schemaVersion,
             component(canonical, anchor.clientTextAnchor().engine());
             component(canonical, String.valueOf(anchor.clientTextAnchor().charStart()));
             component(canonical, String.valueOf(anchor.clientTextAnchor().charEnd()));
+            for (com.research.assistant.service.pdf.layout.ClientContentSegment segment
+                    : anchor.clientTextAnchor().contentSegments()) {
+                component(canonical, segment.type().name());
+                component(canonical, Integer.toString(segment.charStart()));
+                component(canonical, Integer.toString(segment.charEnd()));
+                component(canonical, segment.sourceText());
+            }
             for (com.research.assistant.service.pdf.layout.ClientTextRange range : anchor.clientTextAnchor().ranges()) {
                 component(canonical, Integer.toString(range.itemIndex()));
                 component(canonical, Integer.toString(range.spanIndex()));

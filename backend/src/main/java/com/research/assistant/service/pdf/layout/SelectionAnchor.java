@@ -52,4 +52,20 @@ public record SelectionAnchor(Long paperId,
         this(paperId, page, boxes, anchorText, blockIds, tokenRange, kind, confidence,
                 documentHash, parserVersion, null, null, null, List.of(), null);
     }
+
+    /** Compatibility constructor for a versioned viewer character anchor. */
+    public SelectionAnchor(Long paperId,
+                           int page,
+                           List<NormalizedBoundingBox> boxes,
+                           String anchorText,
+                           List<String> blockIds,
+                           SelectionTokenRange tokenRange,
+                           SelectionAnchorKind kind,
+                           double confidence,
+                           String documentHash,
+                           String parserVersion,
+                           ClientTextAnchor clientTextAnchor) {
+        this(paperId, page, boxes, anchorText, blockIds, tokenRange, kind, confidence,
+                documentHash, parserVersion, null, null, null, List.of(), clientTextAnchor);
+    }
 }
