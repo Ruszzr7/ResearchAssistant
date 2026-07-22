@@ -2,6 +2,8 @@ package com.research.assistant.service.pdf.layout;
 
 import com.research.assistant.service.pdf.math.InlineMathTranscription;
 import com.research.assistant.service.pdf.math.InlineMathTranscriptionService;
+import com.research.assistant.service.pdf.math.ClientSelectionMathTranscriber;
+import com.research.assistant.service.pdf.math.LocalUnicodeMathTranscriptionProvider;
 import com.research.assistant.service.pdf.math.MathTranscriptionStatus;
 import org.junit.jupiter.api.Test;
 
@@ -75,6 +77,31 @@ class PaperLayoutEvidenceServiceTest {
         assertThat(selected.mathTranscriptions()).isNotEmpty();
         assertThat(selected.mathTranscriptions())
                 .allMatch(item -> item.status() == MathTranscriptionStatus.APPROXIMATE);
+    }
+
+    @Test
+    void addsVerifiedPdfiumMathToTheSelectedEvidenceOnlyOnce() {
+        PaperLayoutArtifact artifact = artifact();
+        ClientTextAnchor client = new ClientTextAnchor(2, 1, "fingerprint", 1, List.of(),
+                "PDFIUM", 100, 130, List.of(new ClientContentSegment(
+                ClientContentSegmentType.INLINE_MATH, 110, 118, "μ_k ≥ 0",
+                List.of("CMMI10"), new NormalizedBoundingBox(0.12, 0.35, 0.08, 0.02))));
+        SelectionAnchor anchor = resolver.resolve(artifact, 1,
+                List.of(new NormalizedBoundingBox(0.10, 0.35, 0.30, 0.03)),
+                "selected paragraph evidence with μ_k ≥ 0", null, client);
+        PaperLayoutEvidenceService pdfiumService = new PaperLayoutEvidenceService(
+                policy, resolver, null, null,
+                new ClientSelectionMathTranscriber(List.of(new LocalUnicodeMathTranscriptionProvider())));
+
+        LocalEvidenceResult result = pdfiumService.retrieve(artifact, anchor, "解释公式", 5);
+
+        List<InlineMathTranscription> all = result.evidence().stream()
+                .flatMap(item -> item.mathTranscriptions().stream()).toList();
+        assertThat(all).singleElement().satisfies(item -> {
+            assertThat(item.sourceText()).isEqualTo("μ_k ≥ 0");
+            assertThat(item.status()).isEqualTo(MathTranscriptionStatus.APPROXIMATE);
+            assertThat(item.start()).isEqualTo(110);
+        });
     }
 
     @Test

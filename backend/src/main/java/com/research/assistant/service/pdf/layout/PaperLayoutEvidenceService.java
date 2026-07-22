@@ -3,6 +3,7 @@ package com.research.assistant.service.pdf.layout;
 import com.research.assistant.service.pdf.formula.region.ConfirmedFormulaRegionService;
 import com.research.assistant.service.pdf.math.InlineMathTranscription;
 import com.research.assistant.service.pdf.math.InlineMathTranscriptionService;
+import com.research.assistant.service.pdf.math.ClientSelectionMathTranscriber;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -26,27 +27,37 @@ public class PaperLayoutEvidenceService {
     private final SelectionAnchorResolver anchorResolver;
     private final ConfirmedFormulaRegionService confirmedFormulaRegions;
     private final InlineMathTranscriptionService mathTranscriptionService;
+    private final ClientSelectionMathTranscriber clientMathTranscriber;
 
     public PaperLayoutEvidenceService(PaperLayoutEvidencePolicy evidencePolicy,
                                       SelectionAnchorResolver anchorResolver) {
-        this(evidencePolicy, anchorResolver, null, null);
+        this(evidencePolicy, anchorResolver, null, null, null);
     }
 
     public PaperLayoutEvidenceService(PaperLayoutEvidencePolicy evidencePolicy,
                                       SelectionAnchorResolver anchorResolver,
                                       ConfirmedFormulaRegionService confirmedFormulaRegions) {
-        this(evidencePolicy, anchorResolver, confirmedFormulaRegions, null);
+        this(evidencePolicy, anchorResolver, confirmedFormulaRegions, null, null);
+    }
+
+    public PaperLayoutEvidenceService(PaperLayoutEvidencePolicy evidencePolicy,
+                                      SelectionAnchorResolver anchorResolver,
+                                      ConfirmedFormulaRegionService confirmedFormulaRegions,
+                                      InlineMathTranscriptionService mathTranscriptionService) {
+        this(evidencePolicy, anchorResolver, confirmedFormulaRegions, mathTranscriptionService, null);
     }
 
     @Autowired
     public PaperLayoutEvidenceService(PaperLayoutEvidencePolicy evidencePolicy,
                                       SelectionAnchorResolver anchorResolver,
                                       ConfirmedFormulaRegionService confirmedFormulaRegions,
-                                      InlineMathTranscriptionService mathTranscriptionService) {
+                                      InlineMathTranscriptionService mathTranscriptionService,
+                                      ClientSelectionMathTranscriber clientMathTranscriber) {
         this.evidencePolicy = evidencePolicy;
         this.anchorResolver = anchorResolver;
         this.confirmedFormulaRegions = confirmedFormulaRegions;
         this.mathTranscriptionService = mathTranscriptionService;
+        this.clientMathTranscriber = clientMathTranscriber;
     }
 
     public LocalEvidenceResult retrieve(PaperLayoutArtifact artifact,
@@ -175,7 +186,7 @@ public class PaperLayoutEvidenceService {
                 block.contentMode(),
                 structuredContent(block),
                 ranges,
-                mathTranscriptions(artifact, block, ranges, selected)
+                mathTranscriptions(artifact, block, ranges, selected, anchor)
         );
     }
 
@@ -198,15 +209,34 @@ public class PaperLayoutEvidenceService {
     private List<InlineMathTranscription> mathTranscriptions(PaperLayoutArtifact artifact,
                                                              DocumentBlock block,
                                                              List<SelectionBlockRange> ranges,
-                                                             boolean selected) {
-        if (!selected || mathTranscriptionService == null
-                || block.mathProfile().level() == MathContentLevel.NONE) return List.of();
-        return block.mathProfile().fragments().stream()
-                .filter(fragment -> ranges.isEmpty() || ranges.stream().anyMatch(range ->
-                        fragment.end() > range.start() && fragment.start() < range.end()))
-                .limit(24)
-                .map(fragment -> mathTranscriptionService.transcribe(artifact, block, fragment))
-                .toList();
+                                                             boolean selected,
+                                                             SelectionAnchor anchor) {
+        if (!selected) return List.of();
+        List<InlineMathTranscription> canonical = mathTranscriptionService == null
+                || block.mathProfile().level() == MathContentLevel.NONE
+                ? List.of()
+                : block.mathProfile().fragments().stream()
+                    .filter(fragment -> ranges.isEmpty() || ranges.stream().anyMatch(range ->
+                            fragment.end() > range.start() && fragment.start() < range.end()))
+                    .limit(24)
+                    .map(fragment -> mathTranscriptionService.transcribe(artifact, block, fragment))
+                    .toList();
+        boolean firstSelectedBlock = anchor != null && anchor.blockIds().stream()
+                .filter(id -> artifact.blocks().stream().anyMatch(candidate ->
+                        candidate.id().equals(id) && evidencePolicy.isAllowed(candidate)))
+                .findFirst().map(block.id()::equals).orElse(false);
+        List<InlineMathTranscription> engineDerived = firstSelectedBlock && clientMathTranscriber != null
+                ? clientMathTranscriber.transcribe(anchor) : List.of();
+        if (engineDerived.isEmpty()) return canonical;
+        if (canonical.isEmpty()) return engineDerived;
+        List<InlineMathTranscription> combined = new ArrayList<>(canonical);
+        for (InlineMathTranscription candidate : engineDerived) {
+            boolean duplicate = combined.stream().anyMatch(existing ->
+                    existing.sourceText().replaceAll("\\s+", "")
+                            .equals(candidate.sourceText().replaceAll("\\s+", "")));
+            if (!duplicate) combined.add(candidate);
+        }
+        return List.copyOf(combined);
     }
 
     private String structuredContent(DocumentBlock block) {

@@ -138,6 +138,7 @@ public class WorkbenchModelService {
             case SELECTION_QA -> "用中文直接回答当前追问，不超过 1200 个汉字，最多 6 条 claims；"
                     + "以选中文字为焦点，可使用本次提供的全文相关 evidence 回答连续追问；"
                     + "明确区分选区内容与论文其他位置的信息，不得使用对话历史替代论文证据；"
+                    + "inlineMath 的 sourceText 是 PDF 原文事实，latex 只是带状态的理解辅助；"
                     + "数学转写 status=APPROXIMATE 时必须结合 sourceText 理解并提醒二维排版需回原页核对，"
                     + "status=UNAVAILABLE 时不得猜测缺失公式。";
             case PAPER_ANALYSIS -> "按研究问题、方法、核心贡献、实验或理论结果、局限与可复现线索组织全文分析。";
