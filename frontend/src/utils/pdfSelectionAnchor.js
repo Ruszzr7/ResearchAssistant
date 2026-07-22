@@ -107,6 +107,9 @@ export function buildSelectionTextAnchor(selection, layoutIndex, {
 
 export function restoreSelectionText(textAnchor, pageTextMap) {
   if (!textAnchor || !pageTextMap) return { status: 'INVALID', text: '' }
+  if (textAnchor.engine === 'PDFIUM' || Number(textAnchor.version) >= 2) {
+    return { status: 'ENGINE_REQUIRED', text: '' }
+  }
   if (Number(textAnchor.page) !== Number(pageTextMap.page)) return { status: 'PAGE_MISMATCH', text: '' }
   if (textAnchor.documentFingerprint && pageTextMap.documentFingerprint
     && textAnchor.documentFingerprint !== pageTextMap.documentFingerprint) {
@@ -130,6 +133,20 @@ export function restoreSelectionText(textAnchor, pageTextMap) {
 
 export function cloneSelectionTextAnchor(textAnchor) {
   if (!textAnchor) return null
+  if (textAnchor.engine === 'PDFIUM' || Number(textAnchor.version) >= 2) {
+    const charStart = Math.max(0, Number(textAnchor.charStart) || 0)
+    const charEnd = Math.max(charStart, Number(textAnchor.charEnd) || 0)
+    return {
+      version: 2,
+      engine: 'PDFIUM',
+      page: Number(textAnchor.page) || 1,
+      documentFingerprint: String(textAnchor.documentFingerprint || ''),
+      textMapVersion: 1,
+      charStart,
+      charEnd,
+      ranges: [],
+    }
+  }
   return {
     version: Number(textAnchor.version) || 1,
     page: Number(textAnchor.page) || 1,

@@ -6,6 +6,7 @@ import com.research.assistant.service.pdf.formula.region.FormulaRegionService;
 import com.research.assistant.service.pdf.formula.region.FormulaRegionSource;
 import com.research.assistant.service.pdf.formula.region.FormulaRegionStatus;
 import com.research.assistant.service.pdf.layout.LocalEvidenceResult;
+import com.research.assistant.service.pdf.layout.ClientTextAnchor;
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifactService;
@@ -80,6 +81,24 @@ class PaperWorkbenchControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.blockIds[0]").value("body-1"))
                 .andExpect(jsonPath("$.data.kind").value("TEXT"));
+    }
+
+    @Test
+    void acceptsPdfiumCharacterRangeWithNormalizedGeometry() throws Exception {
+        when(artifactService.ensureArtifact(42L, false)).thenReturn(artifact);
+        when(anchorResolver.resolve(eq(artifact), eq(1), anyList(), eq("selected text"), eq(null),
+                any(ClientTextAnchor.class))).thenReturn(anchor);
+
+        mvc.perform(post("/api/papers/42/workbench/selection-anchor")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"page":1,"boxes":[{"x":0.1,"y":0.2,"width":0.3,"height":0.04}],
+                                 "anchorText":"selected text","clientTextAnchor":{"version":2,"page":1,
+                                 "documentFingerprint":"fingerprint","textMapVersion":1,"ranges":[],
+                                 "engine":"PDFIUM","charStart":120,"charEnd":132}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
     }
 
     @Test

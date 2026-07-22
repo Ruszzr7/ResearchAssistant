@@ -71,6 +71,32 @@ describe('PDF selection anchor geometry', () => {
     })
   })
 
+  it('sends a PDFium character range beside normalized geometry', () => {
+    const payload = selectionToAnchorPayload({
+      text: 'where p_c belongs to C',
+      groups: [{ pageNum: 3, quads: [quad(0.54, 0.56, 0.92, 0.61)] }],
+      textAnchor: {
+        version: 2,
+        engine: 'PDFIUM',
+        page: 3,
+        documentFingerprint: 'pdf-fingerprint',
+        charStart: 840,
+        charEnd: 862,
+      },
+    })
+
+    expect(payload.clientTextAnchor).toEqual({
+      version: 2,
+      engine: 'PDFIUM',
+      page: 3,
+      documentFingerprint: 'pdf-fingerprint',
+      textMapVersion: 1,
+      charStart: 840,
+      charEnd: 862,
+      ranges: [],
+    })
+  })
+
   it('converts a top-left backend bbox into the viewer quad orientation', () => {
     expect(boundingBoxToViewportQuad({ x: 0.1, y: 0.2, width: 0.3, height: 0.05 }))
       .toEqual({
