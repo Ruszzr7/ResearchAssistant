@@ -14,6 +14,11 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Real PDF regressions use private files in the repository workspace via
+    // Vite's /@fs route. Production builds do not expose this development-only allowlist.
+    fs: {
+      allow: [fileURLToPath(new URL('..', import.meta.url))],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:8080',

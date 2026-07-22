@@ -190,6 +190,19 @@
             @pointerup="onOverlayPointerUp"
             @pointercancel="onOverlayPointerUp"
           >
+          <g class="pdf-search-overlay">
+            <template v-for="match in searchRectsForPage(page.pageNum)" :key="match.id">
+              <rect
+                v-for="(rect, rectIndex) in match.rects"
+                :key="`${match.id}-${rectIndex}`"
+                :x="rect.x * page.width"
+                :y="rect.y * page.height"
+                :width="rect.width * page.width"
+                :height="rect.height * page.height"
+                :class="{ current: match.active }"
+              />
+            </template>
+          </g>
           <g v-if="selectionGroupForPage(page.pageNum)" class="text-selection-preview">
             <polygon
               v-for="(q, i) in selectionGroupForPage(page.pageNum).quads"
@@ -561,6 +574,7 @@ import {
   writeWorkbenchRatio,
 } from '@/utils/pdfWorkspaceLayout.js'
 import { ElMessage } from 'element-plus'
+import { createPdfInteractionEngine } from '@/services/pdfiumInteractionEngine.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
@@ -590,6 +604,9 @@ const pageTextMaps = new Map()
 // PDF.js 的文档对象包含私有字段，不能被 Vue 深层代理，否则调用 getPage/render
 // 时会报 "Cannot read from private field"。
 const pdfDoc = shallowRef(null)
+let pdfInteractionEngine = null
+const pdfInteractionReady = ref(false)
+const pdfInteractionError = ref('')
 const renderedPages = ref([])
 const pageSearchRecords = new Map()
 const visiblePageStart = ref(1)
@@ -618,15 +635,12 @@ const searchIndexSummary = computed(() => {
   void searchIndexProgress.value
   return summarizePdfSearchIndex([...pageSearchRecords.values()])
 })
-const searchStatusText = computed(() => describePdfSearchState({
-  query: searchQuery.value,
-  resultCount: searchResults.value.length,
-  activeResultIndex: activeSearchResultIndex.value,
-  loading: searchIndexLoading.value,
-  progress: searchIndexProgress.value,
-  totalPages: renderedPages.value.length,
-  summary: searchIndexSummary.value,
-}))
+const searchStatusText = computed(() => {
+  if (!searchQuery.value.trim()) return ''
+  if (searchIndexLoading.value) return '正在搜索…'
+  if (!searchResults.value.length) return '未找到匹配内容'
+  return `${Math.max(1, activeSearchResultIndex.value + 1)} / ${searchResults.value.length}`
+})
 const commentPanelVisible = ref(false)
 const pendingTextSelection = ref(null)
 const selectionAnchor = ref(null)
@@ -799,6 +813,9 @@ onUnmounted(() => {
   if (searchDebounceTimer != null) window.clearTimeout(searchDebounceTimer)
   cancelAllPageRenders()
   pdfDoc.value?.destroy()
+  void pdfInteractionEngine?.close?.()
+  pdfInteractionEngine = null
+  pdfInteractionReady.value = false
   pageLayoutIndexes.clear()
   pageTextMaps.clear()
   pageSearchRecords.clear()
@@ -897,13 +914,40 @@ async function performPdfSearch() {
     clearSearchHighlights()
     return
   }
-  await ensurePdfSearchIndex()
+  if (!pdfInteractionReady.value || !pdfInteractionEngine) {
+    searchResults.value = []
+    activeSearchResultIndex.value = -1
+    return
+  }
+  searchIndexLoading.value = true
+  let matches = []
+  try {
+    matches = await pdfInteractionEngine.search(query)
+  } catch (error) {
+    if (requestId === searchRequestId) ElMessage.error('PDF 搜索失败：' + (error.message || error))
+    return
+  } finally {
+    if (requestId === searchRequestId) searchIndexLoading.value = false
+  }
   if (requestId !== searchRequestId || !searchPanelVisible.value) return
-  const records = [...pageSearchRecords.values()].sort((left, right) => left.page - right.page)
-  searchResults.value = findPdfSearchMatches(records, query)
+  searchResults.value = matches.map((match, index) => ({
+    ...match,
+    id: `pdfium-${match.pageIndex}-${match.charStart}-${index}`,
+    page: match.pageIndex + 1,
+    context: formatPdfiumSearchContext(match.context),
+  }))
   activeSearchResultIndex.value = searchResults.value.length ? 0 : -1
   refreshVisibleSearchHighlights()
   if (searchResults.value.length) await activateSearchResult(0)
+}
+
+function formatPdfiumSearchContext(context) {
+  if (!context) return ''
+  const prefix = context.truncatedLeft ? '…' : ''
+  const suffix = context.truncatedRight ? '…' : ''
+  return `${prefix}${context.before || ''}${context.match || ''}${context.after || ''}${suffix}`
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 async function ensurePdfSearchIndex({ retryFailed = false } = {}) {
@@ -979,7 +1023,7 @@ async function activateSearchResult(index) {
 }
 
 function refreshVisibleSearchHighlights() {
-  rebuildSearchHighlights()
+  // SVG highlights directly project PDFium rectangles.
 }
 
 function clearSearchHighlights() {
@@ -992,12 +1036,19 @@ function clearSearchHighlights() {
     .forEach(span => span.classList.remove('pdf-search-match', 'pdf-search-current'))
 }
 
+function searchRectsForPage(pageNum) {
+  return searchResults.value
+    .map((result, index) => ({ ...result, active: index === activeSearchResultIndex.value }))
+    .filter(result => result.page === pageNum && result.rects?.length)
+}
+
 function applySearchHighlightsToPage(pageNum) {
   if (!textLayerElementForPage(pageNum)) return
   rebuildSearchHighlights()
 }
 
 function rebuildSearchHighlights() {
+  if (pdfInteractionReady.value) return
   clearSearchHighlights()
   const supportsCustomHighlights = Boolean(globalThis.CSS?.highlights && globalThis.Highlight)
   const matchRanges = []
@@ -1053,6 +1104,19 @@ function firstTextNode(element) {
 
 function scrollActiveSearchMatchIntoView(result) {
   const container = containerRef.value
+  const page = renderedPages.value[result.page - 1]
+  const firstRect = result.rects?.[0]
+  if (container && page && firstRect) {
+    container.scrollTop = Math.max(
+      0,
+      pageOffset(result.page) + firstRect.y * pageHeight(page) - container.clientHeight * 0.3,
+    )
+    const targetLeft = firstRect.x * (page.width || 0)
+    if (targetLeft < container.scrollLeft || targetLeft > container.scrollLeft + container.clientWidth) {
+      container.scrollLeft = Math.max(0, targetLeft - container.clientWidth * 0.25)
+    }
+    return
+  }
   const layer = textLayerElementForPage(result.page)
   const range = createSearchDomRanges(layer, result)[0]
   const span = layer?.querySelectorAll?.('span')?.[result.spanIndexes?.[0]]
@@ -1118,7 +1182,16 @@ async function loadDocument() {
     pdfPageWidthAt100.value = 0
     const url = `/api/papers/${props.paper.id}/pdf`
     const loading = pdfjsLib.getDocument(url)
-    pdfDoc.value = await loading.promise
+    await pdfInteractionEngine?.close?.()
+    pdfInteractionEngine = createPdfInteractionEngine()
+    pdfInteractionReady.value = false
+    pdfInteractionError.value = ''
+    const [renderDocument] = await Promise.all([
+      loading.promise,
+      pdfInteractionEngine.open({ id: `paper-${props.paper.id}`, url }),
+    ])
+    pdfDoc.value = renderDocument
+    pdfInteractionReady.value = true
     const count = pdfDoc.value.numPages
     renderedPages.value = Array.from({ length: count }, (_, i) => ({
       pageNum: i + 1,
@@ -1144,6 +1217,7 @@ async function loadDocument() {
       await jumpToEvidence(props.initialEvidence)
     }
   } catch (e) {
+    pdfInteractionError.value = e.message || String(e)
     ElMessage.error('PDF 加载失败：' + (e.message || e))
   }
 }
@@ -1564,43 +1638,50 @@ async function loadAnnotations() {
   }
 }
 
-function beginTextSelection(event, pageNum) {
+async function beginTextSelection(event, pageNum) {
   if (currentTool.value !== 'select' || event.button !== 0) return
 
   if (formulaRegion.value) clearFormulaRegion()
   const layer = event.currentTarget
-  const layoutIndex = pageLayoutIndexes.get(pageNum)
-  const anchor = layoutSelectionEndpointAtPoint(layoutIndex, layer, event.clientX, event.clientY)
   event.preventDefault()
   clearPendingTextSelection()
-  if (!anchor) return
+  const anchor = await pdfiumEndpointAtPoint(pageNum, layer, event.clientX, event.clientY)
+  if (!anchor || currentTool.value !== 'select') return
 
   const pageState = renderedPages.value.find(page => page.pageNum === pageNum)
   if (!pageState?.viewport) return
-  layoutSelectionDrag = { pageNum, pageState, pointerId: event.pointerId, layer, layoutIndex, anchor, focus: anchor }
+  layoutSelectionDrag = {
+    pageNum,
+    pageState,
+    pointerId: event.pointerId,
+    layer,
+    anchor: anchor.charIndex,
+    focus: anchor.charIndex,
+    revision: 0,
+  }
   layer.setPointerCapture?.(event.pointerId)
 }
 
-function updateTextSelection(event, pageNum) {
+async function updateTextSelection(event, pageNum) {
   const drag = layoutSelectionDrag
   if (!drag || drag.pointerId !== event.pointerId || drag.pageNum !== pageNum || currentTool.value !== 'select') return
 
   event.preventDefault()
-  const focus = layoutSelectionEndpointAtPoint(drag.layoutIndex, drag.layer, event.clientX, event.clientY)
+  const revision = ++drag.revision
+  const focus = await pdfiumEndpointAtPoint(pageNum, drag.layer, event.clientX, event.clientY)
   if (!focus) return
-  const selection = createSameColumnSelection(drag.layoutIndex, drag.anchor, focus)
-  // 拖到空白、另一栏或全文标题时不猜测新范围，保留上一次有效选区。
-  if (!selection) return
-
-  drag.focus = focus
-  applyLayoutSelection(drag, selection)
+  const selection = await pdfInteractionEngine.select(pageNum - 1, drag.anchor, focus.charIndex)
+  if (layoutSelectionDrag !== drag || revision !== drag.revision) return
+  drag.focus = focus.charIndex
+  applyPdfiumSelection(drag, selection)
 }
 
-function finishTextSelection(event, pageNum) {
+async function finishTextSelection(event, pageNum) {
   const drag = layoutSelectionDrag
   if (!drag || drag.pointerId !== event.pointerId || drag.pageNum !== pageNum) return
 
-  updateTextSelection(event, pageNum)
+  await updateTextSelection(event, pageNum)
+  if (layoutSelectionDrag !== drag) return
   drag.layer.releasePointerCapture?.(event.pointerId)
   layoutSelectionDrag = null
   const selection = pendingTextSelection.value
@@ -1618,6 +1699,33 @@ function finishTextSelectionFromWindow(event) {
 
 function cancelTextSelection(event) {
   if (layoutSelectionDrag?.pointerId === event.pointerId) layoutSelectionDrag = null
+}
+
+async function pdfiumEndpointAtPoint(pageNum, layer, clientX, clientY) {
+  if (!pdfInteractionReady.value || !pdfInteractionEngine || !layer) return null
+  const rect = layer.getBoundingClientRect()
+  if (!rect.width || !rect.height) return null
+  const x = (clientX - rect.left) / rect.width
+  const y = (clientY - rect.top) / rect.height
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null
+  return pdfInteractionEngine.hitTest(pageNum - 1, { x, y })
+}
+
+function applyPdfiumSelection(drag, selection) {
+  const quads = (selection.rects || []).map(boundingBoxToViewportQuad).filter(Boolean)
+  if (!quads.length || !selection.text?.trim()) return
+  pendingTextSelection.value = {
+    groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
+    text: selection.text,
+    textAnchor: {
+      version: 2,
+      engine: 'PDFIUM',
+      page: drag.pageNum,
+      charStart: selection.charStart,
+      charEnd: selection.charEnd,
+      documentFingerprint: pdfDoc.value?.fingerprints?.[0] || '',
+    },
+  }
 }
 
 function layoutSelectionEndpointAtPoint(layoutIndex, layer, clientX, clientY) {
@@ -3014,6 +3122,18 @@ function colorName(color) {
 }
 .annotation-overlay > g {
   pointer-events: none;
+}
+.annotation-overlay .pdf-search-overlay rect {
+  fill: #ffe45c;
+  fill-opacity: 0.48;
+  stroke: #d8a600;
+  stroke-width: 1;
+}
+.annotation-overlay .pdf-search-overlay rect.current {
+  fill: #ff9800;
+  fill-opacity: 0.6;
+  stroke: #e65100;
+  stroke-width: 2;
 }
 .annotation-overlay > g.marker-annotation,
 .annotation-overlay > g.text-annotation {
