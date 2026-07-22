@@ -34,6 +34,7 @@ export function buildPdfPageTextMap(page, items = [], metadata = {}) {
       sourceStart,
       sourceEnd: sourceText.length,
       hasEOL: Boolean(item?.hasEOL),
+      fontName: String(item?.fontName || ''),
       transform: Array.isArray(item?.transform) ? [...item.transform] : [],
       width: finiteNumber(item?.width),
       height: finiteNumber(item?.height),

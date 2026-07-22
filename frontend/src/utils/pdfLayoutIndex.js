@@ -90,6 +90,9 @@ export function normalizeTextRuns(items, { pageWidth = MIN_PAGE_SIZE, pageHeight
       text,
       sourceText,
       textStartOffset,
+      hasEOL: Boolean(item?.hasEOL),
+      fontName: String(item?.fontName || ''),
+      transform: Array.isArray(item?.transform) ? [...item.transform] : [],
       x,
       y,
       width,
@@ -116,25 +119,25 @@ export function clusterTextRunsIntoLines(runs, { pageWidth = MIN_PAGE_SIZE } = {
 
   const sorted = [...runs].sort((a, b) => a.centerY - b.centerY || a.x - b.x)
   const medianHeight = median(sorted.map(run => run.height)) || 1
-  const yTolerance = clamp(medianHeight * 0.65, 2, 10)
   const rowBands = []
 
   for (const run of sorted) {
     let band = null
     for (let index = rowBands.length - 1; index >= 0; index -= 1) {
       const candidate = rowBands[index]
-      if (Math.abs(run.centerY - candidate.centerY) <= yTolerance) {
+      if (canJoinVisualRow(run, candidate, medianHeight)) {
         band = candidate
         break
       }
-      if (run.centerY - candidate.centerY > yTolerance) break
+      if (run.centerY - candidate.centerY > Math.max(medianHeight, run.height) * 0.8) break
     }
     if (!band) {
-      band = { runs: [], centerY: run.centerY }
+      band = { runs: [], centerY: run.centerY, baselineY: run.bottom }
       rowBands.push(band)
     }
     band.runs.push(run)
     band.centerY = average(band.runs.map(item => item.centerY))
+    band.baselineY = median(band.runs.map(item => item.bottom))
   }
 
   const gapThreshold = Math.max(medianHeight * 1.65, positiveNumber(pageWidth, MIN_PAGE_SIZE) * 0.018)
@@ -408,15 +411,17 @@ function assignSelectionRowOrder(lines, { fallbackHeight = 1 } = {}) {
     // 8px covers the vertical offset of normal superscripts/subscripts at the
     // viewer's common scales, while remaining well below a normal IEEE line
     // spacing (about 18px at 100%).
-    const baselineTolerance = clamp(medianHeight * 0.55, 3, 8)
+    const baselineTolerance = clamp(medianHeight * 0.48, 2, 7)
     const ordered = [...laneLines].sort((a, b) => selectionBaseline(a) - selectionBaseline(b) || a.x - b.x)
     const rows = []
 
     for (const line of ordered) {
       const baseline = selectionBaseline(line)
       let row = rows[rows.length - 1]
-      if (!row || Math.abs(baseline - row.baseline) > baselineTolerance) {
-        row = { baselines: [], lines: [], baseline }
+      if (!row
+          || Math.abs(baseline - row.baseline) > baselineTolerance
+          || !canShareSelectionRow(line, row, medianHeight)) {
+        row = { baselines: [], lines: [], baseline, index: rows.length }
         rows.push(row)
       }
       row.baselines.push(baseline)
@@ -425,14 +430,55 @@ function assignSelectionRowOrder(lines, { fallbackHeight = 1 } = {}) {
     }
 
     for (const row of rows) {
-      for (const line of row.lines) selectionOrderById.set(line.id, row.baseline)
+      for (const line of row.lines) selectionOrderById.set(line.id, {
+        baseline: row.baseline,
+        index: row.index,
+      })
     }
   }
 
   return lines.map(line => ({
     ...line,
-    selectionOrderY: selectionOrderById.get(line.id) ?? selectionBaseline(line)
+    selectionOrderY: selectionOrderById.get(line.id)?.baseline ?? selectionBaseline(line),
+    selectionRowIndex: selectionOrderById.get(line.id)?.index,
   }))
+}
+
+function canJoinVisualRow(run, band, fallbackHeight) {
+  const bandHeight = median(band.runs.map(item => item.height)) || fallbackHeight || run.height
+  const localHeight = Math.max(1, Math.min(run.height, bandHeight))
+  const baselineTolerance = clamp(localHeight * 0.42, 1.5, 6)
+  const baselineDistance = Math.abs(run.bottom - band.baselineY)
+  const centreDistance = Math.abs(run.centerY - band.centerY)
+  const hardBreakBefore = band.runs.some(item => (
+    item.hasEOL
+      && item.sourceIndex < run.sourceIndex
+      && Math.abs(item.centerY - run.centerY) > Math.max(1, localHeight * 0.18)
+  ))
+  if (hardBreakBefore) return false
+  const bandLeft = Math.min(...band.runs.map(item => item.x))
+  const bandRight = Math.max(...band.runs.map(item => item.right))
+  const horizontalGap = Math.max(0, Math.max(run.x, bandLeft) - Math.min(run.right, bandRight))
+  const sizeRatio = Math.min(run.height, bandHeight) / Math.max(run.height, bandHeight)
+  const attachedScript = sizeRatio <= 0.78
+    && centreDistance <= Math.max(run.height, bandHeight) * 0.9
+    && horizontalGap <= Math.max(10, Math.max(run.height, bandHeight) * 2.2)
+  return baselineDistance <= baselineTolerance
+    || centreDistance <= Math.max(1.5, localHeight * 0.34)
+    || attachedScript
+}
+
+function canShareSelectionRow(line, row, medianHeight) {
+  const peers = row.lines || []
+  if (!peers.length) return true
+  const peer = peers[peers.length - 1]
+  const narrowLimit = Math.max(18, medianHeight * 4.5)
+  const lineIsFragment = line.width <= narrowLimit || line.height <= medianHeight * 0.78
+  const peerIsFragment = peer.width <= narrowLimit || peer.height <= medianHeight * 0.78
+  if (!lineIsFragment && !peerIsFragment) return false
+
+  const horizontalGap = Math.max(0, Math.max(line.x, peer.x) - Math.min(line.right, peer.right))
+  return horizontalGap <= Math.max(12, medianHeight * 2.2)
 }
 
 function selectionBaseline(line) {

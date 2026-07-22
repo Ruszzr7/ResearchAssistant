@@ -15,6 +15,8 @@ export function findLayoutRunAtPoint(index, x, y, hitSlop = PDF_LAYOUT_DRAG_HIT_
 
   let closest = null
   let closestDistance = Number.POSITIVE_INFINITY
+  let closestVerticalRatio = Number.POSITIVE_INFINITY
+  let closestHorizontalRatio = Number.POSITIVE_INFINITY
   for (const run of index.runs) {
     if (run.orientation !== 'horizontal') continue
     const distance = distanceToRect(x, y, {
@@ -23,9 +25,16 @@ export function findLayoutRunAtPoint(index, x, y, hitSlop = PDF_LAYOUT_DRAG_HIT_
       top: run.y,
       bottom: run.bottom
     })
-    if (distance < closestDistance) {
+    const verticalRatio = Math.abs(y - run.centerY) / Math.max(1, run.height)
+    const horizontalRatio = Math.abs(x - run.centerX) / Math.max(1, run.width)
+    if (distance < closestDistance
+        || distance === closestDistance && verticalRatio < closestVerticalRatio
+        || distance === closestDistance && verticalRatio === closestVerticalRatio
+          && horizontalRatio < closestHorizontalRatio) {
       closest = run
       closestDistance = distance
+      closestVerticalRatio = verticalRatio
+      closestHorizontalRatio = horizontalRatio
     }
   }
   return closestDistance <= hitSlop ? closest : null
@@ -105,9 +114,19 @@ function orderedColumnRuns(index, runById, columnId) {
       .filter(Boolean)
       .map(run => ({
         run,
+        selectionRowIndex: Number.isInteger(line.selectionRowIndex) ? line.selectionRowIndex : null,
         selectionOrderY: Number.isFinite(Number(line.selectionOrderY)) ? Number(line.selectionOrderY) : line.centerY
       })))
-    .sort((a, b) => a.selectionOrderY - b.selectionOrderY || a.run.x - b.run.x || a.run.centerY - b.run.centerY)
+    .sort((a, b) => {
+      if (a.selectionRowIndex != null && b.selectionRowIndex != null
+          && a.selectionRowIndex !== b.selectionRowIndex) {
+        return a.selectionRowIndex - b.selectionRowIndex
+      }
+      return a.selectionOrderY - b.selectionOrderY
+        || a.run.x - b.run.x
+        || a.run.centerY - b.run.centerY
+        || a.run.sourceIndex - b.run.sourceIndex
+    })
     .map(item => item.run)
 }
 

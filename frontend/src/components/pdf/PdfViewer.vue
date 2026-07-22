@@ -1484,6 +1484,9 @@ function buildRenderedPageLayoutIndex(textLayer, pageState, viewport, pageTextMa
       spanIndex: index,
       itemIndex: sourceRun?.itemIndex ?? index,
       text: span.textContent || '',
+      hasEOL: Boolean(sourceRun?.hasEOL),
+      fontName: sourceRun?.fontName || '',
+      transform: sourceRun?.transform || [],
       x: rect.left - layerRect.left,
       y: rect.top - layerRect.top,
       width: rect.width,
@@ -1619,12 +1622,42 @@ function cancelTextSelection(event) {
 
 function layoutSelectionEndpointAtPoint(layoutIndex, layer, clientX, clientY) {
   if (!layoutIndex || !layer) return null
+  const caretEndpoint = layoutSelectionCaretEndpoint(layoutIndex, layer, clientX, clientY)
+  if (caretEndpoint) return caretEndpoint
   const layerRect = layer.getBoundingClientRect()
   const run = findLayoutRunAtPoint(layoutIndex, clientX - layerRect.left, clientY - layerRect.top)
   if (!run) return null
   const span = layer.querySelectorAll('span')[run.sourceIndex]
   const offset = textOffsetAtPoint(span, run, clientX, clientY)
   return offset == null ? null : { runId: run.id, offset }
+}
+
+function layoutSelectionCaretEndpoint(layoutIndex, layer, clientX, clientY) {
+  let node = null
+  let offset = null
+  if (document.caretPositionFromPoint) {
+    const position = document.caretPositionFromPoint(clientX, clientY)
+    node = position?.offsetNode || null
+    offset = position?.offset
+  } else if (document.caretRangeFromPoint) {
+    const range = document.caretRangeFromPoint(clientX, clientY)
+    node = range?.startContainer || null
+    offset = range?.startOffset
+  }
+  if (!node || !Number.isFinite(offset)) return null
+
+  const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node
+  const span = element?.closest?.('span')
+  if (!span || !layer.contains(span)) return null
+  const spans = Array.from(layer.querySelectorAll('span'))
+  const spanIndex = spans.indexOf(span)
+  if (spanIndex < 0) return null
+  const run = layoutIndex.runs?.find(candidate => (
+    candidate.sourceIndex === spanIndex && candidate.orientation === 'horizontal'
+  ))
+  if (!run) return null
+  const logicalOffset = Number(offset) - (run.textStartOffset || 0)
+  return { runId: run.id, offset: clamp(logicalOffset, 0, run.text.length) }
 }
 
 function textOffsetAtPoint(span, run, clientX, clientY) {

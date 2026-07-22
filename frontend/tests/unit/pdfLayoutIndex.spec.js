@@ -120,4 +120,48 @@ describe('PDF rendered layout index', () => {
     expect(index.lines.map(line => line.text)).toEqual(['body sentence'])
     expect(index.readingOrder).toEqual(['line-0'])
   })
+
+  it('keeps tightly spaced reference baselines as distinct visual rows', () => {
+    const index = buildPdfPageLayoutIndex({
+      pageNum: 12,
+      pageWidth: 600,
+      pageHeight: 800,
+      textItems: [
+        textRun('ref-1a', '[18] A. Author,', 55, 100, 82, 14),
+        textRun('ref-1b', 'First dense reference.', 142, 100, 150, 14, { hasEOL: true }),
+        // TextLayer rectangles overlap by 6px, which used to merge these rows.
+        textRun('ref-2a', '[19] B. Author,', 55, 108, 82, 14),
+        textRun('ref-2b', 'Second dense reference.', 142, 108, 158, 14, { hasEOL: true }),
+        textRun('ref-3a', '[20] C. Author,', 55, 116, 82, 14),
+        textRun('ref-3b', 'Third dense reference.', 142, 116, 150, 14, { hasEOL: true }),
+      ],
+    })
+
+    expect(index.lines.map(line => line.text)).toEqual([
+      '[18] A. Author, First dense reference.',
+      '[19] B. Author, Second dense reference.',
+      '[20] C. Author, Third dense reference.',
+    ])
+    expect(new Set(index.lines.map(line => line.selectionRowIndex)).size).toBe(3)
+  })
+
+  it('attaches a narrow superscript fragment to its prose row without merging the next row', () => {
+    const index = buildPdfPageLayoutIndex({
+      pageNum: 3,
+      pageWidth: 600,
+      pageHeight: 800,
+      textItems: [
+        textRun('prose-before', 'where C', 55, 100, 72, 14),
+        textRun('superscript', 'Nₜ×1', 129, 94, 28, 8),
+        textRun('prose-after', 'denotes the space', 160, 100, 132, 14, { hasEOL: true }),
+        textRun('next-line', 'The next sentence remains separate.', 55, 113, 237, 14, { hasEOL: true }),
+      ],
+    })
+
+    const superscriptLine = index.lines.find(line => line.runIds.includes('superscript'))
+    const proseLine = index.lines.find(line => line.runIds.includes('prose-before'))
+    const nextLine = index.lines.find(line => line.runIds.includes('next-line'))
+    expect(superscriptLine?.selectionRowIndex).toBe(proseLine?.selectionRowIndex)
+    expect(nextLine?.selectionRowIndex).not.toBe(proseLine?.selectionRowIndex)
+  })
 })

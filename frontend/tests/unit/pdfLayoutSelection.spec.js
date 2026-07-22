@@ -44,6 +44,19 @@ describe('PDF layout-aware selection range', () => {
     expect(findLayoutRunAtPoint(index, 200, 105)).toBeNull()
   })
 
+  it('uses vertical proximity to disambiguate overlapping dense text rectangles', () => {
+    const index = {
+      runs: [
+        indexedRun('upper', 'upper reference', 55, 100, 180, 14),
+        indexedRun('lower', 'lower reference', 55, 108, 180, 14),
+      ],
+    }
+
+    // y=112 lies inside both rectangles, but is visibly closer to the lower row.
+    expect(findLayoutRunAtPoint(index, 80, 112)?.id).toBe('lower')
+    expect(findLayoutRunAtPoint(index, 80, 104)?.id).toBe('upper')
+  })
+
   it('keeps a same-column multi-line range in visual reading order even when dragged upward', () => {
     const index = doubleColumnIndex()
 

@@ -44,6 +44,21 @@ describe('PDF page text contract', () => {
     ])
   })
 
+  it('preserves rendered line and font hints for layout-aware selection', () => {
+    const map = buildPdfPageTextMap(1, [{
+      str: 'math-rich line',
+      hasEOL: true,
+      fontName: 'CMR10',
+      transform: [12, 0, 0, 12, 80, 220],
+    }])
+
+    expect(map.runs[0]).toMatchObject({
+      hasEOL: true,
+      fontName: 'CMR10',
+      transform: [12, 0, 0, 12, 80, 220],
+    })
+  })
+
   it('maps NFKC ligatures and split words back to their source items', () => {
     const fixture = golden.searchCases.find(testCase => testCase.id === 'split-word-hyphen-and-ligature')
     const map = buildPdfPageTextMap(fixture.page, fixture.items)
