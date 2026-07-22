@@ -18,6 +18,7 @@ Mission 13 起，Flyway 是正式数据库迁移工具。
 - `V24__structured_paper_memory.sql`：版本化论文结构事实与记忆记录。
 - `V25__paper_memory_understanding_progress.sql`：异步分块理解进度、阶段、token 与恢复字段。
 - `V26__paper_context_and_observation_memory.sql`：服务端对话轮次、grounded observations 与冻结上下文快照。
+- `V27__inline_math_transcription_cache.sql`：按 PDF hash、解析版本、block 字符范围、原文 hash 和 provider 版本缓存行内数学转写；论文删除时级联清理。
 
 空数据库直接启动即可执行迁移。已有数据库必须先备份；baseline history 记录不等于实际 schema 完整，旧库应先让 Flyway 执行增量修复迁移。对部分升级或未知版本数据库，禁止盲目 baseline。Flyway 迁移目录是唯一结构真源，已删除早期手工 schema 和升级脚本。
 
