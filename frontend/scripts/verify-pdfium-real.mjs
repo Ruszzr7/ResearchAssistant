@@ -46,6 +46,8 @@ try {
   }
   assert.match(result.pageThreePrecoderText, /precoders/i)
   assert.ok(result.pageThreePrecoderRects > 0)
+  assert.ok(result.pageThreeDenseMathSegments >= 5)
+  assert.equal(result.pageThreeDenseHasCoefficient, true)
   console.log(JSON.stringify(result))
 } finally {
   await browser.close()

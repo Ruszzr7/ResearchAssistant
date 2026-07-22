@@ -85,11 +85,24 @@ export class PdfiumInteractionEngine extends PdfInteractionEngine {
   async select(pageIndex, from, to) {
     const page = await this.getPage(pageIndex)
     const range = canonicalRange(from, to)
-    const text = (await taskResult(this.engine.getTextSlices(this.document, [{
+    const overlappingRuns = page.textRuns.filter(run => (
+      run.charIndex + run.charCount - 1 >= range.from && run.charIndex <= range.to
+    )).map(run => ({
+      run,
+      charStart: Math.max(range.from, run.charIndex),
+      charEnd: Math.min(range.to, run.charIndex + run.charCount - 1),
+    }))
+    const slices = [{
       pageIndex,
       charIndex: range.from,
       charCount: range.to - range.from + 1,
-    }])))[0] || ''
+    }, ...overlappingRuns.map(item => ({
+      pageIndex,
+      charIndex: item.charStart,
+      charCount: item.charEnd - item.charStart + 1,
+    }))]
+    const sliceTexts = await taskResult(this.engine.getTextSlices(this.document, slices))
+    const text = sliceTexts[0] || ''
     const rects = rectsWithinSlice(page.geometry, range.from, range.to)
       .map(rect => normalizePageRect(rect, page.size))
       .filter(Boolean)
@@ -100,6 +113,15 @@ export class PdfiumInteractionEngine extends PdfInteractionEngine {
       charCount: range.to - range.from + 1,
       text,
       rects,
+      runs: overlappingRuns.map((item, index) => ({
+        charStart: item.charStart,
+        charEnd: item.charEnd,
+        text: sliceTexts[index + 1] || '',
+        rect: normalizePageRect(item.run.rect, page.size),
+        font: { ...item.run.font },
+        fontSize: item.run.fontSize,
+      })).filter(run => run.rect),
+      pageSize: { ...page.size },
       source: 'PDFIUM',
     }
   }

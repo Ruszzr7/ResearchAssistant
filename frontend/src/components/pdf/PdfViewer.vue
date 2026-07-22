@@ -575,6 +575,7 @@ import {
 } from '@/utils/pdfWorkspaceLayout.js'
 import { ElMessage } from 'element-plus'
 import { createPdfInteractionEngine } from '@/services/pdfiumInteractionEngine.js'
+import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
@@ -1717,6 +1718,7 @@ function applyPdfiumSelection(drag, selection) {
   pendingTextSelection.value = {
     groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
     text: selection.text,
+    contentSegments: segmentPdfSelection(selection.runs, selection.pageSize),
     textAnchor: {
       version: 2,
       engine: 'PDFIUM',

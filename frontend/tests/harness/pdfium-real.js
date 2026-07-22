@@ -1,4 +1,5 @@
 import { createPdfInteractionEngine } from '/src/services/pdfiumInteractionEngine.js'
+import { segmentPdfSelection } from '/src/utils/pdfContentSegments.js'
 
 const output = document.querySelector('#result')
 const pdfUrl = new URLSearchParams(location.search).get('pdf')
@@ -14,11 +15,17 @@ async function run() {
     const selected = pageThreeMatch
       ? await engine.select(2, pageThreeMatch.charStart, pageThreeMatch.charEnd)
       : null
+    const denseSelection = pageThreeMatch
+      ? await engine.select(2, Math.max(0, pageThreeMatch.charStart - 25), pageThreeMatch.charEnd + 600)
+      : null
+    const denseSegments = segmentPdfSelection(denseSelection?.runs, denseSelection?.pageSize)
     return {
       pageCount: documentInfo.pageCount,
       coefficientPages: [...new Set(coefficient.map(match => match.pageIndex + 1))],
       pageThreePrecoderText: selected?.text || '',
       pageThreePrecoderRects: selected?.rects?.length || 0,
+      pageThreeDenseMathSegments: denseSegments.filter(segment => segment.type !== 'TEXT').length,
+      pageThreeDenseHasCoefficient: /global power coefficient/i.test(denseSelection?.text || ''),
     }
   } finally {
     await engine.close()
