@@ -35,4 +35,15 @@ describe('PDFium selection content segmentation', () => {
     expect(segmentPdfSelection([run(0, 'finite-blocklength transmission', 0.08)], pageSize)[0].type)
       .toBe('TEXT')
   })
+
+  it('drops PDF math-font runs that contain only layout whitespace', () => {
+    const segments = segmentPdfSelection([
+      run(10, 'E', 0.54, 'MSBM10'),
+      run(11, '\t\r\n', 0.56, 'CMEX10'),
+      run(14, 'ssH', 0.58, 'CMBX10'),
+    ], pageSize)
+
+    expect(segments.flatMap(segment => segment.text)).not.toContain('\t\r\n')
+    expect(segments.every(segment => segment.text.trim())).toBe(true)
+  })
 })

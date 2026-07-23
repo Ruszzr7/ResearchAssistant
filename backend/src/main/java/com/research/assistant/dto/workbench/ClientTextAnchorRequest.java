@@ -23,6 +23,11 @@ public record ClientTextAnchorRequest(@Min(1) int version,
                 ranges == null ? List.of() : ranges.stream().map(ClientTextRangeRequest::toModel).toList(),
                 engine, charStart, charEnd,
                 contentSegments == null ? List.of()
-                        : contentSegments.stream().map(ClientContentSegmentRequest::toModel).toList());
+                        : contentSegments.stream()
+                        .filter(segment -> segment != null
+                                && segment.text() != null
+                                && !segment.text().isBlank())
+                        .map(ClientContentSegmentRequest::toModel)
+                        .toList());
     }
 }

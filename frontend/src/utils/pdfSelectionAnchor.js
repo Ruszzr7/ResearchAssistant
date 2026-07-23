@@ -96,7 +96,7 @@ export function cloneSelectionTextAnchor(textAnchor) {
         text: String(segment.text || '').slice(0, 1200),
         fonts: (segment.fonts || []).slice(0, 8).map(font => String(font).slice(0, 128)),
         rect: segment.rect ? { ...segment.rect } : null,
-      })).filter(segment => segment.text && segment.charEnd >= segment.charStart),
+      })).filter(segment => segment.text.trim() && segment.charEnd >= segment.charStart),
     }
   }
   return {

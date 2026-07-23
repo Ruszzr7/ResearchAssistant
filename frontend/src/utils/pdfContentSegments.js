@@ -56,7 +56,7 @@ function merge(left, right) {
  */
 export function segmentPdfSelection(runs, pageSize) {
   const classified = (runs || [])
-    .filter(run => run && run.charEnd >= run.charStart && String(run.text || '').length)
+    .filter(run => run && run.charEnd >= run.charStart && String(run.text || '').trim().length)
     .sort((left, right) => left.charStart - right.charStart)
     .map(run => ({
       type: classifyRun(run),

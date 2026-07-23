@@ -95,6 +95,30 @@ describe('PDF selection anchor geometry', () => {
     })
   })
 
+  it('omits blank auxiliary PDFium segments without losing the character anchor', () => {
+    const payload = selectionToAnchorPayload({
+      text: 'ensures E ssH = I',
+      groups: [{ pageNum: 3, quads: [quad(0.54, 0.56, 0.92, 0.61)] }],
+      textAnchor: {
+        version: 2,
+        engine: 'PDFIUM',
+        page: 3,
+        charStart: 5092,
+        charEnd: 5108,
+        contentSegments: [
+          { type: 'INLINE_MATH', charStart: 5092, charEnd: 5094, text: 'E' },
+          { type: 'INLINE_MATH', charStart: 5103, charEnd: 5105, text: '\t\r\n' },
+        ],
+      },
+    })
+
+    expect(payload.clientTextAnchor).toMatchObject({
+      charStart: 5092,
+      charEnd: 5108,
+      contentSegments: [{ text: 'E' }],
+    })
+  })
+
   it('converts a top-left backend bbox into the viewer quad orientation', () => {
     expect(boundingBoxToViewportQuad({ x: 0.1, y: 0.2, width: 0.3, height: 0.05 }))
       .toEqual({

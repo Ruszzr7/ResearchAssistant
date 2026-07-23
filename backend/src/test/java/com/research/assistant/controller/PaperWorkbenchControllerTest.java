@@ -105,6 +105,31 @@ class PaperWorkbenchControllerTest {
     }
 
     @Test
+    void ignoresBlankAuxiliaryPdfiumSegmentsInsteadOfRejectingTheAnchor() throws Exception {
+        when(artifactService.ensureArtifact(42L, false)).thenReturn(artifact);
+        when(anchorResolver.resolve(eq(artifact), eq(1), anyList(), eq("ensures E ssH = I"), eq(null),
+                any(ClientTextAnchor.class))).thenAnswer(invocation -> {
+                    ClientTextAnchor client = invocation.getArgument(5);
+                    org.assertj.core.api.Assertions.assertThat(client.contentSegments()).isEmpty();
+                    return anchor;
+                });
+
+        mvc.perform(post("/api/papers/42/workbench/selection-anchor")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"page":1,"boxes":[{"x":0.1,"y":0.2,"width":0.3,"height":0.04}],
+                                 "anchorText":"ensures E ssH = I","clientTextAnchor":{"version":2,"page":1,
+                                 "documentFingerprint":"fingerprint","textMapVersion":1,"ranges":[],
+                                 "engine":"PDFIUM","charStart":120,"charEnd":132,
+                                 "contentSegments":[{"type":"INLINE_MATH","charStart":125,
+                                 "charEnd":127,"text":"\\t\\r\\n","fonts":["CMEX10"],
+                                 "rect":{"x":0.2,"y":0.2,"width":0.02,"height":0.04}}]}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+    }
+
+    @Test
     void rejectsOutOfRangeSelectionGeometry() throws Exception {
         mvc.perform(post("/api/papers/42/workbench/selection-anchor")
                         .contentType(MediaType.APPLICATION_JSON)
