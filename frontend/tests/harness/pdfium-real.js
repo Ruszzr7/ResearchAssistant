@@ -1,5 +1,6 @@
 import { createPdfInteractionEngine } from '/src/services/pdfiumInteractionEngine.js'
 import { segmentPdfSelection } from '/src/utils/pdfContentSegments.js'
+import { normalizePdfSelectionText } from '/src/utils/pdfSelectionText.js'
 
 const output = document.querySelector('#result')
 const pdfUrl = new URLSearchParams(location.search).get('pdf')
@@ -19,6 +20,7 @@ async function run() {
       ? await engine.select(2, Math.max(0, pageThreeMatch.charStart - 25), pageThreeMatch.charEnd + 600)
       : null
     const denseSegments = segmentPdfSelection(denseSelection?.runs, denseSelection?.pageSize)
+    const denseText = normalizePdfSelectionText(denseSelection?.text)
     const hitRect = pageThreeMatch?.rects?.[0]
     const hit = hitRect ? await engine.hitTest(2, {
       x: hitRect.x + hitRect.width / 2,
@@ -31,6 +33,10 @@ async function run() {
       pageThreePrecoderRects: selected?.rects?.length || 0,
       pageThreeDenseMathSegments: denseSegments.filter(segment => segment.type !== 'TEXT').length,
       pageThreeDenseHasCoefficient: /global power coefficient/i.test(denseSelection?.text || ''),
+      pageThreeReadableHasCoefficient: /global power coefficient/i.test(denseText.readableText),
+      pageThreeReadableHasLineBreak: /[\r\n]/u.test(denseText.readableText),
+      pageThreeReadableHasIllegalCharacter: /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffd\ue000-\uf8ff]/u
+        .test(denseText.readableText),
       pageThreeDenseMinimumX: Math.min(...(denseSelection?.rects || []).map(rect => rect.x)),
       pageThreeHitDelta: hit ? Math.abs(hit.charIndex - pageThreeMatch.charStart) : null,
     }

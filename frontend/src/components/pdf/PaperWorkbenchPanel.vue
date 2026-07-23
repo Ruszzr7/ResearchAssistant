@@ -735,7 +735,7 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
   background: var(--ra-hover-bg);
   font-size: 12px;
   line-height: 1.55;
-  white-space: pre-wrap;
+  white-space: normal;
 }
 .selection-tools { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
 .selection-translation { margin-top: 9px; padding: 9px; border-radius: 6px; background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); font-size: 11px; line-height: 1.55; white-space: pre-wrap; }

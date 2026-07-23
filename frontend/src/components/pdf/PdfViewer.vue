@@ -560,6 +560,7 @@ import {
 import { ElMessage } from 'element-plus'
 import { createPdfInteractionEngine } from '@/services/pdfiumInteractionEngine.js'
 import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
+import { normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
@@ -1465,9 +1466,17 @@ function applyPdfiumSelection(drag, selection) {
   const quads = (selection.rects || []).map(boundingBoxToViewportQuad).filter(Boolean)
   if (!quads.length || !selection.text?.trim()) return
   const contentSegments = segmentPdfSelection(selection.runs, selection.pageSize)
+  const normalizedText = normalizePdfSelectionText(selection.text)
+  if (!normalizedText.readableText) return
   pendingTextSelection.value = {
     groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
-    text: selection.text,
+    text: normalizedText.readableText,
+    rawText: normalizedText.rawText,
+    textNormalization: {
+      hadVisualLineBreaks: normalizedText.hadVisualLineBreaks,
+      hasExtractionIssues: normalizedText.hasExtractionIssues,
+      removedCharacterCount: normalizedText.removedCharacterCount,
+    },
     contentSegments,
     textAnchor: {
       version: 2,
