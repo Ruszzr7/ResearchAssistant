@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -94,6 +95,55 @@ class WorkbenchModelServiceTest {
         verify(llmService).chatWithUsage(anyString(), message.capture(), any(LlmCallPolicy.class));
         assertThat(message.getValue()).contains("inlineMath", "μ_k ≥ 0", "\\\\mu_k \\\\ge 0",
                 "APPROXIMATE", "selectedRanges", "不得猜测缺失公式");
+    }
+
+    @Test
+    void sendsOneEphemeralSelectionImageWithNormalizedText() {
+        when(llmService.chatWithImageUsage(anyString(), anyString(), any(), anyString(),
+                any(LlmCallPolicy.class))).thenReturn(new LlmResponse(
+                "{\"answer\":\"图像回答\",\"claims\":[{\"text\":\"结论\",\"evidenceIds\":[\"lay_math\"]}]}",
+                30, 10, 40));
+        WorkbenchSelectionVisualEvidence visual = new WorkbenchSelectionVisualEvidence(
+                new byte[]{1, 2, 3}, 2, new NormalizedBoundingBox(0.5, 0.4, 0.4, 0.2),
+                "where p_k\r\nensures E\b ssH = I", "已附图");
+
+        WorkbenchModelService.ModelCall result = service.generate(
+                WorkbenchPlan.Workflow.SELECTION_QA, "解释公式", Map.of(7L, "Paper"),
+                List.of(mathEvidence()), 3_000, null, List.of(), visual);
+
+        assertThat(result.visualEvidenceUsed()).isTrue();
+        assertThat(result.visualFallbackUsed()).isFalse();
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(llmService).chatWithImageUsage(anyString(), message.capture(), any(),
+                anyString(), any(LlmCallPolicy.class));
+        verify(llmService, never()).chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class));
+        assertThat(message.getValue()).contains(
+                "selectionVisualEvidence", "ATTACHED", "where p_k ensures E ssH = I");
+        assertThat(message.getValue()).doesNotContain("\\b");
+    }
+
+    @Test
+    void fallsBackToTextAndMarksVisualEvidenceUnavailable() {
+        when(llmService.chatWithImageUsage(anyString(), anyString(), any(), anyString(),
+                any(LlmCallPolicy.class))).thenThrow(new UnsupportedOperationException("text only"));
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(new LlmResponse(
+                        "{\"answer\":\"谨慎回答\",\"claims\":[{\"text\":\"结论\",\"evidenceIds\":[\"lay_math\"]}]}",
+                        20, 10, 30));
+        WorkbenchSelectionVisualEvidence visual = new WorkbenchSelectionVisualEvidence(
+                new byte[]{1}, 2, new NormalizedBoundingBox(0.5, 0.4, 0.4, 0.2),
+                "math selection", "选区图像暂不可用");
+
+        WorkbenchModelService.ModelCall result = service.generate(
+                WorkbenchPlan.Workflow.SELECTION_QA, "解释公式", Map.of(7L, "Paper"),
+                List.of(mathEvidence()), 3_000, null, List.of(), visual);
+
+        assertThat(result.visualEvidenceUsed()).isFalse();
+        assertThat(result.visualFallbackUsed()).isTrue();
+        ArgumentCaptor<String> fallback = ArgumentCaptor.forClass(String.class);
+        verify(llmService).chatWithUsage(anyString(), fallback.capture(), any(LlmCallPolicy.class));
+        assertThat(fallback.getValue()).contains(
+                "selectionVisualEvidence", "UNAVAILABLE", "必须明确说明当前公式理解不完整");
     }
 
     @Test
@@ -256,6 +306,17 @@ class WorkbenchModelServiceTest {
 
     private LayoutEvidence evidence(String id, String text) {
         return evidence(id, text, true);
+    }
+
+    private LayoutEvidence mathEvidence() {
+        return new LayoutEvidence("lay_math", 7L, "body", 2,
+                new NormalizedBoundingBox(0.5, 0.4, 0.4, 0.2), DocumentBlockRole.BODY,
+                1, List.of("System Model"), "where p_k\r\nensures E\b ssH = I", 1, true, 0.9,
+                "a".repeat(64), "parser-v1", DocumentBlockContentMode.TEXT, "",
+                List.of(new SelectionBlockRange("body", 0, 20)),
+                List.of(new InlineMathTranscription("body", 6, 13, "p_k",
+                        "p_k", MathTranscriptionStatus.APPROXIMATE, 0.74,
+                        "local", "二维排版需回原页核对", false)));
     }
 
     private LayoutEvidence evidence(String id, String text, boolean selected) {

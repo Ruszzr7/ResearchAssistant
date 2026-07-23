@@ -25,12 +25,12 @@ public class FormulaRegionImageService {
     static final int MAX_WIDTH = 1800;
     static final int MAX_HEIGHT = 1000;
 
-    FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box) {
+    public FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box) {
         return render(pdf, pageNumber, box, "");
     }
 
-    FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box,
-                              String expectedDocumentHash) {
+    public FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box,
+                                     String expectedDocumentHash) {
         FormulaRegionGeometry.validate(box);
         if (expectedDocumentHash != null && !expectedDocumentHash.isBlank()
                 && !expectedDocumentHash.equals(PdfDocumentFingerprint.sha256(pdf))) {

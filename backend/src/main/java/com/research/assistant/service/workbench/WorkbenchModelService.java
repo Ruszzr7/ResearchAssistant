@@ -8,6 +8,8 @@ import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.ai.LlmCallPolicy;
 import com.research.assistant.service.pdf.layout.LayoutEvidence;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -18,6 +20,7 @@ import java.util.Map;
 @Service
 public class WorkbenchModelService {
 
+    private static final Logger log = LoggerFactory.getLogger(WorkbenchModelService.class);
     private static final int MIN_CALL_BUDGET = 512;
     private static final int MAX_OUTPUT_TOKENS = 10_000;
     private static final String SYSTEM_PROMPT = """
@@ -54,13 +57,25 @@ public class WorkbenchModelService {
                               int callTokenBudget,
                               WorkbenchModelOutput previousOutput,
                               List<String> repairIssues) {
+        return generate(workflow, question, paperTitles, evidence, callTokenBudget,
+                previousOutput, repairIssues, null);
+    }
+
+    public ModelCall generate(WorkbenchPlan.Workflow workflow,
+                              String question,
+                              Map<Long, String> paperTitles,
+                              List<LayoutEvidence> evidence,
+                              int callTokenBudget,
+                              WorkbenchModelOutput previousOutput,
+                              List<String> repairIssues,
+                              WorkbenchSelectionVisualEvidence visualEvidence) {
         if (callTokenBudget < MIN_CALL_BUDGET) {
             throw new WorkbenchModelException("TOKEN_BUDGET_EXCEEDED", "剩余模型预算不足", false);
         }
         List<LayoutEvidence> normalizedEvidence = evidence == null ? List.of() : List.copyOf(evidence);
         int firstBudget = firstAttemptBudget(workflow, callTokenBudget);
         Attempt first = invoke(workflow, question, paperTitles, normalizedEvidence,
-                previousOutput, repairIssues, firstBudget, false);
+                previousOutput, repairIssues, firstBudget, false, visualEvidence);
         if (hasContent(first)) {
             return successfulCall(workflow, first, 1, false);
         }
@@ -72,7 +87,7 @@ public class WorkbenchModelService {
             final Attempt recovered;
             try {
                 recovered = invoke(workflow, question, paperTitles, reducedEvidence,
-                        previousOutput, repairIssues, remaining, true);
+                        previousOutput, repairIssues, remaining, true, visualEvidence);
             } catch (WorkbenchModelException retryFailure) {
                 throw combineRecoveryFailure(first, retryFailure);
             }
@@ -82,7 +97,9 @@ public class WorkbenchModelService {
             if (hasContent(recovered)) {
                 ParsedOutput parsed = parse(recovered.content(), workflow);
                 return new ModelCall(parsed.output(), parsed.structured(), promptTokens,
-                        completionTokens, totalTokens, recovered.finishReason(), 2, true);
+                        completionTokens, totalTokens, recovered.finishReason(), 2, true,
+                        first.visualEvidenceUsed() || recovered.visualEvidenceUsed(),
+                        first.visualFallbackUsed() || recovered.visualFallbackUsed());
             }
             throw emptyOutputException(first, recovered, promptTokens, completionTokens, totalTokens, 2);
         }
@@ -112,7 +129,9 @@ public class WorkbenchModelService {
                                     List<LayoutEvidence> evidence,
                                     WorkbenchModelOutput previousOutput,
                                     List<String> repairIssues,
-                                    boolean compact) {
+                                    boolean compact,
+                                    WorkbenchSelectionVisualEvidence visualEvidence,
+                                    boolean visualAttached) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("workflow", workflow.name());
         payload.put("instruction", workflowInstruction(workflow));
@@ -121,6 +140,18 @@ public class WorkbenchModelService {
         payload.put("evidenceVersions", evidenceVersions(evidence));
         payload.put("evidence", evidence == null ? List.of() : evidence.stream()
                 .map(item -> evidencePayload(item, compact)).toList());
+        if (visualEvidence != null) {
+            Map<String, Object> visual = new LinkedHashMap<>();
+            visual.put("status", visualAttached ? "ATTACHED" : "UNAVAILABLE");
+            visual.put("page", visualEvidence.page());
+            visual.put("bbox", visualEvidence.bbox());
+            visual.put("selectedText", readablePdfText(visualEvidence.selectionText()));
+            visual.put("message", visualAttached
+                    ? "附图是当前精确选区的原页裁图，用于核对二维数学排版；事实引用仍绑定 selected evidenceId。"
+                    : "当前模型未接收可用的选区图像；" + visualEvidence.message()
+                    + "；不得猜测缺失公式，回答必须明确说明当前公式理解不完整。");
+            payload.put("selectionVisualEvidence", visual);
+        }
         if (compact) {
             payload.put("recoveryInstruction",
                     "上一次生成未产生正文。仅回答精确选中证据，答案不超过 450 个汉字、最多 3 条 claims。");
@@ -168,7 +199,7 @@ public class WorkbenchModelService {
         value.put("role", item.role().name());
         value.put("confidence", item.confidence());
         if (!compact) value.put("sectionPath", item.sectionPath());
-        value.put("text", bounded(item.text(), compact ? 1_600 : 4_000));
+        value.put("text", bounded(readablePdfText(item.text()), compact ? 1_600 : 4_000));
         value.put("contentMode", item.contentMode().name());
         if (!item.structuredContent().isBlank()) {
             value.put("structuredContent", bounded(item.structuredContent(), compact ? 1_600 : 4_000));
@@ -179,7 +210,7 @@ public class WorkbenchModelService {
         if (item.selected() && !item.mathTranscriptions().isEmpty()) {
             value.put("inlineMath", item.mathTranscriptions().stream().map(transcription -> {
                 Map<String, Object> math = new LinkedHashMap<>();
-                math.put("sourceText", bounded(transcription.sourceText(), 800));
+                math.put("sourceText", bounded(readablePdfText(transcription.sourceText()), 800));
                 math.put("latex", bounded(transcription.latex(), 1_200));
                 math.put("status", transcription.status().name());
                 math.put("confidence", transcription.confidence());
@@ -214,9 +245,12 @@ public class WorkbenchModelService {
                            WorkbenchModelOutput previousOutput,
                            List<String> repairIssues,
                            int attemptBudget,
-                           boolean compact) {
+                           boolean compact,
+                           WorkbenchSelectionVisualEvidence visualEvidence) {
+        boolean imageAvailable = visualEvidence != null && visualEvidence.available();
         String userMessage = buildUserMessage(
-                workflow, question, paperTitles, evidence, previousOutput, repairIssues, compact);
+                workflow, question, paperTitles, evidence, previousOutput, repairIssues, compact,
+                visualEvidence, imageAvailable);
         int estimatedInputTokens = estimatePromptTokens(SYSTEM_PROMPT, userMessage);
         if (estimatedInputTokens + MIN_CALL_BUDGET > attemptBudget) {
             throw new WorkbenchModelException(
@@ -233,8 +267,28 @@ public class WorkbenchModelService {
                 true);
 
         final LlmResponse response;
+        boolean visualEvidenceUsed = false;
+        boolean visualFallbackUsed = visualEvidence != null && !imageAvailable;
         try {
-            response = llmService.chatWithUsage(SYSTEM_PROMPT, userMessage, policy);
+            LlmResponse attempted;
+            if (imageAvailable) {
+                try {
+                    attempted = llmService.chatWithImageUsage(
+                            SYSTEM_PROMPT, userMessage, visualEvidence.png(), "image/png", policy);
+                    visualEvidenceUsed = true;
+                } catch (RuntimeException imageFailure) {
+                    log.info("event=workbench_selection_visual_model_fallback errorType={}",
+                            imageFailure.getClass().getSimpleName());
+                    visualFallbackUsed = true;
+                    String fallbackMessage = buildUserMessage(
+                            workflow, question, paperTitles, evidence, previousOutput, repairIssues,
+                            compact, visualEvidence, false);
+                    attempted = llmService.chatWithUsage(SYSTEM_PROMPT, fallbackMessage, policy);
+                }
+            } else {
+                attempted = llmService.chatWithUsage(SYSTEM_PROMPT, userMessage, policy);
+            }
+            response = attempted;
         } catch (RuntimeException e) {
             throw new WorkbenchModelException("MODEL_CALL_FAILED", "模型服务暂时不可用", true, e);
         }
@@ -252,7 +306,8 @@ public class WorkbenchModelService {
                     promptTokens, completionTokens, totalTokens, finishReason, 1);
         }
         return new Attempt(response == null ? null : response.getContent(), promptTokens,
-                completionTokens, totalTokens, finishReason, maxOutputTokens);
+                completionTokens, totalTokens, finishReason, maxOutputTokens,
+                visualEvidenceUsed, visualFallbackUsed);
     }
 
     private ModelCall successfulCall(WorkbenchPlan.Workflow workflow,
@@ -261,7 +316,8 @@ public class WorkbenchModelService {
                                      boolean recoveryUsed) {
         ParsedOutput parsed = parse(attempt.content(), workflow);
         return new ModelCall(parsed.output(), parsed.structured(), attempt.promptTokens(),
-                attempt.completionTokens(), attempt.totalTokens(), attempt.finishReason(), attempts, recoveryUsed);
+                attempt.completionTokens(), attempt.totalTokens(), attempt.finishReason(), attempts,
+                recoveryUsed, attempt.visualEvidenceUsed(), attempt.visualFallbackUsed());
     }
 
     private WorkbenchModelException emptyOutputException(Attempt first,
@@ -319,6 +375,21 @@ public class WorkbenchModelService {
         return value.length() <= maxCharacters ? value : value.substring(0, maxCharacters);
     }
 
+    private String readablePdfText(String value) {
+        if (value == null || value.isBlank()) return "";
+        StringBuilder cleaned = new StringBuilder(value.length());
+        for (int offset = 0; offset < value.length();) {
+            int codePoint = value.codePointAt(offset);
+            boolean invalidControl = codePoint < 0x20
+                    && codePoint != '\t' && codePoint != '\n' && codePoint != '\r';
+            boolean unmapped = codePoint == 0x7f || codePoint == 0xfffd
+                    || codePoint >= 0xe000 && codePoint <= 0xf8ff;
+            if (!invalidControl && !unmapped) cleaned.appendCodePoint(codePoint);
+            offset += Character.charCount(codePoint);
+        }
+        return cleaned.toString().replaceAll("\\s+", " ").strip();
+    }
+
     private ParsedOutput parse(String raw, WorkbenchPlan.Workflow workflow) {
         String normalized = raw == null ? "" : raw.trim();
         try {
@@ -368,13 +439,16 @@ public class WorkbenchModelService {
                             int totalTokens,
                             String finishReason,
                             int attemptCount,
-                            boolean recoveryUsed) {
+                            boolean recoveryUsed,
+                            boolean visualEvidenceUsed,
+                            boolean visualFallbackUsed) {
         public ModelCall(WorkbenchModelOutput output,
                          boolean structured,
                          int promptTokens,
                          int completionTokens,
                          int totalTokens) {
-            this(output, structured, promptTokens, completionTokens, totalTokens, null, 1, false);
+            this(output, structured, promptTokens, completionTokens, totalTokens,
+                    null, 1, false, false, false);
         }
     }
 
@@ -383,7 +457,9 @@ public class WorkbenchModelService {
                            int completionTokens,
                            int totalTokens,
                            String finishReason,
-                           int maxOutputTokens) {
+                           int maxOutputTokens,
+                           boolean visualEvidenceUsed,
+                           boolean visualFallbackUsed) {
     }
 
     private record ParsedOutput(WorkbenchModelOutput output, boolean structured) {

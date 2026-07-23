@@ -46,6 +46,7 @@ public class WorkbenchExecutionEngine {
     private final PaperMemoryObservationService observationService;
     private final PaperMapper paperMapper;
     private final ObjectMapper objectMapper;
+    private final WorkbenchSelectionVisualEvidenceService visualEvidenceService;
 
     public WorkbenchExecutionEngine(WorkbenchRunTraceService traceService,
                                     PaperLayoutArtifactService artifactService,
@@ -59,7 +60,8 @@ public class WorkbenchExecutionEngine {
                                     PaperContextAssembler contextAssembler,
                                     PaperMemoryObservationService observationService,
                                     PaperMapper paperMapper,
-                                    ObjectMapper objectMapper) {
+                                    ObjectMapper objectMapper,
+                                    WorkbenchSelectionVisualEvidenceService visualEvidenceService) {
         this.traceService = traceService;
         this.artifactService = artifactService;
         this.anchorResolver = anchorResolver;
@@ -73,6 +75,7 @@ public class WorkbenchExecutionEngine {
         this.observationService = observationService;
         this.paperMapper = paperMapper;
         this.objectMapper = objectMapper;
+        this.visualEvidenceService = visualEvidenceService;
     }
 
     public WorkbenchWorkflowResult execute(String runId, String taskId, Consumer<String> stageUpdater) {
@@ -234,9 +237,11 @@ public class WorkbenchExecutionEngine {
         }
 
         stage.accept("正在基于证据生成回答…");
+        WorkbenchSelectionVisualEvidence visualEvidence = visualEvidenceService == null
+                ? null : visualEvidenceService.create(trace.invocation().selectionAnchor());
         WorkbenchModelService.ModelCall call = modelStep(
                 trace, modelStepIndex, evidence, null, List.of(), firstCallBudget(trace),
-                modelQuestion, context);
+                modelQuestion, context, visualEvidence);
         WorkbenchEvidenceGate.GateResult gateResult = gateStep(
                 traceService.requireTrace(trace.runId()), gateStepIndex,
                 call.output(), call.structured(), evidence, 0);
@@ -247,7 +252,7 @@ public class WorkbenchExecutionEngine {
             WorkbenchRunTrace repairTrace = traceService.requireTrace(trace.runId());
             WorkbenchModelService.ModelCall repaired = modelStep(
                     repairTrace, modelStepIndex, evidence, call.output(), gateResult.issues(),
-                    remainingTokenBudget(repairTrace), modelQuestion, context);
+                    remainingTokenBudget(repairTrace), modelQuestion, context, visualEvidence);
             gateResult = gateStep(
                     traceService.requireTrace(trace.runId()), gateStepIndex,
                     repaired.output(), repaired.structured(), evidence, 1);
@@ -258,10 +263,13 @@ public class WorkbenchExecutionEngine {
         }
 
         WorkbenchModelOutput output = call.output().normalizedFor(trace.plan().workflow());
+        String answer = call.visualFallbackUsed()
+                ? output.answer() + "\n\n> 当前模型未接受选区图像，数学公式需回原页核对。"
+                : output.answer();
         WorkbenchRunTrace passedTrace = traceService.requireTrace(trace.runId());
         WorkbenchWorkflowResult result = new WorkbenchWorkflowResult(
                 trace.runId(), trace.plan().workflow(), trace.plan().scope(), trace.invocation().paperIds(),
-                output.answer(), output.claims(), evidence, output.annotationSuggestion(), regionFallback,
+                answer, output.claims(), evidence, output.annotationSuggestion(), regionFallback,
                 passedTrace.metrics().repairCount());
         traceService.checkpointResult(trace.runId(), result);
         return result;
@@ -274,7 +282,8 @@ public class WorkbenchExecutionEngine {
                                                        List<String> repairIssues,
                                                        int callBudget,
                                                        String modelQuestion,
-                                                       PaperContextSnapshot context) {
+                                                       PaperContextSnapshot context,
+                                                       WorkbenchSelectionVisualEvidence visualEvidence) {
         Map<String, Object> inputSummary = new LinkedHashMap<>();
         inputSummary.put("evidenceCount", evidence.size());
         inputSummary.put("callTokenBudget", callBudget);
@@ -289,12 +298,22 @@ public class WorkbenchExecutionEngine {
             inputSummary.put("contextTruncated", context.truncated());
             inputSummary.put("sourcePriority", context.sourcePriority());
         }
+        if (visualEvidence != null) {
+            inputSummary.put("selectionVisualRequired", true);
+            inputSummary.put("selectionVisualAvailable", visualEvidence.available());
+        }
         traceService.startStep(trace.runId(), stepIndex, inputSummary);
         long started = System.nanoTime();
         try {
-            WorkbenchModelService.ModelCall call = modelService.generate(
-                    trace.plan().workflow(), modelQuestion, paperTitles(trace.invocation().paperIds()),
-                    evidence, callBudget, previous, repairIssues);
+            WorkbenchModelService.ModelCall call = visualEvidence == null
+                    ? modelService.generate(
+                            trace.plan().workflow(), modelQuestion,
+                            paperTitles(trace.invocation().paperIds()),
+                            evidence, callBudget, previous, repairIssues)
+                    : modelService.generate(
+                            trace.plan().workflow(), modelQuestion,
+                            paperTitles(trace.invocation().paperIds()),
+                            evidence, callBudget, previous, repairIssues, visualEvidence);
             traceService.completeStep(trace.runId(), stepIndex,
                     modelSuccessSummary(call),
                     evidence.size(), call.promptTokens(), call.completionTokens(), elapsed(started));
@@ -346,6 +365,8 @@ public class WorkbenchExecutionEngine {
         summary.put("answerCharacters", call.output().answer().length());
         summary.put("attemptCount", call.attemptCount());
         summary.put("emptyOutputRecoveryUsed", call.recoveryUsed());
+        summary.put("selectionVisualUsed", call.visualEvidenceUsed());
+        summary.put("selectionVisualFallback", call.visualFallbackUsed());
         if (call.finishReason() != null && !call.finishReason().isBlank()) {
             summary.put("finishReason", call.finishReason());
         }

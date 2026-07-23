@@ -64,6 +64,7 @@ class WorkbenchExecutionEngineTest {
     private PaperContextAssembler contextAssembler;
     private PaperMemoryObservationService observationService;
     private PaperMapper paperMapper;
+    private WorkbenchSelectionVisualEvidenceService visualEvidenceService;
     private WorkbenchRunTraceService traceService;
     private WorkbenchExecutionEngine engine;
 
@@ -78,6 +79,7 @@ class WorkbenchExecutionEngineTest {
         contextAssembler = mock(PaperContextAssembler.class);
         observationService = mock(PaperMemoryObservationService.class);
         paperMapper = mock(PaperMapper.class);
+        visualEvidenceService = mock(WorkbenchSelectionVisualEvidenceService.class);
 
         when(artifactService.ensureArtifact(anyLong(), eq(false)))
                 .thenAnswer(invocation -> artifact(invocation.getArgument(0)));
@@ -101,7 +103,7 @@ class WorkbenchExecutionEngineTest {
         engine = new WorkbenchExecutionEngine(
                 traceService, artifactService, anchorResolver, localEvidenceService, wholeEvidenceService,
                 modelService, new WorkbenchEvidenceGate(), new WorkbenchOutputQualityGate(), reportService,
-                contextAssembler, observationService, paperMapper, objectMapper);
+                contextAssembler, observationService, paperMapper, objectMapper, visualEvidenceService);
     }
 
     @Test
@@ -137,6 +139,26 @@ class WorkbenchExecutionEngineTest {
         verify(observationService, times(2)).remember(any(), eq(first));
         verify(modelService, times(1)).generate(
                 any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList());
+    }
+
+    @Test
+    void appendsDeterministicWarningWhenTheConfiguredModelCannotUseTheSelectionImage() {
+        WorkbenchSelectionVisualEvidence visual = new WorkbenchSelectionVisualEvidence(
+                new byte[0], 1, new NormalizedBoundingBox(0.1, 0.2, 0.3, 0.05),
+                "selected math", "图像不可用");
+        when(visualEvidenceService.create(any())).thenReturn(visual);
+        WorkbenchModelService.ModelCall base = modelCall(WorkbenchPlan.Workflow.SELECTION_QA);
+        when(modelService.generate(any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList(),
+                eq(visual))).thenReturn(new WorkbenchModelService.ModelCall(
+                base.output(), base.structured(), base.promptTokens(), base.completionTokens(),
+                base.totalTokens(), base.finishReason(), base.attemptCount(), base.recoveryUsed(),
+                false, true));
+
+        WorkbenchRunTrace planned = traceService.plan(invocation(
+                WorkbenchIntent.ASK_SELECTION, List.of(7L), anchor(7L), "解释选区", 6_000));
+        WorkbenchWorkflowResult result = engine.execute(planned.runId(), "task-visual-fallback", null);
+
+        assertThat(result.answer()).contains("当前模型未接受选区图像", "需回原页核对");
     }
 
     @Test
