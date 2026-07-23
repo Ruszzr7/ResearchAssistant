@@ -184,6 +184,25 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(wrapper.get('.math-rich-state').text()).toContain('原页排版为准')
   })
 
+  it('shows the original local PDF crop when mathematics cannot be represented safely', async () => {
+    const wrapper = mountPanel({
+      selection: {
+        text: 'ensures E ssH = I.',
+        visualFallback: {
+          dataUrl: 'data:image/png;base64,preview',
+          reason: 'PDF 数学字体包含无法可靠映射的字符，公式以原页图像为准。',
+        },
+      },
+      selectionAnchor: textAnchor,
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.selection-source-preview img').attributes('src'))
+      .toBe('data:image/png;base64,preview')
+    expect(wrapper.get('.selection-source-preview figcaption').text()).toContain('原页图像为准')
+    expect(wrapper.get('.selection-card__text').text()).not.toContain('□')
+  })
+
   it('keeps follow-up questions in one grounded conversation', async () => {
     mocks.state.run
       .mockResolvedValueOnce({

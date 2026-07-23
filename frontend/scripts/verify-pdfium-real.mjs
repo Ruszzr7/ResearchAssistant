@@ -51,6 +51,8 @@ try {
   assert.equal(result.pageThreeReadableHasCoefficient, true)
   assert.equal(result.pageThreeReadableHasLineBreak, false)
   assert.equal(result.pageThreeReadableHasIllegalCharacter, false)
+  assert.ok(result.pageThreePreviewWidth > 200)
+  assert.ok(result.pageThreePreviewHeight > 50)
   assert.ok(result.pageThreeDenseMinimumX > 0.5)
   assert.ok(result.pageThreeHitDelta <= 10)
   console.log(JSON.stringify(result))

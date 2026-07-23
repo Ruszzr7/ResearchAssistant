@@ -89,6 +89,10 @@
             <button type="button" class="selection-clear-action" aria-label="清除选取内容" @click="clearTextSelection">×</button>
           </div>
           <p class="selection-card__text">{{ selection.text }}</p>
+          <figure v-if="selection.visualFallback?.dataUrl" class="selection-source-preview">
+            <img :src="selection.visualFallback.dataUrl" alt="PDF 原始选区图像" />
+            <figcaption>{{ selection.visualFallback.reason }}</figcaption>
+          </figure>
 
           <div class="selection-tools">
             <el-button
@@ -738,6 +742,26 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
   white-space: normal;
 }
 .selection-tools { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.selection-source-preview {
+  margin: 0 0 9px;
+  padding: 8px;
+  border: 1px solid var(--ra-border);
+  border-radius: 6px;
+  background: #fff;
+}
+.selection-source-preview img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  object-position: left center;
+}
+.selection-source-preview figcaption {
+  margin-top: 6px;
+  color: var(--ra-text-tertiary);
+  font-size: 10px;
+  line-height: 1.4;
+}
 .selection-translation { margin-top: 9px; padding: 9px; border-radius: 6px; background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
 .selection-translation small { display: block; margin-bottom: 3px; color: var(--ra-text-tertiary); font-size: 9px; }
 .content-confirm-hint { margin-top: 8px; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.4; }

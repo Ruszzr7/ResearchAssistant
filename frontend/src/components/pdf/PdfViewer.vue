@@ -561,6 +561,10 @@ import { ElMessage } from 'element-plus'
 import { createPdfInteractionEngine } from '@/services/pdfiumInteractionEngine.js'
 import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
 import { normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
+import {
+  createPdfSelectionPreview,
+  selectionNeedsVisualFallback,
+} from '@/utils/pdfSelectionPreview.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
@@ -1468,6 +1472,10 @@ function applyPdfiumSelection(drag, selection) {
   const contentSegments = segmentPdfSelection(selection.runs, selection.pageSize)
   const normalizedText = normalizePdfSelectionText(selection.text)
   if (!normalizedText.readableText) return
+  const needsVisualFallback = selectionNeedsVisualFallback(contentSegments, normalizedText)
+  const preview = needsVisualFallback
+    ? createPdfSelectionPreview(canvasRefs.value[drag.pageNum], quads)
+    : null
   pendingTextSelection.value = {
     groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
     text: normalizedText.readableText,
@@ -1477,6 +1485,12 @@ function applyPdfiumSelection(drag, selection) {
       hasExtractionIssues: normalizedText.hasExtractionIssues,
       removedCharacterCount: normalizedText.removedCharacterCount,
     },
+    visualFallback: preview ? {
+      ...preview,
+      reason: normalizedText.hasExtractionIssues
+        ? 'PDF 数学字体包含无法可靠映射的字符，公式以原页图像为准。'
+        : '选区包含数学内容，公式排版以原页图像为准。',
+    } : null,
     contentSegments,
     textAnchor: {
       version: 2,
