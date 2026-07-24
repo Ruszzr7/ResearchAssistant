@@ -14,6 +14,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -47,6 +48,33 @@ class FormulaRegionImageServiceTest {
         assertEquals(image.height(), decoded.getHeight());
         assertTrue(decoded.getRGB(decoded.getWidth() / 2, decoded.getHeight() / 2) != 0xFFFFFFFF);
         assertTrue(image.dataUrl().startsWith("data:image/png;base64,"));
+    }
+
+    @Test
+    void masksNearbyContentOutsideTheSelectedGlyphBoxes() throws Exception {
+        File pdf = tempDir.resolve("masked-selection.pdf").toFile();
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage(new PDRectangle(600, 800));
+            document.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(document, page)) {
+                content.setNonStrokingColor(0, 0, 0);
+                content.addRect(90, 560, 60, 40);
+                content.addRect(210, 560, 60, 40);
+                content.fill();
+            }
+            document.save(pdf);
+        }
+
+        NormalizedBoundingBox crop = new NormalizedBoundingBox(0.10, 0.20, 0.45, 0.15);
+        NormalizedBoundingBox selected = new NormalizedBoundingBox(0.15, 0.25, 0.10, 0.05);
+        FormulaRegionImage image = new FormulaRegionImageService().renderMasked(
+                pdf, 1, crop, List.of(selected), "");
+        BufferedImage decoded = ImageIO.read(new java.io.ByteArrayInputStream(image.png()));
+
+        assertTrue(pixel(decoded, (0.20 - crop.x()) / crop.width(),
+                (0.275 - crop.y()) / crop.height()) != 0xFFFFFF);
+        assertEquals(0xFFFFFF, pixel(decoded, (0.40 - crop.x()) / crop.width(),
+                (0.275 - crop.y()) / crop.height()));
     }
 
     @Test
@@ -97,5 +125,13 @@ class FormulaRegionImageServiceTest {
         assertTrue(image.png().length > 100);
         assertThrows(StaleLayoutArtifactException.class, () -> service.render(pdf, 1,
                 new NormalizedBoundingBox(0.1, 0.1, 0.2, 0.1), "0".repeat(64)));
+    }
+
+    private int pixel(BufferedImage image, double x, double y) {
+        int px = Math.max(0, Math.min(image.getWidth() - 1,
+                (int) Math.round(x * (image.getWidth() - 1))));
+        int py = Math.max(0, Math.min(image.getHeight() - 1,
+                (int) Math.round(y * (image.getHeight() - 1))));
+        return image.getRGB(px, py) & 0xFFFFFF;
     }
 }

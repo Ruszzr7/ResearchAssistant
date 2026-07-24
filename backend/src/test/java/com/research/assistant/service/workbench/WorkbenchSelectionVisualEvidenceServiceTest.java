@@ -40,7 +40,8 @@ class WorkbenchSelectionVisualEvidenceServiceTest {
         File pdf = new File("paper.pdf");
         when(paperMapper.selectById(7L)).thenReturn(paper);
         when(fileResolver.resolveRequired("paper.pdf")).thenReturn(pdf);
-        when(imageService.render(eq(pdf), eq(3), any(NormalizedBoundingBox.class), eq("hash")))
+        when(imageService.renderMasked(eq(pdf), eq(3), any(NormalizedBoundingBox.class),
+                any(), eq("hash")))
                 .thenReturn(new FormulaRegionImage(new byte[]{1, 2, 3}, 600, 240));
 
         WorkbenchSelectionVisualEvidence visual = service.create(mathAnchor());
@@ -53,6 +54,8 @@ class WorkbenchSelectionVisualEvidenceServiceTest {
         assertThat(visual.bbox().right()).isCloseTo(0.926,
                 org.assertj.core.data.Offset.offset(0.0001));
         assertThat(visual.selectionText()).contains("global power coefficient");
+        verify(imageService).renderMasked(eq(pdf), eq(3), any(NormalizedBoundingBox.class),
+                eq(mathAnchor().boxes()), eq("hash"));
     }
 
     @Test

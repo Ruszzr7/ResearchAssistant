@@ -24,12 +24,23 @@ describe('PDF selection source preview', () => {
     expect(bounds.height).toBeCloseTo(0.076)
   })
 
-  it('creates one local image without changing the source canvas', () => {
+  it('masks pixels outside the selected glyph rectangles', () => {
     const drawImage = vi.fn()
+    const fillRect = vi.fn()
+    const rect = vi.fn()
+    const clip = vi.fn()
     const target = {
       width: 0,
       height: 0,
-      getContext: () => ({ drawImage }),
+      getContext: () => ({
+        drawImage,
+        fillRect,
+        save: vi.fn(),
+        beginPath: vi.fn(),
+        rect,
+        clip,
+        restore: vi.fn(),
+      }),
       toDataURL: () => 'data:image/png;base64,preview',
     }
     const source = { width: 1200, height: 1600 }
@@ -41,8 +52,43 @@ describe('PDF selection source preview', () => {
     expect(preview.dataUrl).toBe('data:image/png;base64,preview')
     expect(preview.width).toBe(300)
     expect(preview.height).toBeGreaterThan(0)
+    expect(preview.masked).toBe(true)
+    expect(fillRect).toHaveBeenCalledWith(0, 0, preview.width, preview.height)
+    expect(rect).toHaveBeenCalledOnce()
+    expect(clip).toHaveBeenCalledOnce()
     expect(drawImage).toHaveBeenCalledOnce()
     expect(source).toEqual({ width: 1200, height: 1600 })
+  })
+
+  it('keeps tall formula glyphs while masking a nearby unselected line', () => {
+    const rect = vi.fn()
+    const target = {
+      width: 0,
+      height: 0,
+      getContext: () => ({
+        drawImage: vi.fn(),
+        fillRect: vi.fn(),
+        save: vi.fn(),
+        beginPath: vi.fn(),
+        rect,
+        clip: vi.fn(),
+        restore: vi.fn(),
+      }),
+      toDataURL: () => 'data:image/png;base64,formula',
+    }
+    const preview = createPdfSelectionPreview(
+      { width: 1200, height: 1600 },
+      [
+        quad(0.10, 0.20, 0.65, 0.04),
+        quad(0.42, 0.16, 0.10, 0.14),
+      ],
+      { canvasFactory: () => target },
+    )
+
+    expect(preview.masked).toBe(true)
+    expect(rect).toHaveBeenCalledTimes(2)
+    const maskBottom = Math.max(...rect.mock.calls.map(([, y, , height]) => y + height))
+    expect(maskBottom).toBeLessThanOrEqual(preview.height)
   })
 
   it('uses visual fallback for any math or damaged character stream', () => {

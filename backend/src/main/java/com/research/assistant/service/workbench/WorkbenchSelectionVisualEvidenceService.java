@@ -45,8 +45,8 @@ public class WorkbenchSelectionVisualEvidenceService {
             Paper paper = paperMapper.selectById(anchor.paperId());
             if (paper == null) return unavailable(anchor, bbox, "论文不存在，数学内容需回原页核对");
             File pdf = fileResolver.resolveRequired(paper.getPdfPath());
-            FormulaRegionImage image = imageService.render(
-                    pdf, anchor.page(), bbox, anchor.documentHash());
+            FormulaRegionImage image = imageService.renderMasked(
+                    pdf, anchor.page(), bbox, anchor.boxes(), anchor.documentHash());
             return new WorkbenchSelectionVisualEvidence(
                     image.png(), anchor.page(), bbox, anchor.anchorText(),
                     "已附加 PDF 原始选区图像；以图像中的公式排版为准");

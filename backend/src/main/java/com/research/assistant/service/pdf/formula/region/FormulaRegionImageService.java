@@ -10,12 +10,14 @@ import org.apache.pdfbox.rendering.PDFRenderer;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
+import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 
 /** Renders the authoritative server-side PDF and crops a bounded formula region. */
 @Service
@@ -24,6 +26,7 @@ public class FormulaRegionImageService {
     static final float RENDER_DPI = 200f;
     static final int MAX_WIDTH = 1800;
     static final int MAX_HEIGHT = 1000;
+    private static final int MASK_PADDING_PIXELS = 2;
 
     public FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box) {
         return render(pdf, pageNumber, box, "");
@@ -31,6 +34,25 @@ public class FormulaRegionImageService {
 
     public FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box,
                                      String expectedDocumentHash) {
+        return render(pdf, pageNumber, box, List.of(), expectedDocumentHash);
+    }
+
+    public FormulaRegionImage renderMasked(File pdf,
+                                           int pageNumber,
+                                           NormalizedBoundingBox cropBox,
+                                           List<NormalizedBoundingBox> visibleBoxes,
+                                           String expectedDocumentHash) {
+        if (visibleBoxes == null || visibleBoxes.isEmpty()) {
+            throw new IllegalArgumentException("选区字形坐标不能为空");
+        }
+        return render(pdf, pageNumber, cropBox, List.copyOf(visibleBoxes), expectedDocumentHash);
+    }
+
+    private FormulaRegionImage render(File pdf,
+                                      int pageNumber,
+                                      NormalizedBoundingBox box,
+                                      List<NormalizedBoundingBox> visibleBoxes,
+                                      String expectedDocumentHash) {
         FormulaRegionGeometry.validate(box);
         if (expectedDocumentHash != null && !expectedDocumentHash.isBlank()
                 && !expectedDocumentHash.equals(PdfDocumentFingerprint.sha256(pdf))) {
@@ -47,7 +69,10 @@ public class FormulaRegionImageService {
             int right = clamp((int) Math.ceil(box.right() * page.getWidth()), x + 1, page.getWidth());
             int bottom = clamp((int) Math.ceil(box.bottom() * page.getHeight()), y + 1, page.getHeight());
             BufferedImage crop = page.getSubimage(x, y, right - x, bottom - y);
-            BufferedImage bounded = downscale(crop);
+            BufferedImage visible = visibleBoxes.isEmpty()
+                    ? crop
+                    : maskUnselected(crop, visibleBoxes, page.getWidth(), page.getHeight(), x, y);
+            BufferedImage bounded = downscale(visible);
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             if (!ImageIO.write(bounded, "png", output)) {
                 throw new IllegalStateException("公式区域无法编码为 PNG");
@@ -56,6 +81,39 @@ public class FormulaRegionImageService {
         } catch (IOException e) {
             throw new IllegalArgumentException("公式区域渲染失败", e);
         }
+    }
+
+    private BufferedImage maskUnselected(BufferedImage crop,
+                                         List<NormalizedBoundingBox> visibleBoxes,
+                                         int pageWidth,
+                                         int pageHeight,
+                                         int cropX,
+                                         int cropY) {
+        BufferedImage masked = new BufferedImage(
+                crop.getWidth(), crop.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = masked.createGraphics();
+        try {
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, masked.getWidth(), masked.getHeight());
+            for (NormalizedBoundingBox box : visibleBoxes) {
+                if (box == null) continue;
+                int left = clamp((int) Math.floor(box.x() * pageWidth) - cropX
+                        - MASK_PADDING_PIXELS, 0, crop.getWidth());
+                int top = clamp((int) Math.floor(box.y() * pageHeight) - cropY
+                        - MASK_PADDING_PIXELS, 0, crop.getHeight());
+                int right = clamp((int) Math.ceil(box.right() * pageWidth) - cropX
+                        + MASK_PADDING_PIXELS, 0, crop.getWidth());
+                int bottom = clamp((int) Math.ceil(box.bottom() * pageHeight) - cropY
+                        + MASK_PADDING_PIXELS, 0, crop.getHeight());
+                if (right <= left || bottom <= top) continue;
+                graphics.drawImage(crop,
+                        left, top, right, bottom,
+                        left, top, right, bottom, null);
+            }
+        } finally {
+            graphics.dispose();
+        }
+        return masked;
     }
 
     private BufferedImage downscale(BufferedImage source) {

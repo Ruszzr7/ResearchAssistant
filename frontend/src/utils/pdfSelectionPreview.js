@@ -11,6 +11,25 @@ function quadBounds(quad) {
   return right > x && bottom > y ? { x, y, right, bottom } : null
 }
 
+function previewMaskRects(quads, bounds, width, height, paddingPixels) {
+  return (quads || []).map(quadBounds).filter(Boolean).map(box => {
+    const x = (box.x - bounds.x) / bounds.width * width
+    const y = (box.y - bounds.y) / bounds.height * height
+    const right = (box.right - bounds.x) / bounds.width * width
+    const bottom = (box.bottom - bounds.y) / bounds.height * height
+    const left = Math.max(0, Math.floor(x - paddingPixels))
+    const top = Math.max(0, Math.floor(y - paddingPixels))
+    const clippedRight = Math.min(width, Math.ceil(right + paddingPixels))
+    const clippedBottom = Math.min(height, Math.ceil(bottom + paddingPixels))
+    return {
+      x: left,
+      y: top,
+      width: Math.max(0, clippedRight - left),
+      height: Math.max(0, clippedBottom - top),
+    }
+  }).filter(rect => rect.width > 0 && rect.height > 0)
+}
+
 export function selectionPreviewBounds(quads, padding = 0.008) {
   const boxes = (quads || []).map(quadBounds).filter(Boolean)
   if (!boxes.length) return null
@@ -37,6 +56,7 @@ export function selectionNeedsVisualFallback(contentSegments, textNormalization)
 export function createPdfSelectionPreview(sourceCanvas, quads, {
   maxWidth = 1200,
   maxHeight = 1200,
+  maskPaddingPixels = 2,
   canvasFactory = () => document.createElement('canvas'),
 } = {}) {
   try {
@@ -54,16 +74,28 @@ export function createPdfSelectionPreview(sourceCanvas, quads, {
     canvas.height = Math.max(1, Math.round(sourceHeight * scale))
     const context = canvas.getContext?.('2d')
     if (!context) return null
+    const maskRects = previewMaskRects(
+      quads, bounds, canvas.width, canvas.height, maskPaddingPixels,
+    )
+    if (!maskRects.length) return null
+    context.fillStyle = '#fff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    context.save()
+    context.beginPath()
+    maskRects.forEach(rect => context.rect(rect.x, rect.y, rect.width, rect.height))
+    context.clip()
     context.drawImage(
       sourceCanvas,
       sourceX, sourceY, sourceWidth, sourceHeight,
       0, 0, canvas.width, canvas.height,
     )
+    context.restore()
     return {
       dataUrl: canvas.toDataURL('image/png'),
       width: canvas.width,
       height: canvas.height,
       bounds,
+      masked: true,
     }
   } catch {
     return null
