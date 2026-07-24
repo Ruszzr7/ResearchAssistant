@@ -58,12 +58,12 @@
             :aria-selected="captureMode === 'formula'"
             :class="{ active: captureMode === 'formula' }"
             @click="selectCaptureMode('formula')"
-          >公式框选</button>
+          >公式精确识别</button>
         </div>
         <p class="capture-hint">
           {{ captureMode === 'formula'
-            ? '在 PDF 页面拖框截取公式，识别后核对 LaTeX。'
-            : '直接在 PDF 中拖动选择文字，再确认固定为本轮内容。' }}
+            ? '仅在直接选取不完整或需要可编辑 LaTeX 时，在 PDF 页面精确框选目标公式。'
+            : '直接在 PDF 中拖动选择文字或公式，再确认固定为本轮内容。' }}
         </p>
       </section>
 

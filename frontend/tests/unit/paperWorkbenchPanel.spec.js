@@ -97,8 +97,9 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
   it('switches content and formula capture from the sliding selector', async () => {
     const wrapper = mountPanel({ captureMode: 'text' })
     const buttons = wrapper.findAll('.capture-switch button')
-    expect(buttons.map(button => button.text())).toEqual(['内容选取', '公式框选'])
+    expect(buttons.map(button => button.text())).toEqual(['内容选取', '公式精确识别'])
     expect(buttons[0].classes()).toContain('active')
+    expect(wrapper.get('.capture-hint').text()).toContain('选择文字或公式')
 
     await buttons[1].trigger('click')
     expect(wrapper.emitted('capture-mode-change')?.[0]).toEqual(['formula'])
@@ -106,6 +107,8 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.setProps({ captureMode: 'formula' })
     expect(wrapper.get('.capture-switch').classes()).toContain('is-formula')
     expect(wrapper.findAll('.capture-switch button')[1].classes()).toContain('active')
+    expect(wrapper.get('.capture-hint').text()).toContain('直接选取不完整')
+    expect(wrapper.get('.capture-hint').text()).toContain('可编辑 LaTeX')
   })
 
   it('shows non-blocking whole-paper understanding progress and retries partial memory', async () => {

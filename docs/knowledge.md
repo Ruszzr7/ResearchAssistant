@@ -80,7 +80,7 @@
 ## 7. Vue、PDF.js 与前端任务
 
 - 前端通过 Vite 代理 `/api`；页面状态使用 Vue refs/reactive 和 composables，长任务轮询统一收敛到任务 API。
-- PDF 论文助手的产品顶层是“论文精读 / 缺陷分析 / 论文对比”，当前只开放论文精读；精读内由“内容选取 / 公式框选”控制唯一 PDF 工具。旧全文分析、单篇改进和多篇对比 Workflow 暂保留为后端能力，但不能挤回精读界面。客户端根据模式构造 `intent + scope + paperIds + SelectionAnchor`，不暴露 Skill 列表；运行结果以持久化 workbench trace 为真源。
+- PDF 论文助手的产品顶层是“论文精读 / 缺陷分析 / 论文对比”，当前只开放论文精读；精读内默认“内容选取”同时支持文字和公式，“公式精确识别”只在直接选取不完整或需要可编辑 LaTeX 时启用。旧全文分析、单篇改进和多篇对比 Workflow 暂保留为后端能力，但不能挤回精读界面。客户端根据模式构造 `intent + scope + paperIds + SelectionAnchor`，不暴露 Skill 列表；运行结果以持久化 workbench trace 为真源。
 - 模型报告不能直接以 `v-html` 渲染原始 Markdown，当前只在 HTML 转义后支持标题、列表、粗体和行内代码。助手结果保持可选择、可复制，但不再内置“添加内容”编辑器；复制或改写属于浏览器与用户自己的显式操作，不制造第二套笔记入口。
 - 选区笔记统一复用 Annotation `NOTE`：`anchorQuads/anchorText/anchorKind=SELECTION` 绑定原文，`notePosition` 只驱动可拖动的 N 形图标和虚线，不改变原文锚点。批注使用同样稳定的选区锚点和独立对话气泡图标，但只随批注列表显示；两者不能再共用“便签”语义。
 - 可恢复任务和 workbench run 是两个持久化状态机；除执行器最后重试同步终态外，还应在应用启动和固定周期对账活跃 run 与任务终态。状态修复不应依赖 GET 请求的副作用。
