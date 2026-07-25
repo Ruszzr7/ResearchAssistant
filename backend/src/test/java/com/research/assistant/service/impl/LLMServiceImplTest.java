@@ -102,6 +102,21 @@ class LLMServiceImplTest {
     }
 
     @Test
+    void jsonPolicyShouldUseNativeStructuredPathWhenProviderRequiresIt() {
+        LlmCallPolicy policy = new LlmCallPolicy(
+                "test-json", 100, 100, 123, 1, true);
+        when(streamService.supportsNativeStructuredOutput()).thenReturn(true);
+        when(streamService.chatStructuredJson(
+                "system", "user", null, null, policy))
+                .thenReturn(new LlmResponse("{}", 10, 3, 13, "STOP"));
+
+        LlmResponse response = llmService.chatWithUsage("system", "user", policy);
+
+        assertThat(response.getContent()).isEqualTo("{}");
+        verifyNoInteractions(modelFactory);
+    }
+
+    @Test
     void imageChatShouldSendTextAndBase64ImageWithoutChangingUsageAccounting() {
         ChatModel chatModel = new ChatModel() {
             @Override
@@ -125,6 +140,24 @@ class LLMServiceImplTest {
                 new LlmCallPolicy("image-test", 100, 100, 123, 1, true));
 
         assertThat(response.getTotalTokens()).isEqualTo(9);
+    }
+
+    @Test
+    void imageJsonPolicyShouldUseNativeStructuredPathWhenSupported() {
+        byte[] image = {1, 2, 3};
+        LlmCallPolicy policy = new LlmCallPolicy(
+                "image-json", 100, 100, 512, 1, true);
+        when(streamService.supportsNativeStructuredOutput()).thenReturn(true);
+        when(streamService.chatStructuredJson(
+                "system", "transcribe", image, "image/png", policy))
+                .thenReturn(new LlmResponse(
+                        "{\"latex\":\"x\"}", 174, 20, 194, "STOP"));
+
+        LlmResponse response = llmService.chatWithImageUsage(
+                "system", "transcribe", image, "image/png", policy);
+
+        assertThat(response.getContent()).contains("latex");
+        verifyNoInteractions(modelFactory);
     }
 
     private void givenChatModelReturns(String content, Integer inputTokens, Integer outputTokens) {

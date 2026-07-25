@@ -2,8 +2,10 @@ package com.research.assistant.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.service.ai.LLMConfigUtil;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
+import com.research.assistant.service.ai.LlmCallPolicy;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -26,7 +28,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -83,6 +89,117 @@ public class LLMStreamService {
     private boolean isKimiModel() {
         String model = settingsService.getValue("model");
         return model != null && model.toLowerCase().contains("kimi");
+    }
+
+    /** Kimi coding/thinking endpoints accept a native switch that removes hidden reasoning. */
+    public boolean supportsNativeStructuredOutput() {
+        String model = settingsService.getValue("model");
+        String baseUrl = settingsService.getValue("base_url");
+        if (model == null || baseUrl == null) return false;
+        String normalizedModel = model.toLowerCase(Locale.ROOT);
+        String normalizedBase = baseUrl.toLowerCase(Locale.ROOT);
+        boolean kimiProvider = normalizedModel.contains("kimi")
+                || normalizedBase.contains("kimi.com")
+                || normalizedBase.contains("moonshot.");
+        return kimiProvider && (normalizedBase.contains("/coding/")
+                || normalizedModel.contains("-code")
+                || normalizedModel.contains("-thinking"));
+    }
+
+    /**
+     * Executes bounded JSON extraction through the provider-compatible endpoint.
+     * This narrow path exists because LangChain4j 1.15 serializes unknown request
+     * parameters as a nested object instead of the top-level Kimi `thinking` field.
+     */
+    public LlmResponse chatStructuredJson(String systemPrompt,
+                                          String userMessage,
+                                          byte[] imageBytes,
+                                          String mimeType,
+                                          LlmCallPolicy policy) {
+        try {
+            String apiKey = requiredSetting("api_key", "API Key");
+            String model = requiredSetting("model", "模型");
+            String baseUrl = requiredSetting("base_url", "Base URL");
+            String url = LLMConfigUtil.normalizeBaseUrl(baseUrl) + "/v1/chat/completions";
+
+            Map<String, Object> requestBody = new LinkedHashMap<>();
+            requestBody.put("model", model);
+            requestBody.put("messages", structuredMessages(
+                    systemPrompt, userMessage, imageBytes, mimeType));
+            requestBody.put("max_tokens", policy.maxOutputTokens());
+            requestBody.put("response_format", Map.of("type", "json_object"));
+            requestBody.put("thinking", Map.of("type", "disabled"));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .timeout(Duration.ofSeconds(90))
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            objectMapper.writeValueAsString(requestBody)))
+                    .build();
+            HttpResponse<String> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() != 200) {
+                log.warn("event=ai_structured_chat_failed status={}", response.statusCode());
+                throw new IllegalStateException(
+                        "结构化模型服务暂时不可用 (HTTP " + response.statusCode() + ")");
+            }
+            JsonNode root = objectMapper.readTree(response.body());
+            JsonNode choice = root.path("choices").path(0);
+            JsonNode usage = root.path("usage");
+            String content = choice.path("message").path("content").asText("");
+            int promptTokens = usage.path("prompt_tokens").asInt(0);
+            int completionTokens = usage.path("completion_tokens").asInt(0);
+            int totalTokens = usage.path("total_tokens")
+                    .asInt(promptTokens + completionTokens);
+            String finishReason = choice.path("finish_reason")
+                    .asText("").toUpperCase(Locale.ROOT);
+            log.info("event=ai_structured_chat_completed inputTokens={} outputTokens={} "
+                            + "totalTokens={} finishReason={}",
+                    promptTokens, completionTokens, totalTokens, finishReason);
+            return new LlmResponse(
+                    content, promptTokens, completionTokens, totalTokens, finishReason);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("结构化模型调用已中断", exception);
+        } catch (RuntimeException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("结构化模型调用失败", exception);
+        }
+    }
+
+    private List<Map<String, Object>> structuredMessages(String systemPrompt,
+                                                         String userMessage,
+                                                         byte[] imageBytes,
+                                                         String mimeType) {
+        Map<String, Object> system = Map.of(
+                "role", "system", "content", systemPrompt == null ? "" : systemPrompt);
+        if (imageBytes == null || imageBytes.length == 0) {
+            return List.of(system, Map.of(
+                    "role", "user", "content", userMessage == null ? "" : userMessage));
+        }
+        String safeMimeType = mimeType == null || mimeType.isBlank()
+                ? "image/png" : mimeType;
+        String imageUrl = "data:" + safeMimeType + ";base64,"
+                + Base64.getEncoder().encodeToString(imageBytes);
+        Map<String, Object> user = Map.of(
+                "role", "user",
+                "content", List.of(
+                        Map.of("type", "text", "text",
+                                userMessage == null ? "" : userMessage),
+                        Map.of("type", "image_url",
+                                "image_url", Map.of("url", imageUrl))));
+        return List.of(system, user);
+    }
+
+    private String requiredSetting(String key, String label) {
+        String value = settingsService.getValue(key);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(label + " 未配置");
+        }
+        return value;
     }
 
     /** 使用 LangChain4j StreamingChatModel 输出流式响应。 */

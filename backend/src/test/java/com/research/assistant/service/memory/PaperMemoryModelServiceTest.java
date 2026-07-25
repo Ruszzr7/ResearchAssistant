@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -87,6 +88,23 @@ class PaperMemoryModelServiceTest {
         assertThat(generated.profile().researchProblem()).contains("Estimate");
         assertThat(generated.summary().promptTokens()).isEqualTo(500);
         assertThat(generated.summary().completionTokens()).isEqualTo(180);
+        verify(llmService).chatWithUsage(anyString(), anyString(), any());
+    }
+
+    @Test
+    void shouldNotSpendARepairCallOnLengthTruncatedOutput() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any()))
+                .thenReturn(new LlmResponse("{\"synopsis\":\"cut", 700, 1_200, 1_900, "LENGTH"));
+
+        assertThatThrownBy(() -> service.summarize(chunk()))
+                .isInstanceOf(PaperMemoryGenerationException.class)
+                .satisfies(error -> {
+                    PaperMemoryGenerationException generation =
+                            (PaperMemoryGenerationException) error;
+                    assertThat(generation.promptTokens()).isEqualTo(700);
+                    assertThat(generation.completionTokens()).isEqualTo(1_200);
+                    assertThat(generation.finishReason()).isEqualTo("LENGTH");
+                });
         verify(llmService).chatWithUsage(anyString(), anyString(), any());
     }
 

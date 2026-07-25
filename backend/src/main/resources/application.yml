@@ -50,9 +50,10 @@ management:
 # Application
 app:
   paper-memory:
-    # Section-aware chunks are summarized with bounded two-way parallelism.
-    chunk-target-chars: ${PAPER_MEMORY_CHUNK_TARGET_CHARS:6000}
-    chunk-max-chars: ${PAPER_MEMORY_CHUNK_MAX_CHARS:8000}
+    # Normal papers use one whole-paper call; only oversized inputs fall back to a few large chunks.
+    chunk-target-chars: ${PAPER_MEMORY_CHUNK_TARGET_CHARS:24000}
+    chunk-max-chars: ${PAPER_MEMORY_CHUNK_MAX_CHARS:36000}
+    single-pass-max-chars: ${PAPER_MEMORY_SINGLE_PASS_MAX_CHARS:80000}
   rag:
     index-retention: ${RAG_INDEX_RETENTION:7d}
     index-cleanup-cron: ${RAG_INDEX_CLEANUP_CRON:0 45 3 * * *}

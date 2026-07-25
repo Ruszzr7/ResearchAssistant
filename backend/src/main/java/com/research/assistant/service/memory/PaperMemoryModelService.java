@@ -27,11 +27,11 @@ public class PaperMemoryModelService {
     static final String PROFILE_PROMPT_VERSION = "paper-memory-profile-v2";
 
     private static final LlmCallPolicy WHOLE_POLICY = new LlmCallPolicy(
-            "paper-memory-whole", 100_000, 24_000, 1_200, 1, true);
+            "paper-memory-whole", 100_000, 24_000, 1_600, 1, true);
     private static final LlmCallPolicy CHUNK_POLICY = new LlmCallPolicy(
-            "paper-memory-chunk", 48_000, 12_000, 600, 1, true);
+            "paper-memory-chunk", 48_000, 12_000, 900, 1, true);
     private static final LlmCallPolicy PROFILE_POLICY = new LlmCallPolicy(
-            "paper-memory-profile", 36_000, 8_000, 1_000, 1, true);
+            "paper-memory-profile", 36_000, 8_000, 1_600, 1, true);
     private static final LlmCallPolicy REPAIR_POLICY = new LlmCallPolicy(
             "paper-memory-json-repair", 8_000, 2_048, 300, 1, true);
     private static final Set<String> CLAIM_CATEGORIES = Set.of(
@@ -398,6 +398,11 @@ public class PaperMemoryModelService {
             return new Generated<>(
                     parser.apply(primary), promptTokens, completionTokens, primary.getFinishReason());
         } catch (RuntimeException parseFailure) {
+            if ("LENGTH".equalsIgnoreCase(primary.getFinishReason())) {
+                throw new PaperMemoryGenerationException(
+                        "论文理解输出达到预算上限", parseFailure,
+                        promptTokens, completionTokens, primary.getFinishReason());
+            }
             String repairPrompt = """
                     请仅修复下面输出的 JSON 语法和 schema，不得增加新事实，不得扩写。
                     只返回修复后的紧凑 JSON。

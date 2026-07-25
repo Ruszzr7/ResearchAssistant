@@ -64,6 +64,11 @@ public class LLMServiceImpl implements LLMService {
 
     @Override
     public LlmResponse chatWithUsage(String systemPrompt, String userMessage, LlmCallPolicy policy) {
+        if (policy != null && policy.jsonOutput()
+                && streamService.supportsNativeStructuredOutput()) {
+            return invokeNativeStructured(
+                    systemPrompt, userMessage, null, null, policy);
+        }
         return invoke(systemPrompt, UserMessage.from(userMessage), policy, "chat");
     }
 
@@ -80,10 +85,39 @@ public class LLMServiceImpl implements LLMService {
             throw new IllegalArgumentException("image exceeds the multimodal request limit");
         }
         String safeMimeType = mimeType == null || mimeType.isBlank() ? "image/png" : mimeType;
+        if (policy != null && policy.jsonOutput()
+                && streamService.supportsNativeStructuredOutput()) {
+            return invokeNativeStructured(
+                    systemPrompt, userMessage, imageBytes, safeMimeType, policy);
+        }
         UserMessage message = UserMessage.from(
                 TextContent.from(userMessage == null ? "" : userMessage),
                 ImageContent.from(Base64.getEncoder().encodeToString(imageBytes), safeMimeType));
         return invoke(systemPrompt, message, policy, "chat-image");
+    }
+
+    private LlmResponse invokeNativeStructured(String systemPrompt,
+                                               String userMessage,
+                                               byte[] imageBytes,
+                                               String mimeType,
+                                               LlmCallPolicy policy) {
+        long startedAt = metrics.startTimer();
+        String outcome = "success";
+        try {
+            LlmResponse response = streamService.chatStructuredJson(
+                    systemPrompt, userMessage, imageBytes, mimeType, policy);
+            metrics.addTokens("input", response.getPromptTokens() == null
+                    ? 0 : response.getPromptTokens());
+            metrics.addTokens("output", response.getCompletionTokens() == null
+                    ? 0 : response.getCompletionTokens());
+            return response;
+        } catch (RuntimeException exception) {
+            outcome = "failure";
+            throw exception;
+        } finally {
+            metrics.aiFinished(imageBytes == null ? "chat-structured" : "chat-image-structured",
+                    outcome, startedAt);
+        }
     }
 
     private LlmResponse invoke(String systemPrompt,
