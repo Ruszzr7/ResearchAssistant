@@ -47,6 +47,7 @@ public class SelectionAnchorResolver {
             throw new IllegalArgumentException("client text anchor page mismatch");
         }
         String safeText = anchorText == null ? "" : anchorText.strip();
+        boolean exactPdfiumRange = hasExactPdfiumRange(clientTextAnchor, safeText);
         if (preferredKind == SelectionAnchorKind.FORMULA && confirmedFormulaRegions != null) {
             java.util.Optional<SelectionAnchor> confirmed = confirmedFormulaRegions.resolve(
                     artifact, page, boxes);
@@ -73,12 +74,14 @@ public class SelectionAnchorResolver {
                 safeText, blocks.stream().map(DocumentBlock::text).reduce("", (a, b) -> a + " " + b));
         double blockConfidence = blocks.stream().mapToDouble(DocumentBlock::confidence).average().orElse(0);
         double confidence = clamp(0.58 * geometryAgreement + 0.27 * textAgreement + 0.15 * blockConfidence);
+        if (exactPdfiumRange) confidence = Math.max(confidence, 0.86);
         SelectionAnchorKind kind = determineKind(
-                preferredKind, blocks, safeText, geometryAgreement, textAgreement, confidence);
+                preferredKind, blocks, safeText, geometryAgreement, textAgreement, confidence,
+                exactPdfiumRange);
         List<SelectionBlockRange> blockRanges = LayoutTextNormalizer.locate(blocks, safeText);
         SelectionMappingStatus mappingStatus = determineMappingStatus(
-                blocks, safeText, geometryAgreement, textAgreement, blockRanges);
-        SelectionContentType contentType = determineContentType(blocks);
+                blocks, safeText, geometryAgreement, textAgreement, blockRanges, exactPdfiumRange);
+        SelectionContentType contentType = determineContentType(blocks, clientTextAnchor);
         SelectionEvidenceUse evidenceUse = determineEvidenceUse(blocks, mappingStatus, contentType);
 
         return new SelectionAnchor(
@@ -130,7 +133,13 @@ public class SelectionAnchorResolver {
                                               String anchorText,
                                               double geometryAgreement,
                                               double textAgreement,
-                                              double confidence) {
+                                              double confidence,
+                                              boolean exactPdfiumRange) {
+        if (exactPdfiumRange && (preferredKind == null
+                || preferredKind == SelectionAnchorKind.TEXT)) {
+            return blocks.stream().allMatch(block -> block.role() == DocumentBlockRole.FORMULA)
+                    && !blocks.isEmpty() ? SelectionAnchorKind.FORMULA : SelectionAnchorKind.TEXT;
+        }
         if (preferredKind == SelectionAnchorKind.REGION || blocks.isEmpty()) {
             return SelectionAnchorKind.REGION;
         }
@@ -169,14 +178,31 @@ public class SelectionAnchorResolver {
                                                           String anchorText,
                                                           double geometryAgreement,
                                                           double textAgreement,
-                                                          List<SelectionBlockRange> blockRanges) {
+                                                          List<SelectionBlockRange> blockRanges,
+                                                          boolean exactPdfiumRange) {
+        if (exactPdfiumRange) return SelectionMappingStatus.EXACT;
         if (blocks.isEmpty() || geometryAgreement < 0.30) return SelectionMappingStatus.REGION;
         if (!anchorText.isBlank() && !blockRanges.isEmpty()) return SelectionMappingStatus.EXACT;
         if (!anchorText.isBlank() && textAgreement >= 0.55) return SelectionMappingStatus.PARTIAL;
         return geometryAgreement >= 0.55 ? SelectionMappingStatus.PARTIAL : SelectionMappingStatus.REGION;
     }
 
-    private SelectionContentType determineContentType(List<DocumentBlock> blocks) {
+    private SelectionContentType determineContentType(List<DocumentBlock> blocks,
+                                                      ClientTextAnchor clientTextAnchor) {
+        boolean hasClientMath = clientTextAnchor != null
+                && clientTextAnchor.contentSegments().stream()
+                .anyMatch(segment -> segment.type() != ClientContentSegmentType.TEXT);
+        boolean hasClientText = clientTextAnchor != null
+                && clientTextAnchor.contentSegments().stream()
+                .anyMatch(segment -> segment.type() == ClientContentSegmentType.TEXT);
+        if (hasClientMath && (hasClientText || blocks.stream()
+                .anyMatch(block -> block.role() != DocumentBlockRole.FORMULA))) {
+            return SelectionContentType.MATH_RICH_TEXT;
+        }
+        if (hasClientMath && !blocks.isEmpty()
+                && blocks.stream().allMatch(block -> block.role() == DocumentBlockRole.FORMULA)) {
+            return SelectionContentType.FORMULA;
+        }
         if (blocks.isEmpty()) return SelectionContentType.UNKNOWN;
         if (blocks.stream().allMatch(block -> block.role() == DocumentBlockRole.REFERENCE)) {
             return SelectionContentType.REFERENCE;
@@ -192,6 +218,17 @@ public class SelectionAnchorResolver {
             return SelectionContentType.MATH_RICH_TEXT;
         }
         return SelectionContentType.PLAIN_TEXT;
+    }
+
+    private boolean hasExactPdfiumRange(ClientTextAnchor anchor, String anchorText) {
+        return anchor != null
+                && "PDFIUM".equals(anchor.engine())
+                && anchor.charStart() != null
+                && anchor.charEnd() != null
+                && anchor.charEnd() >= anchor.charStart()
+                && !anchor.documentFingerprint().isBlank()
+                && anchorText != null
+                && !anchorText.isBlank();
     }
 
     private SelectionEvidenceUse determineEvidenceUse(List<DocumentBlock> blocks,

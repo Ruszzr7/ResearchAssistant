@@ -1,4 +1,8 @@
 const EPSILON = 1e-6
+const MAX_CONTENT_SEGMENTS = 100
+const MAX_SEGMENT_TEXT = 1200
+const VALID_SEGMENT_TYPES = new Set(['TEXT', 'INLINE_MATH', 'DISPLAY_MATH'])
+const INVALID_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu
 
 function clamp(value) {
   return Math.max(0, Math.min(1, Number(value) || 0))
@@ -74,6 +78,103 @@ export function selectionToAnchorPayload(selection) {
   }
 }
 
+function boundedInteger(value, minimum, maximum, fallback) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.max(minimum, Math.min(maximum, Math.trunc(number)))
+}
+
+function normalizedSegmentRect(rect) {
+  if (!rect) return null
+  const x = clamp(rect.x)
+  const y = clamp(rect.y)
+  const right = clamp(x + Number(rect.width || 0))
+  const bottom = clamp(y + Number(rect.height || 0))
+  return right > x && bottom > y
+    ? { x, y, width: right - x, height: bottom - y }
+    : null
+}
+
+function splitContentSegment(segment) {
+  const text = String(segment.text || '').replace(INVALID_CONTROL, '')
+  if (!text.trim()) return []
+  const span = Math.max(1, segment.charEnd - segment.charStart + 1)
+  const chunks = []
+  for (let offset = 0; offset < text.length; offset += MAX_SEGMENT_TEXT) {
+    const chunk = text.slice(offset, offset + MAX_SEGMENT_TEXT)
+    const startDelta = Math.floor(offset / text.length * span)
+    const endDelta = Math.max(startDelta,
+      Math.ceil((offset + chunk.length) / text.length * span) - 1)
+    chunks.push({
+      ...segment,
+      charStart: segment.charStart + startDelta,
+      charEnd: Math.min(segment.charEnd, segment.charStart + endDelta),
+      text: chunk,
+    })
+  }
+  return chunks
+}
+
+function unionRects(segments) {
+  const rects = segments.map(segment => segment.rect).filter(Boolean)
+  if (!rects.length) return null
+  const x = Math.min(...rects.map(rect => rect.x))
+  const y = Math.min(...rects.map(rect => rect.y))
+  const right = Math.max(...rects.map(rect => rect.x + rect.width))
+  const bottom = Math.max(...rects.map(rect => rect.y + rect.height))
+  return { x, y, width: right - x, height: bottom - y }
+}
+
+function compactContentSegments(segments) {
+  if (segments.length <= MAX_CONTENT_SEGMENTS) return segments
+  return Array.from({ length: MAX_CONTENT_SEGMENTS }, (_, index) => {
+    const start = Math.floor(index * segments.length / MAX_CONTENT_SEGMENTS)
+    const end = Math.floor((index + 1) * segments.length / MAX_CONTENT_SEGMENTS)
+    const bucket = segments.slice(start, Math.max(start + 1, end))
+    const text = bucket.reduce((value, segment, segmentIndex) => {
+      const gap = segmentIndex > 0
+        && segment.charStart > bucket[segmentIndex - 1].charEnd + 1 ? ' ' : ''
+      return value + gap + segment.text
+    }, '')
+    const types = new Set(bucket.map(segment => segment.type))
+    const type = types.has('DISPLAY_MATH')
+      ? 'DISPLAY_MATH'
+      : (types.has('INLINE_MATH') ? 'INLINE_MATH' : 'TEXT')
+    return {
+      type,
+      charStart: bucket[0].charStart,
+      charEnd: bucket[bucket.length - 1].charEnd,
+      text: text.length <= MAX_SEGMENT_TEXT
+        ? text
+        : `${text.slice(0, 599)} ${text.slice(-600)}`,
+      fonts: [...new Set(bucket.flatMap(segment => segment.fonts))].slice(0, 8),
+      rect: unionRects(bucket),
+    }
+  })
+}
+
+/** Keep auxiliary segments within the server contract without changing the authoritative range. */
+export function normalizePdfiumContentSegments(contentSegments, charStart, charEnd) {
+  const normalized = (Array.isArray(contentSegments) ? contentSegments : [])
+    .map(segment => {
+      const start = boundedInteger(segment?.charStart, charStart, charEnd, charStart)
+      const end = boundedInteger(segment?.charEnd, start, charEnd, start)
+      const requestedType = String(segment?.type || 'TEXT').toUpperCase()
+      return {
+        type: VALID_SEGMENT_TYPES.has(requestedType) ? requestedType : 'TEXT',
+        charStart: start,
+        charEnd: end,
+        text: String(segment?.text || ''),
+        fonts: (segment?.fonts || []).map(font => String(font).slice(0, 128))
+          .filter(Boolean).slice(0, 8),
+        rect: normalizedSegmentRect(segment?.rect),
+      }
+    })
+    .flatMap(splitContentSegment)
+    .sort((left, right) => left.charStart - right.charStart || left.charEnd - right.charEnd)
+  return compactContentSegments(normalized)
+}
+
 /** Clone the active engine anchor beside normalized geometry. */
 export function cloneSelectionTextAnchor(textAnchor) {
   if (!textAnchor) return null
@@ -89,14 +190,9 @@ export function cloneSelectionTextAnchor(textAnchor) {
       charStart,
       charEnd,
       ranges: [],
-      contentSegments: (textAnchor.contentSegments || []).slice(0, 100).map(segment => ({
-        type: String(segment.type || 'TEXT'),
-        charStart: Math.max(charStart, Number(segment.charStart) || charStart),
-        charEnd: Math.min(charEnd, Number(segment.charEnd) || charEnd),
-        text: String(segment.text || '').slice(0, 1200),
-        fonts: (segment.fonts || []).slice(0, 8).map(font => String(font).slice(0, 128)),
-        rect: segment.rect ? { ...segment.rect } : null,
-      })).filter(segment => segment.text.trim() && segment.charEnd >= segment.charStart),
+      contentSegments: normalizePdfiumContentSegments(
+        textAnchor.contentSegments, charStart, charEnd,
+      ),
     }
   }
   return {

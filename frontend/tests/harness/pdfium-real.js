@@ -3,7 +3,10 @@ import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { createPdfInteractionEngine } from '/src/services/pdfiumInteractionEngine.js'
 import { segmentPdfSelection } from '/src/utils/pdfContentSegments.js'
 import { normalizePdfSelectionText } from '/src/utils/pdfSelectionText.js'
-import { boundingBoxToViewportQuad } from '/src/utils/pdfSelectionAnchor.js'
+import {
+  boundingBoxToViewportQuad,
+  normalizePdfiumContentSegments,
+} from '/src/utils/pdfSelectionAnchor.js'
 import { createPdfSelectionPreview } from '/src/utils/pdfSelectionPreview.js'
 
 const output = document.querySelector('#result')
@@ -44,6 +47,11 @@ async function run() {
       ? await engine.select(2, Math.max(0, pageThreeMatch.charStart - 25), pageThreeMatch.charEnd + 600)
       : null
     const denseSegments = segmentPdfSelection(denseSelection?.runs, denseSelection?.pageSize)
+    const payloadSegments = normalizePdfiumContentSegments(
+      denseSegments,
+      denseSelection?.charStart || 0,
+      denseSelection?.charEnd || 0,
+    )
     const denseText = normalizePdfSelectionText(denseSelection?.text)
     const densePreview = denseSelection ? await renderSelectionPreview(denseSelection) : null
     if (densePreview?.dataUrl) {
@@ -74,6 +82,12 @@ async function run() {
       pageThreePreviewHeight: densePreview?.height || 0,
       pageThreeDenseMinimumX: Math.min(...(denseSelection?.rects || []).map(rect => rect.x)),
       pageThreeHitDelta: hit ? Math.abs(hit.charIndex - pageThreeMatch.charStart) : null,
+      pageThreePayloadSegmentCount: payloadSegments.length,
+      pageThreePayloadMaxTextLength: Math.max(
+        0, ...payloadSegments.map(segment => segment.text.length),
+      ),
+      pageThreePayloadEndsAtSelection: payloadSegments.at(-1)?.charEnd
+        === denseSelection?.charEnd,
     }
   } finally {
     await engine.close()

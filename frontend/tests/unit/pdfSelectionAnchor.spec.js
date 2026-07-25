@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   boundingBoxToViewportQuad,
+  normalizePdfiumContentSegments,
   selectionQuadsToBoxes,
   selectionToAnchorPayload
 } from '@/utils/pdfSelectionAnchor.js'
@@ -117,6 +118,52 @@ describe('PDF selection anchor geometry', () => {
       charEnd: 5108,
       contentSegments: [{ text: 'E' }],
     })
+  })
+
+  it('splits oversized segment text while preserving the inclusive character range', () => {
+    const text = 'x'.repeat(2401)
+    const segments = normalizePdfiumContentSegments([
+      {
+        type: 'TEXT',
+        charStart: 100,
+        charEnd: 2500,
+        text,
+        rect: { x: 0.1, y: 0.2, width: 0.7, height: 0.1 },
+      },
+    ], 100, 2500)
+
+    expect(segments).toHaveLength(3)
+    expect(segments.every(segment => segment.text.length <= 1200)).toBe(true)
+    expect(segments[0]).toMatchObject({ charStart: 100, charEnd: 1299 })
+    expect(segments[2]).toMatchObject({ charStart: 2500, charEnd: 2500 })
+  })
+
+  it('compacts dense inline-math runs to the API limit without dropping the tail', () => {
+    const source = Array.from({ length: 130 }, (_, index) => ({
+      type: index % 2 ? 'INLINE_MATH' : 'TEXT',
+      charStart: 5000 + index,
+      charEnd: 5000 + index,
+      text: index % 2 ? 'μ' : 'a',
+      fonts: [index % 2 ? 'CMMI10' : 'Times'],
+      rect: { x: 0.55, y: 0.2 + index * 0.0001, width: 0.005, height: 0.01 },
+    }))
+
+    const segments = normalizePdfiumContentSegments(source, 5000, 5129)
+
+    expect(segments).toHaveLength(100)
+    expect(segments[0].charStart).toBe(5000)
+    expect(segments.at(-1).charEnd).toBe(5129)
+    expect(segments.some(segment => segment.type === 'INLINE_MATH')).toBe(true)
+    expect(segments.every(segment => segment.text.length <= 1200)).toBe(true)
+  })
+
+  it('removes invalid controls before request validation', () => {
+    const segments = normalizePdfiumContentSegments([
+      { type: 'INLINE_MATH', charStart: 3, charEnd: 6, text: `x\u0000+y` },
+    ], 3, 6)
+
+    expect(segments).toHaveLength(1)
+    expect(segments[0].text).toBe('x+y')
   })
 
   it('converts a top-left backend bbox into the viewer quad orientation', () => {

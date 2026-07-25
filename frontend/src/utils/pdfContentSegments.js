@@ -31,6 +31,7 @@ function classifyRun(run) {
 
 function canMerge(left, right) {
   if (!left || left.type !== right.type || right.charStart > left.charEnd + 3) return false
+  if (left.text.length + right.text.length > 1200) return false
   if (left.type === 'TEXT') return true
   const verticalGap = Math.abs((left.rect?.y || 0) - (right.rect?.y || 0))
   return verticalGap <= Math.max(left.rect?.height || 0, right.rect?.height || 0) * 0.8

@@ -106,6 +106,36 @@ class SelectionAnchorResolverTest {
     }
 
     @Test
+    void trustsVersionedPdfiumRangeWhenServerTextCannotReconstructDenseMath() {
+        DocumentBlock block = block("math-corrupted", 1, 0, DocumentBlockRole.BODY,
+                new NormalizedBoundingBox(0.52, 0.20, 0.40, 0.18),
+                "where p c belongs to C and the power coefficient is t");
+        PaperLayoutArtifact source = new PaperLayoutArtifact(
+                9L, "d".repeat(64), "parser+semantic", 0.9,
+                Instant.now(), 1, List.of(block));
+        ClientTextAnchor client = new ClientTextAnchor(
+                2, 1, "pdfium-fingerprint", 1, List.of(),
+                "PDFIUM", 840, 910, List.of(
+                new ClientContentSegment(
+                        ClientContentSegmentType.TEXT, 840, 850, "where ",
+                        List.of("Times"), block.bbox()),
+                new ClientContentSegment(
+                        ClientContentSegmentType.INLINE_MATH, 851, 870, "p_c ∈ C^{N_t×1}",
+                        List.of("CMMI10"), block.bbox())));
+
+        SelectionAnchor anchor = resolver.resolve(
+                source, 1, List.of(block.bbox()),
+                "where p_c ∈ C^{N_t×1}, satisfying ||p_c||² = 1",
+                SelectionAnchorKind.TEXT, client);
+
+        assertThat(anchor.kind()).isEqualTo(SelectionAnchorKind.TEXT);
+        assertThat(anchor.mappingStatus()).isEqualTo(SelectionMappingStatus.EXACT);
+        assertThat(anchor.contentType()).isEqualTo(SelectionContentType.MATH_RICH_TEXT);
+        assertThat(anchor.confidence()).isGreaterThanOrEqualTo(0.86);
+        assertThat(anchor.clientTextAnchor()).isEqualTo(client);
+    }
+
+    @Test
     void keepsFormulaKindOnlyWhenAFormulaBlockIsActuallyHit() {
         SelectionAnchor anchor = resolver.resolve(
                 artifact(),
