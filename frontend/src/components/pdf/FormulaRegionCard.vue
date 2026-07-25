@@ -2,7 +2,7 @@
   <section class="formula-region-card" aria-label="当前公式区域">
     <div class="formula-region-card__heading">
       <div>
-        <b>识别公式</b>
+        <b>公式精确识别</b>
         <small>第 {{ region?.page }} 页</small>
       </div>
       <button type="button" aria-label="清除公式区域" @click="$emit('clear')">×</button>
@@ -15,7 +15,7 @@
       alt="从原始 PDF 裁剪的公式区域"
     />
     <div v-else class="formula-region-card__preview-placeholder">
-      {{ loading ? '正在从原始 PDF 裁剪并识别…' : '公式区域预览' }}
+      {{ loading ? '正在从原始 PDF 裁剪并识别…' : '已框选公式；需要可编辑 LaTeX 时再进行识别。' }}
     </div>
 
     <div v-if="recognition" class="formula-region-card__meta">
@@ -45,7 +45,9 @@
     <p v-if="error" class="formula-region-card__error">{{ error }}</p>
 
     <div class="formula-region-card__actions">
-      <el-button size="small" :loading="loading" @click="$emit('retry')">重新识别</el-button>
+      <el-button size="small" :loading="loading" @click="$emit('retry')">
+        {{ recognition ? '重新识别' : '识别为 LaTeX' }}
+      </el-button>
       <el-button
         v-if="recognition"
         type="primary"

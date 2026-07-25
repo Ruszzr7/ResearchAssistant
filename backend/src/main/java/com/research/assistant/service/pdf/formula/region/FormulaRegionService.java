@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.File;
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 
 /** Coordinates deterministic layout reuse, bounded image recognition and user confirmation. */
@@ -29,6 +30,7 @@ public class FormulaRegionService {
 
     private static final Logger log = LoggerFactory.getLogger(FormulaRegionService.class);
     private static final double MIN_MULTIMODAL_CONFIDENCE = 0.55;
+    private static final double CONFIRMED_REGION_REUSE_IOU = 0.82;
 
     private final PaperLayoutArtifactService artifactService;
     private final PaperMapper paperMapper;
@@ -57,21 +59,32 @@ public class FormulaRegionService {
     public FormulaRegionRecognition recognize(Long paperId,
                                               int page,
                                               NormalizedBoundingBox bbox) {
+        return recognize(paperId, page, bbox, false);
+    }
+
+    public FormulaRegionRecognition recognize(Long paperId,
+                                              int page,
+                                              NormalizedBoundingBox bbox,
+                                              boolean refresh) {
         FormulaRegionGeometry.validate(bbox);
         PaperLayoutArtifact artifact = artifactService.ensureArtifact(paperId, false);
         if (page < 1 || page > artifact.pageCount()) {
             throw new IllegalArgumentException("公式页码超出 PDF 范围");
         }
-        Paper paper = requirePaper(paperId);
-        File pdf = fileResolver.resolveRequired(paper.getPdfPath());
-        FormulaRegionImage image = imageService.render(pdf, page, bbox, artifact.documentHash());
         String regionKey = FormulaRegionGeometry.regionKey(page, bbox);
 
         PaperFormulaRegionRecord existing = regionMapper.selectCurrent(
                 paperId, artifact.documentHash(), artifact.parserVersion(), page, regionKey);
         if (existing != null && FormulaRegionStatus.CONFIRMED.name().equals(existing.getStatus())
                 && existing.getLatex() != null && !existing.getLatex().isBlank()) {
-            return result(artifact, existing, image.dataUrl(), "已读取确认过的公式");
+            return result(artifact, existing, "", "已读取确认过的公式，无需再次识别");
+        }
+
+        Optional<PaperFormulaRegionRecord> similarConfirmed =
+                bestConfirmedRegion(artifact, page, bbox);
+        if (similarConfirmed.isPresent()) {
+            return result(artifact, similarConfirmed.get(), "",
+                    "已复用同页确认过的公式，无需再次识别");
         }
 
         Optional<DocumentBlock> structured = bestStructuredFormula(artifact, page, bbox);
@@ -80,9 +93,17 @@ public class FormulaRegionService {
             PaperFormulaRegionRecord record = save(existing, artifact, page, bbox, regionKey,
                     block.latex(), block.confidence(), FormulaRegionSource.LAYOUT,
                     FormulaRegionStatus.CONFIRMED);
-            return result(artifact, record, image.dataUrl(), "已复用论文版面中的结构化公式");
+            return result(artifact, record, "", "已复用论文版面中的结构化公式");
         }
 
+        if (!refresh && existing != null) {
+            return result(artifact, existing, "",
+                    "已读取该区域的识别结果；如需重新调用模型，请点击重新识别");
+        }
+
+        Paper paper = requirePaper(paperId);
+        File pdf = fileResolver.resolveRequired(paper.getPdfPath());
+        FormulaRegionImage image = imageService.render(pdf, page, bbox, artifact.documentHash());
         FormulaVisionRecognizer.FormulaCandidate candidate;
         try {
             candidate = visionRecognizer.recognize(image.png());
@@ -140,6 +161,24 @@ public class FormulaRegionService {
                 .filter(match -> match.overlap() >= 0.40)
                 .max(Comparator.comparingDouble(BlockMatch::overlap))
                 .map(BlockMatch::block);
+    }
+
+    private Optional<PaperFormulaRegionRecord> bestConfirmedRegion(
+            PaperLayoutArtifact artifact,
+            int page,
+            NormalizedBoundingBox bbox) {
+        List<PaperFormulaRegionRecord> confirmed = regionMapper.selectConfirmedOnPage(
+                artifact.paperId(), artifact.documentHash(), artifact.parserVersion(), page);
+        if (confirmed == null || confirmed.isEmpty()) return Optional.empty();
+        return confirmed.stream()
+                .filter(record -> record.getLatex() != null && !record.getLatex().isBlank())
+                .map(record -> new ConfirmedMatch(
+                        record,
+                        FormulaRegionGeometry.intersectionOverUnion(
+                                bbox, confirmedService.box(record))))
+                .filter(match -> match.similarity() >= CONFIRMED_REGION_REUSE_IOU)
+                .max(Comparator.comparingDouble(ConfirmedMatch::similarity))
+                .map(ConfirmedMatch::record);
     }
 
     private PaperFormulaRegionRecord save(PaperFormulaRegionRecord existing,
@@ -206,4 +245,6 @@ public class FormulaRegionService {
     }
 
     private record BlockMatch(DocumentBlock block, double overlap) { }
+
+    private record ConfirmedMatch(PaperFormulaRegionRecord record, double similarity) { }
 }

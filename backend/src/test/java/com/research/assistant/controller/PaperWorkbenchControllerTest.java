@@ -179,7 +179,8 @@ class PaperWorkbenchControllerTest {
                 "\\sum_{k=1}^{K} r_k", 0.88, FormulaRegionSource.MULTIMODAL,
                 FormulaRegionStatus.CANDIDATE, "data:image/png;base64,AA==",
                 "请核对", null, false);
-        when(formulaRegionService.recognize(eq(42L), eq(1), any(NormalizedBoundingBox.class)))
+        when(formulaRegionService.recognize(
+                eq(42L), eq(1), any(NormalizedBoundingBox.class), eq(false)))
                 .thenReturn(recognition);
 
         mvc.perform(post("/api/papers/42/workbench/formula-regions/recognize")

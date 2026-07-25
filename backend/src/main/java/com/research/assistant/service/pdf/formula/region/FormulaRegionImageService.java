@@ -17,16 +17,26 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Renders the authoritative server-side PDF and crops a bounded formula region. */
 @Service
 public class FormulaRegionImageService {
 
-    static final float RENDER_DPI = 200f;
+    static final float RENDER_DPI = 160f;
     static final int MAX_WIDTH = 1800;
     static final int MAX_HEIGHT = 1000;
+    private static final int MAX_CACHED_PAGES = 4;
     private static final int MASK_PADDING_PIXELS = 2;
+    private final Map<PageCacheKey, BufferedImage> pageCache =
+            new LinkedHashMap<>(MAX_CACHED_PAGES, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<PageCacheKey, BufferedImage> eldest) {
+                    return size() > MAX_CACHED_PAGES;
+                }
+            };
 
     public FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box) {
         return render(pdf, pageNumber, box, "");
@@ -58,12 +68,8 @@ public class FormulaRegionImageService {
                 && !expectedDocumentHash.equals(PdfDocumentFingerprint.sha256(pdf))) {
             throw new StaleLayoutArtifactException();
         }
-        try (PDDocument document = Loader.loadPDF(pdf)) {
-            if (pageNumber < 1 || pageNumber > document.getNumberOfPages()) {
-                throw new IllegalArgumentException("公式页码超出 PDF 范围");
-            }
-            BufferedImage page = new PDFRenderer(document)
-                    .renderImageWithDPI(pageNumber - 1, RENDER_DPI, ImageType.RGB);
+        try {
+            BufferedImage page = renderPage(pdf, pageNumber, expectedDocumentHash);
             int x = clamp((int) Math.floor(box.x() * page.getWidth()), 0, page.getWidth() - 1);
             int y = clamp((int) Math.floor(box.y() * page.getHeight()), 0, page.getHeight() - 1);
             int right = clamp((int) Math.ceil(box.right() * page.getWidth()), x + 1, page.getWidth());
@@ -81,6 +87,32 @@ public class FormulaRegionImageService {
         } catch (IOException e) {
             throw new IllegalArgumentException("公式区域渲染失败", e);
         }
+    }
+
+    private BufferedImage renderPage(File pdf,
+                                     int pageNumber,
+                                     String expectedDocumentHash) throws IOException {
+        PageCacheKey key = new PageCacheKey(
+                expectedDocumentHash == null || expectedDocumentHash.isBlank()
+                        ? pdf.getAbsolutePath() + "|" + pdf.length() + "|" + pdf.lastModified()
+                        : expectedDocumentHash,
+                pageNumber);
+        synchronized (pageCache) {
+            BufferedImage cached = pageCache.get(key);
+            if (cached != null) return cached;
+        }
+        BufferedImage rendered;
+        try (PDDocument document = Loader.loadPDF(pdf)) {
+            if (pageNumber < 1 || pageNumber > document.getNumberOfPages()) {
+                throw new IllegalArgumentException("公式页码超出 PDF 范围");
+            }
+            rendered = new PDFRenderer(document)
+                    .renderImageWithDPI(pageNumber - 1, RENDER_DPI, ImageType.RGB);
+        }
+        synchronized (pageCache) {
+            pageCache.put(key, rendered);
+        }
+        return rendered;
     }
 
     private BufferedImage maskUnselected(BufferedImage crop,
@@ -138,4 +170,6 @@ public class FormulaRegionImageService {
     private int clamp(int value, int minimum, int maximum) {
         return Math.max(minimum, Math.min(maximum, value));
     }
+
+    private record PageCacheKey(String documentIdentity, int pageNumber) { }
 }

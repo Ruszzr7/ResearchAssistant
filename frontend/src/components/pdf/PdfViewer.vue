@@ -1675,19 +1675,20 @@ async function finishFormulaRegionSelection(event, cancelled = false) {
   formulaRegion.value = { page: drag.page, bbox }
   currentTool.value = 'select'
   workbenchPanelVisible.value = true
-  await recognizeCurrentFormulaRegion()
   return true
 }
 
 async function recognizeCurrentFormulaRegion() {
   const region = formulaRegion.value
   if (!region?.bbox || formulaRecognitionLoading.value) return
+  const refresh = Boolean(formulaRecognition.value)
   formulaRecognitionLoading.value = true
   formulaRecognitionError.value = ''
   try {
     const result = await recognizeFormulaRegion(props.paper.id, {
       page: region.page,
       bbox: region.bbox,
+      refresh,
     })
     if (formulaRegion.value !== region) return
     formulaRecognition.value = result

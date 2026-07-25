@@ -7,5 +7,6 @@ import jakarta.validation.constraints.NotNull;
 
 public record FormulaRegionRecognizeRequest(
         @Min(1) @Max(100000) int page,
-        @NotNull @Valid SelectionBoxRequest bbox) {
+        @NotNull @Valid SelectionBoxRequest bbox,
+        boolean refresh) {
 }

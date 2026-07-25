@@ -106,8 +106,8 @@ class FormulaRegionImageServiceTest {
         BufferedImage decoded = ImageIO.read(new java.io.ByteArrayInputStream(image.png()));
 
         assertTrue(decoded.getRGB(decoded.getWidth() / 2, decoded.getHeight() / 2) != 0xFFFFFFFF);
-        assertTrue(decoded.getWidth() > 300);
-        assertTrue(decoded.getHeight() > 450);
+        assertTrue(decoded.getWidth() > 240);
+        assertTrue(decoded.getHeight() > 360);
     }
 
     @Test

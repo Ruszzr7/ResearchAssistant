@@ -2,7 +2,10 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 
-const buttonStub = { template: '<button :disabled="$attrs.disabled" @click="$emit(\'click\')"><slot /></button>' }
+const buttonStub = {
+  emits: ['click'],
+  template: '<button :disabled="$attrs.disabled" @click="$emit(\'click\')"><slot /></button>',
+}
 const inputStub = {
   props: ['modelValue'],
   emits: ['update:modelValue'],
@@ -10,6 +13,28 @@ const inputStub = {
 }
 
 describe('FormulaRegionCard', () => {
+  it('does not imply recognition has started before the user requests LaTeX', async () => {
+    const wrapper = mount(FormulaRegionCard, {
+      props: {
+        region: { page: 4, bbox: { x: 0.1, y: 0.2, width: 0.5, height: 0.1 } },
+      },
+      global: {
+        stubs: {
+          'el-button': buttonStub,
+          'el-input': inputStub,
+          'el-tag': { template: '<span><slot /></span>' },
+        },
+      },
+    })
+
+    expect(wrapper.get('.formula-region-card__preview-placeholder').text())
+      .toContain('需要可编辑 LaTeX 时')
+    const action = wrapper.get('.formula-region-card__actions button')
+    expect(action.text()).toContain('识别为 LaTeX')
+    await action.trigger('click')
+    expect(wrapper.emitted('retry')).toHaveLength(1)
+  })
+
   it('renders safe KaTeX and emits the editable source only on confirmation', async () => {
     const wrapper = mount(FormulaRegionCard, {
       props: {

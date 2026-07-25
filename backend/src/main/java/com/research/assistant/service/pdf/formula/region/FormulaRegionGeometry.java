@@ -47,6 +47,17 @@ final class FormulaRegionGeometry {
         return Math.max(0, Math.min(1, intersection / denominator));
     }
 
+    static double intersectionOverUnion(NormalizedBoundingBox first,
+                                        NormalizedBoundingBox second) {
+        double width = Math.max(0, Math.min(first.right(), second.right())
+                - Math.max(first.x(), second.x()));
+        double height = Math.max(0, Math.min(first.bottom(), second.bottom())
+                - Math.max(first.y(), second.y()));
+        double intersection = width * height;
+        double union = area(first) + area(second) - intersection;
+        return union <= 0 ? 0 : Math.max(0, Math.min(1, intersection / union));
+    }
+
     static double area(NormalizedBoundingBox box) {
         return Math.max(0, box.width()) * Math.max(0, box.height());
     }

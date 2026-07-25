@@ -73,6 +73,43 @@ class FormulaRegionServiceTest {
         assertThat(result.source()).isEqualTo(FormulaRegionSource.LAYOUT);
         assertThat(result.anchor()).isNotNull();
         assertThat(result.latex()).isEqualTo("\\sum_{k=1}^{K} r_k");
+        verify(imageService, never()).render(any(), any(Integer.class), any(), any());
+        verify(visionRecognizer, never()).recognize(any());
+    }
+
+    @Test
+    void reusesHighlyOverlappingConfirmedFormulaBeforeRendering() {
+        artifact = artifact(List.of());
+        when(artifactService.ensureArtifact(7L, false)).thenReturn(artifact);
+        PaperFormulaRegionRecord confirmed = record(
+                new NormalizedBoundingBox(0.205, 0.302, 0.398, 0.1),
+                "\\sqrt{x}", FormulaRegionStatus.CONFIRMED, FormulaRegionSource.USER);
+        when(regionMapper.selectConfirmedOnPage(
+                7L, artifact.documentHash(), artifact.parserVersion(), 1))
+                .thenReturn(List.of(confirmed));
+
+        FormulaRegionRecognition result = service.recognize(7L, 1, bbox);
+
+        assertThat(result.confirmed()).isTrue();
+        assertThat(result.latex()).isEqualTo("\\sqrt{x}");
+        assertThat(result.message()).contains("复用");
+        verify(imageService, never()).render(any(), any(Integer.class), any(), any());
+        verify(visionRecognizer, never()).recognize(any());
+    }
+
+    @Test
+    void reusesExactCandidateUnlessRefreshWasRequested() {
+        artifact = artifact(List.of());
+        when(artifactService.ensureArtifact(7L, false)).thenReturn(artifact);
+        PaperFormulaRegionRecord candidate = record(
+                bbox, "x+y", FormulaRegionStatus.CANDIDATE, FormulaRegionSource.MULTIMODAL);
+        when(regionMapper.selectCurrent(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(candidate);
+
+        FormulaRegionRecognition result = service.recognize(7L, 1, bbox, false);
+
+        assertThat(result.status()).isEqualTo(FormulaRegionStatus.CANDIDATE);
+        verify(imageService, never()).render(any(), any(Integer.class), any(), any());
         verify(visionRecognizer, never()).recognize(any());
     }
 
@@ -157,5 +194,27 @@ class FormulaRegionServiceTest {
         return new PaperLayoutArtifact(
                 7L, "a".repeat(64), "parser+semantic", 0.9,
                 Instant.parse("2026-07-17T00:00:00Z"), 2, blocks);
+    }
+
+    private PaperFormulaRegionRecord record(NormalizedBoundingBox box,
+                                            String latex,
+                                            FormulaRegionStatus status,
+                                            FormulaRegionSource source) {
+        PaperFormulaRegionRecord record = new PaperFormulaRegionRecord();
+        record.setId(19L);
+        record.setPaperId(7L);
+        record.setDocumentHash(artifact.documentHash());
+        record.setParserVersion(artifact.parserVersion());
+        record.setPageNumber(1);
+        record.setRegionKey(FormulaRegionGeometry.regionKey(1, box));
+        record.setBoxX(box.x());
+        record.setBoxY(box.y());
+        record.setBoxWidth(box.width());
+        record.setBoxHeight(box.height());
+        record.setLatex(latex);
+        record.setConfidence(1d);
+        record.setStatus(status.name());
+        record.setSource(source.name());
+        return record;
     }
 }
