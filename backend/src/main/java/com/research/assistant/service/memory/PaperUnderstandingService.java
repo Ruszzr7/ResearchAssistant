@@ -23,11 +23,11 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
 import java.util.function.Consumer;
 
-/** Resumable map-reduce understanding: section chunks first, global profile second. */
+/** Adaptive understanding: one bounded whole-paper call when possible, resumable map-reduce otherwise. */
 @Service
 public class PaperUnderstandingService {
 
-    public static final String PIPELINE_VERSION = "paper-understanding-v1";
+    public static final String PIPELINE_VERSION = "paper-understanding-v2";
     public static final String STATUS_UNDERSTANDING = "UNDERSTANDING";
     public static final String STATUS_READY = "READY";
     public static final String STATUS_PARTIAL = "PARTIAL";
@@ -92,6 +92,11 @@ public class PaperUnderstandingService {
         initialize(record, chunks.size(), summaries.values());
         stage(stageUpdater, progressText(summaries.size(), chunks.size()));
 
+        if (chunks.size() == 1 && pending.size() == 1 && summaries.isEmpty()) {
+            return understandWholePaper(
+                    state, record, chunks.get(0), stageUpdater);
+        }
+
         if (!pending.isEmpty()) {
             CompletionService<PaperChunkSummary> completion = new ExecutorCompletionService<>(
                     executor.getThreadPoolExecutor());
@@ -135,6 +140,14 @@ public class PaperUnderstandingService {
                     "ALL_CHUNKS_FAILED", "所有论文分块均理解失败", true);
             return result(record, ordered, null);
         }
+        if (failed > 0) {
+            finish(record, STATUS_PARTIAL, ordered, null,
+                    promptTokens(ordered), completionTokens(ordered),
+                    "CHUNK_SUMMARY_PARTIAL",
+                    "部分章节理解失败，请重试后再开始提问", true);
+            stage(stageUpdater, "部分章节理解失败，请重试后再开始提问");
+            return result(record, ordered, null);
+        }
 
         stage(stageUpdater, "正在汇总论文全局画像…");
         record.setStageText("正在汇总论文全局画像…");
@@ -155,11 +168,47 @@ public class PaperUnderstandingService {
         } catch (RuntimeException exception) {
             log.warn("paper_profile_generation_failed paperId={} memoryId={} errorType={}",
                     paperId, record.getId(), exception.getClass().getSimpleName());
+            int extraPromptTokens = usagePromptTokens(exception);
+            int extraCompletionTokens = usageCompletionTokens(exception);
             finish(record, STATUS_PARTIAL, ordered, null,
-                    promptTokens(ordered), completionTokens(ordered),
+                    promptTokens(ordered) + extraPromptTokens,
+                    completionTokens(ordered) + extraCompletionTokens,
                     "PROFILE_GENERATION_FAILED", "分块摘要已就绪，全局画像生成失败", true);
             stage(stageUpdater, "分块摘要已就绪，全局画像生成失败");
             return result(record, ordered, null);
+        }
+    }
+
+    private PaperUnderstandingResult understandWholePaper(
+            PaperMemoryState state,
+            PaperMemoryRecord record,
+            PaperMemoryChunk chunk,
+            Consumer<String> stageUpdater) {
+        stage(stageUpdater, "正在理解论文全文…");
+        record.setStageText("正在理解论文全文…");
+        memoryMapper.updateById(record);
+        try {
+            PaperMemoryModelService.WholePaperGeneration generated =
+                    modelService.understandWhole(state.structure(), chunk);
+            List<PaperChunkSummary> summaries = List.of(generated.summary());
+            finish(record, STATUS_READY, summaries, generated.profile(),
+                    promptTokens(summaries), completionTokens(summaries),
+                    null, "论文记忆已就绪", true);
+            stage(stageUpdater, "论文记忆已就绪");
+            return result(record, summaries, generated.profile());
+        } catch (RuntimeException exception) {
+            log.warn("paper_whole_understanding_failed paperId={} memoryId={} errorType={}",
+                    state.paperId(), record.getId(), exception.getClass().getSimpleName());
+            PaperChunkSummary failed = PaperChunkSummary.failed(
+                    chunk, "WHOLE_PAPER_GENERATION_FAILED",
+                    usagePromptTokens(exception), usageCompletionTokens(exception),
+                    usageFinishReason(exception));
+            finish(record, STATUS_FAILED, List.of(failed), null,
+                    failed.promptTokens(), failed.completionTokens(),
+                    "WHOLE_PAPER_GENERATION_FAILED",
+                    "论文全文理解失败，请重试后再开始提问", true);
+            stage(stageUpdater, "论文全文理解失败，请重试后再开始提问");
+            return result(record, List.of(failed), null);
         }
     }
 
@@ -169,8 +218,26 @@ public class PaperUnderstandingService {
         } catch (RuntimeException exception) {
             log.warn("paper_chunk_summary_failed chunkId={} errorType={}",
                     chunk.id(), exception.getClass().getSimpleName());
-            return PaperChunkSummary.failed(chunk, "MODEL_SUMMARY_FAILED");
+            return PaperChunkSummary.failed(
+                    chunk, "MODEL_SUMMARY_FAILED",
+                    usagePromptTokens(exception), usageCompletionTokens(exception),
+                    usageFinishReason(exception));
         }
+    }
+
+    private int usagePromptTokens(RuntimeException exception) {
+        return exception instanceof PaperMemoryGenerationException generation
+                ? generation.promptTokens() : 0;
+    }
+
+    private int usageCompletionTokens(RuntimeException exception) {
+        return exception instanceof PaperMemoryGenerationException generation
+                ? generation.completionTokens() : 0;
+    }
+
+    private String usageFinishReason(RuntimeException exception) {
+        return exception instanceof PaperMemoryGenerationException generation
+                ? generation.finishReason() : "";
     }
 
     private List<PaperChunkSummary> compatibleSummaries(PaperMemoryRecord record,

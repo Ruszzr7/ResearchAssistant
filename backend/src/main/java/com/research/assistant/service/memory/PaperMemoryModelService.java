@@ -16,31 +16,41 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 /** Bounded JSON-only model calls for chunk summaries and the global paper profile. */
 @Service
 public class PaperMemoryModelService {
 
-    static final String CHUNK_PROMPT_VERSION = "paper-memory-chunk-v1";
-    static final String PROFILE_PROMPT_VERSION = "paper-memory-profile-v1";
+    static final String WHOLE_PROMPT_VERSION = "paper-memory-whole-v2";
+    static final String CHUNK_PROMPT_VERSION = "paper-memory-chunk-v2";
+    static final String PROFILE_PROMPT_VERSION = "paper-memory-profile-v2";
 
+    private static final LlmCallPolicy WHOLE_POLICY = new LlmCallPolicy(
+            "paper-memory-whole", 100_000, 24_000, 1_200, 1, true);
     private static final LlmCallPolicy CHUNK_POLICY = new LlmCallPolicy(
-            "paper-memory-chunk", 12_000, 4_096, 2_048, 2, true);
+            "paper-memory-chunk", 48_000, 12_000, 600, 1, true);
     private static final LlmCallPolicy PROFILE_POLICY = new LlmCallPolicy(
-            "paper-memory-profile", 60_000, 16_000, 4_096, 2, true);
+            "paper-memory-profile", 36_000, 8_000, 1_000, 1, true);
+    private static final LlmCallPolicy REPAIR_POLICY = new LlmCallPolicy(
+            "paper-memory-json-repair", 8_000, 2_048, 300, 1, true);
     private static final Set<String> CLAIM_CATEGORIES = Set.of(
             "CONTRIBUTION", "METHOD", "FINDING", "LIMITATION", "DEFINITION", "OTHER");
 
     private static final String CHUNK_SYSTEM_PROMPT = """
             你是严谨的论文分块阅读器。只根据给出的一个论文分块生成结构化记忆，不得调用外部知识，
             不得补写原文没有的信息。每条事实性 claim 必须引用一个或多个输入中真实出现的 block ID。
-            不确定的信息留空。只返回一个 JSON 对象，不要 Markdown 或解释。
+            不确定的信息留空。只返回一个紧凑 JSON 对象，不要 Markdown、解释或推理过程。
+            synopsis 不超过 180 个汉字；claims 最多 5 条，每条 statement 不超过 80 个汉字；
+            concepts、datasets、models、metrics 各最多 5 项。
             """;
 
     private static final String PROFILE_SYSTEM_PROMPT = """
-            你是严谨的论文全局理解器。输入只包含已经逐块核验的结构化摘要；请在这些摘要的证据边界内
-            生成论文全局画像。不得引入外部知识，不得把推测写成事实。所有贡献、发现、局限和 benchmark
-            必须引用输入中真实存在的 block ID。不确定的信息留空。只返回一个 JSON 对象。
+            你是严谨的论文全局理解器。只在输入证据边界内生成紧凑论文画像，不得引入外部知识，
+            不得把推测写成事实。事实必须引用输入中真实存在的 block ID。不确定的信息留空。
+            只返回 JSON，不要 Markdown、解释或推理过程。researchProblem 和 methodSummary 各不超过
+            250 个汉字；贡献、发现各最多 5 条，局限最多 3 条；每条不超过 80 个汉字且最多引用 3 个 block ID；
+            datasets、models、metrics、openQuestions 各最多 5 项；sectionDigests 最多 8 项。
             """;
 
     private final LLMService llmService;
@@ -52,20 +62,13 @@ public class PaperMemoryModelService {
     }
 
     public PaperChunkSummary summarize(PaperMemoryChunk chunk) {
-        String request = chunkRequest(chunk);
-        RuntimeException last = null;
-        for (int attempt = 1; attempt <= CHUNK_POLICY.maxAttempts(); attempt++) {
-            try {
-                String userMessage = attempt == 1 ? request
-                        : request + "\n\n上一次输出未通过 JSON 或证据校验。请重新完整输出，尤其不要引用允许列表之外的 block ID。";
-                LlmResponse response = llmService.chatWithUsage(
-                        CHUNK_SYSTEM_PROMPT, CHUNK_POLICY.limitInput(userMessage), CHUNK_POLICY);
-                return parseChunkSummary(chunk, response);
-            } catch (RuntimeException exception) {
-                last = exception;
-            }
-        }
-        throw new IllegalStateException("论文分块摘要生成失败", last);
+        Generated<PaperChunkSummary> generated = generate(
+                CHUNK_SYSTEM_PROMPT,
+                CHUNK_POLICY.limitInput(chunkRequest(chunk)),
+                CHUNK_POLICY,
+                response -> parseChunkSummary(chunk, response),
+                chunkSchema());
+        return withUsage(generated.value(), generated);
     }
 
     public ProfileGeneration profile(PaperStructure structure,
@@ -73,25 +76,30 @@ public class PaperMemoryModelService {
                                      int totalChunks,
                                      int failedChunks) {
         ProfileInput input = profileRequest(structure, summaries);
-        RuntimeException last = null;
-        for (int attempt = 1; attempt <= PROFILE_POLICY.maxAttempts(); attempt++) {
-            try {
-                String userMessage = attempt == 1 ? input.prompt()
-                        : input.prompt() + "\n\n上一次输出未通过 JSON 或证据校验。请按指定 schema 完整重写。";
-                LlmResponse response = llmService.chatWithUsage(
-                        PROFILE_SYSTEM_PROMPT, userMessage, PROFILE_POLICY);
-                PaperGlobalProfile profile = parseProfile(
+        Generated<PaperGlobalProfile> generated = generate(
+                PROFILE_SYSTEM_PROMPT,
+                input.prompt(),
+                PROFILE_POLICY,
+                response -> parseProfile(
                         structure, summaries, totalChunks, failedChunks,
-                        input.truncated(), response);
-                return new ProfileGeneration(
-                        profile,
-                        count(response == null ? null : response.getPromptTokens()),
-                        count(response == null ? null : response.getCompletionTokens()));
-            } catch (RuntimeException exception) {
-                last = exception;
-            }
-        }
-        throw new IllegalStateException("论文全局画像生成失败", last);
+                        input.truncated(), response),
+                profileSchema());
+        return new ProfileGeneration(
+                generated.value(), generated.promptTokens(), generated.completionTokens());
+    }
+
+    public WholePaperGeneration understandWhole(PaperStructure structure,
+                                                PaperMemoryChunk chunk) {
+        PaperChunkSummary source = sourceSummary(chunk);
+        Generated<PaperGlobalProfile> generated = generate(
+                PROFILE_SYSTEM_PROMPT,
+                wholePaperRequest(structure, chunk),
+                WHOLE_POLICY,
+                response -> parseProfile(
+                        structure, List.of(source), 1, 0, false, response),
+                profileSchema());
+        PaperChunkSummary summary = summaryFromProfile(chunk, generated.value(), generated);
+        return new WholePaperGeneration(generated.value(), summary);
     }
 
     private String chunkRequest(PaperMemoryChunk chunk) {
@@ -102,15 +110,8 @@ public class PaperMemoryModelService {
                 pages: %d-%d
                 allowedBlockIds: %s
 
-                请返回以下 camelCase JSON：
-                {
-                  "synopsis": "本块的简洁摘要",
-                  "claims": [
-                    {"category":"CONTRIBUTION|METHOD|FINDING|LIMITATION|DEFINITION|OTHER",
-                     "statement":"可核验陈述", "evidenceBlockIds":["block-id"], "confidence":0.0}
-                  ],
-                  "concepts": [], "datasets": [], "models": [], "metrics": []
-                }
+                请按以下 schema 返回，严格遵守数量和长度限制：
+                %s
 
                 原文块：
                 %s
@@ -120,12 +121,73 @@ public class PaperMemoryModelService {
                 String.join(" > ", chunk.headingPath()),
                 chunk.pageStart(), chunk.pageEnd(),
                 String.join(",", chunk.blockIds()),
+                chunkSchema(),
                 chunk.text());
+    }
+
+    private String wholePaperRequest(PaperStructure structure, PaperMemoryChunk chunk) {
+        String prompt = """
+                promptVersion: %s
+                paperId: %d
+                title: %s
+                allowedBlockIds: %s
+
+                请阅读全文后按以下 schema 生成论文画像。所有章节均已包含，不要逐段复述：
+                %s
+
+                论文原文：
+                %s
+                """.formatted(
+                WHOLE_PROMPT_VERSION,
+                structure.paperId(),
+                limit(structure.metadata().title(), 500),
+                String.join(",", chunk.blockIds()),
+                profileSchema(),
+                chunk.text());
+        if (WHOLE_POLICY.exceedsInputBudget(PROFILE_SYSTEM_PROMPT, prompt)) {
+            throw new IllegalArgumentException("论文正文超过单次理解 Token 预算");
+        }
+        return WHOLE_POLICY.limitInput(prompt);
+    }
+
+    private String chunkSchema() {
+        return """
+                {
+                  "synopsis":"不超过180个汉字",
+                  "claims":[
+                    {"category":"CONTRIBUTION|METHOD|FINDING|LIMITATION|DEFINITION|OTHER",
+                     "statement":"不超过80个汉字","evidenceBlockIds":["最多3个block-id"],"confidence":0.0}
+                  ],
+                  "concepts":[],"datasets":[],"models":[],"metrics":[]
+                }
+                claims 最多5条；其余数组各最多5项。""";
+    }
+
+    private String profileSchema() {
+        return """
+                {
+                  "domain":"",
+                  "researchProblem":"不超过250个汉字",
+                  "coreContributions":[
+                    {"category":"CONTRIBUTION","statement":"不超过80个汉字",
+                     "evidenceBlockIds":["最多3个block-id"],"confidence":0.0}
+                  ],
+                  "methodType":"THEORETICAL|EXPERIMENTAL|SYSTEM|SURVEY|OTHER",
+                  "methodSummary":"不超过250个汉字",
+                  "datasets":[],"models":[],"metrics":[],
+                  "keyFindings":[],
+                  "limitations":[],
+                  "experimentSetup":{"taskDefinition":"","baselines":""},
+                  "benchmarkResults":[],
+                  "sectionDigests":[],
+                  "openQuestions":[]
+                }
+                贡献和发现各最多5条，局限最多3条；其余数组各最多5项，sectionDigests最多8项。""";
     }
 
     private PaperChunkSummary parseChunkSummary(PaperMemoryChunk chunk, LlmResponse response) {
         JsonNode root = parseObject(response == null ? "" : response.getContent());
-        String synopsis = text(root, "synopsis", 2_400);
+        String synopsis = text(root, "synopsis", 600);
         if (synopsis.isBlank()) throw new IllegalArgumentException("分块摘要 synopsis 为空");
 
         LinkedHashSet<String> issues = new LinkedHashSet<>();
@@ -138,10 +200,10 @@ public class PaperMemoryModelService {
                 chunk.id(), chunk.sourceFingerprint(), chunk.ordinal(), chunk.sectionId(),
                 chunk.headingPath(), chunk.pageStart(), chunk.pageEnd(), chunk.blockIds(),
                 synopsis, claims,
-                strings(root.path("concepts"), 24, 160),
-                strings(root.path("datasets"), 24, 160),
-                strings(root.path("models"), 24, 160),
-                strings(root.path("metrics"), 24, 160),
+                strings(root.path("concepts"), 5, 160),
+                strings(root.path("datasets"), 5, 160),
+                strings(root.path("models"), 5, 160),
+                strings(root.path("metrics"), 5, 160),
                 PaperChunkSummary.READY, List.copyOf(issues),
                 count(response == null ? null : response.getPromptTokens()),
                 count(response == null ? null : response.getCompletionTokens()),
@@ -162,16 +224,16 @@ public class PaperMemoryModelService {
             item.put("sectionId", summary.sectionId());
             item.put("headingPath", summary.headingPath());
             item.put("pages", summary.pageStart() + "-" + summary.pageEnd());
-            item.put("synopsis", limit(summary.synopsis(), 900));
-            item.put("claims", summary.claims().stream().limit(6).map(claim -> Map.of(
+            item.put("synopsis", limit(summary.synopsis(), 500));
+            item.put("claims", summary.claims().stream().limit(5).map(claim -> Map.of(
                     "category", claim.category(),
-                    "statement", limit(claim.statement(), 320),
-                    "evidenceBlockIds", claim.evidenceBlockIds())).toList());
-            item.put("datasets", summary.datasets());
-            item.put("models", summary.models());
-            item.put("metrics", summary.metrics());
+                    "statement", limit(claim.statement(), 160),
+                    "evidenceBlockIds", claim.evidenceBlockIds().stream().limit(3).toList())).toList());
+            item.put("datasets", summary.datasets().stream().limit(5).toList());
+            item.put("models", summary.models().stream().limit(5).toList());
+            item.put("metrics", summary.metrics().stream().limit(5).toList());
             String encoded = write(item);
-            if (approximateCharacters + encoded.length() > 48_000) {
+            if (approximateCharacters + encoded.length() > 28_000) {
                 truncated = true;
                 continue;
             }
@@ -192,28 +254,17 @@ public class PaperMemoryModelService {
         source.put("chunkSummaries", compact);
 
         String promptTemplate = """
-                请基于下面的分块摘要生成 camelCase JSON：
-                {
-                  "domain":"", "researchProblem":"",
-                  "coreContributions":[{"category":"CONTRIBUTION","statement":"","evidenceBlockIds":[],"confidence":0.0}],
-                  "methodType":"THEORETICAL|EXPERIMENTAL|SYSTEM|SURVEY|OTHER",
-                  "methodSummary":"", "datasets":[], "models":[], "metrics":[],
-                  "keyFindings":[{"category":"FINDING","statement":"","evidenceBlockIds":[],"confidence":0.0}],
-                  "limitations":[{"category":"LIMITATION","statement":"","evidenceBlockIds":[],"confidence":0.0}],
-                  "experimentSetup":{"taskDefinition":"","dataSplit":"","baselines":"","implementation":""},
-                  "benchmarkResults":[{"metric":"","value":"","baseline":"","dataset":"","evidenceBlockIds":[]}],
-                  "sectionDigests":[{"sectionId":"","headingPath":[],"summary":"","sourceChunkIds":[]}],
-                  "openQuestions":[]
-                }
+                请基于下面的分块摘要生成论文画像，严格遵守数量和长度限制：
+                %s
 
                 输入：
                 %s
                 """;
-        String prompt = promptTemplate.formatted(write(source));
+        String prompt = promptTemplate.formatted(profileSchema(), write(source));
         while (prompt.length() > PROFILE_POLICY.maxInputChars() && !compact.isEmpty()) {
             compact.remove(compact.size() - 1);
             truncated = true;
-            prompt = promptTemplate.formatted(write(source));
+            prompt = promptTemplate.formatted(profileSchema(), write(source));
         }
         if (prompt.length() > PROFILE_POLICY.maxInputChars()) {
             throw new IllegalStateException("论文元数据超过全局画像输入上限");
@@ -244,8 +295,8 @@ public class PaperMemoryModelService {
                 root.path("coreContributions"), allowedBlocks, issues);
         List<PaperMemoryClaim> findings = claims(root.path("keyFindings"), allowedBlocks, issues);
         List<PaperMemoryClaim> limitations = claims(root.path("limitations"), allowedBlocks, issues);
-        String researchProblem = text(root, "researchProblem", 2_400);
-        String methodSummary = text(root, "methodSummary", 4_000);
+        String researchProblem = text(root, "researchProblem", 800);
+        String methodSummary = text(root, "methodSummary", 800);
         if (researchProblem.isBlank() && contributions.isEmpty() && methodSummary.isBlank()) {
             throw new IllegalArgumentException("全局画像缺少可用的核心内容");
         }
@@ -257,14 +308,14 @@ public class PaperMemoryModelService {
                 text(root, "domain", 160), researchProblem,
                 contributions,
                 methodType(text(root, "methodType", 48)), methodSummary,
-                strings(root.path("datasets"), 64, 200),
-                strings(root.path("models"), 64, 200),
-                strings(root.path("metrics"), 64, 200),
+                strings(root.path("datasets"), 5, 200),
+                strings(root.path("models"), 5, 200),
+                strings(root.path("metrics"), 5, 200),
                 findings, limitations,
-                stringMap(root.path("experimentSetup"), 16, 1_000),
+                stringMap(root.path("experimentSetup"), 4, 500),
                 benchmarks(root.path("benchmarkResults"), allowedBlocks, issues),
                 sectionDigests(root.path("sectionDigests"), allowedChunks, issues),
-                strings(root.path("openQuestions"), 32, 600),
+                strings(root.path("openQuestions"), 5, 300),
                 new PaperGlobalProfile.Coverage(totalChunks, readyCount, failedChunks, complete),
                 List.copyOf(issues), Instant.now());
     }
@@ -275,10 +326,10 @@ public class PaperMemoryModelService {
         if (!node.isArray()) return List.of();
         List<PaperMemoryClaim> result = new ArrayList<>();
         for (JsonNode item : node) {
-            if (!item.isObject() || result.size() >= 80) break;
-            String statement = text(item, "statement", 1_200);
+            if (!item.isObject() || result.size() >= 5) break;
+            String statement = text(item, "statement", 320);
             if (statement.isBlank()) continue;
-            List<String> evidence = allowedStrings(item.path("evidenceBlockIds"), allowedBlocks, 16);
+            List<String> evidence = allowedStrings(item.path("evidenceBlockIds"), allowedBlocks, 3);
             if (evidence.isEmpty()) {
                 issues.add("UNGROUNDED_CLAIM_DROPPED");
                 continue;
@@ -296,8 +347,8 @@ public class PaperMemoryModelService {
         if (!node.isArray()) return List.of();
         List<PaperGlobalProfile.BenchmarkResult> result = new ArrayList<>();
         for (JsonNode item : node) {
-            if (!item.isObject() || result.size() >= 64) break;
-            List<String> evidence = allowedStrings(item.path("evidenceBlockIds"), allowedBlocks, 16);
+            if (!item.isObject() || result.size() >= 5) break;
+            List<String> evidence = allowedStrings(item.path("evidenceBlockIds"), allowedBlocks, 3);
             if (evidence.isEmpty()) {
                 issues.add("UNGROUNDED_BENCHMARK_DROPPED");
                 continue;
@@ -314,7 +365,7 @@ public class PaperMemoryModelService {
         if (!node.isArray()) return List.of();
         List<PaperGlobalProfile.SectionDigest> result = new ArrayList<>();
         for (JsonNode item : node) {
-            if (!item.isObject() || result.size() >= 128) break;
+            if (!item.isObject() || result.size() >= 8) break;
             List<String> sourceChunks = allowedStrings(
                     item.path("sourceChunkIds"), allowedChunks, 32);
             if (sourceChunks.isEmpty()) {
@@ -327,6 +378,110 @@ public class PaperMemoryModelService {
                     text(item, "summary", 1_500), sourceChunks));
         }
         return List.copyOf(result);
+    }
+
+    private <T> Generated<T> generate(String systemPrompt,
+                                      String userMessage,
+                                      LlmCallPolicy policy,
+                                      Function<LlmResponse, T> parser,
+                                      String schema) {
+        LlmResponse primary;
+        try {
+            primary = llmService.chatWithUsage(systemPrompt, userMessage, policy);
+        } catch (RuntimeException exception) {
+            throw new PaperMemoryGenerationException(
+                    "论文理解模型调用失败", exception, 0, 0, "");
+        }
+        int promptTokens = count(primary.getPromptTokens());
+        int completionTokens = count(primary.getCompletionTokens());
+        try {
+            return new Generated<>(
+                    parser.apply(primary), promptTokens, completionTokens, primary.getFinishReason());
+        } catch (RuntimeException parseFailure) {
+            String repairPrompt = """
+                    请仅修复下面输出的 JSON 语法和 schema，不得增加新事实，不得扩写。
+                    只返回修复后的紧凑 JSON。
+
+                    schema:
+                    %s
+
+                    原输出:
+                    %s
+                    """.formatted(schema, limit(primary.getContent(), 6_000));
+            LlmResponse repaired;
+            try {
+                repaired = llmService.chatWithUsage(
+                        "你是 JSON 修复器。不要解释，不要推理，不得添加输入中不存在的信息。",
+                        REPAIR_POLICY.limitInput(repairPrompt),
+                        REPAIR_POLICY);
+            } catch (RuntimeException repairFailure) {
+                throw new PaperMemoryGenerationException(
+                        "论文理解 JSON 修复调用失败", repairFailure,
+                        promptTokens, completionTokens, primary.getFinishReason());
+            }
+            promptTokens += count(repaired.getPromptTokens());
+            completionTokens += count(repaired.getCompletionTokens());
+            try {
+                return new Generated<>(
+                        parser.apply(repaired), promptTokens, completionTokens,
+                        repaired.getFinishReason());
+            } catch (RuntimeException repairParseFailure) {
+                throw new PaperMemoryGenerationException(
+                        "论文理解输出无法修复", repairParseFailure,
+                        promptTokens, completionTokens, repaired.getFinishReason());
+            }
+        }
+    }
+
+    private PaperChunkSummary withUsage(PaperChunkSummary summary,
+                                        Generated<?> generated) {
+        return new PaperChunkSummary(
+                summary.chunkId(), summary.sourceFingerprint(), summary.ordinal(),
+                summary.sectionId(), summary.headingPath(), summary.pageStart(), summary.pageEnd(),
+                summary.blockIds(), summary.synopsis(), summary.claims(), summary.concepts(),
+                summary.datasets(), summary.models(), summary.metrics(), summary.status(),
+                summary.qualityIssues(), generated.promptTokens(), generated.completionTokens(),
+                generated.finishReason(), summary.generatedAt());
+    }
+
+    private PaperChunkSummary sourceSummary(PaperMemoryChunk chunk) {
+        return new PaperChunkSummary(
+                chunk.id(), chunk.sourceFingerprint(), chunk.ordinal(), chunk.sectionId(),
+                chunk.headingPath(), chunk.pageStart(), chunk.pageEnd(), chunk.blockIds(),
+                "whole paper source", List.of(), List.of(), List.of(), List.of(), List.of(),
+                PaperChunkSummary.READY, List.of(), 0, 0, "", Instant.now());
+    }
+
+    private PaperChunkSummary summaryFromProfile(PaperMemoryChunk chunk,
+                                                 PaperGlobalProfile profile,
+                                                 Generated<?> generated) {
+        List<PaperMemoryClaim> claims = new ArrayList<>();
+        claims.addAll(profile.coreContributions());
+        claims.addAll(profile.keyFindings());
+        claims.addAll(profile.limitations());
+        String synopsis = firstNonBlank(
+                profile.researchProblem(),
+                profile.methodSummary(),
+                structureSynopsis(profile));
+        return new PaperChunkSummary(
+                chunk.id(), chunk.sourceFingerprint(), chunk.ordinal(), chunk.sectionId(),
+                chunk.headingPath(), chunk.pageStart(), chunk.pageEnd(), chunk.blockIds(),
+                limit(synopsis, 600), claims.stream().limit(13).toList(),
+                List.of(), profile.datasets(), profile.models(), profile.metrics(),
+                PaperChunkSummary.READY, profile.qualityIssues(),
+                generated.promptTokens(), generated.completionTokens(),
+                generated.finishReason(), Instant.now());
+    }
+
+    private String structureSynopsis(PaperGlobalProfile profile) {
+        return profile.title() + " — " + profile.domain();
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value.strip();
+        }
+        return "";
     }
 
     private JsonNode parseObject(String output) {
@@ -397,7 +552,21 @@ public class PaperMemoryModelService {
 
     private record ProfileInput(String prompt, boolean truncated) { }
 
+    private record Generated<T>(T value,
+                                int promptTokens,
+                                int completionTokens,
+                                String finishReason) {
+        private Generated {
+            promptTokens = Math.max(0, promptTokens);
+            completionTokens = Math.max(0, completionTokens);
+            finishReason = finishReason == null ? "" : finishReason;
+        }
+    }
+
     public record ProfileGeneration(PaperGlobalProfile profile,
                                     int promptTokens,
                                     int completionTokens) { }
+
+    public record WholePaperGeneration(PaperGlobalProfile profile,
+                                       PaperChunkSummary summary) { }
 }

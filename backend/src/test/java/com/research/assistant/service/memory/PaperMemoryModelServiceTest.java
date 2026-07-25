@@ -57,8 +57,37 @@ class PaperMemoryModelServiceTest {
             assertThat(claim.evidenceBlockIds()).containsExactly("b-1");
         });
         assertThat(summary.qualityIssues()).contains("UNGROUNDED_CLAIM_DROPPED");
-        assertThat(summary.promptTokens()).isEqualTo(20);
+        assertThat(summary.promptTokens()).isEqualTo(22);
+        assertThat(summary.completionTokens()).isEqualTo(11);
         verify(llmService, times(2)).chatWithUsage(anyString(), anyString(), any());
+    }
+
+    @Test
+    void shouldUnderstandWholePaperWithOneMainCall() {
+        String profileJson = """
+                {
+                  "domain":"AI", "researchProblem":"Estimate the target robustly.",
+                  "coreContributions":[
+                    {"category":"CONTRIBUTION","statement":"Introduces estimator E.",
+                     "evidenceBlockIds":["b-1"],"confidence":0.88}
+                  ],
+                  "methodType":"EXPERIMENTAL", "methodSummary":"Estimator E is evaluated.",
+                  "datasets":[],"models":["E"],"metrics":[],
+                  "keyFindings":[],"limitations":[],
+                  "experimentSetup":{},"benchmarkResults":[],
+                  "sectionDigests":[],"openQuestions":[]
+                }
+                """;
+        when(llmService.chatWithUsage(anyString(), anyString(), any()))
+                .thenReturn(new LlmResponse(profileJson, 500, 180, 680, "STOP"));
+
+        PaperMemoryModelService.WholePaperGeneration generated =
+                service.understandWhole(structure(), chunk());
+
+        assertThat(generated.profile().researchProblem()).contains("Estimate");
+        assertThat(generated.summary().promptTokens()).isEqualTo(500);
+        assertThat(generated.summary().completionTokens()).isEqualTo(180);
+        verify(llmService).chatWithUsage(anyString(), anyString(), any());
     }
 
     @Test

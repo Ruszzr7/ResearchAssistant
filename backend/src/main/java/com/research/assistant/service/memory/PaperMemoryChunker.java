@@ -3,6 +3,7 @@ package com.research.assistant.service.memory;
 import com.research.assistant.service.pdf.layout.DocumentBlock;
 import com.research.assistant.service.pdf.layout.DocumentBlockRole;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -16,20 +17,28 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
-/** Splits layout facts at section and semantic block boundaries before model calls. */
+/** Builds one bounded whole-paper input when possible, otherwise a few large resumable chunks. */
 @Component
 public class PaperMemoryChunker {
 
-    public static final String VERSION = "section-chunker-v1";
+    public static final String VERSION = "adaptive-chunker-v2";
 
     private final int targetCharacters;
     private final int maxCharacters;
+    private final int singlePassCharacters;
 
+    @Autowired
     public PaperMemoryChunker(
-            @Value("${app.paper-memory.chunk-target-chars:6000}") int targetCharacters,
-            @Value("${app.paper-memory.chunk-max-chars:8000}") int maxCharacters) {
+            @Value("${app.paper-memory.chunk-target-chars:24000}") int targetCharacters,
+            @Value("${app.paper-memory.chunk-max-chars:36000}") int maxCharacters,
+            @Value("${app.paper-memory.single-pass-max-chars:80000}") int singlePassCharacters) {
         this.targetCharacters = Math.max(1_000, targetCharacters);
         this.maxCharacters = Math.max(this.targetCharacters, maxCharacters);
+        this.singlePassCharacters = Math.max(this.maxCharacters, singlePassCharacters);
+    }
+
+    PaperMemoryChunker(int targetCharacters, int maxCharacters) {
+        this(targetCharacters, maxCharacters, maxCharacters);
     }
 
     public List<PaperMemoryChunk> chunk(PaperStructure structure, PaperLayoutArtifact artifact) {
@@ -57,12 +66,19 @@ public class PaperMemoryChunker {
                 boolean wouldOverflow = current != null
                         && current.characterCount() + segment.length() + 1 > maxCharacters;
                 boolean targetReached = current != null && current.characterCount() >= targetCharacters;
-                if (current == null || sectionChanged || wouldOverflow || targetReached) {
+                boolean shouldSplitAtSection = sectionChanged && targetReached;
+                if (current == null || wouldOverflow || shouldSplitAtSection) {
                     current = new ChunkDraft(sectionId, headingPath);
                     drafts.add(current);
                 }
                 current.add(block, segment);
             }
+        }
+
+        if (totalCharacters(drafts) <= singlePassCharacters && drafts.size() > 1) {
+            ChunkDraft combined = new ChunkDraft("whole-paper", List.of());
+            drafts.forEach(combined::add);
+            drafts = new ArrayList<>(List.of(combined));
         }
 
         List<PaperMemoryChunk> result = new ArrayList<>();
@@ -98,7 +114,14 @@ public class PaperMemoryChunker {
                 || block.role() == DocumentBlockRole.HEADER
                 || block.role() == DocumentBlockRole.FOOTER
                 || block.role() == DocumentBlockRole.MARGIN_METADATA
-                || block.role() == DocumentBlockRole.AUTHOR;
+                || block.role() == DocumentBlockRole.AUTHOR
+                || isReferenceHeading(block);
+    }
+
+    private boolean isReferenceHeading(DocumentBlock block) {
+        if (block.role() != DocumentBlockRole.HEADING || block.text() == null) return false;
+        String normalized = block.text().strip().toLowerCase(java.util.Locale.ROOT);
+        return normalized.matches("(?:\\d+(?:\\.\\d+)*\\s+)?(?:references|bibliography)");
     }
 
     private List<String> renderSegments(DocumentBlock block) {
@@ -128,6 +151,11 @@ public class PaperMemoryChunker {
             if (value != null && !value.isBlank()) return value.strip();
         }
         return "";
+    }
+
+    private int totalCharacters(List<ChunkDraft> drafts) {
+        return drafts.stream().mapToInt(ChunkDraft::characterCount).sum()
+                + Math.max(0, drafts.size() - 1);
     }
 
     private String fingerprint(PaperStructure structure, ChunkDraft draft, String text) {
@@ -164,6 +192,15 @@ public class PaperMemoryChunker {
             blockIds.add(block.id());
             pageStart = Math.min(pageStart, block.page());
             pageEnd = Math.max(pageEnd, block.page());
+        }
+
+        private void add(ChunkDraft draft) {
+            if (draft == null || draft.text.isEmpty()) return;
+            if (text.length() > 0) text.append('\n');
+            text.append(draft.text);
+            blockIds.addAll(draft.blockIds);
+            pageStart = Math.min(pageStart, draft.pageStart);
+            pageEnd = Math.max(pageEnd, draft.pageEnd);
         }
 
         private int characterCount() {

@@ -123,6 +123,43 @@ class PaperUnderstandingServiceTest {
         verify(modelService).summarize(chunkTwo);
     }
 
+    @Test
+    void shouldUseWholePaperGenerationAndOpenQuestionsOnlyAfterReady() {
+        PaperChunkSummary summary = summary(chunkOne, 500, 180);
+        PaperGlobalProfile profile = profile(1, 1, 0, true);
+        when(chunker.chunk(any(), any())).thenReturn(List.of(chunkOne));
+        when(modelService.understandWhole(any(), any()))
+                .thenReturn(new PaperMemoryModelService.WholePaperGeneration(profile, summary));
+
+        PaperUnderstandingResult result = service.understand(7L, false, ignored -> { });
+
+        assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_READY);
+        assertThat(result.promptTokens()).isEqualTo(500);
+        assertThat(result.completionTokens()).isEqualTo(180);
+        verify(modelService).understandWhole(any(), any());
+        verify(modelService, never()).summarize(any());
+        verify(modelService, never()).profile(any(), any(), any(Integer.class), any(Integer.class));
+    }
+
+    @Test
+    void shouldPersistFailedWholePaperUsage() {
+        when(chunker.chunk(any(), any())).thenReturn(List.of(chunkOne));
+        when(modelService.understandWhole(any(), any()))
+                .thenThrow(new PaperMemoryGenerationException(
+                        "invalid", new IllegalArgumentException("bad json"),
+                        700, 300, "LENGTH"));
+
+        PaperUnderstandingResult result = service.understand(7L, false, ignored -> { });
+
+        assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_FAILED);
+        assertThat(result.promptTokens()).isEqualTo(700);
+        assertThat(result.completionTokens()).isEqualTo(300);
+        assertThat(result.summaries()).singleElement().satisfies(summary -> {
+            assertThat(summary.ready()).isFalse();
+            assertThat(summary.finishReason()).isEqualTo("LENGTH");
+        });
+    }
+
     private PaperMemoryRecord record() {
         PaperMemoryRecord value = new PaperMemoryRecord();
         value.setId(71L);

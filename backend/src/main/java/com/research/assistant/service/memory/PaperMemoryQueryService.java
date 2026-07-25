@@ -11,7 +11,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 
-/** Read-only paper-memory status used by the non-blocking reading UI. */
+/** Read-only paper-memory readiness and progress used to gate paper-grounded questions. */
 @Service
 public class PaperMemoryQueryService {
 

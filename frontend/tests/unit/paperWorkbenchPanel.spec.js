@@ -111,7 +111,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(wrapper.get('.capture-hint').text()).toContain('可编辑 LaTeX')
   })
 
-  it('shows non-blocking whole-paper understanding progress and retries partial memory', async () => {
+  it('shows blocking whole-paper understanding progress and retries partial memory', async () => {
     mocks.getPaperMemoryStatus.mockResolvedValue({
       paperId: 1, status: 'PARTIAL', stageText: '论文记忆部分就绪，可重试失败分块',
       progress: 100, totalChunks: 5, completedChunks: 4, failedChunks: 1,
@@ -128,6 +128,27 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
 
     expect(mocks.startPaperUnderstanding).toHaveBeenCalledWith(1, 'paper-memory-ui:1:3')
     expect(wrapper.get('.memory-status').text()).toContain('任务已提交')
+    wrapper.unmount()
+  })
+
+  it('keeps paper questions disabled until the global profile is ready', async () => {
+    mocks.getPaperMemoryStatus.mockResolvedValue({
+      paperId: 1, status: 'UNDERSTANDING', stageText: '正在理解论文全文…',
+      progress: 0, totalChunks: 1, completedChunks: 0, failedChunks: 0,
+      promptTokens: 420, completionTokens: 80,
+      profileReady: false, canStart: false, canRetry: false, revision: 3,
+    })
+    const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
+    await flushPromises()
+
+    await confirmButton(wrapper).trigger('click')
+    await wrapper.get('.assistant-composer textarea').setValue('现在可以提问吗？')
+
+    expect(wrapper.get('.memory-status').text()).toContain('全文理解')
+    expect(wrapper.get('.memory-status').text()).toContain('500 Token')
+    expect(sendButton(wrapper).attributes()).toHaveProperty('disabled')
+    expect(wrapper.get('.assistant-composer textarea').attributes('placeholder'))
+      .toBe('论文理解完成后即可提问')
     wrapper.unmount()
   })
 

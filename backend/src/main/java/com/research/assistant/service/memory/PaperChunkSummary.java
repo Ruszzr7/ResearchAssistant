@@ -53,12 +53,20 @@ public record PaperChunkSummary(String chunkId,
     }
 
     public static PaperChunkSummary failed(PaperMemoryChunk chunk, String issue) {
+        return failed(chunk, issue, 0, 0, "");
+    }
+
+    public static PaperChunkSummary failed(PaperMemoryChunk chunk,
+                                           String issue,
+                                           int promptTokens,
+                                           int completionTokens,
+                                           String finishReason) {
         return new PaperChunkSummary(
                 chunk.id(), chunk.sourceFingerprint(), chunk.ordinal(), chunk.sectionId(),
                 chunk.headingPath(), chunk.pageStart(), chunk.pageEnd(), chunk.blockIds(),
                 "", List.of(), List.of(), List.of(), List.of(), List.of(), FAILED,
                 List.of(issue == null || issue.isBlank() ? "CHUNK_SUMMARY_FAILED" : issue),
-                0, 0, "", Instant.now());
+                promptTokens, completionTokens, finishReason, Instant.now());
     }
 
     private static String safe(String value) {

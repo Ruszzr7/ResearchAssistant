@@ -182,3 +182,4 @@
 - 默认拓扑为 MySQL + Spring Boot + Nginx/Vue，Qdrant 通过 Compose profile 可选启用；Docker 启动前注入 `.env` 并通过 healthcheck 验证。
 - 验证顺序：后端 `mvnw.cmd test`，前端 `npm.cmd run test:unit`、`npm.cmd run build`，部署环境再执行 Compose、备份恢复和健康检查。
 - Windows 本地启动不能仅依据 PID 或端口占用判断成功：数据库以 3306 监听、后端以 `/actuator/health`、前端以固定 `127.0.0.1:5173` 的 HTTP 响应为就绪标准；一键脚本应按数据库 → 后端 → 前端顺序调用各独立入口，并在未知进程占端口时拒绝自动结束进程。
+- 普通论文的语义记忆不应固定执行细粒度 map-reduce。事实层完成后，先根据清理后正文的实际输入预算选择单次全文画像；只有超过安全上下文才合并成少量大块。输出 schema 必须同时限制字段数、单项长度和 `maxOutputTokens`。模型已经返回但 JSON 校验失败时，修复调用只能携带原输出与 schema，不能重新发送论文；Token 应在解析前累计，确保 `LENGTH`、坏 JSON 和修复失败也进入任务总账。论文问答的产品门槛是全局画像 `READY`，不能把部分分块完成或画像缺失显示成可提问状态。

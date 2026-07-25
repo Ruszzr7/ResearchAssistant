@@ -25,10 +25,12 @@
         <div class="memory-status__body">
           <b>{{ memoryStatus?.stageText || '正在准备论文记忆…' }}</b>
           <small v-if="memoryStatus?.totalChunks">
-            已处理 {{ memoryProcessedChunks }}/{{ memoryStatus.totalChunks }} 个分块
+            <template v-if="memoryStatus.totalChunks === 1">全文理解</template>
+            <template v-else>已处理 {{ memoryProcessedChunks }}/{{ memoryStatus.totalChunks }} 个分块</template>
             <template v-if="memoryStatus.failedChunks"> · {{ memoryStatus.failedChunks }} 个待重试</template>
           </small>
-          <small v-else>全文理解在后台运行，不影响先选取内容提问。</small>
+          <small v-else>理解完成后即可开始提问。</small>
+          <small v-if="memoryTotalTokens">已消耗 {{ memoryTotalTokens.toLocaleString() }} Token</small>
           <div v-if="memoryActive && memoryStatus?.totalChunks" class="memory-progress" aria-hidden="true">
             <span :style="{ width: `${memoryStatus.progress || 0}%` }" />
           </div>
@@ -190,7 +192,7 @@
           </div>
         </div>
 
-        <div class="assistant-composer" :class="{ disabled: !activeSelectionAnchor }">
+        <div class="assistant-composer" :class="{ disabled: !activeSelectionAnchor || !memoryReady }">
           <el-input
             v-model="question"
             class="assistant-composer__input"
@@ -198,7 +200,10 @@
             :rows="3"
             maxlength="4000"
             resize="none"
-            :placeholder="activeSelectionAnchor ? '向论文助手提问…' : '确认上方内容后即可提问'"
+            :disabled="!memoryReady"
+            :placeholder="!memoryReady
+              ? '论文理解完成后即可提问'
+              : (activeSelectionAnchor ? '向论文助手提问…' : '确认上方内容后即可提问')"
             @keydown.ctrl.enter.prevent="sendSelectionMessage"
           />
           <div class="assistant-composer__footer">
@@ -297,6 +302,12 @@ let memoryPollTimer = null
 const memoryStatus = ref(null)
 const memoryStarting = ref(false)
 const memoryActive = computed(() => memoryStatus.value?.status === 'UNDERSTANDING')
+const memoryReady = computed(() => (
+  memoryStatus.value?.status === 'READY' && Boolean(memoryStatus.value?.profileReady ?? true)
+))
+const memoryTotalTokens = computed(() => (
+  Number(memoryStatus.value?.promptTokens || 0) + Number(memoryStatus.value?.completionTokens || 0)
+))
 const memoryProcessedChunks = computed(() => (
   Number(memoryStatus.value?.completedChunks || 0) + Number(memoryStatus.value?.failedChunks || 0)
 ))
@@ -345,7 +356,7 @@ const formulaDraftIdentity = computed(() => {
   return `formula:${props.formulaRegion.page}:${box.x}:${box.y}:${box.width}:${box.height}:${props.formulaRecognition?.id || ''}:${Boolean(props.formulaRecognition?.confirmed)}`
 })
 const selectionChatDisabled = computed(() => (
-  running.value || !activeSelectionAnchor.value || !question.value.trim()
+  running.value || !memoryReady.value || !activeSelectionAnchor.value || !question.value.trim()
 ))
 const tracePhases = computed(() => compactTracePhases(trace.value))
 
