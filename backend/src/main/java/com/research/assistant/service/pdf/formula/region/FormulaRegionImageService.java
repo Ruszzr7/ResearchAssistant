@@ -30,6 +30,7 @@ public class FormulaRegionImageService {
     static final int MAX_HEIGHT = 1000;
     private static final int MAX_CACHED_PAGES = 4;
     private static final int MASK_PADDING_PIXELS = 2;
+    private final FormulaRecognitionTelemetry telemetry;
     private final Map<PageCacheKey, BufferedImage> pageCache =
             new LinkedHashMap<>(MAX_CACHED_PAGES, 0.75f, true) {
                 @Override
@@ -37,6 +38,10 @@ public class FormulaRegionImageService {
                     return size() > MAX_CACHED_PAGES;
                 }
             };
+
+    public FormulaRegionImageService(FormulaRecognitionTelemetry telemetry) {
+        this.telemetry = telemetry;
+    }
 
     public FormulaRegionImage render(File pdf, int pageNumber, NormalizedBoundingBox box) {
         return render(pdf, pageNumber, box, "");
@@ -69,7 +74,10 @@ public class FormulaRegionImageService {
             throw new StaleLayoutArtifactException();
         }
         try {
+            long renderStarted = telemetry.start();
             BufferedImage page = renderPage(pdf, pageNumber, expectedDocumentHash);
+            telemetry.stage("page_render", "success", renderStarted);
+            long cropStarted = telemetry.start();
             int x = clamp((int) Math.floor(box.x() * page.getWidth()), 0, page.getWidth() - 1);
             int y = clamp((int) Math.floor(box.y() * page.getHeight()), 0, page.getHeight() - 1);
             int right = clamp((int) Math.ceil(box.right() * page.getWidth()), x + 1, page.getWidth());
@@ -83,7 +91,10 @@ public class FormulaRegionImageService {
             if (!ImageIO.write(bounded, "png", output)) {
                 throw new IllegalStateException("公式区域无法编码为 PNG");
             }
-            return new FormulaRegionImage(output.toByteArray(), bounded.getWidth(), bounded.getHeight());
+            byte[] png = output.toByteArray();
+            telemetry.stage("crop_encode", "success", cropStarted);
+            telemetry.image(bounded.getWidth(), bounded.getHeight(), png.length);
+            return new FormulaRegionImage(png, bounded.getWidth(), bounded.getHeight());
         } catch (IOException e) {
             throw new IllegalArgumentException("公式区域渲染失败", e);
         }
@@ -99,8 +110,12 @@ public class FormulaRegionImageService {
                 pageNumber);
         synchronized (pageCache) {
             BufferedImage cached = pageCache.get(key);
-            if (cached != null) return cached;
+            if (cached != null) {
+                telemetry.stage("page_cache", "hit", telemetry.start());
+                return cached;
+            }
         }
+        telemetry.stage("page_cache", "miss", telemetry.start());
         BufferedImage rendered;
         try (PDDocument document = Loader.loadPDF(pdf)) {
             if (pageNumber < 1 || pageNumber > document.getNumberOfPages()) {

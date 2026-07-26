@@ -37,6 +37,7 @@ class FormulaRegionServiceTest {
     private final FormulaRegionImageService imageService = mock(FormulaRegionImageService.class);
     private final FormulaVisionRecognizer visionRecognizer = mock(FormulaVisionRecognizer.class);
     private final ConfirmedFormulaRegionService confirmedService = new ConfirmedFormulaRegionService(regionMapper);
+    private final FormulaRecognitionTelemetry telemetry = mock(FormulaRecognitionTelemetry.class);
     private final NormalizedBoundingBox bbox = new NormalizedBoundingBox(0.2, 0.3, 0.4, 0.1);
     private PaperLayoutArtifact artifact;
     private FormulaRegionService service;
@@ -57,7 +58,7 @@ class FormulaRegionServiceTest {
         }).when(regionMapper).insert(any(PaperFormulaRegionRecord.class));
         service = new FormulaRegionService(
                 artifactService, paperMapper, regionMapper, fileResolver, imageService,
-                visionRecognizer, confirmedService);
+                visionRecognizer, confirmedService, telemetry);
     }
 
     @Test

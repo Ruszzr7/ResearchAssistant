@@ -39,6 +39,7 @@ public class FormulaRegionService {
     private final FormulaRegionImageService imageService;
     private final FormulaVisionRecognizer visionRecognizer;
     private final ConfirmedFormulaRegionService confirmedService;
+    private final FormulaRecognitionTelemetry telemetry;
 
     public FormulaRegionService(PaperLayoutArtifactService artifactService,
                                 PaperMapper paperMapper,
@@ -46,7 +47,8 @@ public class FormulaRegionService {
                                 PaperPdfFileResolver fileResolver,
                                 FormulaRegionImageService imageService,
                                 FormulaVisionRecognizer visionRecognizer,
-                                ConfirmedFormulaRegionService confirmedService) {
+                                ConfirmedFormulaRegionService confirmedService,
+                                FormulaRecognitionTelemetry telemetry) {
         this.artifactService = artifactService;
         this.paperMapper = paperMapper;
         this.regionMapper = regionMapper;
@@ -54,6 +56,7 @@ public class FormulaRegionService {
         this.imageService = imageService;
         this.visionRecognizer = visionRecognizer;
         this.confirmedService = confirmedService;
+        this.telemetry = telemetry;
     }
 
     public FormulaRegionRecognition recognize(Long paperId,
@@ -64,10 +67,13 @@ public class FormulaRegionService {
 
     public FormulaRegionRecognition recognize(Long paperId,
                                               int page,
-                                              NormalizedBoundingBox bbox,
-                                              boolean refresh) {
+                                               NormalizedBoundingBox bbox,
+                                               boolean refresh) {
+        long totalStarted = telemetry.start();
         FormulaRegionGeometry.validate(bbox);
+        long artifactStarted = telemetry.start();
         PaperLayoutArtifact artifact = artifactService.ensureArtifact(paperId, false);
+        telemetry.stage("layout_artifact", "success", artifactStarted);
         if (page < 1 || page > artifact.pageCount()) {
             throw new IllegalArgumentException("公式页码超出 PDF 范围");
         }
@@ -77,14 +83,15 @@ public class FormulaRegionService {
                 paperId, artifact.documentHash(), artifact.parserVersion(), page, regionKey);
         if (existing != null && FormulaRegionStatus.CONFIRMED.name().equals(existing.getStatus())
                 && existing.getLatex() != null && !existing.getLatex().isBlank()) {
-            return result(artifact, existing, "", "已读取确认过的公式，无需再次识别");
+            return completed(result(artifact, existing, "", "已读取确认过的公式，无需再次识别"),
+                    "exact_confirmed_cache", totalStarted);
         }
 
         Optional<PaperFormulaRegionRecord> similarConfirmed =
                 bestConfirmedRegion(artifact, page, bbox);
         if (similarConfirmed.isPresent()) {
-            return result(artifact, similarConfirmed.get(), "",
-                    "已复用同页确认过的公式，无需再次识别");
+            return completed(result(artifact, similarConfirmed.get(), "",
+                    "已复用同页确认过的公式，无需再次识别"), "similar_confirmed_cache", totalStarted);
         }
 
         Optional<DocumentBlock> structured = bestStructuredFormula(artifact, page, bbox);
@@ -93,21 +100,29 @@ public class FormulaRegionService {
             PaperFormulaRegionRecord record = save(existing, artifact, page, bbox, regionKey,
                     block.latex(), block.confidence(), FormulaRegionSource.LAYOUT,
                     FormulaRegionStatus.CONFIRMED);
-            return result(artifact, record, "", "已复用论文版面中的结构化公式");
+            return completed(result(artifact, record, "", "已复用论文版面中的结构化公式"),
+                    "structured_layout", totalStarted);
         }
 
         if (!refresh && existing != null) {
-            return result(artifact, existing, "",
-                    "已读取该区域的识别结果；如需重新调用模型，请点击重新识别");
+            return completed(result(artifact, existing, "",
+                    "已读取该区域的识别结果；如需重新调用模型，请点击重新识别"),
+                    "exact_candidate_cache", totalStarted);
         }
 
         Paper paper = requirePaper(paperId);
         File pdf = fileResolver.resolveRequired(paper.getPdfPath());
+        long imageStarted = telemetry.start();
         FormulaRegionImage image = imageService.render(pdf, page, bbox, artifact.documentHash());
+        telemetry.stage("image_prepare", "success", imageStarted);
         FormulaVisionRecognizer.FormulaCandidate candidate;
+        long modelStarted = telemetry.start();
         try {
             candidate = visionRecognizer.recognize(image.png());
+            telemetry.stage("vision_model", "success", modelStarted);
         } catch (RuntimeException e) {
+            telemetry.stage("vision_model", "failure", modelStarted);
+            telemetry.completed("vision_model", "fallback", totalStarted);
             log.info("event=formula_region_recognition_unavailable paperId={} page={} errorType={}",
                     paperId, page, e.getClass().getSimpleName());
             PaperFormulaRegionRecord record = save(existing, artifact, page, bbox, regionKey,
@@ -124,7 +139,15 @@ public class FormulaRegionService {
         String message = status == FormulaRegionStatus.CANDIDATE
                 ? "请核对 LaTeX，确认后才会用于论文问答"
                 : "识别置信度不足，请校正或手动填写 LaTeX 后确认";
-        return result(artifact, record, image.dataUrl(), message);
+        return completed(result(artifact, record, image.dataUrl(), message),
+                "vision_model", totalStarted);
+    }
+
+    private FormulaRegionRecognition completed(FormulaRegionRecognition recognition,
+                                               String path,
+                                               long startedAtNanos) {
+        telemetry.completed(path, "success", startedAtNanos);
+        return recognition;
     }
 
     @Transactional

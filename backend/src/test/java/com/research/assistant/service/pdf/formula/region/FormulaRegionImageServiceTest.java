@@ -19,11 +19,16 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class FormulaRegionImageServiceTest {
 
     @TempDir
     Path tempDir;
+
+    private FormulaRegionImageService service() {
+        return new FormulaRegionImageService(mock(FormulaRecognitionTelemetry.class));
+    }
 
     @Test
     void rendersOnlyTheRequestedTopLeftNormalizedRegion() throws Exception {
@@ -39,7 +44,7 @@ class FormulaRegionImageServiceTest {
             document.save(pdf);
         }
 
-        FormulaRegionImage image = new FormulaRegionImageService().render(
+        FormulaRegionImage image = service().render(
                 pdf, 1, new NormalizedBoundingBox(0.10, 0.20, 0.30, 0.15));
         BufferedImage decoded = ImageIO.read(new java.io.ByteArrayInputStream(image.png()));
 
@@ -67,7 +72,7 @@ class FormulaRegionImageServiceTest {
 
         NormalizedBoundingBox crop = new NormalizedBoundingBox(0.10, 0.20, 0.45, 0.15);
         NormalizedBoundingBox selected = new NormalizedBoundingBox(0.15, 0.25, 0.10, 0.05);
-        FormulaRegionImage image = new FormulaRegionImageService().renderMasked(
+        FormulaRegionImage image = service().renderMasked(
                 pdf, 1, crop, List.of(selected), "");
         BufferedImage decoded = ImageIO.read(new java.io.ByteArrayInputStream(image.png()));
 
@@ -79,7 +84,7 @@ class FormulaRegionImageServiceTest {
 
     @Test
     void rejectsOversizedRegionsBeforeRendering() {
-        assertThrows(IllegalArgumentException.class, () -> new FormulaRegionImageService().render(
+        assertThrows(IllegalArgumentException.class, () -> service().render(
                 tempDir.resolve("missing.pdf").toFile(), 1,
                 new NormalizedBoundingBox(0, 0, 1, 1)));
     }
@@ -101,7 +106,7 @@ class FormulaRegionImageServiceTest {
 
         // A 90-degree PDF viewport maps (x, y) to (y, x), so the visible
         // top-left normalized box is x=.65, y=.10, w=.15, h=.30.
-        FormulaRegionImage image = new FormulaRegionImageService().render(
+        FormulaRegionImage image = service().render(
                 pdf, 1, new NormalizedBoundingBox(0.65, 0.10, 0.15, 0.30));
         BufferedImage decoded = ImageIO.read(new java.io.ByteArrayInputStream(image.png()));
 
@@ -118,7 +123,7 @@ class FormulaRegionImageServiceTest {
             document.save(pdf);
         }
         String currentHash = PdfDocumentFingerprint.sha256(pdf);
-        FormulaRegionImageService service = new FormulaRegionImageService();
+        FormulaRegionImageService service = service();
 
         FormulaRegionImage image = service.render(pdf, 1,
                 new NormalizedBoundingBox(0.1, 0.1, 0.2, 0.1), currentHash);
