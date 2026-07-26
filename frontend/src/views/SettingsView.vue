@@ -3,19 +3,30 @@
     <div class="settings-card">
       <h2>API 设置</h2>
       <p class="settings-desc">
-        配置大语言模型 API。支持任意兼容 OpenAI 接口的服务（DeepSeek、OpenAI、Ollama、vLLM 等）。
-        请自行前往对应平台注册获取 API Key。
+        选择供应商后，系统会应用对应的端点、参数、推理内容和流式响应规则。
       </p>
 
-      <el-form label-width="100px" label-position="left" class="settings-form">
+      <el-form label-width="120px" label-position="left" class="settings-form">
+        <el-form-item label="供应商">
+          <el-select v-model="aiProvider" style="width:100%" @change="onProviderChange">
+            <el-option v-for="item in AI_PROVIDERS" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="接入通道">
+          <el-select v-model="aiChannel" style="width:100%" @change="onChannelChange">
+            <el-option v-for="item in channelOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="apiKey" type="password" show-password placeholder="例如 sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" size="large" />
         </el-form-item>
         <el-form-item label="模型">
-          <el-input v-model="model" placeholder="例如 deepseek-chat / kimi-k2.6 / gpt-4o…" size="large" />
+          <el-select v-model="model" filterable allow-create default-first-option style="width:100%" size="large">
+            <el-option v-for="item in modelOptions" :key="item" :label="item" :value="item" />
+          </el-select>
         </el-form-item>
         <el-form-item label="Base URL">
-          <el-input v-model="baseUrl" placeholder="例如 https://api.moonshot.ai/v1" size="large" />
+          <el-input v-model="baseUrl" placeholder="供应商默认地址" size="large" />
         </el-form-item>
         <el-form-item label="研究主题">
           <el-input v-model="researchTopic" type="textarea" :rows="2" placeholder="例如：多模态大模型在医疗影像中的应用" size="large" />
@@ -34,8 +45,32 @@
         </el-button>
       </div>
 
-      <div v-if="testResult !== null" class="test-result" :class="{ success: testResult, fail: !testResult }">
-        {{ testResult ? '✅ 连接成功' : '❌ 连接失败 — 请检查 API Key、模型名和 Base URL' }}
+      <div v-if="testResult !== null" class="test-result" :class="{ success: testResult.success, fail: !testResult.success }">
+        <div>{{ testResult.success ? '✅ ' : '❌ ' }}{{ testResult.message }}</div>
+        <div v-if="testResult.capabilities" class="capability-list">
+          <span v-for="(value, key) in testResult.capabilities" :key="key">{{ capabilityLabel(key) }}：{{ value }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <h2>Embedding 设置</h2>
+      <p class="settings-desc">
+        Embedding 与聊天模型独立配置。留空时 RAG 自动降级为关键词检索，不再错误调用聊天供应商的 Embedding 接口。
+      </p>
+      <el-form label-width="120px" label-position="left" class="settings-form">
+        <el-form-item label="API Key">
+          <el-input v-model="embeddingApiKey" type="password" show-password placeholder="Embedding 服务 API Key" size="large" />
+        </el-form-item>
+        <el-form-item label="模型">
+          <el-input v-model="embeddingModel" placeholder="例如 text-embedding-3-small" size="large" />
+        </el-form-item>
+        <el-form-item label="Base URL">
+          <el-input v-model="embeddingBaseUrl" placeholder="例如 https://api.openai.com/v1" size="large" />
+        </el-form-item>
+      </el-form>
+      <div class="settings-actions">
+        <el-button type="primary" @click="saveSettings" :loading="saving" size="large">保存设置</el-button>
       </div>
     </div>
 
@@ -211,18 +246,35 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
+import {
+  AI_PROVIDERS,
+  channelDefinition,
+  inferChannel,
+  inferProvider,
+  providerChannels,
+  providerModels,
+  shouldReplaceBaseUrl,
+} from '@/config/aiProviders'
 
 const apiKey = ref('')
 const savedApiKey = ref('')
+const aiProvider = ref('kimi')
+const aiChannel = ref('coding')
 const model = ref('')
 const baseUrl = ref('')
+const embeddingApiKey = ref('')
+const savedEmbeddingApiKey = ref('')
+const embeddingModel = ref('')
+const embeddingBaseUrl = ref('')
 const researchTopic = ref('')
 const testing = ref(false)
 const saving = ref(false)
 const testResult = ref(null)
+const channelOptions = computed(() => providerChannels(aiProvider.value))
+const modelOptions = computed(() => providerModels(aiProvider.value, aiChannel.value))
 
 const openalexEnabled = ref(false)
 const ieeeXploreEnabled = ref(false)
@@ -263,6 +315,14 @@ async function loadSettings() {
       }
       if (item.keyName === 'model') model.value = item.value || ''
       if (item.keyName === 'base_url') baseUrl.value = item.value || ''
+      if (item.keyName === 'ai_provider') aiProvider.value = item.value || ''
+      if (item.keyName === 'ai_channel') aiChannel.value = item.value || ''
+      if (item.keyName === 'embedding_api_key') {
+        embeddingApiKey.value = item.value || ''
+        savedEmbeddingApiKey.value = item.value || ''
+      }
+      if (item.keyName === 'embedding_model') embeddingModel.value = item.value || ''
+      if (item.keyName === 'embedding_base_url') embeddingBaseUrl.value = item.value || ''
       if (item.keyName === 'research_topic') researchTopic.value = item.value || ''
       if (item.keyName === 'openalex_enabled') openalexEnabled.value = item.value === 'true'
       if (item.keyName === 'ieee_xplore_enabled') ieeeXploreEnabled.value = item.value === 'true'
@@ -294,6 +354,12 @@ async function loadSettings() {
       }
       if (item.keyName === 'zotero_collection_key') zoteroCollectionKey.value = item.value || ''
     }
+    if (!aiProvider.value) aiProvider.value = inferProvider(baseUrl.value, model.value)
+    if (!aiChannel.value) aiChannel.value = inferChannel(aiProvider.value, baseUrl.value)
+    if (!baseUrl.value) {
+      baseUrl.value = channelDefinition(aiProvider.value, aiChannel.value).baseUrl
+    }
+    if (!model.value) model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
   } catch (e) { /* 首次使用 */ }
 }
 
@@ -303,9 +369,12 @@ async function testConnection() {
   try {
     await doSave()
     const res = await api.post('/settings/test')
-    testResult.value = res.data.success
+    testResult.value = res.data
   } catch (e) {
-    testResult.value = false
+    testResult.value = {
+      success: false,
+      message: e.response?.data?.message || '连接测试失败',
+    }
   } finally {
     testing.value = false
   }
@@ -328,7 +397,9 @@ async function saveSettings() {
 async function doSave() {
   const payload = []
   const keyValue = apiKey.value.trim()
+  const embeddingKeyValue = embeddingApiKey.value.trim()
   const changedApiKey = Boolean(keyValue && keyValue !== savedApiKey.value)
+  const changedEmbeddingKey = embeddingKeyValue !== savedEmbeddingApiKey.value
   const changedIeeeKey = Boolean(ieeeXploreApiKey.value.trim() && ieeeXploreApiKey.value !== savedIeeeXploreApiKey.value)
   const changedAcmKey = Boolean(acmDlApiKey.value.trim() && acmDlApiKey.value !== savedAcmDlApiKey.value)
   const changedZoteroKey = Boolean(zoteroApiKey.value.trim() && zoteroApiKey.value !== savedZoteroApiKey.value)
@@ -336,9 +407,16 @@ async function doSave() {
   if (changedApiKey) {
     payload.push({ keyName: 'api_key', value: keyValue })
   }
+  payload.push({ keyName: 'ai_provider', value: aiProvider.value })
+  payload.push({ keyName: 'ai_channel', value: aiChannel.value })
   payload.push({ keyName: 'model', value: model.value })
   payload.push({ keyName: 'base_url', value: baseUrl.value })
   payload.push({ keyName: 'research_topic', value: researchTopic.value })
+  if (changedEmbeddingKey) {
+    payload.push({ keyName: 'embedding_api_key', value: embeddingKeyValue })
+  }
+  payload.push({ keyName: 'embedding_model', value: embeddingModel.value.trim() })
+  payload.push({ keyName: 'embedding_base_url', value: embeddingBaseUrl.value.trim() })
   payload.push({ keyName: 'openalex_enabled', value: String(openalexEnabled.value) })
   payload.push({ keyName: 'ieee_xplore_enabled', value: String(ieeeXploreEnabled.value) })
   if (changedIeeeKey) {
@@ -384,10 +462,38 @@ async function doSave() {
   if (payload.length) {
     await api.put('/settings', payload)
     if (changedApiKey) savedApiKey.value = keyValue
+    if (changedEmbeddingKey) savedEmbeddingApiKey.value = embeddingKeyValue
     if (changedIeeeKey) savedIeeeXploreApiKey.value = ieeeXploreApiKey.value.trim()
     if (changedAcmKey) savedAcmDlApiKey.value = acmDlApiKey.value.trim()
     if (changedZoteroKey) savedZoteroApiKey.value = zoteroApiKey.value.trim()
   }
+}
+
+function onProviderChange() {
+  const channel = providerChannels(aiProvider.value)[0]
+  const replaceUrl = shouldReplaceBaseUrl(baseUrl.value)
+  aiChannel.value = channel.value
+  if (replaceUrl) baseUrl.value = channel.baseUrl
+  model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
+  testResult.value = null
+}
+
+function onChannelChange() {
+  if (shouldReplaceBaseUrl(baseUrl.value)) {
+    baseUrl.value = channelDefinition(aiProvider.value, aiChannel.value).baseUrl
+  }
+  model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
+  testResult.value = null
+}
+
+function capabilityLabel(key) {
+  return {
+    chat: '文本对话',
+    stream: '流式输出',
+    structured: '结构化输出',
+    vision: '图片输入',
+    embedding: 'Embedding',
+  }[key] || key
 }
 
 onMounted(() => {
@@ -426,6 +532,13 @@ onMounted(() => {
 .test-result { padding: 10px 16px; border-radius: 6px; font-size: 14px; }
 .test-result.success { background: #f0f9eb; color: #67c23a; }
 .test-result.fail { background: #fef0f0; color: #f56c6c; }
+.capability-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+}
 html.dark .test-result.success { background: #1e3924; color: #85ce61; }
 html.dark .test-result.fail { background: #3b1e1e; color: #f89898; }
 </style>

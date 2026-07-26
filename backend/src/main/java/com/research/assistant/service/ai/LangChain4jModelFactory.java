@@ -2,6 +2,9 @@ package com.research.assistant.service.ai;
 
 import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.SettingsChangedEvent;
+import com.research.assistant.service.ai.provider.AiProviderProfile;
+import com.research.assistant.service.ai.provider.AiProviderRegistry;
+import com.research.assistant.service.ai.provider.TokenLimitParameter;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
@@ -53,15 +56,14 @@ public class LangChain4jModelFactory {
             if (settings.signature().equals(cachedChatSignature) && cachedChatModel != null) {
                 return cachedChatModel;
             }
-            cachedChatModel = OpenAiChatModel.builder()
+            var builder = OpenAiChatModel.builder()
                     .baseUrl(settings.baseUrl())
                     .apiKey(settings.apiKey())
                     .modelName(settings.model())
-                    .temperature(settings.temperature())
-                    .maxTokens(4096)
                     .timeout(Duration.ofSeconds(60))
-                    .maxRetries(1)
-                    .build();
+                    .maxRetries(1);
+            applyChatPolicy(builder, settings.profile());
+            cachedChatModel = builder.build();
             cachedChatSignature = settings.signature();
             return cachedChatModel;
         }
@@ -81,14 +83,13 @@ public class LangChain4jModelFactory {
             if (settings.signature().equals(cachedStreamingSignature) && cachedStreamingModel != null) {
                 return cachedStreamingModel;
             }
-            cachedStreamingModel = OpenAiStreamingChatModel.builder()
+            var builder = OpenAiStreamingChatModel.builder()
                     .baseUrl(settings.baseUrl())
                     .apiKey(settings.apiKey())
                     .modelName(settings.model())
-                    .temperature(settings.temperature())
-                    .maxTokens(4096)
-                    .timeout(Duration.ofSeconds(180))
-                    .build();
+                    .timeout(Duration.ofSeconds(180));
+            applyStreamingPolicy(builder, settings.profile());
+            cachedStreamingModel = builder.build();
             cachedStreamingSignature = settings.signature();
             return cachedStreamingModel;
         }
@@ -97,8 +98,8 @@ public class LangChain4jModelFactory {
     /**
      * 创建 Embedding 模型，用于 RAG 向量检索。
      * <p>
-     * 优先读取 settings 中的 `embedding_base_url` / `embedding_model` / `embedding_api_key`；
-     * 任一缺失时回退到主 LLM 配置。
+     * 只读取独立的 `embedding_base_url` / `embedding_model` / `embedding_api_key`；
+     * 任一缺失时由上层降级到关键词检索，避免把聊天模型误当作 Embedding 模型。
      */
     public EmbeddingModel createEmbeddingModel() {
         EmbeddingSettings settings = resolveEmbeddingSettings();
@@ -136,27 +137,53 @@ public class LangChain4jModelFactory {
     private ChatSettings resolveChatSettings() {
         String apiKey = requireSetting("api_key", "API Key");
         String model = requireSetting("model", "模型");
-        String baseUrl = LLMConfigUtil.normalizeBaseUrl(requireSetting("base_url", "Base URL")) + "/v1";
-        return new ChatSettings(baseUrl, apiKey, model, LLMConfigUtil.resolveTemperature(model));
+        AiProviderProfile profile = currentProfile(model);
+        return new ChatSettings(profile.baseUrl(), apiKey, model, profile);
     }
 
     private EmbeddingSettings resolveEmbeddingSettings() {
         String baseUrl = LLMConfigUtil.normalizeBaseUrl(settingsService.getValue("embedding_base_url"));
-        if (baseUrl.isBlank()) {
-            baseUrl = LLMConfigUtil.normalizeBaseUrl(settingsService.getValue("base_url"));
-        }
         String model = settingsService.getValue("embedding_model");
-        if (model == null || model.isBlank()) {
-            model = settingsService.getValue("model");
-        }
         String apiKey = settingsService.getValue("embedding_api_key");
-        if (apiKey == null || apiKey.isBlank()) {
-            apiKey = settingsService.getValue("api_key");
-        }
         if (baseUrl.isBlank() || model == null || model.isBlank() || apiKey == null || apiKey.isBlank()) {
-            throw new RuntimeException("Embedding 配置不完整，请在设置页面填写 embedding/base_url、model、api_key");
+            throw new RuntimeException("Embedding 未独立配置，RAG 将降级为关键词检索");
         }
-        return new EmbeddingSettings(baseUrl + "/v1", apiKey, model);
+        return new EmbeddingSettings(baseUrl, apiKey, model);
+    }
+
+    public AiProviderProfile currentProfile() {
+        return currentProfile(requireSetting("model", "模型"));
+    }
+
+    private AiProviderProfile currentProfile(String model) {
+        return AiProviderRegistry.resolve(
+                settingsService.getValue("ai_provider"),
+                settingsService.getValue("ai_channel"),
+                settingsService.getValue("base_url"),
+                model);
+    }
+
+    private void applyChatPolicy(OpenAiChatModel.OpenAiChatModelBuilder builder,
+                                 AiProviderProfile profile) {
+        if (profile.temperature() != null) builder.temperature(profile.temperature());
+        if (profile.tokenLimitParameter() == TokenLimitParameter.MAX_COMPLETION_TOKENS) {
+            builder.maxCompletionTokens(profile.defaultMaxOutputTokens());
+        } else {
+            builder.maxTokens(profile.defaultMaxOutputTokens());
+        }
+        if (profile.reasoning()) builder.returnThinking(true);
+    }
+
+    private void applyStreamingPolicy(
+            OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
+            AiProviderProfile profile) {
+        if (profile.temperature() != null) builder.temperature(profile.temperature());
+        if (profile.tokenLimitParameter() == TokenLimitParameter.MAX_COMPLETION_TOKENS) {
+            builder.maxCompletionTokens(profile.defaultMaxOutputTokens());
+        } else {
+            builder.maxTokens(profile.defaultMaxOutputTokens());
+        }
+        if (profile.reasoning()) builder.returnThinking(true);
     }
 
     private String requireSetting(String key, String displayName) {
@@ -167,9 +194,10 @@ public class LangChain4jModelFactory {
         return value;
     }
 
-    private record ChatSettings(String baseUrl, String apiKey, String model, double temperature) {
+    private record ChatSettings(String baseUrl, String apiKey, String model,
+                                AiProviderProfile profile) {
         String signature() {
-            return baseUrl + "\u0000" + apiKey + "\u0000" + model + "\u0000" + temperature;
+            return baseUrl + "\u0000" + apiKey + "\u0000" + model + "\u0000" + profile;
         }
     }
 

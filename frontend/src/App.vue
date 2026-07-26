@@ -40,23 +40,32 @@
     <el-dialog
       v-model="showSettings"
       title="API 设置"
-      width="480px"
+      width="560px"
       :close-on-click-modal="false"
       append-to-body
       :z-index="20020"
     >
       <p style="font-size:12px;color:var(--ra-text-tertiary);margin:0 0 16px">
-        配置大语言模型 API。支持任意兼容 OpenAI 接口的服务（DeepSeek、OpenAI、Ollama、vLLM 等）。
+        选择供应商后，系统会应用对应的端点、参数和推理响应规则。
       </p>
-      <el-form label-width="80px" label-position="left">
+      <el-form label-width="100px" label-position="left">
+        <el-form-item label="供应商">
+          <el-select v-model="aiProvider" style="width:100%" :teleported="false" @change="onProviderChange">
+            <el-option v-for="item in AI_PROVIDERS" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="接入通道">
+          <el-select v-model="aiChannel" style="width:100%" :teleported="false" @change="onChannelChange">
+            <el-option v-for="item in channelOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="apiKey" type="password" show-password placeholder="例如 sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" size="default" />
         </el-form-item>
         <el-form-item label="模型">
-          <el-input v-model="model" placeholder="例如 deepseek-chat / kimi-k2.6 / gpt-4o" size="default" />
-        </el-form-item>
-        <el-form-item label="Base URL">
-          <el-input v-model="baseUrl" placeholder="例如 https://api.moonshot.ai/v1" size="default" />
+          <el-select v-model="model" filterable allow-create default-first-option :teleported="false" style="width:100%">
+            <el-option v-for="item in modelOptions" :key="item" :label="item" :value="item" />
+          </el-select>
         </el-form-item>
         <el-form-item label="研究主题">
           <el-input v-model="researchTopic" type="textarea" :rows="2" placeholder="例如：多模态大模型在医疗影像中的应用" size="default" />
@@ -64,9 +73,29 @@
             用于分析论文与本研究方向的匹配度，影响入库时的相关性评分与推荐理由。
           </p>
         </el-form-item>
+        <el-collapse class="advanced-settings">
+          <el-collapse-item title="高级设置" name="advanced">
+            <el-form-item label="Base URL">
+              <el-input v-model="baseUrl" placeholder="供应商默认地址" />
+            </el-form-item>
+            <el-divider content-position="left">Embedding（可选）</el-divider>
+            <el-form-item label="API Key">
+              <el-input v-model="embeddingApiKey" type="password" show-password placeholder="未配置时使用关键词检索" />
+            </el-form-item>
+            <el-form-item label="模型">
+              <el-input v-model="embeddingModel" placeholder="例如 text-embedding-3-small" />
+            </el-form-item>
+            <el-form-item label="Base URL">
+              <el-input v-model="embeddingBaseUrl" placeholder="Embedding 服务地址" />
+            </el-form-item>
+          </el-collapse-item>
+        </el-collapse>
       </el-form>
       <div v-if="testResult !== null" class="test-result" :class="{ success: testResult.success, fail: !testResult.success }">
-        {{ testResult.success ? '✅ 连接成功' : '❌ ' + testResult.message }}
+        <div>{{ testResult.success ? '✅ ' : '❌ ' }}{{ testResult.message }}</div>
+        <div v-if="testResult.capabilities" class="capability-list">
+          <span v-for="(value, key) in testResult.capabilities" :key="key">{{ capabilityLabel(key) }}：{{ value }}</span>
+        </div>
       </div>
       <template #footer>
         <el-button @click="testConnection" :loading="testing">测试连接</el-button>
@@ -95,7 +124,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
@@ -105,6 +134,15 @@ import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import CommandPalette from '@/components/CommandPalette.vue'
 import CachedRouterView from '@/components/navigation/CachedRouterView.vue'
 import TaskDrawer from '@/components/TaskDrawer.vue'
+import {
+  AI_PROVIDERS,
+  channelDefinition,
+  inferChannel,
+  inferProvider,
+  providerChannels,
+  providerModels,
+  shouldReplaceBaseUrl,
+} from '@/config/aiProviders'
 
 const router = useRouter()
 const { dark, toggle: toggleTheme } = useTheme()
@@ -114,12 +152,20 @@ const showShortcuts = ref(false)
 const showPalette = ref(false)
 const apiKey = ref('')
 const savedApiKey = ref('')
+const aiProvider = ref('kimi')
+const aiChannel = ref('coding')
 const model = ref('')
 const baseUrl = ref('')
+const embeddingApiKey = ref('')
+const savedEmbeddingApiKey = ref('')
+const embeddingModel = ref('')
+const embeddingBaseUrl = ref('')
 const researchTopic = ref('')
 const testing = ref(false)
 const saving = ref(false)
 const testResult = ref(null)
+const channelOptions = computed(() => providerChannels(aiProvider.value))
+const modelOptions = computed(() => providerModels(aiProvider.value, aiChannel.value))
 
 async function loadSettings() {
   try {
@@ -132,6 +178,16 @@ async function loadSettings() {
     savedApiKey.value = find('api_key')
     model.value = find('model')
     baseUrl.value = find('base_url')
+    aiProvider.value = find('ai_provider') || inferProvider(baseUrl.value, model.value)
+    aiChannel.value = find('ai_channel') || inferChannel(aiProvider.value, baseUrl.value)
+    if (!baseUrl.value) {
+      baseUrl.value = channelDefinition(aiProvider.value, aiChannel.value).baseUrl
+    }
+    if (!model.value) model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
+    embeddingApiKey.value = find('embedding_api_key')
+    savedEmbeddingApiKey.value = embeddingApiKey.value
+    embeddingModel.value = find('embedding_model')
+    embeddingBaseUrl.value = find('embedding_base_url')
     researchTopic.value = find('research_topic')
     // 后端返回的是脱敏后的 Key，直接显示在密码框中，提示用户已保存
     apiKey.value = savedApiKey.value
@@ -146,7 +202,10 @@ watch(showSettings, (val) => {
 
 async function doSave() {
   const keyInput = apiKey.value.trim()
+  const embeddingKeyInput = embeddingApiKey.value.trim()
   const payload = [
+    { keyName: 'ai_provider', value: aiProvider.value },
+    { keyName: 'ai_channel', value: aiChannel.value },
     { keyName: 'model', value: model.value },
     { keyName: 'base_url', value: baseUrl.value },
     { keyName: 'research_topic', value: researchTopic.value },
@@ -156,9 +215,42 @@ async function doSave() {
     payload.push({ keyName: 'api_key', value: keyInput })
     savedApiKey.value = keyInput
   }
+  if (embeddingKeyInput !== savedEmbeddingApiKey.value) {
+    payload.push({ keyName: 'embedding_api_key', value: embeddingKeyInput })
+    savedEmbeddingApiKey.value = embeddingKeyInput
+  }
+  payload.push({ keyName: 'embedding_model', value: embeddingModel.value.trim() })
+  payload.push({ keyName: 'embedding_base_url', value: embeddingBaseUrl.value.trim() })
   if (payload.length) {
     await api.put('/settings', payload)
   }
+}
+
+function onProviderChange() {
+  const channel = providerChannels(aiProvider.value)[0]
+  const replaceUrl = shouldReplaceBaseUrl(baseUrl.value)
+  aiChannel.value = channel.value
+  if (replaceUrl) baseUrl.value = channel.baseUrl
+  model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
+  testResult.value = null
+}
+
+function onChannelChange() {
+  if (shouldReplaceBaseUrl(baseUrl.value)) {
+    baseUrl.value = channelDefinition(aiProvider.value, aiChannel.value).baseUrl
+  }
+  model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
+  testResult.value = null
+}
+
+function capabilityLabel(key) {
+  return {
+    chat: '文本对话',
+    stream: '流式输出',
+    structured: '结构化输出',
+    vision: '图片输入',
+    embedding: 'Embedding',
+  }[key] || key
 }
 
 async function testConnection() {
@@ -403,6 +495,17 @@ html.dark .app-nav .el-menu-item.is-active {
 }
 .test-result.success { background: #f0f9eb; color: #67c23a; }
 .test-result.fail { background: #fef0f0; color: #f56c6c; }
+.capability-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.advanced-settings {
+  width: 100%;
+  border-top: none;
+}
 html.dark .test-result.success { background: #1e3924; color: #85ce61; }
 html.dark .test-result.fail { background: #3b1e1e; color: #f89898; }
 </style>

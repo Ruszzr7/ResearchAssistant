@@ -1,6 +1,7 @@
 package com.research.assistant.controller;
 
 import com.research.assistant.common.Result;
+import com.research.assistant.dto.AiConnectionTestResult;
 import com.research.assistant.entity.Settings;
 import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.security.SettingsPolicy;
@@ -16,9 +17,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /** Settings API. Secrets are always returned as masked values. */
 @RestController
@@ -54,13 +53,9 @@ public class SettingsController {
     }
 
     @PostMapping("/test")
-    public ResponseEntity<Result<Map<String, Object>>> testConnection() {
+    public ResponseEntity<Result<AiConnectionTestResult>> testConnection() {
         try {
-            boolean ok = settingsService.testConnection();
-            Map<String, Object> data = new HashMap<>();
-            data.put("success", ok);
-            data.put("message", ok ? "连接成功" : "连接失败，请检查 API Key、模型名和 Base URL");
-            return ResponseEntity.ok(Result.ok(data));
+            return ResponseEntity.ok(Result.ok(settingsService.testConnection()));
         } catch (Exception e) {
             log.warn("LLM connection test failed type={}", e.getClass().getSimpleName());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)

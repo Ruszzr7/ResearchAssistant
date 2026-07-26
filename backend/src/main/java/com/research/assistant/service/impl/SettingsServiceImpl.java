@@ -1,12 +1,15 @@
 package com.research.assistant.service.impl;
 
 import com.research.assistant.entity.Settings;
+import com.research.assistant.dto.AiConnectionTestResult;
 import com.research.assistant.mapper.SettingsMapper;
 import com.research.assistant.service.Encryptor;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.SettingsChangedEvent;
 import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.security.SettingsPolicy;
+import com.research.assistant.service.ai.provider.AiProviderProfile;
+import com.research.assistant.service.ai.provider.AiProviderRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
@@ -24,6 +27,8 @@ public class SettingsServiceImpl implements SettingsService {
 
     private static final Map<String, String> ENV_OVERRIDES = Map.ofEntries(
             Map.entry("api_key", "RA_API_KEY"),
+            Map.entry("ai_provider", "RA_AI_PROVIDER"),
+            Map.entry("ai_channel", "RA_AI_CHANNEL"),
             Map.entry("base_url", "RA_BASE_URL"),
             Map.entry("model", "RA_MODEL"),
             Map.entry("embedding_api_key", "RA_EMBEDDING_API_KEY"),
@@ -114,9 +119,52 @@ public class SettingsServiceImpl implements SettingsService {
     }
 
     @Override
-    public boolean testConnection() {
-        String result = llmService.chat("Reply with exactly one word: OK", "ping");
-        return result != null && !result.isEmpty();
+    public AiConnectionTestResult testConnection() {
+        AiProviderProfile profile = AiProviderRegistry.resolve(
+                getValue("ai_provider"), getValue("ai_channel"),
+                getValue("base_url"), getValue("model"));
+        Map<String, String> capabilities = Map.of(
+                "chat", "待验证",
+                "stream", profile.manualStreaming() ? "兼容 SSE" : "标准 SSE",
+                "structured", profile.jsonResponseFormat() ? "JSON 模式" : "Prompt 约束",
+                "vision", profile.vision() ? "支持" : "不支持",
+                "embedding", embeddingStatus());
+        try {
+            String result = llmService.chat("Reply with exactly one word: OK", "ping");
+            boolean ok = result != null && !result.isBlank();
+            Map<String, String> verified = new java.util.LinkedHashMap<>(capabilities);
+            verified.put("chat", ok ? "已验证" : "响应为空");
+            return new AiConnectionTestResult(ok,
+                    ok ? "连接成功" : "模型返回了空响应",
+                    profile.providerValue(), profile.channel(), Map.copyOf(verified));
+        } catch (RuntimeException exception) {
+            Map<String, String> failed = new java.util.LinkedHashMap<>(capabilities);
+            failed.put("chat", "失败");
+            return new AiConnectionTestResult(false, safeConnectionMessage(exception),
+                    profile.providerValue(), profile.channel(), Map.copyOf(failed));
+        }
+    }
+
+    private String embeddingStatus() {
+        return hasValue("embedding_base_url") && hasValue("embedding_model")
+                && hasValue("embedding_api_key") ? "已配置" : "未配置";
+    }
+
+    private boolean hasValue(String key) {
+        String value = getValue(key);
+        return value != null && !value.isBlank();
+    }
+
+    private String safeConnectionMessage(RuntimeException exception) {
+        String type = exception.getClass().getSimpleName();
+        return switch (type) {
+            case "AuthenticationException" -> "认证失败，请检查 API Key 和套餐权限";
+            case "ModelNotFoundException" -> "模型不存在或当前账号无权使用";
+            case "RateLimitException" -> "请求受限，请检查额度、套餐或稍后重试";
+            case "InvalidRequestException" -> "供应商拒绝了请求，请检查模型、通道和参数规则";
+            case "TimeoutException" -> "连接供应商超时";
+            default -> "上游模型服务暂时不可用";
+        };
     }
 
     private String decryptForDisplay(String keyName, String value) {

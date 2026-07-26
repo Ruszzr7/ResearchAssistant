@@ -6,6 +6,10 @@ import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.service.ai.LLMConfigUtil;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
 import com.research.assistant.service.ai.LlmCallPolicy;
+import com.research.assistant.service.ai.provider.AiProvider;
+import com.research.assistant.service.ai.provider.AiProviderProfile;
+import com.research.assistant.service.ai.provider.AiResponseNormalizer;
+import com.research.assistant.service.ai.provider.TokenLimitParameter;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -71,8 +75,8 @@ public class LLMStreamService {
      * </ul>
      */
     public void streamChat(OutputStream out, String systemPrompt, String userMessage) {
-        if (isKimiModel()) {
-            log.debug("检测到 Kimi 模型，直接使用手动 SSE 流式解析");
+        if (usesManualStreaming()) {
+            log.debug("当前供应商使用兼容 SSE 解析");
             streamManually(out, systemPrompt, userMessage);
             return;
         }
@@ -86,24 +90,17 @@ public class LLMStreamService {
         }
     }
 
-    private boolean isKimiModel() {
-        String model = settingsService.getValue("model");
-        return model != null && model.toLowerCase().contains("kimi");
+    private boolean usesManualStreaming() {
+        return modelFactory.currentProfile().manualStreaming();
     }
 
     /** Kimi coding/thinking endpoints accept a native switch that removes hidden reasoning. */
     public boolean supportsNativeStructuredOutput() {
-        String model = settingsService.getValue("model");
-        String baseUrl = settingsService.getValue("base_url");
-        if (model == null || baseUrl == null) return false;
-        String normalizedModel = model.toLowerCase(Locale.ROOT);
-        String normalizedBase = baseUrl.toLowerCase(Locale.ROOT);
-        boolean kimiProvider = normalizedModel.contains("kimi")
-                || normalizedBase.contains("kimi.com")
-                || normalizedBase.contains("moonshot.");
-        return kimiProvider && (normalizedBase.contains("/coding/")
-                || normalizedModel.contains("-code")
-                || normalizedModel.contains("-thinking"));
+        return modelFactory.currentProfile().nativeStructuredOutput();
+    }
+
+    public boolean supportsJsonResponseFormat() {
+        return modelFactory.currentProfile().jsonResponseFormat();
     }
 
     /**
@@ -119,16 +116,26 @@ public class LLMStreamService {
         try {
             String apiKey = requiredSetting("api_key", "API Key");
             String model = requiredSetting("model", "模型");
-            String baseUrl = requiredSetting("base_url", "Base URL");
-            String url = LLMConfigUtil.normalizeBaseUrl(baseUrl) + "/v1/chat/completions";
+            AiProviderProfile profile = modelFactory.currentProfile();
+            String url = LLMConfigUtil.chatCompletionsUrl(profile.baseUrl());
 
             Map<String, Object> requestBody = new LinkedHashMap<>();
             requestBody.put("model", model);
             requestBody.put("messages", structuredMessages(
                     systemPrompt, userMessage, imageBytes, mimeType));
-            requestBody.put("max_tokens", policy.maxOutputTokens());
-            requestBody.put("response_format", Map.of("type", "json_object"));
-            requestBody.put("thinking", Map.of("type", "disabled"));
+            requestBody.put(profile.tokenLimitParameter()
+                            == TokenLimitParameter.MAX_COMPLETION_TOKENS
+                            ? "max_completion_tokens" : "max_tokens",
+                    policy.maxOutputTokens());
+            if (profile.jsonResponseFormat()) {
+                requestBody.put("response_format", Map.of("type", "json_object"));
+            }
+            if (profile.temperature() != null) {
+                requestBody.put("temperature", profile.temperature());
+            }
+            if (profile.provider() == AiProvider.MINIMAX) {
+                requestBody.put("reasoning_split", true);
+            }
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -148,7 +155,8 @@ public class LLMStreamService {
             JsonNode root = objectMapper.readTree(response.body());
             JsonNode choice = root.path("choices").path(0);
             JsonNode usage = root.path("usage");
-            String content = choice.path("message").path("content").asText("");
+            String content = AiResponseNormalizer.finalContent(
+                    profile.provider(), choice.path("message").path("content").asText(""));
             int promptTokens = usage.path("prompt_tokens").asInt(0);
             int completionTokens = usage.path("completion_tokens").asInt(0);
             int totalTokens = usage.path("total_tokens")
@@ -289,14 +297,25 @@ public class LLMStreamService {
                 return;
             }
 
-            String url = LLMConfigUtil.normalizeBaseUrl(baseUrl) + "/v1/chat/completions";
-            double temperature = LLMConfigUtil.resolveTemperature(model);
-            String requestBody = objectMapper.writeValueAsString(new StreamRequest(
-                    model,
-                    new Message[]{new Message("system", systemPrompt), new Message("user", userMessage)},
-                    temperature,
-                    4096
-            ));
+            AiProviderProfile profile = modelFactory.currentProfile();
+            String url = LLMConfigUtil.chatCompletionsUrl(profile.baseUrl());
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("model", model);
+            payload.put("messages", List.of(
+                    Map.of("role", "system", "content", systemPrompt == null ? "" : systemPrompt),
+                    Map.of("role", "user", "content", userMessage == null ? "" : userMessage)));
+            payload.put("stream", true);
+            payload.put(profile.tokenLimitParameter()
+                            == TokenLimitParameter.MAX_COMPLETION_TOKENS
+                            ? "max_completion_tokens" : "max_tokens",
+                    profile.defaultMaxOutputTokens());
+            if (profile.temperature() != null) {
+                payload.put("temperature", profile.temperature());
+            }
+            if (profile.provider() == AiProvider.MINIMAX) {
+                payload.put("reasoning_split", true);
+            }
+            String requestBody = objectMapper.writeValueAsString(payload);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -331,10 +350,6 @@ public class LLMStreamService {
                                 String content = null;
                                 if (delta.has("content") && !delta.get("content").isNull()) {
                                     content = delta.get("content").asText();
-                                }
-                                if ((content == null || content.isEmpty()) && delta.has("reasoning_content")
-                                        && !delta.get("reasoning_content").isNull()) {
-                                    content = delta.get("reasoning_content").asText();
                                 }
                                 if (content != null && !content.isEmpty()) {
                                     sendEvent(writer, "token", content);
@@ -373,28 +388,4 @@ public class LLMStreamService {
         writer.write("data:" + data + "\n\n");
     }
 
-    private static class StreamRequest {
-        public String model;
-        public Message[] messages;
-        public double temperature;
-        public int max_tokens;
-        public boolean stream = true;
-
-        public StreamRequest(String model, Message[] messages, double temperature, int maxTokens) {
-            this.model = model;
-            this.messages = messages;
-            this.temperature = temperature;
-            this.max_tokens = maxTokens;
-        }
-    }
-
-    private static class Message {
-        public String role;
-        public String content;
-
-        public Message(String role, String content) {
-            this.role = role;
-            this.content = content;
-        }
-    }
 }

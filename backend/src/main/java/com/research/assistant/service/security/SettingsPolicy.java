@@ -24,7 +24,7 @@ public final class SettingsPolicy {
     private static final Pattern CONTROL_CHARS = Pattern.compile("[\\u0000-\\u001f\\u007f]");
 
     private static final Set<String> ALLOWED_KEYS = Set.of(
-            "api_key", "base_url", "model", "research_topic",
+            "ai_provider", "ai_channel", "api_key", "base_url", "model", "research_topic",
             "embedding_api_key", "embedding_base_url", "embedding_model",
             "openalex_enabled", "ieee_xplore_enabled", "ieee_xplore_api_key",
             "acm_dl_enabled", "acm_dl_api_url", "acm_dl_api_key",
@@ -137,6 +137,16 @@ public final class SettingsPolicy {
         }
         if ("translation_provider".equals(key) && !"deepl".equalsIgnoreCase(value)) {
             throw new IllegalArgumentException("不支持的翻译服务: " + value);
+        }
+        if ("ai_provider".equals(key)
+                && !Set.of("kimi", "deepseek", "glm", "minimax", "mimo", "openai")
+                .contains(value.toLowerCase(Locale.ROOT))) {
+            throw new IllegalArgumentException("不支持的 AI 供应商: " + value);
+        }
+        if ("ai_channel".equals(key)
+                && !Set.of("default", "coding", "platform", "standard", "payg", "token_plan")
+                .contains(value.toLowerCase(Locale.ROOT))) {
+            throw new IllegalArgumentException("不支持的 AI 接入通道: " + value);
         }
         if (URL_KEYS.contains(key)) {
             try {

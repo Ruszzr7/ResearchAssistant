@@ -1,6 +1,7 @@
 package com.research.assistant.service;
 
 import com.research.assistant.entity.Settings;
+import com.research.assistant.dto.AiConnectionTestResult;
 import java.util.List;
 
 /**
@@ -17,6 +18,6 @@ public interface SettingsService {
     /** 批量保存（新增或更新） */
     void saveAll(List<Settings> settings);
 
-    /** 测试 DeepSeek API 连接是否正常 */
-    boolean testConnection();
+    /** 测试当前模型连接并返回不含上游正文或凭据的能力摘要。 */
+    AiConnectionTestResult testConnection();
 }

@@ -30,6 +30,9 @@ class SettingsPolicyTest {
                 new Settings("pdf_layout_fallback_enabled", "true"),
                 new Settings("pdf_layout_fallback_provider", "MINERU"),
                 new Settings("pdf_layout_fallback_command", "adapter {input} {output}")));
+        SettingsPolicy.validateBatch(List.of(
+                new Settings("ai_provider", "kimi"),
+                new Settings("ai_channel", "coding")));
 
         assertThatThrownBy(() -> SettingsPolicy.validateBatch(
                 List.of(new Settings("unknown_key", "value"))))
@@ -42,6 +45,12 @@ class SettingsPolicyTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SettingsPolicy.validateBatch(
                 List.of(new Settings("translation_provider", "llm"))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> SettingsPolicy.validateBatch(
+                List.of(new Settings("ai_provider", "unknown"))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> SettingsPolicy.validateBatch(
+                List.of(new Settings("ai_channel", "enterprise"))))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

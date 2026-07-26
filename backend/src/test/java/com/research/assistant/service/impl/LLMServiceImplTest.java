@@ -4,6 +4,8 @@ import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.service.LLMStreamService;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
 import com.research.assistant.service.ai.LlmCallPolicy;
+import com.research.assistant.service.ai.provider.AiProvider;
+import com.research.assistant.service.ai.provider.AiProviderRegistry;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ImageContent;
 import dev.langchain4j.data.message.SystemMessage;
@@ -29,6 +31,14 @@ class LLMServiceImplTest {
     private final LangChain4jModelFactory modelFactory = mock(LangChain4jModelFactory.class);
     private final LLMStreamService streamService = mock(LLMStreamService.class);
     private final LLMServiceImpl llmService = new LLMServiceImpl(modelFactory, streamService);
+
+    LLMServiceImplTest() {
+        when(modelFactory.currentProfile()).thenReturn(
+                AiProviderRegistry.resolve(
+                        AiProvider.OPENAI.settingValue(), "default",
+                        "https://api.openai.com/v1", "gpt-5-mini"));
+        when(streamService.supportsJsonResponseFormat()).thenReturn(true);
+    }
 
     @Test
     void chatShouldReturnContent() {
@@ -113,7 +123,7 @@ class LLMServiceImplTest {
         LlmResponse response = llmService.chatWithUsage("system", "user", policy);
 
         assertThat(response.getContent()).isEqualTo("{}");
-        verifyNoInteractions(modelFactory);
+        verify(modelFactory, never()).createChatModel();
     }
 
     @Test
@@ -157,7 +167,7 @@ class LLMServiceImplTest {
                 "system", "transcribe", image, "image/png", policy);
 
         assertThat(response.getContent()).contains("latex");
-        verifyNoInteractions(modelFactory);
+        verify(modelFactory, never()).createChatModel();
     }
 
     private void givenChatModelReturns(String content, Integer inputTokens, Integer outputTokens) {

@@ -2,6 +2,8 @@ package com.research.assistant.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
+import com.research.assistant.service.ai.provider.AiProvider;
+import com.research.assistant.service.ai.provider.AiProviderRegistry;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,19 +20,21 @@ class LLMStreamServiceTest {
 
     @Test
     void usesNativeStructuredOutputForKimiCodingEndpoint() {
-        when(settingsService.getValue("model")).thenReturn("kimi-k2.7-code");
-        when(settingsService.getValue("base_url"))
-                .thenReturn("https://api.kimi.com/coding/v1");
+        when(modelFactory.currentProfile()).thenReturn(AiProviderRegistry.resolve(
+                AiProvider.KIMI.settingValue(), "coding",
+                "https://api.kimi.com/coding/v1", "k3"));
 
         assertThat(service.supportsNativeStructuredOutput()).isTrue();
+        assertThat(service.supportsJsonResponseFormat()).isTrue();
     }
 
     @Test
-    void keepsGenericProvidersOnLangChainPath() {
-        when(settingsService.getValue("model")).thenReturn("other-code-model");
-        when(settingsService.getValue("base_url"))
-                .thenReturn("https://example.test/v1");
+    void keepsOpenAiStreamingOnLangChainPath() {
+        when(modelFactory.currentProfile()).thenReturn(AiProviderRegistry.resolve(
+                AiProvider.OPENAI.settingValue(), "default",
+                "https://api.openai.com/v1", "gpt-5-mini"));
 
-        assertThat(service.supportsNativeStructuredOutput()).isFalse();
+        assertThat(service.supportsNativeStructuredOutput()).isTrue();
+        assertThat(modelFactory.currentProfile().manualStreaming()).isFalse();
     }
 }

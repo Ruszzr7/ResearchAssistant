@@ -5,6 +5,8 @@ import com.research.assistant.service.LLMService;
 import com.research.assistant.service.LLMStreamService;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
 import com.research.assistant.service.ai.LlmCallPolicy;
+import com.research.assistant.service.ai.provider.AiProviderProfile;
+import com.research.assistant.service.ai.provider.AiResponseNormalizer;
 import com.research.assistant.service.observability.ResearchMetrics;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ImageContent;
@@ -84,6 +86,10 @@ public class LLMServiceImpl implements LLMService {
         if (imageBytes.length > 8 * 1024 * 1024) {
             throw new IllegalArgumentException("image exceeds the multimodal request limit");
         }
+        AiProviderProfile profile = modelFactory.currentProfile();
+        if (!profile.vision()) {
+            throw new IllegalStateException(profile.displayName() + " 当前接入不支持图片输入");
+        }
         String safeMimeType = mimeType == null || mimeType.isBlank() ? "image/png" : mimeType;
         if (policy != null && policy.jsonOutput()
                 && streamService.supportsNativeStructuredOutput()) {
@@ -133,12 +139,16 @@ public class LLMServiceImpl implements LLMService {
                     .messages(SystemMessage.from(systemPrompt), userMessage);
             if (policy != null) {
                 requestBuilder.maxOutputTokens(policy.maxOutputTokens());
-                if (policy.jsonOutput()) requestBuilder.responseFormat(ResponseFormat.JSON);
+                if (policy.jsonOutput() && streamService.supportsJsonResponseFormat()) {
+                    requestBuilder.responseFormat(ResponseFormat.JSON);
+                }
             }
             ChatRequest request = requestBuilder.build();
             ChatResponse response = model.chat(request);
 
-            String content = response.aiMessage() != null ? response.aiMessage().text() : "";
+            String content = AiResponseNormalizer.finalContent(
+                    modelFactory.currentProfile().provider(),
+                    response.aiMessage() != null ? response.aiMessage().text() : "");
             TokenUsage usage = response.tokenUsage();
 
             int promptTokens = usage != null && usage.inputTokenCount() != null ? usage.inputTokenCount() : 0;

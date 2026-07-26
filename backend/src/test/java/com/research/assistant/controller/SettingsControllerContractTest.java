@@ -1,6 +1,7 @@
 package com.research.assistant.controller;
 
 import com.research.assistant.common.GlobalExceptionHandler;
+import com.research.assistant.dto.AiConnectionTestResult;
 import com.research.assistant.entity.Settings;
 import com.research.assistant.service.SettingsService;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -79,5 +81,19 @@ class SettingsControllerContractTest {
                 .andExpect(jsonPath("$.code").value(502))
                 .andExpect(jsonPath("$.message").value(containsString("上游模型服务")))
                 .andExpect(jsonPath("$.message").value(not(containsString("sk-secret"))));
+    }
+
+    @Test
+    void connectionSuccessReturnsProviderCapabilities() throws Exception {
+        when(settingsService.testConnection()).thenReturn(new AiConnectionTestResult(
+                true, "连接成功", "kimi", "coding",
+                Map.of("chat", "已验证", "stream", "兼容 SSE")));
+
+        mockMvc.perform(post("/api/settings/test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.success").value(true))
+                .andExpect(jsonPath("$.data.provider").value("kimi"))
+                .andExpect(jsonPath("$.data.channel").value("coding"))
+                .andExpect(jsonPath("$.data.capabilities.chat").value("已验证"));
     }
 }

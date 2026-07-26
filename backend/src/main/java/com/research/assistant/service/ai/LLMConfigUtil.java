@@ -10,19 +10,8 @@ public final class LLMConfigUtil {
     }
 
     /**
-     * 解析 temperature。
-     * <p>kimi-k2.7-code 官方要求 temperature 固定为 1.0，其余模型使用 0.3。</p>
-     */
-    public static double resolveTemperature(String model) {
-        if (model != null && model.toLowerCase().contains("kimi-k2.7-code")) {
-            return 1.0;
-        }
-        return 0.3;
-    }
-
-    /**
-     * 标准化 Base URL：去掉末尾斜杠和重复的 /v1。
-     * <p>调用方按需自行追加 /v1 或 /v1/chat/completions。</p>
+     * 标准化用户填写的 OpenAI-compatible Base URL。
+     * <p>版本路径属于供应商契约，不能统一删除或追加 /v1。</p>
      */
     public static String normalizeBaseUrl(String raw) {
         if (raw == null) {
@@ -32,12 +21,17 @@ public final class LLMConfigUtil {
         while (normalized.endsWith("/")) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
-        if (normalized.endsWith("/v1")) {
-            normalized = normalized.substring(0, normalized.length() - 3);
+        String endpoint = "/chat/completions";
+        if (normalized.endsWith(endpoint)) {
+            normalized = normalized.substring(0, normalized.length() - endpoint.length());
         }
         while (normalized.endsWith("/")) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
         return normalized;
+    }
+
+    public static String chatCompletionsUrl(String baseUrl) {
+        return normalizeBaseUrl(baseUrl) + "/chat/completions";
     }
 }

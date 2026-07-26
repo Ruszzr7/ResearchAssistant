@@ -60,6 +60,10 @@
 - 工作台 run 必须绑定每篇 PDF 的 document hash 与组合 parser version；run/step trace 持久化状态、证据数、token、耗时和输入/输出摘要，不把原始 provider 响应或完整 prompt 写入步骤日志。这样后端重启后仍能审计计划，PDF 更新后也不会复用旧锚点。
 - 工作台模型输出使用 JSON response format，并在进入 Evidence Gate 前拒绝空内容、截断内容和只有 reasoning 没有最终答案的响应；token 预算必须按“输入 + 隐式推理 + 最终 JSON”核算，不能只提高输出上限。强制 thinking 的代码模型可完成全文分析，但延迟和 token 成本明显高于通用分析模型。
 - 选区 Workflow 必须至少引用一条 `selected=true` 的 evidence；多篇对比必须覆盖每个请求论文 ID。门禁通过后先保存规范化结果 checkpoint，再写业务报告；异步重试可复用 checkpoint 而不重复调用模型，最后一次可恢复任务失败时必须同步把绑定 run 置为终态。
+- “OpenAI-compatible”只表示共享传输协议，不表示供应商参数完全相同。供应商和接入通道应显式保存，由能力档案决定版本路径、`max_tokens`/`max_completion_tokens`、temperature、结构化输出、SSE 和推理字段；Base URL 只能去掉尾斜杠或完整 endpoint，不能统一删除或追加 `/v1`。
+- 模型 ID 与接入通道绑定但必须允许用户编辑。例如 Kimi Coding 使用 `k3` 等套餐模型 ID，Kimi 开放平台使用 `kimi-k3` 等平台模型 ID；旧库缺少供应商字段时可由 Base URL 和模型推断，不需要为键值设置表增加迁移。
+- 结构化任务只发送供应商明确支持的参数。强推理模型的思考内容不应作为产品答案展示，但也不能为了得到 JSON 就盲目关闭思考；若关闭思考会改变实际路由或模型能力，应保留供应商默认推理并只读取最终 `content`。
+- 聊天模型配置不得自动充当 Embedding 配置。只有独立的 Embedding Base URL、模型和密钥完整时才建立向量模型，否则上层明确降级到关键词检索，避免向无 Embedding 接口的聊天套餐发送错误请求。
 
 ## 5. 异步任务与可观测性
 
