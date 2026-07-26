@@ -142,7 +142,9 @@
         <div class="selection-chat__heading">
           <div>
             <b>论文精读对话</b>
-            <small v-if="activeSelectionAnchor">已使用上方固定内容作为本轮依据</small>
+            <small v-if="activeSelectionAnchor">
+              当前固定内容：第 {{ activeSelectionAnchor.page }} 页；新选区确认后用于下一条消息
+            </small>
             <small v-else>请先选取并确认内容</small>
           </div>
           <button type="button" :disabled="running" @click="resetSelectionConversation">新对话</button>
@@ -162,7 +164,12 @@
           >
             <div class="chat-message__role">{{ message.role === 'user' ? '你' : '论文助手' }}</div>
             <div v-if="message.role === 'assistant'" class="answer-text" v-html="messageHtml(message)" />
-            <div v-else class="chat-message__text">{{ message.content }}</div>
+            <template v-else>
+              <div class="chat-message__text">{{ message.content }}</div>
+              <small v-if="message.selectionAnchor?.page" class="chat-message__context">
+                引用第 {{ message.selectionAnchor.page }} 页选区
+              </small>
+            </template>
             <ol v-if="message.claims?.length" class="chat-claim-list">
               <li v-for="(claim, claimIndex) in message.claims" :key="claimIndex">
                 <span>{{ claim.text }}</span>
@@ -287,7 +294,7 @@ const productTabs = [
 ]
 const activeProductTab = ref(productTabForMode(props.initialMode))
 const question = ref('')
-const confirmedText = ref(null)
+const activeSelectionContext = ref(null)
 const selectionTranslation = ref(null)
 const selectionTranslationLoading = ref(false)
 const selectionTranslationError = ref('')
@@ -332,43 +339,35 @@ const textSelectionIdentity = computed(() => {
   return `text:${page}:${props.selection.text}`
 })
 const textSelectionConfirmed = computed(() => Boolean(
-  confirmedText.value?.identity
-  && confirmedText.value.identity === textSelectionIdentity.value
-  && confirmedText.value.anchor,
+  activeSelectionContext.value?.kind === 'text'
+  && activeSelectionContext.value.identity === textSelectionIdentity.value
+  && activeSelectionContext.value.anchor,
 ))
 const confirmedFormula = computed(() => (
   props.formulaRegion && props.formulaRecognition?.confirmed && props.formulaRecognition?.anchor
     ? props.formulaRecognition : null
 ))
 const activeSelectionAnchor = computed(() => (
-  props.formulaRegion ? confirmedFormula.value?.anchor || null : confirmedText.value?.anchor || null
+  activeSelectionContext.value?.anchor || null
 ))
-const activeSelectionText = computed(() => (
-  props.formulaRegion ? confirmedFormula.value?.latex || '' : confirmedText.value?.text || ''
-))
-const activeSelectionIdentity = computed(() => {
-  if (props.formulaRegion) {
-    return confirmedFormula.value ? `formula:${confirmedFormula.value.id}:${confirmedFormula.value.latex}` : ''
-  }
-  return confirmedText.value?.identity || ''
-})
-const formulaDraftIdentity = computed(() => {
-  if (!props.formulaRegion) return ''
-  const box = props.formulaRegion.bbox || {}
-  return `formula:${props.formulaRegion.page}:${box.x}:${box.y}:${box.width}:${box.height}:${props.formulaRecognition?.id || ''}:${Boolean(props.formulaRecognition?.confirmed)}`
-})
 const selectionChatDisabled = computed(() => (
   running.value || !memoryReady.value || !activeSelectionAnchor.value || !question.value.trim()
 ))
 const tracePhases = computed(() => compactTracePhases(trace.value))
 
 watch(textSelectionIdentity, () => {
-  confirmedText.value = null
   selectionTranslation.value = null
   selectionTranslationError.value = ''
-  resetSelectionConversation()
 })
-watch(formulaDraftIdentity, () => resetSelectionConversation())
+watch(confirmedFormula, recognition => {
+  if (!recognition) return
+  activeSelectionContext.value = {
+    kind: 'formula',
+    identity: `formula:${recognition.id}:${recognition.latex}`,
+    text: recognition.latex,
+    anchor: recognition.anchor,
+  }
+}, { immediate: true })
 watch(() => props.initialMode, mode => { activeProductTab.value = productTabForMode(mode) })
 watch(() => props.researchSessionId, nextId => {
   const normalized = positiveSessionId(nextId)
@@ -436,7 +435,8 @@ function selectCaptureMode(mode) {
 
 function confirmTextSelection() {
   if (!props.selection?.text || !props.selectionAnchor || props.selectionLoading || props.selectionError) return
-  confirmedText.value = {
+  activeSelectionContext.value = {
+    kind: 'text',
     identity: textSelectionIdentity.value,
     text: props.selection.text,
     anchor: props.selectionAnchor,
@@ -444,21 +444,26 @@ function confirmTextSelection() {
 }
 
 function clearTextSelection() {
-  confirmedText.value = null
-  resetSelectionConversation()
+  if (activeSelectionContext.value?.identity === textSelectionIdentity.value) {
+    activeSelectionContext.value = null
+  }
   emit('clear-selection')
 }
 
 function clearFormula() {
-  resetSelectionConversation()
+  if (activeSelectionContext.value?.kind === 'formula'
+      && activeSelectionContext.value.identity === (
+        confirmedFormula.value
+          ? `formula:${confirmedFormula.value.id}:${confirmedFormula.value.latex}` : ''
+      )) {
+    activeSelectionContext.value = null
+  }
   emit('clear-formula')
 }
 
 async function sendSelectionMessage() {
   const content = question.value.trim()
   const anchor = activeSelectionAnchor.value
-  const selectedText = activeSelectionText.value
-  const selectedIdentity = activeSelectionIdentity.value
   if (!content || !anchor || running.value) return
 
   let sessionId
@@ -471,7 +476,12 @@ async function sendSelectionMessage() {
     selectionConversationId.value = freshSelectionConversationId(sessionId)
   }
   const conversationId = selectionConversationId.value
-  const userMessage = { id: `user-${++selectionMessageSequence}`, role: 'user', content }
+  const userMessage = {
+    id: `user-${++selectionMessageSequence}`,
+    role: 'user',
+    content,
+    selectionAnchor: anchor,
+  }
   selectionMessages.value.push(userMessage)
   selectionChatError.value = ''
   question.value = ''
@@ -486,9 +496,7 @@ async function sendSelectionMessage() {
       conversationId,
     })
     const completed = await run(request)
-    if (selectionConversationId.value !== conversationId
-        || activeSelectionIdentity.value !== selectedIdentity
-        || activeSelectionText.value !== selectedText) return
+    if (selectionConversationId.value !== conversationId) return
     selectionMessages.value.push({
       id: completed.runId || `assistant-${++selectionMessageSequence}`,
       role: 'assistant',
@@ -582,6 +590,7 @@ async function restoreResearchMessages(sessionId) {
       claims: message.evidence?.claims || [],
       evidence: message.evidence?.evidence || [],
       regionFallback: Boolean(message.evidence?.regionFallback),
+      selectionAnchor: message.selectionAnchor || null,
     }))
     await scrollSelectionChat()
   } catch { /* A missing archive must not prevent PDF reading. */ }
@@ -799,6 +808,7 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .chat-message.is-assistant { align-self: flex-start; }
 .chat-message__role { margin-bottom: 4px; color: var(--ra-text-tertiary); font-size: 9px; }
 .chat-message__text { font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.chat-message__context { display: block; margin-top: 5px; color: var(--ra-text-tertiary); font-size: 9px; }
 .chat-message.is-pending { width: 82%; }
 .chat-claim-list { display: flex; flex-direction: column; gap: 7px; margin: 9px 0 0; padding-left: 17px; }
 .chat-claim-list li { font-size: 10px; line-height: 1.45; }

@@ -255,7 +255,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(wrapper.findAll('.chat-message')).toHaveLength(4)
   })
 
-  it('starts a new server conversation when the selected content changes', async () => {
+  it('keeps the conversation and uses a new selection only after confirmation', async () => {
     mocks.state.run.mockResolvedValue({
       runId: 'turn', result: { answer: '回答', claims: [], evidence: [] },
     })
@@ -272,12 +272,22 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
       selectionAnchor: { ...textAnchor, page: 3 },
     })
     await flushPromises()
+    expect(wrapper.text()).toContain('第一问')
+    await wrapper.get('.assistant-composer textarea').setValue('误触后继续追问')
+    await sendButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(mocks.state.run.mock.calls[1][0].selectionAnchor).toEqual(textAnchor)
+
     await confirmButton(wrapper).trigger('click')
     await wrapper.get('.assistant-composer textarea').setValue('新选区问题')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
 
-    expect(mocks.state.run.mock.calls[1][0].conversationId).not.toBe(firstConversation)
+    expect(mocks.state.run.mock.calls[1][0].conversationId).toBe(firstConversation)
+    expect(mocks.state.run.mock.calls[2][0].conversationId).toBe(firstConversation)
+    expect(mocks.state.run.mock.calls[2][0].selectionAnchor.page).toBe(3)
+    expect(wrapper.text()).toContain('引用第 2 页选区')
+    expect(wrapper.text()).toContain('引用第 3 页选区')
   })
 
   it('restores the latest server conversation id from the research archive', async () => {
