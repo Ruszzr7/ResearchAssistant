@@ -6,7 +6,6 @@ import {
   compactTracePhases,
   comparisonSelectionState,
   citedEvidence,
-  workbenchMarkdownToHtml,
   WORKBENCH_MODES,
 } from '@/utils/workbenchRun.js'
 
@@ -167,14 +166,6 @@ describe('PDF workbench request boundary', () => {
       ],
     } }
     expect(citedEvidence(trace).map(item => item.evidenceId)).toEqual(['e1', 'e2'])
-  })
-
-  it('renders the report subset while escaping model-provided HTML', () => {
-    const html = workbenchMarkdownToHtml('# 结论\n\n- **有效** <script>alert(1)</script>')
-    expect(html).toContain('<h3>结论</h3>')
-    expect(html).toContain('<strong>有效</strong>')
-    expect(html).toContain('&lt;script&gt;')
-    expect(html).not.toContain('<script>')
   })
 
   it('compresses persisted steps into four hoverable product phases', () => {

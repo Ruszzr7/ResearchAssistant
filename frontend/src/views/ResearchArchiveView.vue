@@ -74,7 +74,12 @@
                 :class="['archive-message', message.role === 'USER' ? 'is-user' : 'is-assistant']"
               >
                 <small>{{ message.role === 'USER' ? '我' : '论文助手' }} · {{ formatTime(message.createdAt) }}</small>
-                <p>{{ message.content }}</p>
+                <ResearchMarkdown
+                  v-if="message.role !== 'USER'"
+                  class="archive-message__content"
+                  :content="message.content"
+                />
+                <p v-else>{{ message.content }}</p>
                 <button v-if="message.selectionAnchor?.page" type="button" @click="openMessageEvidence(message)">
                   第 {{ message.selectionAnchor.page }} 页
                 </button>
@@ -87,7 +92,11 @@
               <article v-for="run in detail.runs" :key="run.runId">
                 <div><b>{{ workflowLabel(run.plan?.workflow || run.invocation?.workflow) }}</b><el-tag size="small" :type="runStatusType(run.status)">{{ runStatusLabel(run.status) }}</el-tag></div>
                 <small>{{ formatTime(run.completedAt || run.createdAt) }}</small>
-                <p v-if="run.result?.answer">{{ run.result.answer }}</p>
+                <ResearchMarkdown
+                  v-if="run.result?.answer"
+                  class="run-answer"
+                  :content="run.result.answer"
+                />
               </article>
             </div>
             <el-empty v-else description="暂无分析记录" :image-size="64" />
@@ -112,6 +121,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import ResearchMarkdown from '@/components/ResearchMarkdown.vue'
 import {
   deleteResearchSession,
   getResearchSession,
@@ -280,10 +290,11 @@ function runStatusType(status) {
 .archive-message.is-user { align-self: flex-end; border-color: color-mix(in srgb, var(--ra-link) 35%, var(--ra-border)); background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); }
 .archive-message small, .run-list small { color: var(--ra-text-tertiary); font-size: 9px; }
 .archive-message p { margin: 5px 0; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
+.archive-message__content { margin: 5px 0; font-size: 11px; line-height: 1.55; }
 .archive-message button { padding: 0; border: 0; color: var(--ra-link); background: none; font-size: 10px; cursor: pointer; }
 .run-list article { padding: 10px; border: 1px solid var(--ra-border); border-radius: 8px; }
 .run-list article > div { display: flex; align-items: center; justify-content: space-between; }
-.run-list p { display: -webkit-box; overflow: hidden; margin: 7px 0 0; color: var(--ra-text-secondary); font-size: 11px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.run-answer { max-height: 160px; overflow: auto; margin: 7px 0 0; color: var(--ra-text-secondary); font-size: 11px; line-height: 1.5; }
 .detail-footer { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 760px) { .archive-header { flex-direction: column; } .archive-actions { width: 100%; } }
 </style>

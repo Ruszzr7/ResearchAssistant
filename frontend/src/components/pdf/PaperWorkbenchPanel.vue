@@ -163,39 +163,40 @@
             :class="`is-${message.role}`"
           >
             <div class="chat-message__role">{{ message.role === 'user' ? '你' : '论文助手' }}</div>
-            <div v-if="message.role === 'assistant'" class="answer-text" v-html="messageHtml(message)" />
+            <ResearchMarkdown
+              v-if="message.role === 'assistant'"
+              class="answer-text"
+              :content="message.content"
+            />
             <template v-else>
               <div class="chat-message__text">{{ message.content }}</div>
               <small v-if="message.selectionAnchor?.page" class="chat-message__context">
                 引用第 {{ message.selectionAnchor.page }} 页选区
               </small>
             </template>
-            <ol v-if="message.claims?.length" class="chat-claim-list">
-              <li v-for="(claim, claimIndex) in message.claims" :key="claimIndex">
-                <span>{{ claim.text }}</span>
-                <div class="evidence-links">
-                  <button
-                    v-for="item in messageEvidenceForClaim(message, claim)"
-                    :key="item.evidenceId"
-                    type="button"
-                    :title="item.text"
-                    @click="jump(item)"
-                  >p.{{ item.page }}</button>
-                </div>
-              </li>
-            </ol>
+            <details v-if="message.claims?.length" class="chat-claim-list">
+              <summary>查看依据（{{ message.claims.length }}）</summary>
+              <ol>
+                <li v-for="(claim, claimIndex) in message.claims" :key="claimIndex">
+                  <span>{{ claim.text }}</span>
+                  <div class="evidence-links">
+                    <button
+                      v-for="item in messageEvidenceForClaim(message, claim)"
+                      :key="item.evidenceId"
+                      type="button"
+                      :title="item.text"
+                      @click="jump(item)"
+                    >p.{{ item.page }}</button>
+                  </div>
+                </li>
+              </ol>
+            </details>
           </article>
           <div v-if="running" class="chat-message is-assistant is-pending">
             <div class="chat-message__role">论文助手</div>
-            <div class="trace-dots" role="list" aria-label="回答进度">
-              <span
-                v-for="phase in tracePhases"
-                :key="phase.key"
-                class="trace-dot-item"
-                :class="`is-${String(phase.status).toLowerCase()}`"
-                role="listitem"
-                :title="phase.tooltip"
-              ><span class="step-dot" aria-hidden="true" /></span>
+            <div class="answer-progress" role="status">
+              <span aria-hidden="true" />
+              正在基于论文证据生成回答…
             </div>
           </div>
         </div>
@@ -249,6 +250,7 @@ import {
   getResearchSession,
 } from '@/api/researchArchive.js'
 import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
+import ResearchMarkdown from '@/components/ResearchMarkdown.vue'
 import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
 import {
   detectTextLanguage,
@@ -257,8 +259,6 @@ import {
 } from '@/utils/translation.js'
 import {
   buildWorkbenchPlanRequest,
-  compactTracePhases,
-  workbenchMarkdownToHtml,
   WORKBENCH_MODES,
 } from '@/utils/workbenchRun.js'
 
@@ -286,7 +286,7 @@ const emit = defineEmits([
   'research-session-change',
 ])
 
-const { trace, running, error, run, loadRecent } = usePaperWorkbench()
+const { running, error, run, loadRecent } = usePaperWorkbench()
 const productTabs = [
   { value: 'reading', label: '论文精读', mode: WORKBENCH_MODES.SELECTION_QA },
   { value: 'defect', label: '缺陷分析', mode: WORKBENCH_MODES.PAPER_IMPROVEMENT },
@@ -353,7 +353,6 @@ const activeSelectionAnchor = computed(() => (
 const selectionChatDisabled = computed(() => (
   running.value || !memoryReady.value || !activeSelectionAnchor.value || !question.value.trim()
 ))
-const tracePhases = computed(() => compactTracePhases(trace.value))
 
 watch(textSelectionIdentity, () => {
   selectionTranslation.value = null
@@ -611,10 +610,6 @@ function freshSelectionConversationId(sessionId) {
   return `session-${id}-${Date.now().toString(36)}-${selectionConversationSequence}`.slice(0, 64)
 }
 
-function messageHtml(message) {
-  return workbenchMarkdownToHtml(message?.content || '')
-}
-
 function messageEvidenceForClaim(message, claim) {
   const index = new Map((message?.evidence || []).map(item => [item.evidenceId, item]))
   return (claim?.evidenceIds || []).map(id => index.get(id)).filter(Boolean)
@@ -810,7 +805,9 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .chat-message__text { font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
 .chat-message__context { display: block; margin-top: 5px; color: var(--ra-text-tertiary); font-size: 9px; }
 .chat-message.is-pending { width: 82%; }
-.chat-claim-list { display: flex; flex-direction: column; gap: 7px; margin: 9px 0 0; padding-left: 17px; }
+.chat-claim-list { margin: 9px 0 0; font-size: 10px; }
+.chat-claim-list summary { color: var(--ra-link); cursor: pointer; }
+.chat-claim-list ol { display: flex; flex-direction: column; gap: 7px; margin: 7px 0 0; padding-left: 17px; }
 .chat-claim-list li { font-size: 10px; line-height: 1.45; }
 .evidence-links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .evidence-links button { padding: 2px 6px; border: 1px solid color-mix(in srgb, var(--ra-link) 45%, var(--ra-border)); border-radius: 999px; color: var(--ra-link); background: transparent; font-size: 10px; cursor: pointer; }
@@ -819,18 +816,10 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .assistant-composer :deep(.el-textarea__inner) { padding: 4px; border: 0; background: transparent; box-shadow: none; }
 .assistant-composer__footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; }
 .assistant-composer__footer span { color: var(--ra-text-tertiary); font-size: 9px; }
-.trace-dots { display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; margin: 2px 10px 4px; }
-.trace-dot-item { position: relative; display: grid; min-width: 28px; height: 28px; place-items: center; }
-.trace-dot-item:not(:last-child)::after { position: absolute; z-index: 0; top: 50%; left: calc(50% + 7px); width: calc(100% - 14px); height: 1px; background: var(--ra-border); content: ''; }
-.step-dot { z-index: 1; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--ra-border); border-radius: 50%; background: var(--ra-panel-bg); }
-.trace-dot-item.is-running .step-dot { border-color: var(--ra-link); background: var(--ra-link); animation: trace-pulse 1.2s ease-out infinite; }
-.trace-dot-item.is-completed .step-dot { border-color: #4caf50; background: #4caf50; }
-.trace-dot-item.is-failed .step-dot { border-color: var(--el-color-danger); background: var(--el-color-danger); }
+.answer-progress { display: flex; align-items: center; gap: 7px; color: var(--ra-text-secondary); font-size: 10px; }
+.answer-progress > span { width: 8px; height: 8px; border-radius: 50%; background: var(--ra-link); animation: trace-pulse 1.2s ease-out infinite; }
 @keyframes trace-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ra-link) 30%, transparent); } 75%, 100% { box-shadow: 0 0 0 6px transparent; } }
 .answer-text { overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; }
-.answer-text :deep(p) { margin: 5px 0; }
-.answer-text :deep(ul), .answer-text :deep(ol) { margin: 5px 0; padding-left: 19px; }
-.answer-text :deep(code) { padding: 1px 3px; border-radius: 3px; background: var(--ra-hover-bg); }
 .muted-state, .error-state { padding-top: 8px; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.45; }
 .error-state { color: var(--el-color-danger); }
 .warning-state { margin-top: 8px; padding: 7px 8px; border-radius: 5px; color: #8a5a00; background: #fff7e6; font-size: 10px; line-height: 1.45; }

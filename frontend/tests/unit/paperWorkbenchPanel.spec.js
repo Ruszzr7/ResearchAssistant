@@ -255,6 +255,33 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(wrapper.findAll('.chat-message')).toHaveLength(4)
   })
 
+  it('renders math and tables while keeping evidence collapsed by default', async () => {
+    mocks.state.run.mockResolvedValue({
+      runId: 'rich-answer',
+      result: {
+        answer: '| 变量 | 值 |\n| --- | --- |\n| $x$ | 1 |',
+        claims: [{ text: '变量取值为 1', evidenceIds: ['e-1'] }],
+        evidence: [{ evidenceId: 'e-1', page: 2, text: 'x = 1' }],
+      },
+    })
+    const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
+    await flushPromises()
+    await confirmButton(wrapper).trigger('click')
+    await wrapper.get('.assistant-composer textarea').setValue('给出表格')
+    await sendButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.answer-text table').exists()).toBe(true)
+    expect(wrapper.find('.answer-text .katex').exists()).toBe(true)
+    const details = wrapper.get('.chat-claim-list')
+    expect(details.attributes('open')).toBeUndefined()
+    expect(details.get('summary').text()).toContain('查看依据（1）')
+    await details.get('.evidence-links button').trigger('click')
+    expect(wrapper.emitted('jump-evidence')?.[0][0]).toEqual(
+      expect.objectContaining({ evidenceId: 'e-1', page: 2 }),
+    )
+  })
+
   it('keeps the conversation and uses a new selection only after confirmation', async () => {
     mocks.state.run.mockResolvedValue({
       runId: 'turn', result: { answer: '回答', claims: [], evidence: [] },
