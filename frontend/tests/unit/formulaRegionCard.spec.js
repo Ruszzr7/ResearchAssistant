@@ -35,6 +35,26 @@ describe('FormulaRegionCard', () => {
     expect(wrapper.emitted('retry')).toHaveLength(1)
   })
 
+  it('shows the local canvas preview before model recognition completes', () => {
+    const wrapper = mount(FormulaRegionCard, {
+      props: {
+        region: { page: 4, bbox: { x: 0.1, y: 0.2, width: 0.5, height: 0.1 } },
+        previewDataUrl: 'data:image/png;base64,local',
+        loading: true,
+      },
+      global: {
+        stubs: {
+          'el-button': buttonStub,
+          'el-input': inputStub,
+          'el-tag': { template: '<span><slot /></span>' },
+        },
+      },
+    })
+
+    expect(wrapper.get('.formula-region-card__preview').attributes('src'))
+      .toBe('data:image/png;base64,local')
+  })
+
   it('renders safe KaTeX and emits the editable source only on confirmation', async () => {
     const wrapper = mount(FormulaRegionCard, {
       props: {

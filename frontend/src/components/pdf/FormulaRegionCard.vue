@@ -9,9 +9,9 @@
     </div>
 
     <img
-      v-if="recognition?.previewDataUrl"
+      v-if="visiblePreviewDataUrl"
       class="formula-region-card__preview"
-      :src="recognition.previewDataUrl"
+      :src="visiblePreviewDataUrl"
       alt="从原始 PDF 裁剪的公式区域"
     />
     <div v-else class="formula-region-card__preview-placeholder">
@@ -67,6 +67,7 @@ import katex from 'katex'
 const props = defineProps({
   region: { type: Object, required: true },
   recognition: { type: Object, default: null },
+  previewDataUrl: { type: String, default: '' },
   loading: { type: Boolean, default: false },
   confirming: { type: Boolean, default: false },
   error: { type: String, default: '' },
@@ -75,6 +76,9 @@ const props = defineProps({
 defineEmits(['clear', 'retry', 'confirm'])
 
 const draftLatex = ref('')
+const visiblePreviewDataUrl = computed(() => (
+  props.recognition?.previewDataUrl || props.previewDataUrl || ''
+))
 
 watch(
   () => [props.recognition?.id, props.recognition?.latex],

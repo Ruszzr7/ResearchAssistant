@@ -10,6 +10,8 @@ import org.apache.pdfbox.rendering.PDFRenderer;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -17,17 +19,23 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Base64;
+import java.util.Iterator;
 
 /** Renders the authoritative server-side PDF and crops a bounded formula region. */
 @Service
 public class FormulaRegionImageService {
 
     static final float RENDER_DPI = 160f;
-    static final int MAX_WIDTH = 1800;
-    static final int MAX_HEIGHT = 1000;
+    static final int MAX_WIDTH = 1200;
+    static final int MAX_HEIGHT = 800;
+    private static final int MAX_CLIENT_BYTES = 2 * 1024 * 1024;
+    private static final long MAX_CLIENT_PIXELS = 12_000_000;
+    private static final int TRIM_MARGIN_PIXELS = 8;
     private static final int MAX_CACHED_PAGES = 4;
     private static final int MASK_PADDING_PIXELS = 2;
     private final FormulaRecognitionTelemetry telemetry;
@@ -63,6 +71,46 @@ public class FormulaRegionImageService {
         return render(pdf, pageNumber, cropBox, List.copyOf(visibleBoxes), expectedDocumentHash);
     }
 
+    /**
+     * Accepts the current PDF.js canvas crop only as an untrusted recognition
+     * candidate. It never establishes a formula anchor without user confirmation.
+     */
+    public FormulaRegionImage fromClientDataUrl(String dataUrl) {
+        long started = telemetry.start();
+        if (dataUrl == null || !dataUrl.startsWith("data:image/png;base64,")) {
+            throw new IllegalArgumentException("公式预览必须是 PNG 图片");
+        }
+        byte[] bytes;
+        try {
+            bytes = Base64.getDecoder().decode(dataUrl.substring("data:image/png;base64,".length()));
+        } catch (IllegalArgumentException error) {
+            throw new IllegalArgumentException("公式预览编码无效", error);
+        }
+        if (bytes.length == 0 || bytes.length > MAX_CLIENT_BYTES) {
+            throw new IllegalArgumentException("公式预览大小超出限制");
+        }
+        try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) throw new IllegalArgumentException("公式预览不是有效图片");
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(input, true, true);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                if (width <= 0 || height <= 0 || (long) width * height > MAX_CLIENT_PIXELS) {
+                    throw new IllegalArgumentException("公式预览分辨率超出限制");
+                }
+                FormulaRegionImage image = encode(normalize(reader.read(0)));
+                telemetry.stage("client_crop_normalize", "success", started);
+                return image;
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException error) {
+            throw new IllegalArgumentException("公式预览无法读取", error);
+        }
+    }
+
     private FormulaRegionImage render(File pdf,
                                       int pageNumber,
                                       NormalizedBoundingBox box,
@@ -86,15 +134,9 @@ public class FormulaRegionImageService {
             BufferedImage visible = visibleBoxes.isEmpty()
                     ? crop
                     : maskUnselected(crop, visibleBoxes, page.getWidth(), page.getHeight(), x, y);
-            BufferedImage bounded = downscale(visible);
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            if (!ImageIO.write(bounded, "png", output)) {
-                throw new IllegalStateException("公式区域无法编码为 PNG");
-            }
-            byte[] png = output.toByteArray();
+            FormulaRegionImage image = encode(normalize(visible));
             telemetry.stage("crop_encode", "success", cropStarted);
-            telemetry.image(bounded.getWidth(), bounded.getHeight(), png.length);
-            return new FormulaRegionImage(png, bounded.getWidth(), bounded.getHeight());
+            return image;
         } catch (IOException e) {
             throw new IllegalArgumentException("公式区域渲染失败", e);
         }
@@ -180,6 +222,47 @@ public class FormulaRegionImageService {
             graphics.dispose();
         }
         return target;
+    }
+
+    private BufferedImage normalize(BufferedImage source) {
+        BufferedImage trimmed = trimWhitespace(source);
+        return downscale(trimmed);
+    }
+
+    private BufferedImage trimWhitespace(BufferedImage source) {
+        int left = source.getWidth();
+        int top = source.getHeight();
+        int right = -1;
+        int bottom = -1;
+        for (int y = 0; y < source.getHeight(); y++) {
+            for (int x = 0; x < source.getWidth(); x++) {
+                int rgb = source.getRGB(x, y);
+                int red = (rgb >> 16) & 0xff;
+                int green = (rgb >> 8) & 0xff;
+                int blue = rgb & 0xff;
+                if (red >= 248 && green >= 248 && blue >= 248) continue;
+                left = Math.min(left, x);
+                top = Math.min(top, y);
+                right = Math.max(right, x);
+                bottom = Math.max(bottom, y);
+            }
+        }
+        if (right < left || bottom < top) return source;
+        left = Math.max(0, left - TRIM_MARGIN_PIXELS);
+        top = Math.max(0, top - TRIM_MARGIN_PIXELS);
+        right = Math.min(source.getWidth() - 1, right + TRIM_MARGIN_PIXELS);
+        bottom = Math.min(source.getHeight() - 1, bottom + TRIM_MARGIN_PIXELS);
+        return source.getSubimage(left, top, right - left + 1, bottom - top + 1);
+    }
+
+    private FormulaRegionImage encode(BufferedImage image) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        if (!ImageIO.write(image, "png", output)) {
+            throw new IllegalStateException("公式区域无法编码为 PNG");
+        }
+        byte[] png = output.toByteArray();
+        telemetry.image(image.getWidth(), image.getHeight(), png.length);
+        return new FormulaRegionImage(png, image.getWidth(), image.getHeight());
     }
 
     private int clamp(int value, int minimum, int maximum) {

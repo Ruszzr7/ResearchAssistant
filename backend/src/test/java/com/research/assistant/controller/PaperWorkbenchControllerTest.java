@@ -180,7 +180,7 @@ class PaperWorkbenchControllerTest {
                 FormulaRegionStatus.CANDIDATE, "data:image/png;base64,AA==",
                 "请核对", null, false);
         when(formulaRegionService.recognize(
-                eq(42L), eq(1), any(NormalizedBoundingBox.class), eq(false)))
+                eq(42L), eq(1), any(NormalizedBoundingBox.class), eq(false), eq(null)))
                 .thenReturn(recognition);
 
         mvc.perform(post("/api/papers/42/workbench/formula-regions/recognize")

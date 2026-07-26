@@ -51,6 +51,8 @@ class FormulaRegionServiceTest {
         when(fileResolver.resolveRequired("paper.pdf")).thenReturn(new File("paper.pdf"));
         when(imageService.render(any(), any(Integer.class), any(), any()))
                 .thenReturn(new FormulaRegionImage(new byte[]{1, 2, 3}, 100, 30));
+        when(imageService.fromClientDataUrl(any()))
+                .thenReturn(new FormulaRegionImage(new byte[]{4, 5, 6}, 80, 24));
         doAnswer(invocation -> {
             PaperFormulaRegionRecord record = invocation.getArgument(0);
             record.setId(11L);
@@ -126,6 +128,21 @@ class FormulaRegionServiceTest {
         assertThat(result.status()).isEqualTo(FormulaRegionStatus.CANDIDATE);
         assertThat(result.confirmed()).isFalse();
         assertThat(result.anchor()).isNull();
+    }
+
+    @Test
+    void usesBoundedClientCanvasCropWithoutRenderingThePdfAgain() {
+        artifact = artifact(List.of());
+        when(artifactService.ensureArtifact(7L, false)).thenReturn(artifact);
+        when(visionRecognizer.recognize(new byte[]{4, 5, 6}))
+                .thenReturn(new FormulaVisionRecognizer.FormulaCandidate("x+y", 0.91));
+
+        FormulaRegionRecognition result = service.recognize(
+                7L, 1, bbox, false, "data:image/png;base64,client");
+
+        assertThat(result.status()).isEqualTo(FormulaRegionStatus.CANDIDATE);
+        verify(imageService).fromClientDataUrl("data:image/png;base64,client");
+        verify(imageService, never()).render(any(), any(Integer.class), any(), any());
     }
 
     @Test

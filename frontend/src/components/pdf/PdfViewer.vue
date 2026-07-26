@@ -434,6 +434,7 @@
         :selection-error="selectionContextError"
         :formula-region="formulaRegion"
         :formula-recognition="formulaRecognition"
+        :formula-preview-data-url="formulaPreviewDataUrl"
         :formula-loading="formulaRecognitionLoading"
         :formula-confirming="formulaConfirming"
         :formula-error="formulaRecognitionError"
@@ -540,7 +541,11 @@ import {
   cloneSelectionTextAnchor,
   selectionToAnchorPayload,
 } from '@/utils/pdfSelectionAnchor.js'
-import { formulaRegionSvgRect, normalizedFormulaRegion } from '@/utils/formulaRegionSelection.js'
+import {
+  createFormulaRegionPreview,
+  formulaRegionSvgRect,
+  normalizedFormulaRegion,
+} from '@/utils/formulaRegionSelection.js'
 import {
   confirmFormulaRegion,
   recognizeFormulaRegion,
@@ -625,6 +630,7 @@ const selectionContextLoading = ref(false)
 const selectionContextError = ref('')
 const formulaRegion = ref(null)
 const formulaRecognition = ref(null)
+const formulaPreviewDataUrl = ref('')
 const formulaRecognitionLoading = ref(false)
 const formulaConfirming = ref(false)
 const formulaRecognitionError = ref('')
@@ -1605,6 +1611,7 @@ function clearFormulaRegion() {
   formulaRegionDrag = null
   formulaRegion.value = null
   formulaRecognition.value = null
+  formulaPreviewDataUrl.value = ''
   formulaRecognitionLoading.value = false
   formulaConfirming.value = false
   formulaRecognitionError.value = ''
@@ -1673,6 +1680,9 @@ async function finishFormulaRegionSelection(event, cancelled = false) {
     return true
   }
   formulaRegion.value = { page: drag.page, bbox }
+  formulaPreviewDataUrl.value = createFormulaRegionPreview(
+    canvasRefs.value[drag.page], bbox,
+  )?.dataUrl || ''
   currentTool.value = 'select'
   workbenchPanelVisible.value = true
   return true
@@ -1689,9 +1699,14 @@ async function recognizeCurrentFormulaRegion() {
       page: region.page,
       bbox: region.bbox,
       refresh,
+      ...(formulaPreviewDataUrl.value
+        ? { clientImageDataUrl: formulaPreviewDataUrl.value } : {}),
     })
     if (formulaRegion.value !== region) return
-    formulaRecognition.value = result
+    formulaRecognition.value = {
+      ...result,
+      previewDataUrl: result.previewDataUrl || formulaPreviewDataUrl.value,
+    }
   } catch (error) {
     if (formulaRegion.value === region) {
       formulaRecognitionError.value = requestErrorMessage(error) || '公式识别失败'

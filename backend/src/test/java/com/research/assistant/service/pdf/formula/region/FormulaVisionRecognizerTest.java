@@ -12,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 class FormulaVisionRecognizerTest {
@@ -31,7 +32,7 @@ class FormulaVisionRecognizerTest {
         assertThat(result.confidence()).isEqualTo(0.91);
         ArgumentCaptor<LlmCallPolicy> policy = ArgumentCaptor.forClass(LlmCallPolicy.class);
         verify(llmService).chatWithImageUsage(any(), any(), any(), any(), policy.capture());
-        assertThat(policy.getValue().maxOutputTokens()).isEqualTo(512);
+        assertThat(policy.getValue().maxOutputTokens()).isEqualTo(256);
     }
 
     @Test
@@ -53,5 +54,18 @@ class FormulaVisionRecognizerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("截断");
         verify(llmService).chatWithImageUsage(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void reusesAnExactNormalizedImageCandidateWithoutAnotherModelCall() {
+        when(llmService.chatWithImageUsage(any(), any(), any(), any(), any()))
+                .thenReturn(LlmResponse.of("{\"latex\":\"x+y\",\"confidence\":0.9}"));
+        byte[] image = new byte[]{9, 8, 7};
+
+        FormulaVisionRecognizer.FormulaCandidate first = recognizer.recognize(image);
+        FormulaVisionRecognizer.FormulaCandidate second = recognizer.recognize(image);
+
+        assertThat(second).isEqualTo(first);
+        verify(llmService, times(1)).chatWithImageUsage(any(), any(), any(), any(), any());
     }
 }

@@ -79,7 +79,8 @@ public class PaperWorkbenchController {
             @Valid @RequestBody FormulaRegionRecognizeRequest request) {
         requireFormulaService();
         return Result.ok(formulaRegionService.recognize(
-                paperId, request.page(), request.bbox().toBoundingBox(), request.refresh()));
+                paperId, request.page(), request.bbox().toBoundingBox(), request.refresh(),
+                request.clientImageDataUrl()));
     }
 
     @PutMapping("/formula-regions/{regionId}/confirm")

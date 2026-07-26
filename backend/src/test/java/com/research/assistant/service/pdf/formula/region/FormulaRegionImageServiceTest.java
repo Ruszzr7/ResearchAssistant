@@ -14,6 +14,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -76,10 +77,9 @@ class FormulaRegionImageServiceTest {
                 pdf, 1, crop, List.of(selected), "");
         BufferedImage decoded = ImageIO.read(new java.io.ByteArrayInputStream(image.png()));
 
-        assertTrue(pixel(decoded, (0.20 - crop.x()) / crop.width(),
-                (0.275 - crop.y()) / crop.height()) != 0xFFFFFF);
-        assertEquals(0xFFFFFF, pixel(decoded, (0.40 - crop.x()) / crop.width(),
-                (0.275 - crop.y()) / crop.height()));
+        assertTrue(decoded.getRGB(decoded.getWidth() / 2, decoded.getHeight() / 2) != 0xFFFFFFFF);
+        assertTrue(decoded.getWidth() < 220,
+                "whitespace trimming must exclude the masked neighboring rectangle");
     }
 
     @Test
@@ -130,6 +130,33 @@ class FormulaRegionImageServiceTest {
         assertTrue(image.png().length > 100);
         assertThrows(StaleLayoutArtifactException.class, () -> service.render(pdf, 1,
                 new NormalizedBoundingBox(0.1, 0.1, 0.2, 0.1), "0".repeat(64)));
+    }
+
+    @Test
+    void validatesTrimsAndBoundsAClientCanvasCrop() throws Exception {
+        BufferedImage source = new BufferedImage(1600, 500, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D graphics = source.createGraphics();
+        graphics.setColor(java.awt.Color.WHITE);
+        graphics.fillRect(0, 0, source.getWidth(), source.getHeight());
+        graphics.setColor(java.awt.Color.BLACK);
+        graphics.fillRect(400, 180, 700, 90);
+        graphics.dispose();
+        java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+        ImageIO.write(source, "png", output);
+        String dataUrl = "data:image/png;base64,"
+                + Base64.getEncoder().encodeToString(output.toByteArray());
+
+        FormulaRegionImage image = service().fromClientDataUrl(dataUrl);
+
+        assertTrue(image.width() <= 1200);
+        assertTrue(image.height() < 200);
+        assertTrue(image.png().length > 100);
+    }
+
+    @Test
+    void rejectsNonPngClientInput() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service().fromClientDataUrl("data:text/plain;base64,SGVsbG8="));
     }
 
     private int pixel(BufferedImage image, double x, double y) {

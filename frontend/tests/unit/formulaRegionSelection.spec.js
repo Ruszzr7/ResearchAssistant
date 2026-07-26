@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { formulaRegionSvgRect, normalizedFormulaRegion } from '@/utils/formulaRegionSelection.js'
+import {
+  createFormulaRegionPreview,
+  formulaRegionSvgRect,
+  normalizedFormulaRegion,
+} from '@/utils/formulaRegionSelection.js'
+import { vi } from 'vitest'
 
 describe('formula region selection', () => {
   it('normalizes reverse drags and clamps them to the page', () => {
@@ -48,5 +53,28 @@ describe('formula region selection', () => {
     expect(restored.y).toBeCloseTo(60)
     expect(restored.width).toBeCloseTo(120)
     expect(restored.height).toBeCloseTo(180)
+  })
+
+  it('crops a bounded formula preview from the existing PDF canvas', () => {
+    const drawImage = vi.fn()
+    const fillRect = vi.fn()
+    const target = {
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage, fillRect }),
+      toDataURL: () => 'data:image/png;base64,formula',
+    }
+
+    const result = createFormulaRegionPreview(
+      { width: 2400, height: 3200 },
+      { x: 0.2, y: 0.3, width: 0.5, height: 0.08 },
+      { maxWidth: 600, canvasFactory: () => target },
+    )
+
+    expect(result.dataUrl).toContain('image/png')
+    expect(result.width).toBe(600)
+    expect(result.height).toBeGreaterThan(0)
+    expect(fillRect).toHaveBeenCalledOnce()
+    expect(drawImage).toHaveBeenCalledOnce()
   })
 })

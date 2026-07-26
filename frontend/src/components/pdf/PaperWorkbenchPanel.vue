@@ -74,6 +74,7 @@
           v-if="formulaRegion"
           :region="formulaRegion"
           :recognition="formulaRecognition"
+          :preview-data-url="formulaPreviewDataUrl"
           :loading="formulaLoading"
           :confirming="formulaConfirming"
           :error="formulaError"
@@ -262,6 +263,7 @@ const props = defineProps({
   selectionError: { type: String, default: '' },
   formulaRegion: { type: Object, default: null },
   formulaRecognition: { type: Object, default: null },
+  formulaPreviewDataUrl: { type: String, default: '' },
   formulaLoading: { type: Boolean, default: false },
   formulaConfirming: { type: Boolean, default: false },
   formulaError: { type: String, default: '' },

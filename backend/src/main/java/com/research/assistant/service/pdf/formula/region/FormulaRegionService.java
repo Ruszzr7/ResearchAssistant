@@ -67,8 +67,16 @@ public class FormulaRegionService {
 
     public FormulaRegionRecognition recognize(Long paperId,
                                               int page,
-                                               NormalizedBoundingBox bbox,
-                                               boolean refresh) {
+                                              NormalizedBoundingBox bbox,
+                                              boolean refresh) {
+        return recognize(paperId, page, bbox, refresh, null);
+    }
+
+    public FormulaRegionRecognition recognize(Long paperId,
+                                              int page,
+                                              NormalizedBoundingBox bbox,
+                                              boolean refresh,
+                                              String clientImageDataUrl) {
         long totalStarted = telemetry.start();
         FormulaRegionGeometry.validate(bbox);
         long artifactStarted = telemetry.start();
@@ -113,7 +121,9 @@ public class FormulaRegionService {
         Paper paper = requirePaper(paperId);
         File pdf = fileResolver.resolveRequired(paper.getPdfPath());
         long imageStarted = telemetry.start();
-        FormulaRegionImage image = imageService.render(pdf, page, bbox, artifact.documentHash());
+        FormulaRegionImage image = clientImageDataUrl == null || clientImageDataUrl.isBlank()
+                ? imageService.render(pdf, page, bbox, artifact.documentHash())
+                : imageService.fromClientDataUrl(clientImageDataUrl);
         telemetry.stage("image_prepare", "success", imageStarted);
         FormulaVisionRecognizer.FormulaCandidate candidate;
         long modelStarted = telemetry.start();
