@@ -121,9 +121,19 @@ public class FormulaRegionService {
         Paper paper = requirePaper(paperId);
         File pdf = fileResolver.resolveRequired(paper.getPdfPath());
         long imageStarted = telemetry.start();
-        FormulaRegionImage image = clientImageDataUrl == null || clientImageDataUrl.isBlank()
-                ? imageService.render(pdf, page, bbox, artifact.documentHash())
-                : imageService.fromClientDataUrl(clientImageDataUrl);
+        FormulaRegionImage image;
+        if (clientImageDataUrl == null || clientImageDataUrl.isBlank()) {
+            image = imageService.render(pdf, page, bbox, artifact.documentHash());
+        } else {
+            try {
+                image = imageService.fromClientDataUrl(clientImageDataUrl);
+            } catch (IllegalArgumentException invalidClientImage) {
+                telemetry.stage("client_crop_normalize", "fallback", imageStarted);
+                log.debug("event=formula_client_crop_fallback errorType={}",
+                        invalidClientImage.getClass().getSimpleName());
+                image = imageService.render(pdf, page, bbox, artifact.documentHash());
+            }
+        }
         telemetry.stage("image_prepare", "success", imageStarted);
         FormulaVisionRecognizer.FormulaCandidate candidate;
         long modelStarted = telemetry.start();

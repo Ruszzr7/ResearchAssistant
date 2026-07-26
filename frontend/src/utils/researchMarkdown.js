@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it'
-import { katex } from '@mdit/plugin-katex'
+import { tex } from '@mdit/plugin-tex'
+import katex from 'katex'
 
 const markdown = new MarkdownIt({
   html: false,
@@ -8,14 +9,17 @@ const markdown = new MarkdownIt({
   typographer: false,
 })
 
-markdown.use(katex, {
+markdown.use(tex, {
   delimiters: 'all',
   mathFence: true,
-  throwOnError: false,
-  strict: 'ignore',
-  trust: false,
-  maxExpand: 1000,
-  output: 'htmlAndMathml',
+  render: (content, displayMode) => katex.renderToString(content, {
+    displayMode,
+    throwOnError: false,
+    strict: 'ignore',
+    trust: false,
+    maxExpand: 1000,
+    output: 'htmlAndMathml',
+  }),
 })
 
 const defaultLinkOpen = markdown.renderer.rules.link_open

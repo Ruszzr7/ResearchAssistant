@@ -146,6 +146,21 @@ class FormulaRegionServiceTest {
     }
 
     @Test
+    void fallsBackToAuthoritativePdfCropWhenClientPreviewIsInvalid() {
+        artifact = artifact(List.of());
+        when(artifactService.ensureArtifact(7L, false)).thenReturn(artifact);
+        when(imageService.fromClientDataUrl(any())).thenThrow(new IllegalArgumentException("bad png"));
+        when(visionRecognizer.recognize(new byte[]{1, 2, 3}))
+                .thenReturn(new FormulaVisionRecognizer.FormulaCandidate("x+y", 0.91));
+
+        FormulaRegionRecognition result = service.recognize(
+                7L, 1, bbox, false, "data:image/png;base64,bad");
+
+        assertThat(result.status()).isEqualTo(FormulaRegionStatus.CANDIDATE);
+        verify(imageService).render(any(), any(Integer.class), any(), any());
+    }
+
+    @Test
     void providerFailureReturnsSafeRegionInsteadOfThrowing() {
         artifact = artifact(List.of());
         when(artifactService.ensureArtifact(7L, false)).thenReturn(artifact);

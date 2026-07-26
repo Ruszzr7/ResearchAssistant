@@ -1783,7 +1783,7 @@ async function recognizeCurrentFormulaRegion() {
       page: region.page,
       bbox: region.bbox,
       refresh,
-      ...(formulaPreviewDataUrl.value
+      ...(formulaPreviewDataUrl.value && formulaPreviewDataUrl.value.length <= 2_700_000
         ? { clientImageDataUrl: formulaPreviewDataUrl.value } : {}),
     })
     if (formulaRegion.value !== region) return
