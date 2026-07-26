@@ -150,6 +150,11 @@
       </aside>
 
       <div ref="containerRef" class="pdf-pages" @scroll="onScroll">
+        <div v-if="pdfLoadError" class="pdf-load-recovery" role="alert">
+          <b>PDF 暂时无法显示</b>
+          <span>{{ pdfLoadError }}</span>
+          <el-button size="small" type="primary" @click="loadDocument">重新加载 PDF</el-button>
+        </div>
         <div class="virtual-spacer" :style="{ height: topSpacerHeight + 'px' }" aria-hidden="true"></div>
         <div
           v-for="page in visiblePages"
@@ -570,6 +575,10 @@ import {
   createPdfSelectionPreview,
   selectionNeedsVisualFallback,
 } from '@/utils/pdfSelectionPreview.js'
+import {
+  invalidatePageRenderSurface,
+  pageRenderSurfaceIsUsable,
+} from '@/utils/pdfRenderLifecycle.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
@@ -597,6 +606,7 @@ const overlayRefs = ref({})
 const pdfDoc = shallowRef(null)
 let pdfInteractionEngine = null
 const pdfInteractionReady = ref(false)
+const pdfLoadError = ref('')
 const renderedPages = ref([])
 const visiblePageStart = ref(1)
 const visiblePageEnd = ref(1)
@@ -669,6 +679,10 @@ const workbenchRatioPercent = computed(() => viewerBodyWidth.value > 0
   : Math.round(workbenchWidthRatio.value * 100))
 let viewerBodyResizeObserver = null
 let viewerEventsAttached = false
+let viewerActive = true
+let activationSequence = 0
+let documentLoadSequence = 0
+let pdfLoadingTask = null
 
 const noteDialogVisible = ref(false)
 const noteEditText = ref('')
@@ -776,6 +790,7 @@ function updateViewerBodyWidth() {
 }
 
 onMounted(() => {
+  viewerActive = true
   attachViewerEvents()
   if (typeof ResizeObserver !== 'undefined') {
     viewerBodyResizeObserver = new ResizeObserver(updateViewerBodyWidth)
@@ -785,15 +800,32 @@ onMounted(() => {
   loadDocument()
 })
 onActivated(() => {
+  viewerActive = true
+  const sequence = ++activationSequence
   attachViewerEvents()
-  void nextTick(updateViewerBodyWidth)
+  void resumeViewerAfterActivation(sequence)
 })
-onDeactivated(detachViewerEvents)
+onDeactivated(() => {
+  viewerActive = false
+  activationSequence += 1
+  renderQueueRequested = false
+  if (renderFrame != null) {
+    window.cancelAnimationFrame(renderFrame)
+    renderFrame = null
+  }
+  cancelAllPageRenders()
+  detachViewerEvents()
+})
 onUnmounted(() => {
+  viewerActive = false
+  activationSequence += 1
+  documentLoadSequence += 1
   renderQueueRequested = false
   if (renderFrame != null) window.cancelAnimationFrame(renderFrame)
   if (searchDebounceTimer != null) window.clearTimeout(searchDebounceTimer)
   cancelAllPageRenders()
+  void pdfLoadingTask?.destroy?.()
+  pdfLoadingTask = null
   pdfDoc.value?.destroy()
   void pdfInteractionEngine?.close?.()
   pdfInteractionEngine = null
@@ -803,6 +835,36 @@ onUnmounted(() => {
   viewerBodyResizeObserver = null
   detachViewerEvents()
 })
+
+async function resumeViewerAfterActivation(sequence) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await nextTick()
+    if (!viewerActive || sequence !== activationSequence) return
+    const container = containerRef.value
+    if (container?.clientWidth > 0 && container?.clientHeight > 0) break
+    await new Promise(resolve => window.requestAnimationFrame(resolve))
+  }
+  if (!viewerActive || sequence !== activationSequence) return
+  updateViewerBodyWidth()
+  if (!pdfDoc.value) {
+    if (pdfLoadError.value) void loadDocument()
+    return
+  }
+  updateVisiblePageRange()
+  cancelAllPageRenders()
+  const dpr = window.devicePixelRatio || 1
+  for (const page of visiblePages.value) {
+    const canvas = canvasRefs.value[page.pageNum]
+    const textLayer = textLayerRefs.value[page.pageNum]
+    // Repaint every visible surface after KeepAlive activation. Canvas bitmap
+    // storage may be discarded while its DOM dimensions remain unchanged.
+    if (pageRenderSurfaceIsUsable(page, canvas, textLayer, dpr) || page.rendered) {
+      invalidatePageRenderSurface(page)
+    }
+  }
+  await nextTick()
+  if (viewerActive && sequence === activationSequence) await renderVisiblePages()
+}
 
 function beginWorkbenchResize(event) {
   if (event.button !== 0) return
@@ -999,21 +1061,34 @@ async function completePanelComment(annotation) {
 }
 
 async function loadDocument() {
+  const loadSequence = ++documentLoadSequence
+  pdfLoadError.value = ''
   try {
     cancelAllPageRenders()
     renderQueueRequested = false
+    const previousDocument = pdfDoc.value
+    pdfDoc.value = null
+    await previousDocument?.destroy?.()
     searchResults.value = []
     activeSearchResultIndex.value = -1
     pdfPageWidthAt100.value = 0
     const url = `/api/papers/${props.paper.id}/pdf`
     const loading = pdfjsLib.getDocument(url)
+    pdfLoadingTask = loading
     await pdfInteractionEngine?.close?.()
-    pdfInteractionEngine = createPdfInteractionEngine()
+    const interactionEngine = createPdfInteractionEngine()
+    pdfInteractionEngine = interactionEngine
     pdfInteractionReady.value = false
     const [renderDocument] = await Promise.all([
       loading.promise,
-      pdfInteractionEngine.open({ id: `paper-${props.paper.id}`, url }),
+      interactionEngine.open({ id: `paper-${props.paper.id}`, url }),
     ])
+    if (loadSequence !== documentLoadSequence) {
+      await renderDocument.destroy()
+      await interactionEngine.close?.()
+      return
+    }
+    pdfLoadingTask = null
     pdfDoc.value = renderDocument
     pdfInteractionReady.value = true
     const count = pdfDoc.value.numPages
@@ -1025,6 +1100,7 @@ async function loadDocument() {
       rendered: false,
       canvasReady: false,
       renderFailed: false,
+      interactionFailed: false,
       surfaceVersion: 0
     }))
     const requestedPage = Math.min(count, Math.max(1, Number(props.initialPage) || 1))
@@ -1034,14 +1110,17 @@ async function loadDocument() {
     await nextTick()
     if (containerRef.value) containerRef.value.scrollTop = pageOffset(requestedPage)
     updateVisiblePageRange()
-    await renderVisiblePages()
+    if (viewerActive) await renderVisiblePages()
     await loadAnnotations()
     if (props.initialEvidence
       && Number(props.initialEvidence.paperId) === Number(props.paper.id)) {
       await jumpToEvidence(props.initialEvidence)
     }
   } catch (e) {
-    ElMessage.error('PDF 加载失败：' + (e.message || e))
+    if (loadSequence !== documentLoadSequence) return
+    pdfLoadingTask = null
+    pdfLoadError.value = e.message || String(e)
+    ElMessage.error('PDF 加载失败：' + pdfLoadError.value)
   }
 }
 
@@ -1051,12 +1130,14 @@ let renderFrame = null
 const activePageRenderTasks = new Map()
 
 async function renderVisiblePages() {
+  if (!viewerActive) return false
   renderQueueRequested = true
   if (renderQueuePromise) return renderQueuePromise
   return drainRenderQueue()
 }
 
 function scheduleVisiblePageRender() {
+  if (!viewerActive) return
   renderQueueRequested = true
   if (renderQueuePromise || renderFrame != null) return
   renderFrame = window.requestAnimationFrame(() => {
@@ -1072,7 +1153,7 @@ async function drainRenderQueue() {
     try {
       while (renderQueueRequested) {
         renderQueueRequested = false
-        if (!containerRef.value || !pdfDoc.value) break
+        if (!viewerActive || !containerRef.value || !pdfDoc.value) break
 
         updateVisiblePageRange()
         await nextTick()
@@ -1084,7 +1165,7 @@ async function drainRenderQueue() {
       }
     } finally {
       renderQueuePromise = null
-      if (renderQueueRequested) scheduleVisiblePageRender()
+      if (viewerActive && renderQueueRequested) scheduleVisiblePageRender()
     }
   })()
 
@@ -1216,7 +1297,8 @@ async function renderPage(pageState) {
   const canvas = canvasRefs.value[pageState.pageNum]
   const textLayer = textLayerRefs.value[pageState.pageNum]
   const documentRef = pdfDoc.value
-  if (!canvas || !textLayer || !documentRef || !hasMountedRenderSurface(pageState.pageNum)) return false
+  if (!viewerActive || !canvas || !textLayer || !documentRef
+      || !hasMountedRenderSurface(pageState.pageNum)) return false
   const surfaceVersion = pageState.surfaceVersion
 
   let page
@@ -1259,16 +1341,20 @@ async function renderPage(pageState) {
     }
   }
   if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
+  pageState.canvasReady = true
   // Materialize PDFium glyph geometry before exposing the interaction surface,
   // so the first pointer-down does not race an uncached page extraction.
   try {
     await pdfInteractionEngine?.getPage(pageState.pageNum - 1)
   } catch (error) {
-    pageState.renderFailed = true
-    return false
+    // The visual PDF.js canvas is already valid. Keep it visible and allow a
+    // later activation/retry to recover only the interaction geometry.
+    pageState.interactionFailed = true
+    pageState.rendered = true
+    return true
   }
   if (!isRenderSurfaceCurrent(pageState, canvas, textLayer, surfaceVersion, documentRef)) return false
-  pageState.canvasReady = true
+  pageState.interactionFailed = false
 
   textLayer.replaceChildren()
   textLayer.style.width = viewport.width + 'px'
@@ -1330,10 +1416,7 @@ function releasePageSurfaceRef(refs, pageNum, invalidate = true) {
 function invalidatePageSurface(pageNum) {
   const pageState = renderedPages.value[pageNum - 1]
   if (!pageState) return
-  pageState.surfaceVersion += 1
-  pageState.rendered = false
-  pageState.canvasReady = false
-  pageState.renderFailed = false
+  invalidatePageRenderSurface(pageState)
   activePageRenderTasks.get(pageNum)?.cancel()
 }
 
@@ -1379,6 +1462,7 @@ async function renderAtCurrentZoom() {
     page.rendered = false
     page.canvasReady = false
     page.renderFailed = false
+    page.interactionFailed = false
     page.viewport = null
     page.width = 0
     page.height = 0
@@ -2682,6 +2766,25 @@ function colorName(color) {
   padding: 16px 0;
   gap: 0;
 }
+.pdf-load-recovery {
+  position: sticky;
+  z-index: 4;
+  top: 18px;
+  display: flex;
+  width: min(420px, calc(100% - 36px));
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 7px;
+  margin: 18px auto;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 35%, var(--ra-border));
+  border-radius: 8px;
+  background: var(--ra-panel-bg);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 9%);
+}
+.pdf-load-recovery b { font-size: 12px; }
+.pdf-load-recovery span { color: var(--ra-text-tertiary); font-size: 10px; overflow-wrap: anywhere; }
+.pdf-load-recovery :deep(.el-button) { align-self: flex-start; }
 .virtual-spacer {
   width: 1px;
   flex: 0 0 auto;
