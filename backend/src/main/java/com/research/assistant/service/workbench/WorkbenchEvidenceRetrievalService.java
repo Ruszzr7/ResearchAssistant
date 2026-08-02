@@ -9,6 +9,7 @@ import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
 import com.research.assistant.service.pdf.layout.PaperLayoutEvidencePolicy;
 import com.research.assistant.service.pdf.layout.PaperLayoutEvidenceService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -38,11 +39,20 @@ public class WorkbenchEvidenceRetrievalService {
 
     private final PaperLayoutEvidencePolicy evidencePolicy;
     private final PaperLayoutEvidenceService evidenceProjection;
+    private final WorkbenchRetrievalPlanner retrievalPlanner;
 
     public WorkbenchEvidenceRetrievalService(PaperLayoutEvidencePolicy evidencePolicy,
                                              PaperLayoutEvidenceService evidenceProjection) {
+        this(evidencePolicy, evidenceProjection, new WorkbenchRetrievalPlanner());
+    }
+
+    @Autowired
+    public WorkbenchEvidenceRetrievalService(PaperLayoutEvidencePolicy evidencePolicy,
+                                             PaperLayoutEvidenceService evidenceProjection,
+                                             WorkbenchRetrievalPlanner retrievalPlanner) {
         this.evidencePolicy = evidencePolicy;
         this.evidenceProjection = evidenceProjection;
+        this.retrievalPlanner = retrievalPlanner;
     }
 
     public List<LayoutEvidence> retrievePaper(PaperLayoutArtifact artifact,
@@ -70,11 +80,12 @@ public class WorkbenchEvidenceRetrievalService {
 
         Set<String> preferred = preferredBlockIds == null
                 ? Set.of() : new LinkedHashSet<>(preferredBlockIds);
-        boolean broadQuery = isBroadQuery(query);
+        WorkbenchRetrievalPlan plan = retrievalPlanner.plan(query);
+        boolean broadQuery = plan.broad();
         Map<String, Candidate> candidateById = new LinkedHashMap<>();
         for (DocumentBlock block : allowed) {
             candidateById.put(block.id(), candidate(
-                    block, query, preferred.contains(block.id()), broadQuery));
+                    block, plan, preferred.contains(block.id())));
         }
         List<Candidate> ranked = candidateById.values().stream()
                 .filter(Candidate::relevant)
@@ -96,16 +107,19 @@ public class WorkbenchEvidenceRetrievalService {
         }
         List<Candidate> chosen = new ArrayList<>();
         int characters = 0;
-        int baseLimit = isLocationOrFormulaQuery(query) && safeMax > 2 ? safeMax - 2 : safeMax;
+        double topScore = ranked.get(0).score();
+        double relativeFloor = broadQuery ? 0 : Math.max(0.10, topScore * 0.32);
+        int baseLimit = plan.formulaOrLocation() && safeMax > 2 ? safeMax - 2 : safeMax;
         for (String blockId : chosenIds) {
             Candidate candidate = candidateById.get(blockId);
             if (candidate == null || chosen.size() >= baseLimit) break;
+            if (!preferred.contains(blockId) && candidate.score() < relativeFloor) continue;
             int nextCharacters = characters + candidate.block().text().length();
             if (!chosen.isEmpty() && nextCharacters > safeCharacters) continue;
             chosen.add(candidate);
             characters = nextCharacters;
         }
-        if (isLocationOrFormulaQuery(query)) {
+        if (plan.formulaOrLocation()) {
             for (Candidate adjacent : adjacentRegionEvidence(allAllowed, chosen)) {
                 if (chosen.size() >= safeMax) break;
                 chosen.add(adjacent);
@@ -135,9 +149,9 @@ public class WorkbenchEvidenceRetrievalService {
     }
 
     private Candidate candidate(DocumentBlock block,
-                                String query,
-                                boolean preferred,
-                                boolean broadQuery) {
+                                WorkbenchRetrievalPlan plan,
+                                boolean preferred) {
+        boolean broadQuery = plan.broad();
         double roleWeight = switch (block.role()) {
             case ABSTRACT -> broadQuery ? 1.0 : 0.35;
             case HEADING -> broadQuery ? 0.80 : 0.30;
@@ -147,16 +161,46 @@ public class WorkbenchEvidenceRetrievalService {
             case FORMULA -> 0.68;
             default -> 0;
         };
-        String searchable = block.text() + " " + String.join(" ", block.sectionPath());
+        String searchable = block.text() + " " + safe(block.latex()) + " "
+                + safe(block.tableText()) + " " + String.join(" ", block.sectionPath());
         double lexical = Math.max(
-                LayoutTextSimilarity.queryCoverage(query, searchable),
-                significantTermCoverage(query, searchable));
+                LayoutTextSimilarity.queryCoverage(plan.originalQuery(), searchable),
+                plannedTermCoverage(plan, searchable));
+        double phraseBonus = plan.phrases().stream().anyMatch(phrase ->
+                searchable.toLowerCase(Locale.ROOT).contains(phrase)) ? 0.12 : 0;
+        double definitionBonus = plan.queryType() == WorkbenchRetrievalPlan.QueryType.DEFINITION
+                && containsDefinitionCue(block.text(), plan.terms()) ? 0.10 : 0;
         double structured = block.contentMode() == DocumentBlockContentMode.STRUCTURED ? 0.06 : 0;
-        double followUp = preferred ? (isReferentialQuery(query) ? 0.30 : 0.08) : 0;
+        double followUp = preferred ? (plan.referentialFollowUp() ? 0.30 : 0.08) : 0;
         double score = Math.min(1, 0.72 * lexical + 0.14 * roleWeight
-                + 0.06 * block.confidence() + structured + followUp);
+                + 0.06 * block.confidence() + structured + followUp + phraseBonus + definitionBonus);
         boolean relevant = lexical > 0 || preferred || broadQuery;
         return new Candidate(block, relevant ? score : 0, relevant);
+    }
+
+    private double plannedTermCoverage(WorkbenchRetrievalPlan plan, String candidate) {
+        if (candidate == null || candidate.isBlank() || plan.terms().isEmpty()) return 0;
+        String normalized = java.text.Normalizer.normalize(candidate,
+                java.text.Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
+        double matchedWeight = 0;
+        double totalWeight = 0;
+        for (String term : plan.terms()) {
+            double weight = term.matches("[a-z0-9_+/-]{2,}") ? 1.25 : 1.0;
+            totalWeight += weight;
+            if (normalized.contains(term)) matchedWeight += weight;
+        }
+        return totalWeight == 0 ? 0 : matchedWeight / totalWeight;
+    }
+
+    private boolean containsDefinitionCue(String text, List<String> terms) {
+        String normalized = safe(text).toLowerCase(Locale.ROOT);
+        if (terms.stream().noneMatch(normalized::contains)) return false;
+        return List.of(" is ", " are ", "defined", "denotes", "represents", "refers to", "称为", "定义为")
+                .stream().anyMatch(normalized::contains);
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private double significantTermCoverage(String query, String candidate) {

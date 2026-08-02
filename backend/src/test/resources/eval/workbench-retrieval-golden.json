@@ -1,0 +1,39 @@
+{
+  "cases": [
+    {
+      "name": "locate-sinr-formula",
+      "query": "为我找出 SINR 公式在哪？",
+      "topBlockId": "sinr-definition",
+      "includedBlockIds": ["sinr-definition", "sinr-equation"],
+      "excludedBlockIds": ["abstract", "other-column"],
+      "blocks": [
+        {"id":"abstract","page":1,"x":0.10,"y":0.08,"width":0.80,"height":0.06,"role":"ABSTRACT","order":1,"section":[],"text":"This paper studies autonomous driving latency.","mode":"TEXT"},
+        {"id":"sinr-definition","page":3,"x":0.08,"y":0.32,"width":0.38,"height":0.07,"role":"BODY","order":20,"section":["System Model"],"text":"The signal-to-interference-plus-noise ratio (SINR) for the common stream is defined as follows.","mode":"TEXT"},
+        {"id":"sinr-equation","page":3,"x":0.12,"y":0.40,"width":0.32,"height":0.08,"role":"FORMULA","order":21,"section":["System Model"],"text":"","mode":"REGION"},
+        {"id":"other-column","page":3,"x":0.54,"y":0.31,"width":0.38,"height":0.08,"role":"BODY","order":45,"section":["Optimization"],"text":"The objective minimizes the weighted transmission delay.","mode":"TEXT"}
+      ]
+    },
+    {
+      "name": "dense-inline-math-term",
+      "query": "公共流功率系数 t 如何分配功率？",
+      "topBlockId": "dense-math-paragraph",
+      "includedBlockIds": ["dense-math-paragraph"],
+      "excludedBlockIds": ["neighbor-column"],
+      "blocks": [
+        {"id":"dense-math-paragraph","page":4,"x":0.08,"y":0.18,"width":0.39,"height":0.25,"role":"BODY","order":30,"section":["Signal Model"],"text":"The global power coefficient 0 <= t <= 1 governs the division of power between the common and private streams, while 1-t is the power ratio for the common stream.","mode":"TEXT"},
+        {"id":"neighbor-column","page":4,"x":0.54,"y":0.18,"width":0.38,"height":0.24,"role":"BODY","order":55,"section":["Channel Model"],"text":"The vehicle channel follows a time-varying fading process.","mode":"TEXT"}
+      ]
+    },
+    {
+      "name": "acronym-definition",
+      "query": "RSMA 是什么？",
+      "topBlockId": "rsma-definition",
+      "includedBlockIds": ["rsma-definition"],
+      "excludedBlockIds": ["reference"],
+      "blocks": [
+        {"id":"rsma-definition","page":2,"x":0.08,"y":0.22,"width":0.39,"height":0.10,"role":"BODY","order":12,"section":["System Model"],"text":"Rate-splitting multiple access (RSMA) divides each user message into common and private parts.","mode":"TEXT"},
+        {"id":"reference","page":9,"x":0.08,"y":0.16,"width":0.84,"height":0.04,"role":"REFERENCE","order":130,"section":["References"],"text":"[39] Rate-splitting multiple access survey.","mode":"TEXT"}
+      ]
+    }
+  ]
+}
