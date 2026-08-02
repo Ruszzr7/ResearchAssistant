@@ -47,6 +47,7 @@ public class WorkbenchExecutionEngine {
     private final PaperMapper paperMapper;
     private final ObjectMapper objectMapper;
     private final WorkbenchSelectionVisualEvidenceService visualEvidenceService;
+    private final WorkbenchEvidencePackager evidencePackager;
 
     public WorkbenchExecutionEngine(WorkbenchRunTraceService traceService,
                                     PaperLayoutArtifactService artifactService,
@@ -61,7 +62,8 @@ public class WorkbenchExecutionEngine {
                                     PaperMemoryObservationService observationService,
                                     PaperMapper paperMapper,
                                     ObjectMapper objectMapper,
-                                    WorkbenchSelectionVisualEvidenceService visualEvidenceService) {
+                                    WorkbenchSelectionVisualEvidenceService visualEvidenceService,
+                                    WorkbenchEvidencePackager evidencePackager) {
         this.traceService = traceService;
         this.artifactService = artifactService;
         this.anchorResolver = anchorResolver;
@@ -76,6 +78,7 @@ public class WorkbenchExecutionEngine {
         this.paperMapper = paperMapper;
         this.objectMapper = objectMapper;
         this.visualEvidenceService = visualEvidenceService;
+        this.evidencePackager = evidencePackager;
     }
 
     public WorkbenchWorkflowResult execute(String runId, String taskId, Consumer<String> stageUpdater) {
@@ -172,9 +175,9 @@ public class WorkbenchExecutionEngine {
         stage.accept("正在检索整篇论文的相关证据…");
         List<LayoutEvidence> evidence = deterministicStep(
                 trace.runId(), 1, Map.of("paperId", paperId, "maxEvidence", 18),
-                () -> wholePaperEvidenceService.retrievePaper(
+                () -> evidencePackager.pack(wholePaperEvidenceService.retrievePaper(
                         artifact, context.retrievalQuery(),
-                        context.preferredEvidenceBlockIds(), 18, 14_000),
+                        context.preferredEvidenceBlockIds(), 18, 14_000), 18, 14_000),
                 value -> Map.of("evidenceCount", value.size(), "sectionCount", sectionCount(value)));
         String boundedModelQuestion = context.modelQuestion(selectionModelContextBudget(trace));
         return modelAndGate(trace, evidence, false, stage, 2, 3,
@@ -193,8 +196,9 @@ public class WorkbenchExecutionEngine {
         stage.accept("正在检索全文证据…");
         List<LayoutEvidence> evidence = deterministicStep(
                 trace.runId(), 1, Map.of("paperId", paperId, "maxEvidence", 48),
-                () -> wholePaperEvidenceService.retrievePaper(
+                () -> evidencePackager.pack(wholePaperEvidenceService.retrievePaper(
                         artifact, fullPaperQuery(trace.invocation().question()), 48,
+                        evidenceCharacterBudget(trace, 36_000)), 48,
                         evidenceCharacterBudget(trace, 36_000)),
                 value -> Map.of("evidenceCount", value.size(), "sectionCount", sectionCount(value)));
         WorkbenchWorkflowResult result = modelAndGate(trace, evidence, false, stage, 2, 3,
@@ -218,8 +222,9 @@ public class WorkbenchExecutionEngine {
         stage.accept("正在检索论文局限与改进证据…");
         List<LayoutEvidence> evidence = deterministicStep(
                 trace.runId(), 1, Map.of("paperId", paperId, "maxEvidence", 48),
-                () -> wholePaperEvidenceService.retrievePaper(
+                () -> evidencePackager.pack(wholePaperEvidenceService.retrievePaper(
                         artifact, paperImprovementQuery(trace.invocation().question()), 48,
+                        evidenceCharacterBudget(trace, 36_000)), 48,
                         evidenceCharacterBudget(trace, 36_000)),
                 value -> Map.of("evidenceCount", value.size(), "sectionCount", sectionCount(value)));
         return modelAndGate(trace, evidence, false, stage, 2, 3,
@@ -238,8 +243,9 @@ public class WorkbenchExecutionEngine {
         stage.accept("正在检索分论文证据…");
         List<LayoutEvidence> evidence = deterministicStep(
                 trace.runId(), 1, Map.of("paperCount", artifacts.size(), "maxEvidence", 48),
-                () -> wholePaperEvidenceService.retrieveComparison(
+                () -> evidencePackager.pack(wholePaperEvidenceService.retrieveComparison(
                         artifacts, trace.invocation().question(), 48,
+                        evidenceCharacterBudget(trace, 42_000)), 48,
                         evidenceCharacterBudget(trace, 42_000)),
                 value -> Map.of("evidenceCount", value.size(),
                         "representedPapers", value.stream().map(LayoutEvidence::paperId).distinct().count()));
@@ -375,7 +381,7 @@ public class WorkbenchExecutionEngine {
             result.add(item);
             characters = next;
         }
-        return List.copyOf(result);
+        return evidencePackager.pack(result, maxEvidence, maxCharacters);
     }
 
     private int safeLength(String value) {

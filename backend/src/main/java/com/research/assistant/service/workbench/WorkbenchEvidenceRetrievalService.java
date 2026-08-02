@@ -119,6 +119,13 @@ public class WorkbenchEvidenceRetrievalService {
             chosen.add(candidate);
             characters = nextCharacters;
         }
+        for (Candidate context : adjacentTextEvidence(allowed, chosen, plan.neighbourRadius())) {
+            if (chosen.size() >= baseLimit) break;
+            int nextCharacters = characters + context.block().text().length();
+            if (nextCharacters > safeCharacters) continue;
+            chosen.add(context);
+            characters = nextCharacters;
+        }
         if (plan.formulaOrLocation()) {
             for (Candidate adjacent : adjacentRegionEvidence(allAllowed, chosen)) {
                 if (chosen.size() >= safeMax) break;
@@ -308,6 +315,36 @@ public class WorkbenchEvidenceRetrievalService {
             result.add(new Candidate(
                     formula, Math.max(0.35, anchor.score() - 0.03), true,
                     Map.of("ADJACENT_FORMULA", 1.0)));
+        }
+        return result;
+    }
+
+    private List<Candidate> adjacentTextEvidence(List<DocumentBlock> blocks,
+                                                 List<Candidate> chosen,
+                                                 int radius) {
+        if (radius <= 0 || chosen.isEmpty()) return List.of();
+        Set<String> existing = chosen.stream().map(item -> item.block().id())
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        List<Candidate> result = new ArrayList<>();
+        for (Candidate anchor : chosen.stream().limit(4).toList()) {
+            blocks.stream()
+                    .filter(block -> !existing.contains(block.id()))
+                    .filter(block -> block.role() == DocumentBlockRole.BODY
+                            || block.role() == DocumentBlockRole.CAPTION
+                            || block.role() == DocumentBlockRole.FORMULA
+                            || block.role() == DocumentBlockRole.TABLE)
+                    .filter(block -> block.page() == anchor.block().page())
+                    .filter(block -> block.sectionPath().equals(anchor.block().sectionPath()))
+                    .filter(block -> sameColumn(anchor.block().bbox(), block.bbox()))
+                    .filter(block -> Math.abs(block.readingOrder() - anchor.block().readingOrder()) <= radius)
+                    .sorted(Comparator.comparingInt(block ->
+                            Math.abs(block.readingOrder() - anchor.block().readingOrder())))
+                    .limit(radius)
+                    .forEach(block -> {
+                        if (!existing.add(block.id())) return;
+                        result.add(new Candidate(block, Math.max(0.12, anchor.score() - 0.16), true,
+                                Map.of("ADJACENT_CONTEXT", 1.0)));
+                    });
         }
         return result;
     }

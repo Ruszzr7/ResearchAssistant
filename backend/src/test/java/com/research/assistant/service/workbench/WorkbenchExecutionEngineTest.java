@@ -105,7 +105,8 @@ class WorkbenchExecutionEngineTest {
         engine = new WorkbenchExecutionEngine(
                 traceService, artifactService, anchorResolver, localEvidenceService, wholeEvidenceService,
                 modelService, new WorkbenchEvidenceGate(), new WorkbenchOutputQualityGate(), reportService,
-                contextAssembler, observationService, paperMapper, objectMapper, visualEvidenceService);
+                contextAssembler, observationService, paperMapper, objectMapper, visualEvidenceService,
+                new WorkbenchEvidencePackager());
     }
 
     @Test
