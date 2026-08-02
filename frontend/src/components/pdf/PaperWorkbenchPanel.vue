@@ -503,6 +503,7 @@ async function sendSelectionMessage() {
       role: 'assistant',
       content: completed.result?.answer || '',
       claims: completed.result?.claims || [],
+      answerBlocks: completed.result?.answerBlocks || [],
       evidence: completed.result?.evidence || [],
       regionFallback: Boolean(completed.result?.regionFallback),
     })
@@ -518,6 +519,7 @@ async function sendSelectionMessage() {
           content: completed.result?.answer || '', runId: completed.runId,
           evidence: {
             claims: completed.result?.claims || [],
+            answerBlocks: completed.result?.answerBlocks || [],
             evidence: completed.result?.evidence || [],
             regionFallback: Boolean(completed.result?.regionFallback),
             conversationId,
@@ -605,6 +607,7 @@ async function restoreResearchMessages(sessionId) {
       role: message.role === 'USER' ? 'user' : 'assistant',
       content: message.content || '',
       claims: message.evidence?.claims || [],
+      answerBlocks: message.evidence?.answerBlocks || [],
       evidence: message.evidence?.evidence || [],
       regionFallback: Boolean(message.evidence?.regionFallback),
       selectionAnchor: message.selectionAnchor || null,
@@ -679,7 +682,7 @@ function messageEvidenceForClaim(message, claim) {
 }
 
 function citedAnswer(message) {
-  return buildCitedAnswer(message.content, message.claims, message.evidence)
+  return buildCitedAnswer(message.content, message.claims, message.evidence, message.answerBlocks)
 }
 
 function jumpCitation(message, evidenceId) {

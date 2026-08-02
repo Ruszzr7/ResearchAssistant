@@ -306,7 +306,7 @@ public class WorkbenchExecutionEngine {
         WorkbenchWorkflowResult result = new WorkbenchWorkflowResult(
                 trace.runId(), trace.plan().workflow(), trace.plan().scope(), trace.invocation().paperIds(),
                 answer, output.claims(), evidence, output.annotationSuggestion(), regionFallback,
-                passedTrace.metrics().repairCount());
+                passedTrace.metrics().repairCount(), output.answerBlocks());
         traceService.checkpointResult(trace.runId(), result);
         return result;
     }

@@ -23,4 +23,25 @@ describe('answer citations', () => {
 
     expect(cited).toContain('随后通过功率分配降低传输时延。[1](#evidence-lay-method)')
   })
+
+  it('renders directly bound answer blocks without fuzzy sentence matching', () => {
+    const cited = buildCitedAnswer('legacy answer', [], [
+      { evidenceId: 'lay-sinr', page: 3 },
+    ], [
+      {
+        text: 'SINR 公式位于第三页。',
+        basis: 'PAPER_FACT',
+        citations: [{ evidenceId: 'lay-sinr', quote: 'SINR is defined' }],
+      },
+      {
+        text: '其数值越大通常表示接收条件越好。',
+        basis: 'GENERAL_KNOWLEDGE',
+        citations: [],
+      },
+    ])
+
+    expect(cited).toContain('SINR 公式位于第三页。[1](#evidence-lay-sinr)')
+    expect(cited).toContain('**通用知识：** 其数值越大')
+    expect(cited).not.toContain('legacy answer')
+  })
 })

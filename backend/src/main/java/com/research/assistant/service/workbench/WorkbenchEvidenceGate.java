@@ -46,7 +46,10 @@ public class WorkbenchEvidenceGate {
         List<GroundedClaim> claims = draft == null ? List.of() : draft.claims();
         if (claims.size() > MAX_CLAIMS) issues.add("answer contains more than 100 claims");
         if (effectivePolicy.evidenceRequired() && candidates.isEmpty()) issues.add("evidence set is empty");
-        if (effectivePolicy.evidenceRequired() && claims.isEmpty()) issues.add("grounded claims are required");
+        if (effectivePolicy.evidenceRequired() && claims.isEmpty()
+                && (draft == null || !draft.onlyNonPaperBlocks())) {
+            issues.add("grounded claims are required");
+        }
 
         int evaluatedClaims = 0;
         int groundedClaims = 0;
@@ -121,10 +124,14 @@ public class WorkbenchEvidenceGate {
         }
     }
 
-    public record AnswerDraft(String answer, List<GroundedClaim> claims) {
+    public record AnswerDraft(String answer, List<GroundedClaim> claims, boolean onlyNonPaperBlocks) {
         public AnswerDraft {
             answer = answer == null ? "" : answer.trim();
             claims = claims == null ? List.of() : List.copyOf(claims);
+        }
+
+        public AnswerDraft(String answer, List<GroundedClaim> claims) {
+            this(answer, claims, false);
         }
     }
 

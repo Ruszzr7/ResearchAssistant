@@ -1,5 +1,6 @@
-export function buildCitedAnswer(answer, claims = [], evidence = []) {
+export function buildCitedAnswer(answer, claims = [], evidence = [], answerBlocks = []) {
   const source = String(answer || '')
+  if (answerBlocks?.length) return renderBoundBlocks(answerBlocks, evidence)
   if (!source || !claims?.length || !evidence?.length) return source
 
   const evidenceById = new Map(evidence.map(item => [item.evidenceId, item]))
@@ -33,6 +34,28 @@ export function buildCitedAnswer(answer, claims = [], evidence = []) {
   return fallbackMarkers.length
     ? `${result}\n\n来源：${[...new Set(fallbackMarkers)].join('')}`
     : result
+}
+
+function renderBoundBlocks(blocks, evidence) {
+  const evidenceById = new Map((evidence || []).map(item => [item.evidenceId, item]))
+  const numberById = new Map()
+  let nextNumber = 1
+  return blocks.map(block => {
+    const markers = [...new Set((block?.citations || []).map(item => item?.evidenceId))]
+      .filter(id => evidenceById.has(id))
+      .map(id => {
+        if (!numberById.has(id)) numberById.set(id, nextNumber++)
+        return `[${numberById.get(id)}](#evidence-${encodeURIComponent(id)})`
+      }).join('')
+    const prefix = block?.basis === 'INFERENCE'
+      ? '**据此推断：** '
+      : block?.basis === 'GENERAL_KNOWLEDGE'
+        ? '**通用知识：** '
+        : block?.basis === 'EVIDENCE_LIMIT'
+          ? '**证据限制：** '
+          : ''
+    return `${prefix}${String(block?.text || '').trim()}${markers}`
+  }).filter(Boolean).join('\n\n')
 }
 
 function closestSentenceRange(source, claim) {
