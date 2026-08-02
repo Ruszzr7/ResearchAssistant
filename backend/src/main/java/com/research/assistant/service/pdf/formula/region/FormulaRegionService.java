@@ -147,8 +147,7 @@ public class FormulaRegionService {
                     paperId, page, e.getClass().getSimpleName());
             PaperFormulaRegionRecord record = save(existing, artifact, page, bbox, regionKey,
                     "", 0, FormulaRegionSource.MULTIMODAL, FormulaRegionStatus.REGION);
-            return result(artifact, record, image.dataUrl(),
-                    "当前模型未返回可用公式；可手动填写 LaTeX 后确认");
+            return result(artifact, record, image.dataUrl(), recognitionFailureMessage(e));
         }
 
         FormulaRegionStatus status = candidate.latex().isBlank()
@@ -161,6 +160,17 @@ public class FormulaRegionService {
                 : "识别置信度不足，请校正或手动填写 LaTeX 后确认";
         return completed(result(artifact, record, image.dataUrl(), message),
                 "vision_model", totalStarted);
+    }
+
+    private String recognitionFailureMessage(RuntimeException error) {
+        String message = error.getMessage() == null ? "" : error.getMessage();
+        if (message.contains("截断")) {
+            return "模型输出被截断；可再次固定或手动填写 LaTeX 后确认";
+        }
+        if (message.contains("图片输入")) {
+            return "当前模型不支持图片识别；请手动填写 LaTeX 后确认";
+        }
+        return "当前模型未返回可用公式；可手动填写 LaTeX 后确认";
     }
 
     private FormulaRegionRecognition completed(FormulaRegionRecognition recognition,

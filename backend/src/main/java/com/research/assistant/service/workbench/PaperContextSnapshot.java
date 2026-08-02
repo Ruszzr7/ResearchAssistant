@@ -27,7 +27,7 @@ public record PaperContextSnapshot(String schemaVersion,
                                    boolean truncated,
                                    Instant assembledAt) {
 
-    public static final String SCHEMA_VERSION = "paper-context-v2";
+    public static final String SCHEMA_VERSION = "paper-context-v3";
     public static final int MAX_RETRIEVAL_QUERY_CHARACTERS = 6_000;
 
     public PaperContextSnapshot {
@@ -126,13 +126,15 @@ public record PaperContextSnapshot(String schemaVersion,
         if (!selectedText.isBlank()) appendWithin(value, "\n当前选区：" + selectedText, safeMaximum);
         for (ConversationItem item : conversationTurns.stream()
                 .skip(Math.max(0, conversationTurns.size() - 2L)).toList()) {
-            appendWithin(value, "\n历史追问：" + item.question() + " " + item.answer(), safeMaximum);
+            appendWithin(value, "\n历史追问：" + item.question(), safeMaximum);
         }
-        for (ObservationItem item : relevantObservations) {
-            appendWithin(value, "\n相关观察：" + item.claimText(), safeMaximum);
-        }
-        if (!profileContext.isBlank()) appendWithin(value, "\n论文画像：" + profileContext, safeMaximum);
         return value.toString();
+    }
+
+    /** Recent grounded blocks are a weak follow-up hint, never a replacement for current-query relevance. */
+    public List<String> preferredEvidenceBlockIds() {
+        if (conversationTurns.isEmpty()) return List.of();
+        return conversationTurns.get(conversationTurns.size() - 1).evidenceBlockIds();
     }
 
     /** Stable identity of the canonical, version-bound selection used to assemble this snapshot. */
@@ -195,10 +197,14 @@ public record PaperContextSnapshot(String schemaVersion,
         }
     }
 
-    public record ConversationItem(long turnId, String question, String answer) {
+    public record ConversationItem(long turnId,
+                                   String question,
+                                   String answer,
+                                   List<String> evidenceBlockIds) {
         public ConversationItem {
             question = safe(question, "");
             answer = safe(answer, "");
+            evidenceBlockIds = copy(evidenceBlockIds);
         }
     }
 

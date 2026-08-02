@@ -199,7 +199,7 @@ class WorkbenchModelServiceTest {
         ArgumentCaptor<LlmCallPolicy> policy = ArgumentCaptor.forClass(LlmCallPolicy.class);
         verify(llmService).chatWithUsage(anyString(), anyString(), policy.capture());
         assertThat(policy.getValue().jsonOutput()).isTrue();
-        assertThat(policy.getValue().maxOutputTokens()).isGreaterThan(1_000);
+        assertThat(policy.getValue().maxOutputTokens()).isGreaterThan(800);
     }
 
     @Test

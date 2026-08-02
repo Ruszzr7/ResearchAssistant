@@ -100,6 +100,26 @@ class WorkbenchEvidenceGateTest {
         assertThat(result.issues()).contains("answer does not cite every required paper");
     }
 
+    @Test
+    void zeroRelevanceEvidenceCannotGroundAClaimMerelyBecauseItsIdExists() {
+        LayoutEvidence unrelated = new LayoutEvidence(
+                "lay_unrelated", 1L, "p1-b0001", 1,
+                new NormalizedBoundingBox(0.1, 0.2, 0.3, 0.04),
+                DocumentBlockRole.BODY, 1, List.of("Introduction"), "unrelated text",
+                0, false, 0.9, "a".repeat(64), "parser-v1");
+        WorkbenchEvidenceGate.AnswerDraft draft = new WorkbenchEvidenceGate.AnswerDraft(
+                "unsupported", List.of(new WorkbenchEvidenceGate.GroundedClaim(
+                "unsupported", List.of("lay_unrelated"))));
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                draft, List.of(unrelated), WorkbenchEvidenceGate.GatePolicy.strict(1));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.REJECT);
+        assertThat(result.validEvidenceIds()).isEmpty();
+        assertThat(result.invalidEvidenceIds()).containsExactly("lay_unrelated");
+        assertThat(result.issues()).contains("answer cites evidence with no query relevance");
+    }
+
     private LayoutEvidence evidence(String id) {
         return evidence(id, 1L, true);
     }

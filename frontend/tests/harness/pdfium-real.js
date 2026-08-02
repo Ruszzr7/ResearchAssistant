@@ -1,36 +1,12 @@
-import * as pdfjsLib from 'pdfjs-dist'
-import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { createPdfInteractionEngine } from '/src/services/pdfiumInteractionEngine.js'
 import { segmentPdfSelection } from '/src/utils/pdfContentSegments.js'
 import { normalizePdfSelectionText } from '/src/utils/pdfSelectionText.js'
 import {
-  boundingBoxToViewportQuad,
   normalizePdfiumContentSegments,
 } from '/src/utils/pdfSelectionAnchor.js'
-import { createPdfSelectionPreview } from '/src/utils/pdfSelectionPreview.js'
 
 const output = document.querySelector('#result')
 const pdfUrl = new URLSearchParams(location.search).get('pdf')
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
-
-async function renderSelectionPreview(selection) {
-  const loadingTask = pdfjsLib.getDocument(pdfUrl)
-  const pdfDocument = await loadingTask.promise
-  try {
-    const page = await pdfDocument.getPage(selection.pageIndex + 1)
-    const viewport = page.getViewport({ scale: 1.5 })
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.ceil(viewport.width)
-    canvas.height = Math.ceil(viewport.height)
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
-    return createPdfSelectionPreview(
-      canvas,
-      selection.rects.map(boundingBoxToViewportQuad).filter(Boolean),
-    )
-  } finally {
-    await pdfDocument.destroy()
-  }
-}
 
 async function run() {
   if (!pdfUrl) throw new Error('Missing pdf query parameter')
@@ -53,15 +29,6 @@ async function run() {
       denseSelection?.charEnd || 0,
     )
     const denseText = normalizePdfSelectionText(denseSelection?.text)
-    const densePreview = denseSelection ? await renderSelectionPreview(denseSelection) : null
-    if (densePreview?.dataUrl) {
-      const image = document.createElement('img')
-      image.id = 'selection-preview'
-      image.alt = 'PDF real selection preview'
-      image.src = densePreview.dataUrl
-      document.body.append(image)
-      await image.decode()
-    }
     const hitRect = pageThreeMatch?.rects?.[0]
     const hit = hitRect ? await engine.hitTest(2, {
       x: hitRect.x + hitRect.width / 2,
@@ -78,8 +45,6 @@ async function run() {
       pageThreeReadableHasLineBreak: /[\r\n]/u.test(denseText.readableText),
       pageThreeReadableHasIllegalCharacter: /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffd\ue000-\uf8ff]/u
         .test(denseText.readableText),
-      pageThreePreviewWidth: densePreview?.width || 0,
-      pageThreePreviewHeight: densePreview?.height || 0,
       pageThreeDenseMinimumX: Math.min(...(denseSelection?.rects || []).map(rect => rect.x)),
       pageThreeHitDelta: hit ? Math.abs(hit.charIndex - pageThreeMatch.charStart) : null,
       pageThreePayloadSegmentCount: payloadSegments.length,

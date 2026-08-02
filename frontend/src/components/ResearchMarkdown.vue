@@ -1,5 +1,5 @@
 <template>
-  <div class="research-markdown" v-html="rendered" />
+  <div class="research-markdown" v-html="rendered" @click="handleClick" />
 </template>
 
 <script setup>
@@ -9,8 +9,17 @@ import { renderResearchMarkdown } from '@/utils/researchMarkdown.js'
 const props = defineProps({
   content: { type: String, default: '' },
 })
+const emit = defineEmits(['citation-click'])
 
 const rendered = computed(() => renderResearchMarkdown(props.content))
+
+function handleClick(event) {
+  const link = event.target?.closest?.('a[href^="#evidence-"]')
+  if (!link) return
+  event.preventDefault()
+  const encoded = link.getAttribute('href').slice('#evidence-'.length)
+  emit('citation-click', decodeURIComponent(encoded))
+}
 </script>
 
 <style scoped>
@@ -66,4 +75,19 @@ const rendered = computed(() => renderResearchMarkdown(props.content))
   padding: 2px 0;
 }
 .research-markdown :deep(a) { color: var(--ra-link); }
+.research-markdown :deep(a[href^="#evidence-"]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin: 0 2px;
+  border-radius: 5px;
+  background: var(--ra-primary-soft);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  vertical-align: 2px;
+}
 </style>

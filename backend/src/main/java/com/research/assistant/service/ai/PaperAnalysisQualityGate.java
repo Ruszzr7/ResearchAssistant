@@ -32,10 +32,9 @@ public final class PaperAnalysisQualityGate {
     /**
      * 校验并就地归一化 POJO。
      *
-     * @param result        LangChain4j 反序列化结果
-     * @param researchTopic 当前研究主题；为空时会清理相关性评分
+     * @param result LangChain4j 反序列化结果
      */
-    public QualityReport validateAndRepair(PaperAnalysisResult result, String researchTopic) {
+    public QualityReport validateAndRepair(PaperAnalysisResult result) {
         if (result == null) {
             return QualityReport.invalid(List.of("result is null"));
         }
@@ -46,7 +45,6 @@ public final class PaperAnalysisQualityGate {
         repaired |= trimField(result.getDomain(), result::setDomain);
         repaired |= trimField(result.getCoreContribution(), result::setCoreContribution);
         repaired |= trimField(result.getMethodSummary(), result::setMethodSummary);
-        repaired |= trimField(result.getRelevanceReason(), result::setRelevanceReason);
 
         String normalizedMethodType = normalizeEnum(result.getMethodType(), METHOD_TYPES);
         if (!same(result.getMethodType(), normalizedMethodType)) {
@@ -66,23 +64,6 @@ public final class PaperAnalysisQualityGate {
         repaired |= normalizeArtifacts(result, issues);
         repaired |= normalizeExperimentSetup(result, issues);
         repaired |= normalizeBenchmarks(result, issues);
-
-        Integer score = result.getRelevanceScore();
-        boolean hasTopic = researchTopic != null && !researchTopic.isBlank();
-        if (!hasTopic && (score != null || hasText(result.getRelevanceReason()))) {
-            result.setRelevanceScore(null);
-            result.setRelevanceReason(null);
-            repaired = true;
-            issues.add("relevance cleared without research topic");
-        } else if (score != null && (score < 1 || score > 10)) {
-            result.setRelevanceScore(Math.max(1, Math.min(10, score)));
-            repaired = true;
-            issues.add("relevanceScore clamped to 1..10");
-        } else if (score == null && hasText(result.getRelevanceReason())) {
-            result.setRelevanceReason(null);
-            repaired = true;
-            issues.add("relevanceReason cleared without score");
-        }
 
         boolean missingCoreContribution = !hasText(result.getCoreContribution());
         boolean missingMethodSummary = !hasText(result.getMethodSummary());
@@ -104,7 +85,7 @@ public final class PaperAnalysisQualityGate {
     /**
      * 对旧 fallback JSON 做同样的边界校验。节点会被就地归一化，便于后续字段映射复用。
      */
-    public QualityReport validateAndRepairFallback(JsonNode root, String researchTopic) {
+    public QualityReport validateAndRepairFallback(JsonNode root) {
         if (root == null || !root.isObject()) {
             return QualityReport.invalid(List.of("fallback root is not an object"));
         }
@@ -158,31 +139,6 @@ public final class PaperAnalysisQualityGate {
             issues.add("experiment_setup replaced because it was not an object");
         }
 
-        Integer score = parseScore(object.get("relevance_score"));
-        boolean hasTopic = researchTopic != null && !researchTopic.isBlank();
-        if (!hasTopic) {
-            if (object.hasNonNull("relevance_score") || hasText(normalizeTextNode(object, "relevance_reason"))) {
-                repaired = true;
-                issues.add("relevance cleared without research topic");
-            }
-            object.putNull("relevance_score");
-            object.putNull("relevance_reason");
-        } else if (score != null) {
-            if (score < 1 || score > 10) {
-                score = Math.max(1, Math.min(10, score));
-                repaired = true;
-                issues.add("relevance_score clamped to 1..10");
-            }
-            object.put("relevance_score", score);
-        } else {
-            object.putNull("relevance_score");
-            if (object.hasNonNull("relevance_reason")) {
-                object.putNull("relevance_reason");
-                repaired = true;
-                issues.add("relevance_reason cleared without score");
-            }
-        }
-
         boolean missingCoreContribution = !hasText(coreContribution);
         boolean missingMethodSummary = !hasText(methodSummary);
         boolean missingMethodType = !hasText(methodType);
@@ -202,17 +158,6 @@ public final class PaperAnalysisQualityGate {
         String value = node.asText("").trim();
         object.put(field, value);
         return value;
-    }
-
-    private Integer parseScore(JsonNode node) {
-        if (node == null || node.isNull()) return null;
-        if (node.isIntegralNumber()) return node.intValue();
-        try {
-            String value = node.asText("").trim();
-            return value.isEmpty() || "null".equalsIgnoreCase(value) ? null : Integer.valueOf(value);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 
     private boolean normalizeSections(PaperAnalysisResult result, List<String> issues) {

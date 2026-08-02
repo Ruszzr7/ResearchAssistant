@@ -17,6 +17,9 @@
             <el-option v-for="item in channelOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
+        <el-form-item label="Base URL">
+          <el-input v-model="baseUrl" placeholder="供应商默认地址" size="large" />
+        </el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="apiKey" type="password" show-password placeholder="例如 sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" size="large" />
         </el-form-item>
@@ -24,15 +27,6 @@
           <el-select v-model="model" filterable allow-create default-first-option style="width:100%" size="large">
             <el-option v-for="item in modelOptions" :key="item" :label="item" :value="item" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="Base URL">
-          <el-input v-model="baseUrl" placeholder="供应商默认地址" size="large" />
-        </el-form-item>
-        <el-form-item label="研究主题">
-          <el-input v-model="researchTopic" type="textarea" :rows="2" placeholder="例如：多模态大模型在医疗影像中的应用" size="large" />
-          <p class="field-hint">
-            用于分析论文与本研究方向的匹配度，影响入库时的相关性评分与推荐理由。
-          </p>
         </el-form-item>
       </el-form>
 
@@ -50,27 +44,6 @@
         <div v-if="testResult.capabilities" class="capability-list">
           <span v-for="(value, key) in testResult.capabilities" :key="key">{{ capabilityLabel(key) }}：{{ value }}</span>
         </div>
-      </div>
-    </div>
-
-    <div class="settings-card">
-      <h2>Embedding 设置</h2>
-      <p class="settings-desc">
-        Embedding 与聊天模型独立配置。留空时 RAG 自动降级为关键词检索，不再错误调用聊天供应商的 Embedding 接口。
-      </p>
-      <el-form label-width="120px" label-position="left" class="settings-form">
-        <el-form-item label="API Key">
-          <el-input v-model="embeddingApiKey" type="password" show-password placeholder="Embedding 服务 API Key" size="large" />
-        </el-form-item>
-        <el-form-item label="模型">
-          <el-input v-model="embeddingModel" placeholder="例如 text-embedding-3-small" size="large" />
-        </el-form-item>
-        <el-form-item label="Base URL">
-          <el-input v-model="embeddingBaseUrl" placeholder="例如 https://api.openai.com/v1" size="large" />
-        </el-form-item>
-      </el-form>
-      <div class="settings-actions">
-        <el-button type="primary" @click="saveSettings" :loading="saving" size="large">保存设置</el-button>
       </div>
     </div>
 
@@ -265,11 +238,6 @@ const aiProvider = ref('kimi')
 const aiChannel = ref('coding')
 const model = ref('')
 const baseUrl = ref('')
-const embeddingApiKey = ref('')
-const savedEmbeddingApiKey = ref('')
-const embeddingModel = ref('')
-const embeddingBaseUrl = ref('')
-const researchTopic = ref('')
 const testing = ref(false)
 const saving = ref(false)
 const testResult = ref(null)
@@ -317,13 +285,6 @@ async function loadSettings() {
       if (item.keyName === 'base_url') baseUrl.value = item.value || ''
       if (item.keyName === 'ai_provider') aiProvider.value = item.value || ''
       if (item.keyName === 'ai_channel') aiChannel.value = item.value || ''
-      if (item.keyName === 'embedding_api_key') {
-        embeddingApiKey.value = item.value || ''
-        savedEmbeddingApiKey.value = item.value || ''
-      }
-      if (item.keyName === 'embedding_model') embeddingModel.value = item.value || ''
-      if (item.keyName === 'embedding_base_url') embeddingBaseUrl.value = item.value || ''
-      if (item.keyName === 'research_topic') researchTopic.value = item.value || ''
       if (item.keyName === 'openalex_enabled') openalexEnabled.value = item.value === 'true'
       if (item.keyName === 'ieee_xplore_enabled') ieeeXploreEnabled.value = item.value === 'true'
       if (item.keyName === 'ieee_xplore_api_key') {
@@ -397,9 +358,7 @@ async function saveSettings() {
 async function doSave() {
   const payload = []
   const keyValue = apiKey.value.trim()
-  const embeddingKeyValue = embeddingApiKey.value.trim()
   const changedApiKey = Boolean(keyValue && keyValue !== savedApiKey.value)
-  const changedEmbeddingKey = embeddingKeyValue !== savedEmbeddingApiKey.value
   const changedIeeeKey = Boolean(ieeeXploreApiKey.value.trim() && ieeeXploreApiKey.value !== savedIeeeXploreApiKey.value)
   const changedAcmKey = Boolean(acmDlApiKey.value.trim() && acmDlApiKey.value !== savedAcmDlApiKey.value)
   const changedZoteroKey = Boolean(zoteroApiKey.value.trim() && zoteroApiKey.value !== savedZoteroApiKey.value)
@@ -411,12 +370,6 @@ async function doSave() {
   payload.push({ keyName: 'ai_channel', value: aiChannel.value })
   payload.push({ keyName: 'model', value: model.value })
   payload.push({ keyName: 'base_url', value: baseUrl.value })
-  payload.push({ keyName: 'research_topic', value: researchTopic.value })
-  if (changedEmbeddingKey) {
-    payload.push({ keyName: 'embedding_api_key', value: embeddingKeyValue })
-  }
-  payload.push({ keyName: 'embedding_model', value: embeddingModel.value.trim() })
-  payload.push({ keyName: 'embedding_base_url', value: embeddingBaseUrl.value.trim() })
   payload.push({ keyName: 'openalex_enabled', value: String(openalexEnabled.value) })
   payload.push({ keyName: 'ieee_xplore_enabled', value: String(ieeeXploreEnabled.value) })
   if (changedIeeeKey) {
@@ -462,7 +415,6 @@ async function doSave() {
   if (payload.length) {
     await api.put('/settings', payload)
     if (changedApiKey) savedApiKey.value = keyValue
-    if (changedEmbeddingKey) savedEmbeddingApiKey.value = embeddingKeyValue
     if (changedIeeeKey) savedIeeeXploreApiKey.value = ieeeXploreApiKey.value.trim()
     if (changedAcmKey) savedAcmDlApiKey.value = acmDlApiKey.value.trim()
     if (changedZoteroKey) savedZoteroApiKey.value = zoteroApiKey.value.trim()
@@ -492,7 +444,6 @@ function capabilityLabel(key) {
     stream: '流式输出',
     structured: '结构化输出',
     vision: '图片输入',
-    embedding: 'Embedding',
   }[key] || key
 }
 

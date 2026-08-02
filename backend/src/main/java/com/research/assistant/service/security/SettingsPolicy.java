@@ -24,8 +24,7 @@ public final class SettingsPolicy {
     private static final Pattern CONTROL_CHARS = Pattern.compile("[\\u0000-\\u001f\\u007f]");
 
     private static final Set<String> ALLOWED_KEYS = Set.of(
-            "ai_provider", "ai_channel", "api_key", "base_url", "model", "research_topic",
-            "embedding_api_key", "embedding_base_url", "embedding_model",
+            "ai_provider", "ai_channel", "api_key", "base_url", "model",
             "openalex_enabled", "ieee_xplore_enabled", "ieee_xplore_api_key",
             "acm_dl_enabled", "acm_dl_api_url", "acm_dl_api_key",
             "semantic_scholar_api_key",
@@ -55,7 +54,7 @@ public final class SettingsPolicy {
     );
 
     private static final Set<String> URL_KEYS = Set.of(
-            "base_url", "embedding_base_url", "acm_dl_api_url", "deepl_api_base_url");
+            "base_url", "acm_dl_api_url", "deepl_api_base_url");
 
     private static final Set<String> SENSITIVE_EXACT_KEYS = Set.of("zotero_collection_key");
 

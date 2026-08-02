@@ -22,15 +22,20 @@ public class WorkbenchEvidenceGate {
                                GatePolicy policy) {
         GatePolicy effectivePolicy = policy == null ? GatePolicy.strict(0) : policy;
         Set<String> candidates = new LinkedHashSet<>();
+        Set<String> presentButUngrounded = new LinkedHashSet<>();
         java.util.Map<String, Long> paperByEvidenceId = new java.util.LinkedHashMap<>();
         Set<String> selectedEvidenceIds = new LinkedHashSet<>();
         if (evidenceSet != null) {
             evidenceSet.stream()
                     .filter(item -> item != null && item.evidenceId() != null && !item.evidenceId().isBlank())
                     .forEach(item -> {
-                        candidates.add(item.evidenceId());
-                        paperByEvidenceId.put(item.evidenceId(), item.paperId());
-                        if (item.selected()) selectedEvidenceIds.add(item.evidenceId());
+                        if (item.selected() || item.score() > 0) {
+                            candidates.add(item.evidenceId());
+                            paperByEvidenceId.put(item.evidenceId(), item.paperId());
+                            if (item.selected()) selectedEvidenceIds.add(item.evidenceId());
+                        } else {
+                            presentButUngrounded.add(item.evidenceId());
+                        }
                     });
         }
 
@@ -47,6 +52,7 @@ public class WorkbenchEvidenceGate {
         int groundedClaims = 0;
         Set<String> validIds = new LinkedHashSet<>();
         Set<String> invalidIds = new LinkedHashSet<>();
+        Set<String> irrelevantIds = new LinkedHashSet<>();
 
         for (int index = 0; index < Math.min(claims.size(), MAX_CLAIMS); index++) {
             GroundedClaim claim = claims.get(index);
@@ -63,6 +69,8 @@ public class WorkbenchEvidenceGate {
                 if (candidates.contains(evidenceId)) {
                     validIds.add(evidenceId);
                     hasValidCitation = true;
+                } else if (presentButUngrounded.contains(evidenceId)) {
+                    irrelevantIds.add(evidenceId);
                 } else if (evidenceId != null && !evidenceId.isBlank()) {
                     invalidIds.add(evidenceId);
                 }
@@ -71,6 +79,7 @@ public class WorkbenchEvidenceGate {
         }
 
         if (!invalidIds.isEmpty()) issues.add("answer cites evidence outside the current run");
+        if (!irrelevantIds.isEmpty()) issues.add("answer cites evidence with no query relevance");
         Set<Long> citedPaperIds = validIds.stream().map(paperByEvidenceId::get)
                 .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
         if (!citedPaperIds.containsAll(effectivePolicy.requiredPaperIds())) {
@@ -90,7 +99,10 @@ public class WorkbenchEvidenceGate {
                 ? Decision.PASS
                 : effectivePolicy.repairAttempt() < effectivePolicy.repairLimit()
                 ? Decision.REPAIR : Decision.REJECT;
-        return new GateResult(decision, coverage, List.copyOf(validIds), List.copyOf(invalidIds), List.copyOf(issues));
+        Set<String> rejectedIds = new LinkedHashSet<>(invalidIds);
+        rejectedIds.addAll(irrelevantIds);
+        return new GateResult(decision, coverage, List.copyOf(validIds),
+                List.copyOf(rejectedIds), List.copyOf(issues));
     }
 
     public enum Decision {

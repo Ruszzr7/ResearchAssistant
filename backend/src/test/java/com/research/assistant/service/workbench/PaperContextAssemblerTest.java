@@ -93,7 +93,9 @@ class PaperContextAssemblerTest {
         assertThat(snapshot.modelQuestion(1_200)).hasSizeLessThanOrEqualTo(1_200)
                 .endsWith("当前问题：它有什么作用？");
         assertThat(snapshot.retrievalQuery())
-                .contains("当前选区：selected text", "历史追问：", "相关观察：");
+                .contains("当前选区：selected text", "历史追问：")
+                .doesNotContain("相关观察：", "论文画像：");
+        assertThat(snapshot.preferredEvidenceBlockIds()).containsExactly("p1-b0001");
         assertThat(snapshot.selectionFingerprint()).hasSize(64);
         verify(traceService).saveContextSnapshot(
                 eq(trace.runId()), eq(PaperContextSnapshot.SCHEMA_VERSION), any(PaperContextSnapshot.class));
@@ -160,6 +162,39 @@ class PaperContextAssemblerTest {
         assertThat(snapshot.retrievalQuery(64)).hasSizeLessThanOrEqualTo(64);
     }
 
+    @Test
+    void paperConversationUsesItsOwnHistoryAndProfileWithoutInventingASelection() {
+        WorkbenchRunTrace trace = traceWithoutSelection("run-paper-chat", "paper-thread-2");
+        when(traceService.readContextSnapshot(trace.runId(), PaperContextSnapshot.class)).thenReturn(null);
+        when(observationService.recentConversation(
+                7L, "paper-thread-2", HASH, PARSER, 8))
+                .thenReturn(List.of(turn(3, "本对话上一问", "本对话上一答")));
+        when(observationService.relevantObservations(
+                eq(7L), eq(HASH), eq(PARSER), anyString(), eq("paper-thread-2"), eq(8)))
+                .thenReturn(List.of());
+        PaperMemoryRecord memory = new PaperMemoryRecord();
+        memory.setProfileJson("""
+                {
+                  "schemaVersion":"paper-profile-v1",
+                  "paperId":7,
+                  "researchProblem":"论文画像中的研究问题",
+                  "methodSummary":"论文画像中的方法"
+                }
+                """);
+        when(memoryMapper.selectVersion(7L, HASH, PARSER, PaperStructure.SCHEMA_VERSION))
+                .thenReturn(memory);
+
+        PaperContextSnapshot snapshot = assembler.assemble(trace, null);
+
+        assertThat(snapshot.conversationId()).isEqualTo("paper-thread-2");
+        assertThat(snapshot.selectedText()).isEmpty();
+        assertThat(snapshot.selectedBlockIds()).isEmpty();
+        assertThat(snapshot.selectionFingerprint()).isEqualTo("none");
+        assertThat(snapshot.modelQuestion())
+                .contains("本对话上一问", "论文画像中的研究问题", "当前问题：继续解释");
+        assertThat(snapshot.retrievalQuery()).doesNotContain("当前选区：");
+    }
+
     private WorkbenchRunTrace trace(String runId) {
         return trace(runId, "它有什么作用？");
     }
@@ -173,6 +208,19 @@ class PaperContextAssemblerTest {
                 List.of(7L), question, WorkbenchIntent.ASK_SELECTION,
                 WorkbenchPlan.Scope.SELECTION, anchor, 6, 10_000,
                 "", "session-91");
+        WorkbenchPlan plan = new WorkbenchRuleRouter().route(invocation);
+        LocalDateTime now = LocalDateTime.now();
+        return new WorkbenchRunTrace(
+                runId, "task", WorkbenchRunStatus.RUNNING, invocation, plan,
+                List.of(new WorkbenchPlan.ArtifactVersion(7L, HASH, PARSER, 0.9)),
+                null, null, null, null, now, null, now, now, List.of());
+    }
+
+    private WorkbenchRunTrace traceWithoutSelection(String runId, String conversationId) {
+        WorkbenchInvocation invocation = new WorkbenchInvocation(
+                List.of(7L), "继续解释", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 10_000,
+                "", conversationId);
         WorkbenchPlan plan = new WorkbenchRuleRouter().route(invocation);
         LocalDateTime now = LocalDateTime.now();
         return new WorkbenchRunTrace(

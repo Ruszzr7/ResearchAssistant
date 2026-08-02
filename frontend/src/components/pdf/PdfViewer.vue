@@ -1,6 +1,9 @@
 <template>
   <div class="pdf-viewer">
-    <div class="pdf-toolbar">
+    <div
+      class="pdf-toolbar"
+      :style="{ marginRight: workbenchPanelVisible ? `${assistantPanelWidth + 8}px` : '0px' }"
+    >
       <div class="pdf-toolbar-left">
         <span class="pdf-title">{{ paper?.title }}</span>
         <slot name="toolbar-extra" />
@@ -220,9 +223,11 @@
               rx="3"
             />
           </g>
-          <g v-if="evidenceFocusForPage(page.pageNum)" class="evidence-focus-preview">
+          <g v-if="evidenceFocusForPage(page.pageNum).length" class="evidence-focus-preview">
             <polygon
-              :points="quadPoints(evidenceFocusForPage(page.pageNum), page, viewportCoordinates)"
+              v-for="(quad, focusIndex) in evidenceFocusForPage(page.pageNum)"
+              :key="focusIndex"
+              :points="quadPoints(quad, page, viewportCoordinates)"
               fill="#ff9800"
               fill-opacity="0.18"
               stroke="#ff9800"
@@ -444,8 +449,6 @@
         :formula-confirming="formulaConfirming"
         :formula-error="formulaRecognitionError"
         :capture-mode="workbenchCaptureMode"
-        :initial-mode="initialWorkbenchMode"
-        :initial-paper-ids="initialWorkbenchPaperIds"
         :research-session-id="researchSessionId"
         @clear-selection="clearPendingTextSelection"
         @clear-formula="clearFormulaAndContinueCapture"
@@ -453,8 +456,7 @@
         @confirm-formula="confirmCurrentFormulaRegion"
         @capture-mode-change="selectWorkbenchCaptureMode"
         @jump-evidence="jumpToEvidence"
-        @mode-change="$emit('workbench-mode-change', $event)"
-        @paper-ids-change="$emit('workbench-paper-ids-change', $event)"
+        @add-comparison-paper="openComparisonPaperInterface"
         @research-session-change="$emit('research-session-change', $event)"
       />
 
@@ -572,10 +574,6 @@ import { createPdfInteractionEngine } from '@/services/pdfiumInteractionEngine.j
 import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
 import { normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
 import {
-  createPdfSelectionPreview,
-  selectionNeedsVisualFallback,
-} from '@/utils/pdfSelectionPreview.js'
-import {
   invalidatePageRenderSurface,
   pageRenderSurfaceIsUsable,
 } from '@/utils/pdfRenderLifecycle.js'
@@ -585,14 +583,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 const props = defineProps({
   paper: { type: Object, required: true },
   initialEvidence: { type: Object, default: null },
-  initialWorkbenchMode: { type: String, default: '' },
-  initialWorkbenchPaperIds: { type: Array, default: () => [] },
   researchSessionId: { type: Number, default: null },
   initialPage: { type: Number, default: 1 },
 })
 
 const emit = defineEmits([
-  'close', 'open-paper-evidence', 'workbench-mode-change', 'workbench-paper-ids-change', 'research-session-change', 'page-change',
+  'close', 'open-paper-evidence', 'research-session-change', 'page-change',
 ])
 
 const containerRef = ref(null)
@@ -727,8 +723,8 @@ const selectionGroupForPage = computed(() => (pageNum) => (
 ))
 const evidenceFocusForPage = computed(() => (pageNum) => (
   evidenceFocus.value?.page === pageNum
-    ? boundingBoxToViewportQuad(evidenceFocus.value.bbox)
-    : null
+    ? evidenceFocus.value.boxes.map(boundingBoxToViewportQuad).filter(Boolean)
+    : []
 ))
 function formulaRegionRectForPage(page) {
   if (!formulaRegion.value?.bbox || formulaRegion.value.page !== page?.pageNum) return null
@@ -1489,7 +1485,6 @@ async function beginTextSelection(event, pageNum) {
   if (formulaRegion.value) clearFormulaRegion()
   const layer = event.currentTarget
   event.preventDefault()
-  clearPendingTextSelection()
   const anchor = await pdfiumEndpointAtPoint(pageNum, layer, event.clientX, event.clientY)
   if (!anchor || currentTool.value !== 'select') return
 
@@ -1562,10 +1557,10 @@ function applyPdfiumSelection(drag, selection) {
   const contentSegments = segmentPdfSelection(selection.runs, selection.pageSize)
   const normalizedText = normalizePdfSelectionText(selection.text)
   if (!normalizedText.readableText) return
-  const needsVisualFallback = selectionNeedsVisualFallback(contentSegments, normalizedText)
-  const preview = needsVisualFallback
-    ? createPdfSelectionPreview(canvasRefs.value[drag.pageNum], quads)
-    : null
+  selectionContextRequestId += 1
+  selectionAnchor.value = null
+  selectionContextLoading.value = false
+  selectionContextError.value = ''
   pendingTextSelection.value = {
     groups: [{ pageNum: drag.pageNum, pageState: drag.pageState, quads }],
     text: normalizedText.readableText,
@@ -1575,12 +1570,6 @@ function applyPdfiumSelection(drag, selection) {
       hasExtractionIssues: normalizedText.hasExtractionIssues,
       removedCharacterCount: normalizedText.removedCharacterCount,
     },
-    visualFallback: preview ? {
-      ...preview,
-      reason: normalizedText.hasExtractionIssues
-        ? 'PDF 数学字体包含无法可靠映射的字符，公式以原页图像为准。'
-        : '选区包含数学内容，公式排版以原页图像为准。',
-    } : null,
     contentSegments,
     textAnchor: {
       version: 2,
@@ -1618,6 +1607,10 @@ async function resolvePendingSelectionContext(selection) {
   }
 }
 
+function openComparisonPaperInterface() {
+  ElMessage.info('对比文献接口已预留，后续将在当前对话中添加文献')
+}
+
 async function jumpToEvidence(item) {
   if (!item?.page || !item?.bbox) return
   if (Number(item.paperId) !== Number(props.paper.id)) {
@@ -1625,12 +1618,81 @@ async function jumpToEvidence(item) {
     return
   }
   await goToPage(item.page)
-  evidenceFocus.value = { page: item.page, bbox: item.bbox }
+  const exactBoxes = await locateEvidenceText(item)
+  evidenceFocus.value = {
+    page: item.page,
+    boxes: exactBoxes.length ? exactBoxes : [item.bbox],
+    precision: exactBoxes.length ? 'TEXT' : 'BLOCK',
+  }
+  if (!exactBoxes.length) {
+    ElMessage.info('已定位到来源段落；PDF 字符映射不足，无法进一步精确到句子')
+  }
   if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
   evidenceFocusTimer = window.setTimeout(() => {
     evidenceFocus.value = null
     evidenceFocusTimer = null
   }, 8000)
+}
+
+async function locateEvidenceText(item) {
+  if (!pdfInteractionReady.value || !pdfInteractionEngine) return []
+  const phrases = evidenceSearchPhrases(item.text)
+  for (const phrase of phrases) {
+    try {
+      const matches = await pdfInteractionEngine.search(phrase)
+      const match = matches.find(candidate => (
+        candidate.pageIndex + 1 === item.page
+        && candidate.rects?.some(rect => boxesOverlap(rect, item.bbox))
+      ))
+      if (match?.rects?.length) return match.rects
+    } catch {
+      return []
+    }
+  }
+  const keywordBoxes = []
+  for (const term of evidenceSearchTerms(item.text)) {
+    try {
+      const matches = await pdfInteractionEngine.search(term)
+      const match = matches.find(candidate => (
+        candidate.pageIndex + 1 === item.page
+        && candidate.rects?.some(rect => boxesOverlap(rect, item.bbox))
+      ))
+      if (match?.rects?.length) keywordBoxes.push(...match.rects)
+    } catch {
+      return []
+    }
+  }
+  if (keywordBoxes.length >= 2) return keywordBoxes
+  return []
+}
+
+function evidenceSearchPhrases(text) {
+  const source = String(text || '').trim()
+  if (!source) return []
+  const fragments = source.split(/(?<=[。！？.!?])|\r?\n/)
+    .map(value => value.trim())
+    .filter(value => value.length >= 18)
+    .sort((first, second) => second.length - first.length)
+  const candidates = [...fragments, source]
+  return [...new Set(candidates.map(value => value.slice(0, 120)).filter(Boolean))].slice(0, 2)
+}
+
+function evidenceSearchTerms(text) {
+  const ignored = new Set([
+    'where', 'which', 'their', 'there', 'these', 'those', 'using', 'based',
+    'paper', 'method', 'results', 'system', 'model', 'with', 'from', 'that',
+  ])
+  return [...new Set(String(text || '').match(/[A-Za-z][A-Za-z0-9_-]{3,}/g) || [])]
+    .filter(term => !ignored.has(term.toLowerCase()))
+    .sort((first, second) => second.length - first.length)
+    .slice(0, 3)
+}
+
+function boxesOverlap(first, second) {
+  if (!first || !second) return false
+  const horizontal = Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x)
+  const vertical = Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y)
+  return horizontal > 0 && vertical > 0
 }
 
 async function applyTextAnnotation(type) {
@@ -1793,7 +1855,7 @@ async function recognizeCurrentFormulaRegion() {
     }
   } catch (error) {
     if (formulaRegion.value === region) {
-      formulaRecognitionError.value = requestErrorMessage(error) || '公式识别失败'
+      formulaRecognitionError.value = requestErrorMessage(error) || '公式固定准备失败'
     }
   } finally {
     if (formulaRegion.value === region) formulaRecognitionLoading.value = false
@@ -1816,7 +1878,7 @@ async function confirmCurrentFormulaRegion(latex) {
     ElMessage.success('公式已确认')
   } catch (error) {
     if (formulaRecognition.value?.id === recognition.id) {
-      formulaRecognitionError.value = requestErrorMessage(error) || '公式确认失败'
+      formulaRecognitionError.value = requestErrorMessage(error) || '公式固定失败'
     }
   } finally {
     formulaConfirming.value = false
@@ -2333,6 +2395,7 @@ function colorName(color) {
 
 <style scoped>
 .pdf-viewer {
+  --pdf-toolbar-height: 45px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -2344,7 +2407,7 @@ function colorName(color) {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .viewer-body.is-workbench-resizing,
 .viewer-body.is-workbench-resizing * {
@@ -2362,6 +2425,7 @@ function colorName(color) {
   background: transparent;
   cursor: col-resize;
   touch-action: none;
+  margin-top: calc(-1 * var(--pdf-toolbar-height));
 }
 .workbench-divider::before {
   position: absolute;
@@ -2390,6 +2454,9 @@ function colorName(color) {
   gap: 12px;
   flex-shrink: 0;
   overflow-x: auto;
+  min-height: var(--pdf-toolbar-height);
+  box-sizing: border-box;
+  transition: margin-right .16s ease;
 }
 .pdf-toolbar-left, .pdf-toolbar-right {
   display: flex;

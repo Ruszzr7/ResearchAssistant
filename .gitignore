@@ -25,6 +25,7 @@ backups/
 # MCP test artifacts
 .playwright-mcp/
 playwright-mcp-output/
+tmp/
 
 # OS
 .DS_Store

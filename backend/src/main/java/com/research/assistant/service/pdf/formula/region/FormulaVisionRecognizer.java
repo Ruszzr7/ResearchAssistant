@@ -27,7 +27,9 @@ public class FormulaVisionRecognizer {
             If the formula cannot be read, return an empty latex string and confidence 0.
             """;
     private static final LlmCallPolicy POLICY = new LlmCallPolicy(
-            "formula-region-recognition", 2_000, 1_000, 256, 1, true);
+            "formula-region-recognition", 2_000, 1_000, 768, 1, true, "low");
+    private static final LlmCallPolicy LENGTH_RETRY_POLICY = new LlmCallPolicy(
+            "formula-region-recognition-length-retry", 2_000, 1_000, 1_536, 1, true, "low");
     private static final int MAX_CACHED_CANDIDATES = 128;
 
     private final LLMService llmService;
@@ -51,14 +53,12 @@ public class FormulaVisionRecognizer {
             FormulaCandidate cached = candidateCache.get(imageHash);
             if (cached != null) return cached;
         }
-        LlmResponse response = llmService.chatWithImageUsage(
-                SYSTEM_PROMPT,
-                "Transcribe only the formula inside this crop.",
-                png,
-                "image/png",
-                POLICY);
+        LlmResponse response = recognizeWithPolicy(png, POLICY);
         if ("LENGTH".equalsIgnoreCase(response.getFinishReason())) {
-            throw new IllegalArgumentException("公式识别结果被截断");
+            response = recognizeWithPolicy(png, LENGTH_RETRY_POLICY);
+        }
+        if ("LENGTH".equalsIgnoreCase(response.getFinishReason())) {
+            throw new IllegalArgumentException("公式识别输出连续两次被截断，请手动填写 LaTeX");
         }
         try {
             JsonNode root = objectMapper.readTree(JsonUtils.extractJson(response.getContent()));
@@ -75,6 +75,15 @@ public class FormulaVisionRecognizer {
         } catch (Exception e) {
             throw new IllegalArgumentException("公式识别结果格式无效", e);
         }
+    }
+
+    private LlmResponse recognizeWithPolicy(byte[] png, LlmCallPolicy policy) {
+        return llmService.chatWithImageUsage(
+                SYSTEM_PROMPT,
+                "Transcribe only the formula inside this crop.",
+                png,
+                "image/png",
+                policy);
     }
 
     private String sha256(byte[] bytes) {

@@ -51,8 +51,7 @@ public class GoldenEvalService {
         try {
             PaperAnalysisResult result = objectMapper.treeToValue(
                     fixture.path("input"), PaperAnalysisResult.class);
-            PaperAnalysisQualityGate.QualityReport report = qualityGate.validateAndRepair(
-                    result, fixture.path("topic").asText(""));
+            PaperAnalysisQualityGate.QualityReport report = qualityGate.validateAndRepair(result);
             if (report.valid()) {
                 metrics.setValidCases(metrics.getValidCases() + 1);
             } else {

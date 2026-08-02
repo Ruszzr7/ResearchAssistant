@@ -13,7 +13,7 @@ const inputStub = {
 }
 
 describe('FormulaRegionCard', () => {
-  it('does not imply recognition has started before the user requests LaTeX', async () => {
+  it('presents formula conversion as an internal step of fixing the selected content', async () => {
     const wrapper = mount(FormulaRegionCard, {
       props: {
         region: { page: 4, bbox: { x: 0.1, y: 0.2, width: 0.5, height: 0.1 } },
@@ -28,9 +28,9 @@ describe('FormulaRegionCard', () => {
     })
 
     expect(wrapper.get('.formula-region-card__preview-placeholder').text())
-      .toContain('需要可编辑 LaTeX 时')
+      .toContain('固定时会自动生成可编辑 LaTeX')
     const action = wrapper.get('.formula-region-card__actions button')
-    expect(action.text()).toContain('识别为 LaTeX')
+    expect(action.text()).toContain('固定内容')
     await action.trigger('click')
     expect(wrapper.emitted('retry')).toHaveLength(1)
   })
@@ -82,10 +82,37 @@ describe('FormulaRegionCard', () => {
     expect(wrapper.find('.katex').exists()).toBe(true)
     expect(wrapper.text()).toContain('待确认')
     expect(wrapper.text()).toContain('图像识别候选')
+    expect(wrapper.findAll('.formula-region-card__actions button')[0].text())
+      .toContain('重新转换 LaTeX')
     await wrapper.get('textarea').setValue('\\int_0^1 x\\,dx')
     expect(wrapper.get('.formula-region-card__rendered').text()).toContain('∫')
     await wrapper.findAll('.formula-region-card__actions button')[1].trigger('click')
 
     expect(wrapper.emitted('confirm')?.[0]).toEqual(['\\int_0^1 x\\,dx'])
+  })
+
+  it('labels a confirmed formula as fixed content', () => {
+    const wrapper = mount(FormulaRegionCard, {
+      props: {
+        region: { page: 4, bbox: { x: 0.1, y: 0.2, width: 0.5, height: 0.1 } },
+        recognition: {
+          id: 13,
+          latex: 'x+y',
+          source: 'LAYOUT',
+          status: 'CONFIRMED',
+          confirmed: true,
+        },
+      },
+      global: {
+        stubs: {
+          'el-button': buttonStub,
+          'el-input': inputStub,
+          'el-tag': { template: '<span><slot /></span>' },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('已固定')
+    expect(wrapper.text()).toContain('保存校正')
   })
 })

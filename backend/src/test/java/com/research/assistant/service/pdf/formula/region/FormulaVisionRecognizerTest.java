@@ -32,7 +32,8 @@ class FormulaVisionRecognizerTest {
         assertThat(result.confidence()).isEqualTo(0.91);
         ArgumentCaptor<LlmCallPolicy> policy = ArgumentCaptor.forClass(LlmCallPolicy.class);
         verify(llmService).chatWithImageUsage(any(), any(), any(), any(), policy.capture());
-        assertThat(policy.getValue().maxOutputTokens()).isEqualTo(256);
+        assertThat(policy.getValue().maxOutputTokens()).isEqualTo(768);
+        assertThat(policy.getValue().reasoningEffort()).isEqualTo("low");
     }
 
     @Test
@@ -45,15 +46,20 @@ class FormulaVisionRecognizerTest {
     }
 
     @Test
-    void rejectsTruncatedOutputWithoutRetrying() {
+    void retriesOneTruncatedOutputWithABoundedLargerBudget() {
         when(llmService.chatWithImageUsage(any(), any(), any(), any(), any()))
-                .thenReturn(new LlmResponse(
-                        "{\"latex\":\"\\\\sum_", 300, 512, 812, "LENGTH"));
+                .thenReturn(
+                        new LlmResponse("{\"latex\":\"\\\\sum_", 300, 768, 1_068, "LENGTH"),
+                        new LlmResponse("{\"latex\":\"\\\\sum_", 300, 1_536, 1_836, "LENGTH"));
 
         assertThatThrownBy(() -> recognizer.recognize(new byte[]{1}))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("截断");
-        verify(llmService).chatWithImageUsage(any(), any(), any(), any(), any());
+        ArgumentCaptor<LlmCallPolicy> policies = ArgumentCaptor.forClass(LlmCallPolicy.class);
+        verify(llmService, times(2))
+                .chatWithImageUsage(any(), any(), any(), any(), policies.capture());
+        assertThat(policies.getAllValues()).extracting(LlmCallPolicy::maxOutputTokens)
+                .containsExactly(768, 1_536);
     }
 
     @Test

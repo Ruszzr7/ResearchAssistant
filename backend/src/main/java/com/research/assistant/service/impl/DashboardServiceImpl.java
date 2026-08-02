@@ -1,13 +1,9 @@
 package com.research.assistant.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.research.assistant.dto.DashboardDto;
 import com.research.assistant.entity.AsyncTaskRecord;
 import com.research.assistant.entity.Folder;
-import com.research.assistant.entity.Paper;
-import com.research.assistant.entity.PaperAnnotation;
 import com.research.assistant.mapper.AsyncTaskRecordMapper;
-import com.research.assistant.mapper.PaperAnnotationMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.DashboardService;
 import com.research.assistant.service.FolderService;
@@ -18,8 +14,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * 看板聚合服务实现。
@@ -35,16 +29,13 @@ public class DashboardServiceImpl implements DashboardService {
     private final PaperMapper paperMapper;
     private final FolderService folderService;
     private final AsyncTaskRecordMapper asyncTaskRecordMapper;
-    private final PaperAnnotationMapper paperAnnotationMapper;
 
     public DashboardServiceImpl(PaperMapper paperMapper,
                                 FolderService folderService,
-                                AsyncTaskRecordMapper asyncTaskRecordMapper,
-                                PaperAnnotationMapper paperAnnotationMapper) {
+                                AsyncTaskRecordMapper asyncTaskRecordMapper) {
         this.paperMapper = paperMapper;
         this.folderService = folderService;
         this.asyncTaskRecordMapper = asyncTaskRecordMapper;
-        this.paperAnnotationMapper = paperAnnotationMapper;
     }
 
     @Override
@@ -53,8 +44,6 @@ public class DashboardServiceImpl implements DashboardService {
         dto.setPaperStats(buildPaperStats());
         dto.setFolderBacklog(buildFolderBacklog());
         dto.setTaskStats(buildTaskStats());
-        dto.setRecentNotes(buildRecentNotes());
-        dto.setRecentAnnotations(buildRecentAnnotations());
         return dto;
     }
 
@@ -126,46 +115,4 @@ public class DashboardServiceImpl implements DashboardService {
         return dto;
     }
 
-    private List<DashboardDto.RecentNote> buildRecentNotes() {
-        List<PaperAnnotation> notes = paperAnnotationMapper.selectList(
-                new LambdaQueryWrapper<PaperAnnotation>()
-                        .eq(PaperAnnotation::getType, "NOTE")
-                        .orderByDesc(PaperAnnotation::getCreatedAt)
-                        .last("LIMIT " + RECENT_LIMIT));
-        return notes.stream()
-                .map(n -> new DashboardDto.RecentNote(n.getId(), summarize(n.getNote()), n.getCreatedAt()))
-                .toList();
-    }
-
-    private List<DashboardDto.RecentAnnotation> buildRecentAnnotations() {
-        List<PaperAnnotation> annotations = paperAnnotationMapper.selectList(
-                new LambdaQueryWrapper<PaperAnnotation>()
-                        .eq(PaperAnnotation::getType, "COMMENT")
-                        .orderByDesc(PaperAnnotation::getCreatedAt)
-                        .last("LIMIT " + RECENT_LIMIT));
-        if (annotations.isEmpty()) {
-            return List.of();
-        }
-        List<Long> paperIds = annotations.stream()
-                .map(PaperAnnotation::getPaperId)
-                .distinct()
-                .toList();
-        Map<Long, String> titleMap = paperMapper.selectBatchIds(paperIds).stream()
-                .collect(Collectors.toMap(Paper::getId, p -> p.getTitle() == null ? "" : p.getTitle(), (a, b) -> a));
-
-        return annotations.stream()
-                .map(a -> new DashboardDto.RecentAnnotation(
-                        a.getId(),
-                        a.getPaperId(),
-                        titleMap.getOrDefault(a.getPaperId(), ""),
-                        a.getPage(),
-                        a.getNote(),
-                        a.getCreatedAt()))
-                .toList();
-    }
-
-    private String summarize(String value) {
-        String normalized = value == null ? "" : value.strip().replaceAll("\\s+", " ");
-        return normalized.length() <= 48 ? normalized : normalized.substring(0, 48) + "…";
-    }
 }

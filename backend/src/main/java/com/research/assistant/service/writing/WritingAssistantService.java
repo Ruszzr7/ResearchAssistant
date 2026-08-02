@@ -9,7 +9,6 @@ import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.LLMService;
-import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.rag.RagRetrievalService;
 import com.research.assistant.service.rag.ScoredChunk;
 import org.slf4j.Logger;
@@ -28,20 +27,17 @@ public class WritingAssistantService {
     private static final Logger log = LoggerFactory.getLogger(WritingAssistantService.class);
 
     private final LLMService llmService;
-    private final SettingsService settingsService;
     private final PaperMapper paperMapper;
     private final PaperAnalysisMapper paperAnalysisMapper;
     private final RagRetrievalService ragRetrievalService;
     private final ObjectMapper objectMapper;
 
     public WritingAssistantService(LLMService llmService,
-                                   SettingsService settingsService,
                                    PaperMapper paperMapper,
                                    PaperAnalysisMapper paperAnalysisMapper,
                                    RagRetrievalService ragRetrievalService,
                                    ObjectMapper objectMapper) {
         this.llmService = llmService;
-        this.settingsService = settingsService;
         this.paperMapper = paperMapper;
         this.paperAnalysisMapper = paperAnalysisMapper;
         this.ragRetrievalService = ragRetrievalService;
@@ -52,7 +48,6 @@ public class WritingAssistantService {
      * 根据选题生成学术论文大纲。
      */
     public OutlineDto generateOutline(String topic, String style, String language) {
-        String researchTopic = Optional.ofNullable(settingsService.getValue("research_topic")).orElse("");
         String system = """
                 你是一名学术写作助手。请根据用户给定的研究选题，生成一篇学术论文的结构化大纲。
                 要求：
@@ -60,7 +55,7 @@ public class WritingAssistantService {
                 - JSON 格式：{"sections":[{"level":1,"title":"...","children":[...]}]}，level 取值 1-4。
                 - 大纲应包含摘要、引言、相关工作、方法、实验、结论等必要章节，标题使用用户指定的语言。
                 """;
-        String user = buildUserPrompt(topic, researchTopic, style, language);
+        String user = buildUserPrompt(topic, style, language);
         String raw = llmService.chat(system, user);
         return parseOutline(raw);
     }
@@ -72,7 +67,6 @@ public class WritingAssistantService {
         if (paperIds == null || paperIds.isEmpty()) {
             throw new IllegalArgumentException("请至少选择一篇论文");
         }
-        String researchTopic = Optional.ofNullable(settingsService.getValue("research_topic")).orElse("");
         Map<Long, PaperAnalysis> analyses = fetchAnalyses(paperIds);
         if (analyses.isEmpty()) {
             throw new IllegalArgumentException("所选论文暂无分析数据，请先执行论文精读分析");
@@ -86,7 +80,7 @@ public class WritingAssistantService {
                 - 输出必须是合法 JSON，不要包含 markdown 代码块标记或其他说明文字。
                 - JSON 格式：{"content":"段落内容...","citations":[{"paperId":1,"placeholder":"[1]","sentence":"引用该论文的句子"}]}。
                 """;
-        String user = buildRelatedWorkUserPrompt(analyses, topic, researchTopic, style);
+        String user = buildRelatedWorkUserPrompt(analyses, topic, style);
         String raw = llmService.chat(system, user);
         return parseRelatedWork(raw);
     }
@@ -117,20 +111,18 @@ public class WritingAssistantService {
 
     // ========== Prompt 构建 ==========
 
-    private String buildUserPrompt(String topic, String researchTopic, String style, String language) {
+    private String buildUserPrompt(String topic, String style, String language) {
         StringBuilder sb = new StringBuilder();
         sb.append("研究选题：").append(topic).append("\n");
-        if (!researchTopic.isBlank()) sb.append("用户当前研究主题：").append(researchTopic).append("\n");
         if (style != null && !style.isBlank()) sb.append("风格要求：").append(style).append("\n");
         if (language != null && !language.isBlank()) sb.append("输出语言：").append(language).append("\n");
         return sb.toString();
     }
 
     private String buildRelatedWorkUserPrompt(Map<Long, PaperAnalysis> analyses,
-                                              String topic, String researchTopic, String style) {
+                                              String topic, String style) {
         StringBuilder sb = new StringBuilder();
         sb.append("用户研究选题：").append(topic).append("\n");
-        if (!researchTopic.isBlank()) sb.append("用户当前研究主题：").append(researchTopic).append("\n");
         if (style != null && !style.isBlank()) sb.append("写作风格：").append(style).append("\n");
         sb.append("\n以下是需要综述的论文分析信息：\n");
         analyses.forEach((paperId, analysis) -> {

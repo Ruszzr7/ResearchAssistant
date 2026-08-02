@@ -3,7 +3,7 @@
     <header class="archive-header">
       <div>
         <h2>研究档案</h2>
-        <p>按论文保留对话、分析、对比与证据记录。</p>
+        <p>左侧选择论文，右侧查看该论文下相互独立的对话。</p>
       </div>
       <div class="archive-actions">
         <el-input
@@ -22,30 +22,51 @@
       <el-tab-pane label="已归档" name="archived" />
     </el-tabs>
 
-    <div v-loading="loading" class="archive-grid">
-      <article
-        v-for="session in sessions"
-        :key="session.id"
-        class="archive-card"
-        tabindex="0"
-        @click="openDetail(session)"
-        @keydown.enter="openDetail(session)"
-      >
-        <div class="archive-card__heading">
-          <el-tag size="small" effect="plain">{{ session.sessionType === 'MULTI' ? '多篇研究' : '单篇研究' }}</el-tag>
-          <span>{{ formatTime(session.lastActivityAt) }}</span>
-        </div>
-        <h3>{{ session.title }}</h3>
-        <p>{{ paperNames(session) }}</p>
-        <footer>
-          <span>{{ session.messageCount }} 条对话</span>
-          <span>{{ session.runCount }} 次分析</span>
-          <span>第 {{ session.lastPage || 1 }} 页</span>
-        </footer>
-      </article>
+    <div v-loading="loading" class="archive-browser">
+      <aside class="paper-column" aria-label="论文列表">
+        <button
+          v-for="group in paperGroups"
+          :key="group.id"
+          type="button"
+          :class="{ active: group.id === selectedPaperId }"
+          @click="selectedPaperId = group.id"
+        >
+          <b :title="group.title">{{ group.title }}</b>
+          <span>{{ group.sessions.length }} 个对话</span>
+        </button>
+      </aside>
+      <div class="archive-divider" aria-hidden="true" />
+      <section v-if="selectedPaperGroup" class="conversation-column" aria-label="对话列表">
+        <header>
+          <div>
+            <small>当前论文</small>
+            <h3>{{ selectedPaperGroup.title }}</h3>
+          </div>
+          <span>{{ selectedPaperGroup.sessions.length }} 个独立对话</span>
+        </header>
+        <article
+          v-for="session in selectedPaperGroup.sessions"
+          :key="session.id"
+          class="conversation-card"
+          tabindex="0"
+          @click="openDetail(session)"
+          @keydown.enter="openDetail(session)"
+        >
+          <div class="conversation-card__heading">
+            <el-tag size="small" type="success" effect="plain">对话</el-tag>
+            <span>{{ formatTime(session.lastActivityAt) }}</span>
+          </div>
+          <h4>{{ session.title || '未命名对话' }}</h4>
+          <footer>
+            <span>{{ session.messageCount || 0 }} 条消息</span>
+            <span>{{ session.runCount || 0 }} 次运行</span>
+            <span>第 {{ session.lastPage || 1 }} 页</span>
+          </footer>
+        </article>
+      </section>
     </div>
 
-    <el-empty v-if="!loading && !sessions.length" :description="activeTab === 'active' ? '暂无研究档案' : '暂无已归档档案'" />
+    <el-empty v-if="!loading && !paperGroups.length" :description="activeTab === 'active' ? '暂无研究档案' : '暂无已归档档案'" />
 
     <el-drawer v-model="detailVisible" :title="detail?.session?.title || '研究档案'" size="520px" destroy-on-close>
       <div v-if="detail" class="archive-detail">
@@ -60,8 +81,8 @@
             >{{ paper.title || `论文 #${paper.id}` }}</button>
           </div>
           <div class="detail-summary__stats">
-            <span>{{ detail.messages.length }} 条对话</span>
-            <span>{{ detail.runs.length }} 次分析</span>
+            <span>{{ detail.messages.length }} 条消息</span>
+            <span>{{ detail.runs.length }} 次运行</span>
           </div>
         </section>
 
@@ -117,7 +138,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -139,6 +160,37 @@ const activeTab = ref('active')
 const detailVisible = ref(false)
 const detail = ref(null)
 const detailTab = ref('messages')
+const selectedPaperId = ref(null)
+
+const paperGroups = computed(() => {
+  const groups = new Map()
+  for (const session of sessions.value) {
+    const papers = session.papers?.length
+      ? session.papers
+      : [{ id: session.primaryPaperId, title: `论文 #${session.primaryPaperId}` }]
+    for (const paper of papers) {
+      const id = Number(paper.id)
+      if (!id) continue
+      if (!groups.has(id)) groups.set(id, { id, title: paper.title || `论文 #${id}`, sessions: [] })
+      groups.get(id).sessions.push(session)
+    }
+  }
+  return [...groups.values()]
+    .map(group => ({
+      ...group,
+      sessions: group.sessions.sort((a, b) => new Date(b.lastActivityAt || 0) - new Date(a.lastActivityAt || 0)),
+    }))
+    .sort((a, b) => new Date(b.sessions[0]?.lastActivityAt || 0) - new Date(a.sessions[0]?.lastActivityAt || 0))
+})
+const selectedPaperGroup = computed(() => (
+  paperGroups.value.find(group => group.id === selectedPaperId.value) || paperGroups.value[0] || null
+))
+
+watch(paperGroups, groups => {
+  if (!groups.some(group => group.id === selectedPaperId.value)) {
+    selectedPaperId.value = groups[0]?.id || null
+  }
+})
 
 onMounted(loadSessions)
 
@@ -238,11 +290,6 @@ async function removeSession() {
   }
 }
 
-function paperNames(session) {
-  const names = (session.papers || []).map(item => item.title || `论文 #${item.id}`)
-  return names.join(' · ') || '关联论文已删除'
-}
-
 function formatTime(value) {
   if (!value) return ''
   return new Date(value).toLocaleString('zh-CN', { hour12: false })
@@ -250,7 +297,7 @@ function formatTime(value) {
 
 function workflowLabel(workflow) {
   return {
-    SELECTION_QA: '选区问答', PAPER_ANALYSIS: '全文分析', PAPER_IMPROVEMENT: '论文改进空间',
+    SELECTION_QA: '论文对话', PAPER_ANALYSIS: '全文分析', PAPER_IMPROVEMENT: '论文改进空间',
     PAPER_COMPARISON: '跨论文对比', RESEARCH_GAP: '领域研究空白', ANNOTATION_SUGGESTION: '批注建议',
   }[workflow] || '论文分析'
 }
@@ -272,13 +319,22 @@ function runStatusType(status) {
 .archive-header h2 { margin: 0 0 6px; font-size: 22px; }
 .archive-header p { margin: 0; color: var(--ra-text-tertiary); font-size: 12px; }
 .archive-actions { display: flex; gap: 8px; width: 360px; }
-.archive-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; min-height: 120px; }
-.archive-card { min-width: 0; padding: 14px; border: 1px solid var(--ra-border); border-radius: 9px; background: var(--ra-panel-bg); cursor: pointer; transition: border-color .15s, transform .15s; }
-.archive-card:hover, .archive-card:focus-visible { border-color: var(--ra-link); outline: none; transform: translateY(-1px); }
-.archive-card__heading, .archive-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ra-text-tertiary); font-size: 10px; }
-.archive-card h3 { overflow: hidden; margin: 12px 0 7px; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.archive-card p { overflow: hidden; height: 34px; margin: 0 0 13px; color: var(--ra-text-secondary); font-size: 11px; line-height: 1.5; }
-.archive-card footer { justify-content: flex-start; gap: 14px; }
+.archive-browser { display: grid; min-height: 360px; grid-template-columns: minmax(210px, 28%) 1px minmax(0, 1fr); gap: 16px; }
+.paper-column { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.paper-column button { display: flex; min-width: 0; flex-direction: column; gap: 6px; padding: 13px; border: 1px solid color-mix(in srgb, var(--ra-link) 18%, var(--ra-border)); border-radius: 9px; color: var(--ra-text); background: color-mix(in srgb, var(--ra-link) 5%, var(--ra-panel-bg)); text-align: left; cursor: pointer; }
+.paper-column button:hover, .paper-column button.active { border-color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 11%, var(--ra-panel-bg)); }
+.paper-column b { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.paper-column span { color: var(--ra-text-tertiary); font-size: 10px; }
+.archive-divider { background: var(--ra-border); }
+.conversation-column { display: grid; min-width: 0; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-content: start; gap: 10px; }
+.conversation-column > header { display: flex; grid-column: 1 / -1; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 3px; }
+.conversation-column > header small, .conversation-column > header span { color: var(--ra-text-tertiary); font-size: 10px; }
+.conversation-column > header h3 { margin: 3px 0 0; font-size: 15px; }
+.conversation-card { min-width: 0; padding: 13px; border: 1px solid color-mix(in srgb, var(--el-color-success) 24%, var(--ra-border)); border-radius: 9px; background: color-mix(in srgb, var(--el-color-success) 4%, var(--ra-panel-bg)); cursor: pointer; transition: border-color .15s, transform .15s; }
+.conversation-card:hover, .conversation-card:focus-visible { border-color: var(--el-color-success); outline: none; transform: translateY(-1px); }
+.conversation-card__heading, .conversation-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ra-text-tertiary); font-size: 10px; }
+.conversation-card h4 { overflow: hidden; margin: 12px 0 16px; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-card footer { justify-content: flex-start; gap: 14px; }
 .archive-detail { color: var(--ra-text); }
 .detail-summary { margin-bottom: 8px; padding: 10px; border: 1px solid var(--ra-border); border-radius: 8px; }
 .detail-summary > div:first-child { display: flex; flex-direction: column; gap: 5px; }
@@ -296,5 +352,5 @@ function runStatusType(status) {
 .run-list article > div { display: flex; align-items: center; justify-content: space-between; }
 .run-answer { max-height: 160px; overflow: auto; margin: 7px 0 0; color: var(--ra-text-secondary); font-size: 11px; line-height: 1.5; }
 .detail-footer { display: flex; justify-content: flex-end; gap: 8px; }
-@media (max-width: 760px) { .archive-header { flex-direction: column; } .archive-actions { width: 100%; } }
+@media (max-width: 760px) { .archive-header { flex-direction: column; } .archive-actions { width: 100%; } .archive-browser { grid-template-columns: 1fr; } .archive-divider { height: 1px; } }
 </style>

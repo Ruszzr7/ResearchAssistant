@@ -114,7 +114,10 @@ public class PaperContextAssembler {
             }
             truncated |= question.length() < turn.question().trim().length()
                     || answer.length() < turn.answer().trim().length();
-            newestFirst.add(new PaperContextSnapshot.ConversationItem(turn.id(), question, answer));
+            LinkedHashSet<String> evidenceBlockIds = new LinkedHashSet<>(turn.selectionBlockIds());
+            turn.evidenceRefs().forEach(ref -> evidenceBlockIds.add(ref.blockId()));
+            newestFirst.add(new PaperContextSnapshot.ConversationItem(
+                    turn.id(), question, answer, evidenceBlockIds.stream().limit(12).toList()));
             characters += next;
         }
         java.util.Collections.reverse(newestFirst);

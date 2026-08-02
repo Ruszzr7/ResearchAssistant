@@ -15,14 +15,26 @@ public record LlmCallPolicy(
         int maxInputTokens,
         int maxOutputTokens,
         int maxAttempts,
-        boolean jsonOutput) {
+        boolean jsonOutput,
+        String reasoningEffort) {
+
+    public LlmCallPolicy(String taskType,
+                         int maxInputChars,
+                         int maxInputTokens,
+                         int maxOutputTokens,
+                         int maxAttempts,
+                         boolean jsonOutput) {
+        this(taskType, maxInputChars, maxInputTokens, maxOutputTokens,
+                maxAttempts, jsonOutput, null);
+    }
 
     public LlmCallPolicy(String taskType,
                          int maxInputChars,
                          int maxInputTokens,
                          int maxOutputTokens,
                          int maxAttempts) {
-        this(taskType, maxInputChars, maxInputTokens, maxOutputTokens, maxAttempts, false);
+        this(taskType, maxInputChars, maxInputTokens, maxOutputTokens,
+                maxAttempts, false, null);
     }
 
     public static final LlmCallPolicy PAPER_ANALYSIS_REPAIR =
@@ -34,6 +46,12 @@ public record LlmCallPolicy(
         }
         if (maxInputChars <= 0 || maxInputTokens <= 0 || maxOutputTokens <= 0 || maxAttempts <= 0) {
             throw new IllegalArgumentException("LLM call budget must be positive");
+        }
+        reasoningEffort = reasoningEffort == null || reasoningEffort.isBlank()
+                ? null : reasoningEffort.trim().toLowerCase(java.util.Locale.ROOT);
+        if (reasoningEffort != null
+                && !java.util.Set.of("low", "medium", "high", "max").contains(reasoningEffort)) {
+            throw new IllegalArgumentException("unsupported reasoning effort");
         }
     }
 

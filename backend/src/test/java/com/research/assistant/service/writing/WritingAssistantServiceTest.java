@@ -7,7 +7,6 @@ import com.research.assistant.entity.PaperAnalysis;
 import com.research.assistant.mapper.PaperAnalysisMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.LLMService;
-import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.rag.RagRetrievalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +21,6 @@ import static org.mockito.Mockito.*;
 class WritingAssistantServiceTest {
 
     private LLMService llmService;
-    private SettingsService settingsService;
     private PaperMapper paperMapper;
     private PaperAnalysisMapper paperAnalysisMapper;
     private RagRetrievalService ragRetrievalService;
@@ -32,18 +30,16 @@ class WritingAssistantServiceTest {
     @BeforeEach
     void setUp() {
         llmService = mock(LLMService.class);
-        settingsService = mock(SettingsService.class);
         paperMapper = mock(PaperMapper.class);
         paperAnalysisMapper = mock(PaperAnalysisMapper.class);
         ragRetrievalService = mock(RagRetrievalService.class);
         objectMapper = new ObjectMapper();
-        service = new WritingAssistantService(llmService, settingsService, paperMapper,
+        service = new WritingAssistantService(llmService, paperMapper,
                 paperAnalysisMapper, ragRetrievalService, objectMapper);
     }
 
     @Test
     void generateOutlineShouldParseSections() {
-        when(settingsService.getValue("research_topic")).thenReturn("多模态大模型");
         when(llmService.chat(anyString(), anyString())).thenReturn("""
                 {"sections":[{"level":1,"title":"Introduction","children":[{"level":2,"title":"Background"}]}]}
                 """);
@@ -63,7 +59,6 @@ class WritingAssistantServiceTest {
 
     @Test
     void generateRelatedWorkShouldReturnContentAndCitations() {
-        when(settingsService.getValue("research_topic")).thenReturn("");
         PaperAnalysis analysis = new PaperAnalysis();
         analysis.setPaperId(1L);
         analysis.setCoreContribution("核心贡献");

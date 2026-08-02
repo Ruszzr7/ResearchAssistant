@@ -24,12 +24,12 @@
       </el-row>
 
       <el-row :gutter="16" class="panel-row">
-        <!-- 文件夹堆积 -->
+        <!-- 文件夹分布 -->
         <el-col :xs="24" :md="12">
           <el-card shadow="hover" class="panel-card">
             <template #header>
               <div class="panel-header">
-                <span>文件夹堆积 Top {{ data.folderBacklog.length }}</span>
+                <span>文件夹分布</span>
                 <el-button text size="small" @click="$router.push('/library')">查看</el-button>
               </div>
             </template>
@@ -56,15 +56,10 @@
               </div>
             </template>
             <div class="task-stats">
-              <div class="task-chip pending">待处理 {{ data.taskStats.pending }}</div>
               <div class="task-chip processing">进行中 {{ data.taskStats.processing }}</div>
               <div class="task-chip processing">重试等待 {{ data.taskStats.retryWait || 0 }}</div>
-              <div class="task-chip completed">已完成 {{ data.taskStats.completed }}</div>
-              <div class="task-chip failed">失败 {{ data.taskStats.failed }}</div>
-              <div class="task-chip cancelled">取消 {{ data.taskStats.cancelled }}</div>
-              <div class="task-chip pending">待确认 {{ data.taskStats.pendingUser || 0 }}</div>
-              <div class="task-chip cancelled">过期 {{ data.taskStats.expired || 0 }}</div>
-              <div class="task-chip failed">死信 {{ data.taskStats.deadLetter || 0 }}</div>
+              <div class="task-chip pending">等待处理 {{ data.taskStats.pending }}</div>
+              <div class="task-chip failed">需要处理 {{ taskAttentionCount }}</div>
             </div>
             <div class="recent-tasks">
               <div class="recent-title">最近任务</div>
@@ -79,44 +74,6 @@
         </el-col>
       </el-row>
 
-      <el-row :gutter="16" class="panel-row">
-        <!-- 最近笔记 -->
-        <el-col :xs="24" :md="12">
-          <el-card shadow="hover" class="panel-card">
-            <template #header>
-              <div class="panel-header">
-                <span>最近笔记</span>
-              </div>
-            </template>
-            <div v-for="n in data.recentNotes" :key="n.id" class="recent-row">
-              <span class="recent-title-text" :title="n.title">{{ n.title || '无标题笔记' }}</span>
-              <span class="recent-time">{{ formatTime(n.createdAt) }}</span>
-            </div>
-            <el-empty v-if="!data.recentNotes.length" description="暂无笔记" :image-size="60" />
-          </el-card>
-        </el-col>
-
-        <!-- 最近批注 -->
-        <el-col :xs="24" :md="12">
-          <el-card shadow="hover" class="panel-card">
-            <template #header>
-              <div class="panel-header">
-                <span>最近批注</span>
-              </div>
-            </template>
-            <div v-for="a in data.recentAnnotations" :key="a.id" class="recent-row">
-              <span class="recent-title-text" :title="a.paperTitle">
-                {{ a.paperTitle || '未命名论文' }}
-                <span class="annotation-page">P{{ a.page }}</span>
-              </span>
-              <span class="recent-time">{{ formatTime(a.createdAt) }}</span>
-            </div>
-            <el-empty v-if="!data.recentAnnotations.length" description="暂无批注" :image-size="60" />
-          </el-card>
-        </el-col>
-      </el-row>
-      <ResearchInsightsPanel />
-      <PdfWorkbenchMetricsPanel />
     </template>
   </div>
 </template>
@@ -125,8 +82,6 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getDashboard } from '@/api/dashboard'
-import ResearchInsightsPanel from '@/components/dashboard/ResearchInsightsPanel.vue'
-import PdfWorkbenchMetricsPanel from '@/components/dashboard/PdfWorkbenchMetricsPanel.vue'
 
 const loading = ref(true)
 const data = ref(null)
@@ -147,6 +102,10 @@ const folderBacklogWithPercent = computed(() => {
   const list = data.value?.folderBacklog || []
   const max = Math.max(...list.map(f => f.paperCount), 1)
   return list.map(f => ({ ...f, percent: Math.round((f.paperCount / max) * 100) }))
+})
+const taskAttentionCount = computed(() => {
+  const stats = data.value?.taskStats || {}
+  return Number(stats.failed || 0) + Number(stats.pendingUser || 0) + Number(stats.deadLetter || 0)
 })
 
 async function load() {
@@ -320,34 +279,5 @@ onMounted(load)
   font-size: 12px;
   color: var(--ra-text-secondary);
   white-space: nowrap;
-}
-.recent-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--ra-border);
-  font-size: 13px;
-}
-.recent-row:last-child {
-  border-bottom: none;
-}
-.recent-title-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ra-text);
-}
-.annotation-page {
-  font-size: 11px;
-  color: var(--ra-text-secondary);
-  margin-left: 6px;
-}
-.recent-time {
-  font-size: 12px;
-  color: var(--ra-text-secondary);
-  white-space: nowrap;
-  margin-left: 12px;
 }
 </style>

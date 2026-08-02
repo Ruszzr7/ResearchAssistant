@@ -1,10 +1,14 @@
 package com.research.assistant.service.pdf.layout;
 
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class LayoutTextSimilarity {
+
+    private static final Pattern SCRIPT_RUN = Pattern.compile(
+            "[\\p{IsHan}]+|[\\p{IsLatin}\\p{N}_-]+|[\\p{IsGreek}\\p{N}]+");
 
     private LayoutTextSimilarity() {
     }
@@ -30,11 +34,13 @@ public final class LayoutTextSimilarity {
 
     private static Set<String> tokens(String value) {
         Set<String> result = new HashSet<>();
-        Arrays.stream(java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC)
-                        .toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}\\p{N}]+"))
-                .map(String::trim)
-                .filter(token -> token.length() > 1)
-                .forEach(result::add);
+        String normalized = java.text.Normalizer.normalize(value,
+                java.text.Normalizer.Form.NFKC).toLowerCase(java.util.Locale.ROOT);
+        Matcher matcher = SCRIPT_RUN.matcher(normalized);
+        while (matcher.find()) {
+            String token = matcher.group().trim();
+            if (token.length() > 1) result.add(token);
+        }
         return result;
     }
 

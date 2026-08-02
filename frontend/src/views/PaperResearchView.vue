@@ -7,14 +7,10 @@
       :paper="paper"
       :initial-page="initialPage"
       :initial-evidence="pendingEvidence"
-      :initial-workbench-mode="researchMode"
-      :initial-workbench-paper-ids="researchPaperIds"
       :research-session-id="activeResearchSessionId"
       @page-change="onPageChange"
       @close="returnToLibrary"
       @open-paper-evidence="openPaperEvidence"
-      @workbench-mode-change="onWorkbenchModeChange"
-      @workbench-paper-ids-change="onWorkbenchPaperIdsChange"
       @research-session-change="onResearchSessionChange"
     >
       <template #toolbar-extra>
@@ -26,7 +22,7 @@
     <el-result
       v-else-if="error"
       icon="error"
-      title="无法打开论文分析"
+      title="无法打开论文助手"
       :sub-title="error"
       class="research-state"
     >
@@ -46,12 +42,9 @@ import { updateReadingProgress } from '@/api/readingProgress.js'
 import { updateResearchSession } from '@/api/researchArchive.js'
 import ReadingTimePanel from '@/components/ReadingTimePanel.vue'
 import {
-  normalizeWorkbenchRouteMode,
   positivePageNumber,
   positivePaperId,
   researchRouteLocation,
-  workbenchModeQueryValue,
-  workbenchPaperIds,
 } from '@/router/workbenchRoute.js'
 import {
   readLastResearchLocation,
@@ -78,14 +71,7 @@ let lastPersistedPage = null
 
 const isResearchRoute = computed(() => route.name === 'research')
 const routePaperId = computed(() => positivePaperId(route.params.paperId))
-const activeModeQuery = ref('analysis')
-const activePaperIdsQuery = ref('')
 const activeResearchSessionId = ref(null)
-const researchMode = computed(() => normalizeWorkbenchRouteMode(activeModeQuery.value))
-const researchPaperIds = computed(() => workbenchPaperIds({
-  paperId: paper.value?.id || routePaperId.value,
-  paperIds: activePaperIdsQuery.value,
-}))
 
 watch([isResearchRoute, routePaperId], ([active, id]) => {
   if (active) void loadRoutePaper(id)
@@ -130,8 +116,6 @@ async function loadRoutePaper(id) {
     if (!loaded) throw new Error('论文不存在')
     if (!loaded.pdfPath) throw new Error('该论文没有可打开的 PDF')
     paper.value = loaded
-    activeModeQuery.value = workbenchModeQueryValue(normalizeWorkbenchRouteMode(route.query.mode))
-    activePaperIdsQuery.value = String(route.query.paperIds || '')
     activeResearchSessionId.value = positivePaperId(route.query.session)
     lastPersistedPage = positivePageNumber(loaded.currentPage)
     initialPage.value = positivePageNumber(route.query.page) || lastPersistedPage || 1
@@ -149,15 +133,16 @@ async function loadRoutePaper(id) {
 
 async function ensureCanonicalRoute() {
   if (!paper.value) return
-  const mode = workbenchModeQueryValue(researchMode.value)
   const query = {
     ...route.query,
     page: String(initialPage.value),
-    mode,
   }
+  delete query.mode
+  delete query.paperIds
   if (route.path !== `/research/${paper.value.id}`
       || String(route.query.page || '') !== query.page
-      || route.query.mode !== mode) {
+      || route.query.mode
+      || route.query.paperIds) {
     await router.replace(researchRouteLocation(paper.value.id, query))
   }
 }
@@ -207,51 +192,18 @@ function rememberLocation() {
   writeLastResearchLocation({
     paperId: paper.value.id,
     page: currentPage.value,
-    mode: activeModeQuery.value,
-    paperIds: activePaperIdsQuery.value,
     session: activeResearchSessionId.value,
-  })
-}
-
-function onWorkbenchModeChange(nextMode) {
-  if (!paper.value) return
-  const mode = workbenchModeQueryValue(nextMode)
-  activeModeQuery.value = mode
-  if (route.query.mode === mode) {
-    rememberLocation()
-    return
-  }
-  void router.replace(researchRouteLocation(paper.value.id, { ...route.query, mode }))
-    .then(() => { rememberLocation(); scheduleResearchSessionPersist() })
-}
-
-function onWorkbenchPaperIdsChange(paperIds) {
-  if (!paper.value) return
-  const ids = [...new Set((paperIds || []).map(Number))]
-    .filter(id => Number.isInteger(id) && id > 0)
-  const serialized = ids.join(',')
-  activePaperIdsQuery.value = serialized
-  if (String(route.query.paperIds || '') === serialized) {
-    rememberLocation()
-    return
-  }
-  const query = { ...route.query }
-  if (serialized) query.paperIds = serialized
-  else delete query.paperIds
-  void router.replace(researchRouteLocation(paper.value.id, query)).then(() => {
-    rememberLocation()
-    scheduleResearchSessionPersist()
   })
 }
 
 function onResearchSessionChange(sessionId) {
   const normalized = positivePaperId(sessionId)
-  if (!normalized || !paper.value) return
+  if (!paper.value) return
   activeResearchSessionId.value = normalized
-  void router.replace(researchRouteLocation(paper.value.id, {
-    ...route.query,
-    session: String(normalized),
-  })).then(() => {
+  const query = { ...route.query }
+  if (normalized) query.session = String(normalized)
+  else delete query.session
+  void router.replace(researchRouteLocation(paper.value.id, query)).then(() => {
     rememberLocation()
     scheduleResearchSessionPersist()
   })
@@ -268,8 +220,8 @@ async function persistResearchSessionState() {
   try {
     await updateResearchSession(activeResearchSessionId.value, {
       lastPage: currentPage.value || 1,
-      mode: activeModeQuery.value || 'analysis',
-      paperIds: researchPaperIds.value,
+      mode: 'selection',
+      paperIds: [Number(paper.value.id)],
     })
   } catch { /* Run persistence can backfill the archive even if this resume update fails. */ }
 }
@@ -286,6 +238,7 @@ async function openPaperEvidence(item) {
     if (query.page) await viewerRef.value?.goToPage?.(Number(query.page))
     return
   }
+  delete query.session
   await router.push(researchRouteLocation(targetId, query))
 }
 

@@ -114,6 +114,9 @@ public class WorkbenchExecutionEngine {
     }
 
     private WorkbenchWorkflowResult executeSelection(WorkbenchRunTrace trace, Consumer<String> stage) {
+        if (trace.invocation().selectionAnchor() == null) {
+            return executePaperConversation(trace, stage);
+        }
         stage.accept("正在解析选区…");
         PaperLayoutArtifact artifact = currentArtifact(trace, trace.invocation().paperIds().get(0));
         SelectionAnchor canonicalAnchor = deterministicStep(
@@ -144,11 +147,37 @@ public class WorkbenchExecutionEngine {
 
         stage.accept("正在检索整篇论文的相关证据…");
         List<LayoutEvidence> paperEvidence = wholePaperEvidenceService.retrievePaper(
-                artifact, context.retrievalQuery(), 12, 8_000);
+                artifact, context.retrievalQuery(), context.preferredEvidenceBlockIds(), 12, 8_000);
         List<LayoutEvidence> combinedEvidence = mergeSelectionEvidence(
                 local.evidence(), paperEvidence, 18, 14_000);
         String boundedModelQuestion = context.modelQuestion(selectionModelContextBudget(trace));
         return modelAndGate(trace, combinedEvidence, local.regionFallback(), stage, 2, 3,
+                boundedModelQuestion, context);
+    }
+
+    private WorkbenchWorkflowResult executePaperConversation(WorkbenchRunTrace trace,
+                                                              Consumer<String> stage) {
+        Long paperId = trace.invocation().paperIds().get(0);
+        stage.accept("正在准备论文上下文…");
+        PaperLayoutArtifact artifact = deterministicStep(
+                trace.runId(), 0, Map.of("paperId", paperId),
+                () -> currentArtifact(trace, paperId),
+                value -> Map.of("pageCount", value.pageCount(),
+                        "layoutConfidence", value.layoutConfidence(),
+                        "parserVersion", value.parserVersion()));
+
+        stage.accept("正在组装本轮上下文…");
+        PaperContextSnapshot context = contextAssembler.assemble(trace, null);
+
+        stage.accept("正在检索整篇论文的相关证据…");
+        List<LayoutEvidence> evidence = deterministicStep(
+                trace.runId(), 1, Map.of("paperId", paperId, "maxEvidence", 18),
+                () -> wholePaperEvidenceService.retrievePaper(
+                        artifact, context.retrievalQuery(),
+                        context.preferredEvidenceBlockIds(), 18, 14_000),
+                value -> Map.of("evidenceCount", value.size(), "sectionCount", sectionCount(value)));
+        String boundedModelQuestion = context.modelQuestion(selectionModelContextBudget(trace));
+        return modelAndGate(trace, evidence, false, stage, 2, 3,
                 boundedModelQuestion, context);
     }
 
@@ -238,6 +267,7 @@ public class WorkbenchExecutionEngine {
 
         stage.accept("正在基于证据生成回答…");
         WorkbenchSelectionVisualEvidence visualEvidence = visualEvidenceService == null
+                || trace.invocation().selectionAnchor() == null
                 ? null : visualEvidenceService.create(trace.invocation().selectionAnchor());
         WorkbenchModelService.ModelCall call = modelStep(
                 trace, modelStepIndex, evidence, null, List.of(), firstCallBudget(trace),
@@ -425,8 +455,10 @@ public class WorkbenchExecutionEngine {
 
     private WorkbenchEvidenceGate.GatePolicy gatePolicy(WorkbenchRunTrace trace, int repairAttempt) {
         return switch (trace.plan().workflow()) {
-            case SELECTION_QA, ANNOTATION_SUGGESTION ->
-                    WorkbenchEvidenceGate.GatePolicy.selection(repairAttempt);
+            case SELECTION_QA -> trace.invocation().selectionAnchor() == null
+                    ? WorkbenchEvidenceGate.GatePolicy.strict(repairAttempt)
+                    : WorkbenchEvidenceGate.GatePolicy.selection(repairAttempt);
+            case ANNOTATION_SUGGESTION -> WorkbenchEvidenceGate.GatePolicy.selection(repairAttempt);
             case PAPER_COMPARISON, RESEARCH_GAP -> WorkbenchEvidenceGate.GatePolicy.comparison(
                     repairAttempt, Set.copyOf(trace.invocation().paperIds()));
             case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> WorkbenchEvidenceGate.GatePolicy.strict(repairAttempt);

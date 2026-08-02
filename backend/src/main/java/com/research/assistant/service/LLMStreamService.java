@@ -133,6 +133,10 @@ public class LLMStreamService {
             if (profile.temperature() != null) {
                 requestBody.put("temperature", profile.temperature());
             }
+            if (profile.provider() == AiProvider.KIMI
+                    && policy.reasoningEffort() != null) {
+                requestBody.put("reasoning_effort", policy.reasoningEffort());
+            }
             if (profile.provider() == AiProvider.MINIMAX) {
                 requestBody.put("reasoning_split", true);
             }

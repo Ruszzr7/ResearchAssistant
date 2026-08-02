@@ -1,165 +1,32 @@
 export const WORKBENCH_MODES = Object.freeze({
   SELECTION_QA: 'SELECTION_QA',
-  PAPER_ANALYSIS: 'PAPER_ANALYSIS',
-  PAPER_IMPROVEMENT: 'PAPER_IMPROVEMENT',
-  ANNOTATION_SUGGESTION: 'ANNOTATION_SUGGESTION',
-  PAPER_COMPARISON: 'PAPER_COMPARISON',
-  RESEARCH_GAP: 'RESEARCH_GAP',
-})
-
-export const MAX_COMPARISON_PAPERS = 8
-
-const MODE_CONFIG = Object.freeze({
-  [WORKBENCH_MODES.SELECTION_QA]: { intent: 'ASK_SELECTION', scope: 'SELECTION' },
-  [WORKBENCH_MODES.PAPER_ANALYSIS]: { intent: 'ANALYZE_PAPER', scope: 'PAPER' },
-  [WORKBENCH_MODES.PAPER_IMPROVEMENT]: { intent: 'IDENTIFY_PAPER_IMPROVEMENTS', scope: 'PAPER' },
-  [WORKBENCH_MODES.ANNOTATION_SUGGESTION]: { intent: 'SUGGEST_ANNOTATION', scope: 'SELECTION' },
-  [WORKBENCH_MODES.PAPER_COMPARISON]: { intent: 'COMPARE_PAPERS', scope: 'COMPARISON' },
-  [WORKBENCH_MODES.RESEARCH_GAP]: { intent: 'FIND_RESEARCH_GAPS', scope: 'COMPARISON' },
 })
 
 export function buildWorkbenchPlanRequest({
-  mode,
   paperId,
-  comparisonPaperIds = [],
   question = '',
   selectionAnchor = null,
-  sourceRunId = '',
   conversationId = '',
 }) {
-  const config = MODE_CONFIG[mode]
-  if (!config) throw new Error('请选择论文助手功能')
   const currentPaperId = Number(paperId)
   if (!Number.isInteger(currentPaperId) || currentPaperId <= 0) throw new Error('当前论文无效')
 
-  const needsSelection = mode === WORKBENCH_MODES.SELECTION_QA
-    || mode === WORKBENCH_MODES.ANNOTATION_SUGGESTION
-  if (needsSelection && !selectionAnchor) throw new Error('请先在 PDF 中选择内容')
-
   const normalizedQuestion = String(question || '').trim()
-  if (mode !== WORKBENCH_MODES.PAPER_ANALYSIS && !normalizedQuestion) {
-    throw new Error('请填写问题或分析要求')
-  }
-
-  const multiPaperMode = mode === WORKBENCH_MODES.PAPER_COMPARISON
-    || mode === WORKBENCH_MODES.RESEARCH_GAP
-  const paperIds = multiPaperMode
-    ? normalizeComparisonPaperIds(currentPaperId, comparisonPaperIds)
-    : [currentPaperId]
-  if (mode === WORKBENCH_MODES.PAPER_COMPARISON && paperIds.length < 2) {
-    throw new Error('请至少再选择一篇论文')
-  }
-  if (mode === WORKBENCH_MODES.RESEARCH_GAP && paperIds.length < 3) {
-    throw new Error('领域研究空白至少需要三篇论文')
-  }
-  const normalizedSourceRunId = String(sourceRunId || '').trim()
-  if (mode === WORKBENCH_MODES.RESEARCH_GAP && !normalizedSourceRunId) {
-    throw new Error('请先完成跨论文对比')
-  }
+  if (!normalizedQuestion) throw new Error('请输入问题')
 
   const regionOnly = selectionAnchor?.mappingStatus
     ? selectionAnchor.mappingStatus === 'REGION'
     : selectionAnchor?.kind === 'REGION'
-  const scope = regionOnly && needsSelection ? 'REGION' : config.scope
+  const scope = !selectionAnchor ? 'PAPER' : regionOnly ? 'REGION' : 'SELECTION'
   const normalizedConversationId = String(conversationId || '').trim()
   return {
-    paperIds,
+    paperIds: [currentPaperId],
     question: normalizedQuestion,
-    intent: config.intent,
+    intent: 'ASK_SELECTION',
     scope,
-    ...(needsSelection ? { selectionAnchor } : {}),
-    ...(mode === WORKBENCH_MODES.SELECTION_QA && normalizedConversationId
-      ? { conversationId: normalizedConversationId } : {}),
-    ...(mode === WORKBENCH_MODES.RESEARCH_GAP ? { sourceRunId: normalizedSourceRunId } : {}),
+    ...(selectionAnchor ? { selectionAnchor } : {}),
+    ...(normalizedConversationId ? { conversationId: normalizedConversationId } : {}),
     maxSteps: 6,
-  }
-}
-
-export function normalizeComparisonPaperIds(paperId, comparisonPaperIds = []) {
-  const currentPaperId = Number(paperId)
-  const ids = [...new Set([currentPaperId, ...comparisonPaperIds.map(Number)])]
-    .filter(id => Number.isInteger(id) && id > 0)
-  if (ids.length > MAX_COMPARISON_PAPERS) {
-    throw new Error(`一次最多对比 ${MAX_COMPARISON_PAPERS} 篇论文`)
-  }
-  return ids
-}
-
-export function comparisonSelectionState(paperId, comparisonPaperIds = [], minimumPaperCount = 2) {
-  const currentPaperId = Number(paperId)
-  const additionalIds = [...new Set(comparisonPaperIds.map(Number))]
-    .filter(id => Number.isInteger(id) && id > 0 && id !== currentPaperId)
-  const total = 1 + additionalIds.length
-  return {
-    additionalIds,
-    total,
-    canStart: total >= minimumPaperCount && total <= MAX_COMPARISON_PAPERS,
-    atLimit: total >= MAX_COMPARISON_PAPERS,
-    max: MAX_COMPARISON_PAPERS,
-  }
-}
-
-export function buildComparisonQuestion(question, dimensions = []) {
-  const normalizedQuestion = String(question || '').trim()
-  const normalizedDimensions = [...new Set((dimensions || [])
-    .map(value => String(value || '').trim()).filter(Boolean))]
-  const prefix = normalizedDimensions.length
-    ? `比较维度：${normalizedDimensions.join('、')}。`
-    : ''
-  return `${prefix}${normalizedQuestion}`.slice(0, 4000)
-}
-
-/** Per-paper citation coverage for a completed comparison result. */
-export function buildComparisonCoverage(trace, papers = []) {
-  const paperTitleById = new Map((papers || []).map(paper => [
-    Number(paper?.id), String(paper?.title || '').trim(),
-  ]))
-  const result = trace?.result || {}
-  const requiredPaperIds = Array.isArray(result.paperIds) && result.paperIds.length
-    ? result.paperIds
-    : trace?.invocation?.paperIds || []
-  const paperIds = [...new Set(requiredPaperIds
-    .map(Number).filter(id => Number.isInteger(id) && id > 0))]
-  const evidenceById = new Map()
-  const evidenceByPaper = new Map()
-  for (const item of result.evidence || []) {
-    const paperId = Number(item?.paperId)
-    if (!Number.isInteger(paperId) || paperId <= 0 || !item?.evidenceId) continue
-    evidenceById.set(item.evidenceId, item)
-    if (!evidenceByPaper.has(paperId)) evidenceByPaper.set(paperId, [])
-    evidenceByPaper.get(paperId).push(item)
-    if (!paperIds.includes(paperId)) paperIds.push(paperId)
-  }
-  const citedClaimsByPaper = new Map(paperIds.map(id => [id, 0]))
-  for (const claim of result.claims || []) {
-    const citedPaperIds = new Set((claim?.evidenceIds || [])
-      .map(id => Number(evidenceById.get(id)?.paperId))
-      .filter(id => Number.isInteger(id) && id > 0))
-    for (const paperId of citedPaperIds) {
-      citedClaimsByPaper.set(paperId, (citedClaimsByPaper.get(paperId) || 0) + 1)
-    }
-  }
-  const rows = paperIds.map(paperId => {
-    const evidence = evidenceByPaper.get(paperId) || []
-    const pages = [...new Set(evidence.map(item => Number(item.page))
-      .filter(page => Number.isInteger(page) && page > 0))].sort((a, b) => a - b)
-    const citedClaims = citedClaimsByPaper.get(paperId) || 0
-    return {
-      paperId,
-      title: paperTitleById.get(paperId) || `论文 #${paperId}`,
-      evidenceCount: evidence.length,
-      citedClaims,
-      pages,
-      covered: evidence.length > 0 && citedClaims > 0,
-      firstEvidence: evidence[0] || null,
-    }
-  })
-  const covered = rows.filter(row => row.covered).length
-  return {
-    rows,
-    covered,
-    total: rows.length,
-    coverageRate: rows.length ? covered / rows.length : 0,
   }
 }
 

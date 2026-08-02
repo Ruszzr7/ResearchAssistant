@@ -70,13 +70,6 @@ public class PaperAnalysis {
     @TableField("benchmark_results_json")
     private String benchmarkResultsJson;
 
-    /** 与用户研究主题的相关度评分（1-10），无主题时为 null */
-    @TableField("relevance_score")
-    private Integer relevanceScore;
-
-    /** 相关度评分理由 */
-    @TableField("relevance_reason")
-    private String relevanceReason;
 
     /** 公式识别结果 JSON */
     @TableField("formulas_json")
@@ -147,10 +140,6 @@ public class PaperAnalysis {
     public void setExperimentSetupJson(String experimentSetupJson) { this.experimentSetupJson = experimentSetupJson; }
     public String getBenchmarkResultsJson() { return benchmarkResultsJson; }
     public void setBenchmarkResultsJson(String benchmarkResultsJson) { this.benchmarkResultsJson = benchmarkResultsJson; }
-    public Integer getRelevanceScore() { return relevanceScore; }
-    public void setRelevanceScore(Integer relevanceScore) { this.relevanceScore = relevanceScore; }
-    public String getRelevanceReason() { return relevanceReason; }
-    public void setRelevanceReason(String relevanceReason) { this.relevanceReason = relevanceReason; }
     public String getFormulasJson() { return formulasJson; }
     public void setFormulasJson(String formulasJson) { this.formulasJson = formulasJson; }
     public String getFiguresJson() { return figuresJson; }

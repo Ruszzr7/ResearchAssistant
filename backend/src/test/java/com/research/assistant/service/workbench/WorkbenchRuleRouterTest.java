@@ -53,6 +53,23 @@ class WorkbenchRuleRouterTest {
     }
 
     @Test
+    void routesAConversationWithoutSelectionToPaperEvidence() {
+        WorkbenchInvocation invocation = new WorkbenchInvocation(
+                List.of(7L), "这篇论文的核心贡献是什么？", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 0, "", "selection-thread_2");
+
+        WorkbenchPlan plan = router.route(invocation);
+
+        assertThat(plan.workflow()).isEqualTo(WorkbenchPlan.Workflow.SELECTION_QA);
+        assertThat(plan.scope()).isEqualTo(WorkbenchPlan.Scope.PAPER);
+        assertThat(plan.steps()).extracting(WorkbenchPlan.Step::skill).containsExactly(
+                WorkbenchPlan.Skill.ENSURE_LAYOUT_ARTIFACT,
+                WorkbenchPlan.Skill.RETRIEVE_PAPER_EVIDENCE,
+                WorkbenchPlan.Skill.SYNTHESIZE_EVIDENCE_ANSWER,
+                WorkbenchPlan.Skill.VALIDATE_EVIDENCE_ANSWER);
+    }
+
+    @Test
     void regionAnchorDowngradesScopeWithoutChangingAllowedSkills() {
         WorkbenchPlan plan = router.route(invocation(
                 List.of(7L), WorkbenchIntent.ASK_SELECTION, WorkbenchPlan.Scope.SELECTION,

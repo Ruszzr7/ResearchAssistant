@@ -1,19 +1,13 @@
 <template>
-  <aside class="paper-workbench" aria-label="论文分析工作台">
-    <nav class="product-tabs" role="tablist" aria-label="论文分析功能">
-      <button
-        v-for="item in productTabs"
-        :key="item.value"
-        type="button"
-        role="tab"
-        :aria-selected="activeProductTab === item.value"
-        :class="{ active: activeProductTab === item.value }"
-        :disabled="running"
-        @click="selectProductTab(item.value)"
-      >{{ item.label }}</button>
-    </nav>
+  <aside class="paper-workbench" aria-label="论文助手">
+      <section class="assistant-context-header">
+        <div>
+          <b>论文助手</b>
+          <small>以当前论文理解为基础的连续科研对话</small>
+        </div>
+        <button type="button" @click="$emit('add-comparison-paper')">＋ 添加对比文献</button>
+      </section>
 
-    <template v-if="activeProductTab === 'reading'">
       <section
         v-if="showMemoryStatus"
         class="memory-status"
@@ -45,7 +39,7 @@
       </section>
 
       <section class="capture-section">
-        <div class="capture-switch" :class="{ 'is-formula': captureMode === 'formula' }" role="tablist" aria-label="精读内容选取方式">
+        <div class="capture-switch" :class="{ 'is-formula': captureMode === 'formula' }" role="tablist" aria-label="论文内容选取方式">
           <span class="capture-switch__indicator" aria-hidden="true" />
           <button
             type="button"
@@ -60,12 +54,12 @@
             :aria-selected="captureMode === 'formula'"
             :class="{ active: captureMode === 'formula' }"
             @click="selectCaptureMode('formula')"
-          >公式精确识别</button>
+          >公式精确框选</button>
         </div>
         <p class="capture-hint">
           {{ captureMode === 'formula'
-            ? '仅在直接选取不完整或需要可编辑 LaTeX 时，在 PDF 页面精确框选目标公式。'
-            : '直接在 PDF 中拖动选择文字或公式，再确认固定为本轮内容。' }}
+            ? '直接选取不完整时可精确框选公式；点击固定内容后，系统会自动生成可编辑 LaTeX。'
+            : '直接在 PDF 中拖动选择文字或公式，确认固定后作为当前对话焦点。' }}
         </p>
       </section>
 
@@ -83,19 +77,15 @@
           @confirm="$emit('confirm-formula', $event)"
         />
 
-        <section v-else-if="selection" class="selection-card">
+        <section v-else-if="displayedSelection" class="selection-card">
           <div class="section-heading">
             <div>
               <b>选取内容</b>
-              <small v-if="selectionAnchor?.page">第 {{ selectionAnchor.page }} 页</small>
+              <small v-if="displayedSelectionAnchor?.page">第 {{ displayedSelectionAnchor.page }} 页</small>
             </div>
             <button type="button" class="selection-clear-action" aria-label="清除选取内容" @click="clearTextSelection">×</button>
           </div>
-          <p class="selection-card__text">{{ selection.text }}</p>
-          <figure v-if="selection.visualFallback?.dataUrl" class="selection-source-preview">
-            <img :src="selection.visualFallback.dataUrl" alt="PDF 原始选区图像" />
-            <figcaption>{{ selection.visualFallback.reason }}</figcaption>
-          </figure>
+          <p class="selection-card__text">{{ displayedSelection.text }}</p>
 
           <div class="selection-tools">
             <el-button
@@ -105,14 +95,17 @@
               @click="translateSelection"
             >翻译为{{ languageLabel(selectionTargetLanguage) }}</el-button>
             <el-button
-              v-if="!textSelectionConfirmed"
+              v-if="!fixedTextSelection"
               type="primary"
               size="small"
-              :loading="selectionLoading"
-              :disabled="!selectionAnchor || Boolean(selectionError)"
+              :loading="displayedSelectionLoading"
+              :disabled="!selectionAnchor || Boolean(displayedSelectionError)"
               @click="confirmTextSelection"
             >确认并固定</el-button>
-            <el-tag v-else size="small" type="success" effect="plain">已固定</el-tag>
+            <template v-else>
+              <el-tag size="small" type="success" effect="plain">已固定</el-tag>
+              <el-button size="small" plain @click="clearTextSelection">重新选择</el-button>
+            </template>
           </div>
 
           <div v-if="selectionTranslation" class="selection-translation">
@@ -120,35 +113,63 @@
             <div>{{ selectionTranslation.text }}</div>
           </div>
           <div v-if="selectionTranslationError" class="error-state">{{ selectionTranslationError }}</div>
-          <div v-if="selectionLoading" class="muted-state">正在准备所选内容…</div>
-          <div v-else-if="selectionError" class="error-state">{{ selectionError }}</div>
+          <div v-if="displayedSelectionLoading" class="muted-state">正在准备所选内容…</div>
+          <div v-else-if="displayedSelectionError" class="error-state">{{ displayedSelectionError }}</div>
           <div v-else-if="selectionMappingIsRegion" class="warning-state" role="status">
-            当前选区只能定位到页面区域，未建立可信的精确文本映射。可重新选择更清晰的文字；若继续固定，回答会明确要求回原页核对。
+            当前选区只能定位到页面区域，未建立可信的精确文本映射。可重新选择更清晰的文字；若继续提问，回答会明确要求回原页核对。
           </div>
           <div v-else-if="selectionIsMathRich" class="math-rich-state" role="status">
             已精确定位文字；检测到多个行内数学片段。提问时会同时提供 PDF 原文和本地 LaTeX 辅助，近似转写仍以原页排版为准。
           </div>
-          <div v-else-if="!textSelectionConfirmed" class="content-confirm-hint">确认后才会作为对话依据，继续拖选可重新调整范围。</div>
+          <div v-else-if="!fixedTextSelection" class="content-confirm-hint">确认后才会作为当前对话焦点；继续拖选可调整范围。</div>
+          <div v-else class="content-confirm-hint">固定内容会持续用于后续追问，直到你重新选择或点击 × 清除。</div>
         </section>
 
         <section v-else class="content-empty">
           <div class="content-empty__icon" aria-hidden="true">⌁</div>
           <b>{{ captureMode === 'formula' ? '框选一个公式' : '选择一段论文内容' }}</b>
-          <p>{{ captureMode === 'formula' ? '识别结果和 LaTeX 编辑器会显示在这里。' : '原文会直接显示在这里，确认后即可开始提问。' }}</p>
+          <p>{{ captureMode === 'formula' ? '框选预览和固定过程中生成的 LaTeX 会显示在这里。' : '原文会显示在这里，确认后固定为对话焦点。' }}</p>
         </section>
       </div>
 
-      <section class="selection-chat" aria-label="论文精读对话">
+      <section class="selection-chat" aria-label="论文对话">
         <div class="selection-chat__heading">
           <div>
-            <b>论文精读对话</b>
+            <b>论文对话</b>
             <small v-if="activeSelectionAnchor">
-              当前固定内容：第 {{ activeSelectionAnchor.page }} 页；新选区确认后用于下一条消息
+              当前焦点：第 {{ activeSelectionAnchor.page }} 页固定内容
             </small>
-            <small v-else>请先选取并确认内容</small>
+            <small v-else-if="canContinueSelectionConversation">
+              当前未附加新选区；将沿用本对话历史与论文理解
+            </small>
+            <small v-else>基于论文理解开始对话；也可固定一段内容作为焦点</small>
           </div>
-          <button type="button" :disabled="running" @click="resetSelectionConversation">新对话</button>
+          <div class="selection-chat__actions">
+            <button type="button" :disabled="running" @click="openConversationPicker">切换对话</button>
+            <button type="button" :disabled="running" @click="startNewConversation">新对话</button>
+          </div>
         </div>
+
+        <section v-if="conversationPickerVisible" class="conversation-picker" role="dialog" aria-label="切换对话">
+          <div class="conversation-picker__heading">
+            <b>选择本篇论文的对话</b>
+            <button type="button" aria-label="关闭对话列表" @click="conversationPickerVisible = false">×</button>
+          </div>
+          <button
+            v-for="session in conversationSessions"
+            :key="session.id"
+            type="button"
+            class="conversation-picker__item"
+            :class="{ active: Number(session.id) === activeResearchSessionId }"
+            :disabled="running"
+            @click="switchConversation(session)"
+          >
+            <span>{{ session.title || '未命名对话' }}</span>
+            <small>{{ session.messageCount || 0 }} 条消息 · {{ formatConversationTime(session.lastActivityAt) }}</small>
+          </button>
+          <div v-if="!conversationSessions.length" class="conversation-picker__empty">本篇论文还没有历史对话</div>
+          <button type="button" class="conversation-picker__new" :disabled="running" @click="startNewConversation">＋ 开始新对话</button>
+        </section>
 
         <div ref="selectionChatMessages" class="selection-chat__messages" aria-live="polite">
           <div v-if="!selectionMessages.length && !running" class="selection-chat__empty">
@@ -166,12 +187,16 @@
             <ResearchMarkdown
               v-if="message.role === 'assistant'"
               class="answer-text"
-              :content="message.content"
+              :content="citedAnswer(message)"
+              @citation-click="jumpCitation(message, $event)"
             />
             <template v-else>
               <div class="chat-message__text">{{ message.content }}</div>
               <small v-if="message.selectionAnchor?.page" class="chat-message__context">
                 引用第 {{ message.selectionAnchor.page }} 页选区
+              </small>
+              <small v-else class="chat-message__context">
+                {{ message.contextInherited ? '沿用对话上下文' : '基于论文理解' }}
               </small>
             </template>
             <details v-if="message.claims?.length" class="chat-claim-list">
@@ -201,7 +226,7 @@
           </div>
         </div>
 
-        <div class="assistant-composer" :class="{ disabled: !activeSelectionAnchor || !memoryReady }">
+        <div class="assistant-composer" :class="{ disabled: !memoryReady }">
           <el-input
             v-model="question"
             class="assistant-composer__input"
@@ -212,7 +237,11 @@
             :disabled="!memoryReady"
             :placeholder="!memoryReady
               ? '论文理解完成后即可提问'
-              : (activeSelectionAnchor ? '向论文助手提问…' : '确认上方内容后即可提问')"
+              : (activeSelectionAnchor
+                ? '向论文助手提问…'
+                : (canContinueSelectionConversation
+                  ? '继续当前对话，或附加新选区后提问…'
+                  : '基于论文理解开始提问，也可先选择内容…'))"
             @keydown.ctrl.enter.prevent="sendSelectionMessage"
           />
           <div class="assistant-composer__footer">
@@ -228,14 +257,6 @@
         </div>
         <div v-if="selectionChatError || error" class="error-state">{{ selectionChatError || error }}</div>
       </section>
-    </template>
-
-    <section v-else class="future-feature">
-      <span class="future-feature__badge">后续阶段</span>
-      <h3>{{ activeProductTab === 'defect' ? '缺陷分析' : '论文对比' }}</h3>
-      <p v-if="activeProductTab === 'defect'">单篇论文精读稳定后，再接入假设、方法、实验与证据边界的系统检查。</p>
-      <p v-else>单篇论文记忆与引用溯源稳定后，再接入多文献对齐和对比分析。</p>
-    </section>
   </aside>
 </template>
 
@@ -248,9 +269,11 @@ import {
   appendResearchMessages,
   createResearchSession,
   getResearchSession,
+  listResearchSessions,
 } from '@/api/researchArchive.js'
 import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 import ResearchMarkdown from '@/components/ResearchMarkdown.vue'
+import { buildCitedAnswer } from '@/utils/answerCitations.js'
 import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
 import {
   detectTextLanguage,
@@ -275,26 +298,18 @@ const props = defineProps({
   formulaConfirming: { type: Boolean, default: false },
   formulaError: { type: String, default: '' },
   captureMode: { type: String, default: 'text' },
-  initialMode: { type: String, default: '' },
-  initialPaperIds: { type: Array, default: () => [] },
   researchSessionId: { type: Number, default: null },
 })
 
 const emit = defineEmits([
   'clear-selection', 'clear-formula', 'retry-formula', 'confirm-formula',
-  'capture-mode-change', 'jump-evidence', 'mode-change', 'paper-ids-change',
-  'research-session-change',
+  'capture-mode-change', 'jump-evidence', 'research-session-change',
+  'add-comparison-paper',
 ])
 
 const { running, error, run, loadRecent } = usePaperWorkbench()
-const productTabs = [
-  { value: 'reading', label: '论文精读', mode: WORKBENCH_MODES.SELECTION_QA },
-  { value: 'defect', label: '缺陷分析', mode: WORKBENCH_MODES.PAPER_IMPROVEMENT },
-  { value: 'comparison', label: '论文对比', mode: WORKBENCH_MODES.PAPER_COMPARISON },
-]
-const activeProductTab = ref(productTabForMode(props.initialMode))
 const question = ref('')
-const activeSelectionContext = ref(null)
+const fixedTextSelection = ref(null)
 const selectionTranslation = ref(null)
 const selectionTranslationLoading = ref(false)
 const selectionTranslationError = ref('')
@@ -303,6 +318,8 @@ const selectionConversationId = ref('')
 const selectionChatError = ref('')
 const selectionChatMessages = ref(null)
 const activeResearchSessionId = ref(positiveSessionId(props.researchSessionId))
+const conversationSessions = ref([])
+const conversationPickerVisible = ref(false)
 let sessionCreatePromise = null
 let selectionMessageSequence = 0
 let selectionConversationSequence = 0
@@ -324,61 +341,63 @@ const showMemoryStatus = computed(() => Boolean(
   memoryStatus.value && memoryStatus.value.status !== 'READY',
 ))
 
-const selectionTargetLanguage = computed(() => oppositeLanguage(detectTextLanguage(props.selection?.text)))
+const displayedSelection = computed(() => fixedTextSelection.value?.selection || props.selection)
+const displayedSelectionAnchor = computed(() => fixedTextSelection.value?.anchor || props.selectionAnchor)
+const displayedSelectionLoading = computed(() => !fixedTextSelection.value && props.selectionLoading)
+const displayedSelectionError = computed(() => fixedTextSelection.value ? '' : props.selectionError)
+const selectionTargetLanguage = computed(() => oppositeLanguage(detectTextLanguage(displayedSelection.value?.text)))
 const selectionMappingIsRegion = computed(() => (
-  props.selectionAnchor?.mappingStatus
-    ? props.selectionAnchor.mappingStatus === 'REGION'
-    : props.selectionAnchor?.kind === 'REGION'
+  displayedSelectionAnchor.value?.mappingStatus
+    ? displayedSelectionAnchor.value.mappingStatus === 'REGION'
+    : displayedSelectionAnchor.value?.kind === 'REGION'
 ))
 const selectionIsMathRich = computed(() => (
-  props.selectionAnchor?.contentType === 'MATH_RICH_TEXT'
-))
-const textSelectionIdentity = computed(() => {
-  if (!props.selection?.text) return ''
-  const page = props.selectionAnchor?.page || props.selection?.groups?.[0]?.pageNum || ''
-  return `text:${page}:${props.selection.text}`
-})
-const textSelectionConfirmed = computed(() => Boolean(
-  activeSelectionContext.value?.kind === 'text'
-  && activeSelectionContext.value.identity === textSelectionIdentity.value
-  && activeSelectionContext.value.anchor,
+  displayedSelectionAnchor.value?.contentType === 'MATH_RICH_TEXT'
 ))
 const confirmedFormula = computed(() => (
   props.formulaRegion && props.formulaRecognition?.confirmed && props.formulaRecognition?.anchor
     ? props.formulaRecognition : null
 ))
 const activeSelectionAnchor = computed(() => (
-  activeSelectionContext.value?.anchor || null
+  fixedTextSelection.value?.anchor || confirmedFormula.value?.anchor || null
+))
+const canContinueSelectionConversation = computed(() => Boolean(
+  selectionConversationId.value
+  && selectionMessages.value.length
 ))
 const selectionChatDisabled = computed(() => (
-  running.value || !memoryReady.value || !activeSelectionAnchor.value || !question.value.trim()
+  running.value || !memoryReady.value || !question.value.trim()
 ))
 
-watch(textSelectionIdentity, () => {
+watch(() => displayedSelection.value?.text, () => {
   selectionTranslation.value = null
   selectionTranslationError.value = ''
 })
-watch(confirmedFormula, recognition => {
-  if (!recognition) return
-  activeSelectionContext.value = {
-    kind: 'formula',
-    identity: `formula:${recognition.id}:${recognition.latex}`,
-    text: recognition.latex,
-    anchor: recognition.anchor,
-  }
-}, { immediate: true })
-watch(() => props.initialMode, mode => { activeProductTab.value = productTabForMode(mode) })
 watch(() => props.researchSessionId, nextId => {
   const normalized = positiveSessionId(nextId)
   if (normalized === activeResearchSessionId.value) return
   activeResearchSessionId.value = normalized
   if (normalized) void restoreResearchMessages(normalized)
+  else {
+    selectionConversationId.value = ''
+    selectionMessages.value = []
+  }
 })
-watch(() => props.paper.id, () => { void loadMemoryStatus() })
+watch(() => props.paper.id, () => {
+  fixedTextSelection.value = null
+  activeResearchSessionId.value = positiveSessionId(props.researchSessionId)
+  selectionConversationId.value = ''
+  selectionMessages.value = []
+  conversationSessions.value = []
+  conversationPickerVisible.value = false
+  void loadMemoryStatus()
+  void loadConversationSessions(!activeResearchSessionId.value)
+})
 
 onMounted(async () => {
   await loadMemoryStatus()
   try { await loadRecent(props.paper.id) } catch { /* History is optional. */ }
+  await loadConversationSessions(!activeResearchSessionId.value)
   if (activeResearchSessionId.value) await restoreResearchMessages(activeResearchSessionId.value)
 })
 onBeforeUnmount(() => clearTimeout(memoryPollTimer))
@@ -420,53 +439,36 @@ async function startMemoryUnderstanding() {
   }
 }
 
-function selectProductTab(tab) {
-  if (running.value || tab === activeProductTab.value) return
-  activeProductTab.value = tab
-  const option = productTabs.find(item => item.value === tab)
-  if (option) emit('mode-change', option.mode)
-}
-
 function selectCaptureMode(mode) {
   if (!['text', 'formula'].includes(mode) || mode === props.captureMode) return
   emit('capture-mode-change', mode)
 }
 
+function clearTextSelection() {
+  fixedTextSelection.value = null
+  emit('clear-selection')
+}
+
 function confirmTextSelection() {
-  if (!props.selection?.text || !props.selectionAnchor || props.selectionLoading || props.selectionError) return
-  activeSelectionContext.value = {
-    kind: 'text',
-    identity: textSelectionIdentity.value,
-    text: props.selection.text,
+  if (!props.selection || !props.selectionAnchor || props.selectionError) return
+  fixedTextSelection.value = {
+    selection: props.selection,
     anchor: props.selectionAnchor,
   }
 }
 
-function clearTextSelection() {
-  if (activeSelectionContext.value?.identity === textSelectionIdentity.value) {
-    activeSelectionContext.value = null
-  }
-  emit('clear-selection')
-}
-
 function clearFormula() {
-  if (activeSelectionContext.value?.kind === 'formula'
-      && activeSelectionContext.value.identity === (
-        confirmedFormula.value
-          ? `formula:${confirmedFormula.value.id}:${confirmedFormula.value.latex}` : ''
-      )) {
-    activeSelectionContext.value = null
-  }
   emit('clear-formula')
 }
 
 async function sendSelectionMessage() {
   const content = question.value.trim()
   const anchor = activeSelectionAnchor.value
-  if (!content || !anchor || running.value) return
+  if (!content || running.value || !memoryReady.value) return
+  const contextInherited = !anchor && selectionMessages.value.length > 0
 
   let sessionId
-  try { sessionId = await ensureResearchSession() }
+  try { sessionId = await ensureResearchSession(content) }
   catch (reason) {
     selectionChatError.value = requestErrorMessage(reason, '研究档案创建失败')
     return
@@ -480,6 +482,7 @@ async function sendSelectionMessage() {
     role: 'user',
     content,
     selectionAnchor: anchor,
+    contextInherited,
   }
   selectionMessages.value.push(userMessage)
   selectionChatError.value = ''
@@ -488,7 +491,6 @@ async function sendSelectionMessage() {
 
   try {
     const request = buildWorkbenchPlanRequest({
-      mode: WORKBENCH_MODES.SELECTION_QA,
       paperId: props.paper.id,
       question: content,
       selectionAnchor: anchor,
@@ -509,6 +511,7 @@ async function sendSelectionMessage() {
         {
           messageKey: `${completed.runId}:user`, role: 'USER', content,
           runId: completed.runId, selectionAnchor: anchor,
+          evidence: { contextInherited, conversationId },
         },
         {
           messageKey: `${completed.runId}:assistant`, role: 'ASSISTANT',
@@ -517,6 +520,7 @@ async function sendSelectionMessage() {
             claims: completed.result?.claims || [],
             evidence: completed.result?.evidence || [],
             regionFallback: Boolean(completed.result?.regionFallback),
+            conversationId,
           },
         },
       ])
@@ -534,7 +538,7 @@ async function sendSelectionMessage() {
 }
 
 async function translateSelection() {
-  const text = props.selection?.text
+  const text = displayedSelection.value?.text
   if (!text || selectionTranslationLoading.value) return
   const targetLanguage = selectionTargetLanguage.value
   selectionTranslationLoading.value = true
@@ -545,21 +549,21 @@ async function translateSelection() {
     })
     const item = response?.items?.[0]
     if (!item?.text) throw new Error('翻译服务未返回内容')
-    if (props.selection?.text === text) selectionTranslation.value = { text: item.text, targetLanguage }
+    if (displayedSelection.value?.text === text) selectionTranslation.value = { text: item.text, targetLanguage }
   } catch (reason) {
-    if (props.selection?.text === text) selectionTranslationError.value = requestErrorMessage(reason, '翻译失败，请重试')
+    if (displayedSelection.value?.text === text) selectionTranslationError.value = requestErrorMessage(reason, '翻译失败，请重试')
   } finally {
     selectionTranslationLoading.value = false
   }
 }
 
-async function ensureResearchSession() {
+async function ensureResearchSession(firstQuestion = '') {
   if (activeResearchSessionId.value) return activeResearchSessionId.value
   if (sessionCreatePromise) return sessionCreatePromise
   sessionCreatePromise = createResearchSession({
     paperIds: [Number(props.paper.id)],
     primaryPaperId: Number(props.paper.id),
-    title: props.paper.title || '论文精读',
+    title: firstQuestion.slice(0, 120) || props.paper.title || '论文对话',
     mode: WORKBENCH_MODES.SELECTION_QA,
     lastPage: 1,
     outputLanguage: 'ZH',
@@ -567,6 +571,7 @@ async function ensureResearchSession() {
     activeResearchSessionId.value = Number(session.id)
     selectionConversationId.value = freshSelectionConversationId(session.id)
     emit('research-session-change', Number(session.id))
+    void loadConversationSessions(false)
     return Number(session.id)
   }).finally(() => { sessionCreatePromise = null })
   return sessionCreatePromise
@@ -576,13 +581,26 @@ async function restoreResearchMessages(sessionId) {
   try {
     const detail = await getResearchSession(sessionId)
     if (activeResearchSessionId.value !== sessionId) return
+    if (detail?.session && !sessionBelongsToCurrentPaper(detail.session)) {
+      startNewConversation()
+      conversationPickerVisible.value = conversationSessions.value.length > 0
+      return
+    }
     const latestSelectionRun = (detail?.runs || []).find(item => (
       item?.plan?.workflow === WORKBENCH_MODES.SELECTION_QA
       && item?.invocation?.conversationId
     ))
     selectionConversationId.value = latestSelectionRun?.invocation?.conversationId
       || freshSelectionConversationId(sessionId)
-    selectionMessages.value = (detail?.messages || []).map(message => ({
+    const conversationByRunId = new Map((detail?.runs || [])
+      .filter(item => item?.runId && item?.invocation?.conversationId)
+      .map(item => [item.runId, item.invocation.conversationId]))
+    selectionMessages.value = (detail?.messages || [])
+      .filter(message => (
+        (message.evidence?.conversationId || conversationByRunId.get(message.runId))
+          === selectionConversationId.value
+      ))
+      .map(message => ({
       id: message.messageKey || String(message.id),
       role: message.role === 'USER' ? 'user' : 'assistant',
       content: message.content || '',
@@ -590,17 +608,62 @@ async function restoreResearchMessages(sessionId) {
       evidence: message.evidence?.evidence || [],
       regionFallback: Boolean(message.evidence?.regionFallback),
       selectionAnchor: message.selectionAnchor || null,
+      contextInherited: Boolean(message.evidence?.contextInherited),
     }))
     await scrollSelectionChat()
   } catch { /* A missing archive must not prevent PDF reading. */ }
 }
 
-function resetSelectionConversation() {
-  selectionConversationId.value = activeResearchSessionId.value
-    ? freshSelectionConversationId(activeResearchSessionId.value) : ''
+async function loadConversationSessions(showWhenAvailable = false) {
+  try {
+    const sessions = await listResearchSessions({ archived: false, limit: 200 })
+    conversationSessions.value = (sessions || []).filter(sessionBelongsToCurrentPaper)
+    if (showWhenAvailable && conversationSessions.value.length) conversationPickerVisible.value = true
+  } catch { /* Conversation switching is optional while PDF reading remains available. */ }
+}
+
+function sessionBelongsToCurrentPaper(session) {
+  const paperId = Number(props.paper.id)
+  return Number(session?.primaryPaperId) === paperId
+    || (session?.papers || []).some(paper => Number(paper.id) === paperId)
+}
+
+function openConversationPicker() {
+  conversationPickerVisible.value = true
+  void loadConversationSessions(false)
+}
+
+async function switchConversation(session) {
+  if (running.value) return
+  const sessionId = positiveSessionId(session?.id)
+  if (!sessionId || sessionId === activeResearchSessionId.value) {
+    conversationPickerVisible.value = false
+    return
+  }
+  activeResearchSessionId.value = sessionId
+  selectionConversationId.value = ''
   selectionMessages.value = []
   selectionChatError.value = ''
   question.value = ''
+  conversationPickerVisible.value = false
+  emit('research-session-change', sessionId)
+  await restoreResearchMessages(sessionId)
+}
+
+function startNewConversation() {
+  if (running.value) return
+  activeResearchSessionId.value = null
+  selectionConversationId.value = ''
+  selectionMessages.value = []
+  selectionChatError.value = ''
+  question.value = ''
+  conversationPickerVisible.value = false
+  emit('research-session-change', null)
+}
+
+function formatConversationTime(value) {
+  if (!value) return '暂无记录'
+  return new Date(value).toLocaleString('zh-CN', { hour12: false })
 }
 
 function freshSelectionConversationId(sessionId) {
@@ -615,6 +678,15 @@ function messageEvidenceForClaim(message, claim) {
   return (claim?.evidenceIds || []).map(id => index.get(id)).filter(Boolean)
 }
 
+function citedAnswer(message) {
+  return buildCitedAnswer(message.content, message.claims, message.evidence)
+}
+
+function jumpCitation(message, evidenceId) {
+  const item = message.evidence?.find(candidate => candidate.evidenceId === evidenceId)
+  if (item) jump(item)
+}
+
 function jump(item) {
   if (item) emit('jump-evidence', item)
 }
@@ -623,12 +695,6 @@ async function scrollSelectionChat() {
   await nextTick()
   const container = selectionChatMessages.value
   if (container) container.scrollTop = container.scrollHeight
-}
-
-function productTabForMode(mode) {
-  if (mode === WORKBENCH_MODES.PAPER_COMPARISON) return 'comparison'
-  if ([WORKBENCH_MODES.PAPER_IMPROVEMENT, WORKBENCH_MODES.RESEARCH_GAP].includes(mode)) return 'defect'
-  return 'reading'
 }
 
 function positiveSessionId(value) {
@@ -649,41 +715,34 @@ function requestErrorMessage(reason, fallback) {
   box-sizing: border-box;
   background: var(--ra-panel-bg);
   color: var(--ra-text);
+  margin-top: calc(-1 * var(--pdf-toolbar-height));
+  border-top: 1px solid var(--ra-border);
 }
-.product-tabs {
+section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
+.assistant-context-header {
   position: sticky;
   z-index: 4;
   top: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 0 12px;
-  border-bottom: 1px solid var(--ra-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-block: 10px;
   background: var(--ra-panel-bg);
 }
-.product-tabs button {
-  position: relative;
-  min-width: 0;
-  padding: 14px 4px 12px;
-  border: 0;
-  color: var(--ra-text-tertiary);
+.assistant-context-header > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.assistant-context-header b { font-size: 13px; }
+.assistant-context-header small { overflow: hidden; color: var(--ra-text-tertiary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-context-header button {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid var(--ra-border);
+  border-radius: 5px;
+  color: var(--ra-link);
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 9px;
 }
-.product-tabs button::after {
-  position: absolute;
-  right: 18%;
-  bottom: -1px;
-  left: 18%;
-  height: 2px;
-  border-radius: 2px;
-  background: transparent;
-  content: '';
-}
-.product-tabs button.active { color: var(--ra-link); font-weight: 600; }
-.product-tabs button.active::after { background: var(--ra-link); }
-.product-tabs button:disabled { cursor: wait; opacity: .55; }
-section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .memory-status { display: flex; align-items: center; gap: 9px; padding-block: 9px; background: color-mix(in srgb, var(--ra-link) 5%, var(--ra-panel-bg)); }
 .memory-orbit { position: relative; flex: 0 0 24px; width: 24px; height: 24px; border: 1px solid color-mix(in srgb, var(--ra-link) 28%, transparent); border-radius: 50%; animation: memory-orbit 1.4s linear infinite; }
 .memory-orbit::before, .memory-orbit span { position: absolute; border-radius: 50%; background: var(--ra-link); content: ''; }
@@ -759,26 +818,6 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
   white-space: normal;
 }
 .selection-tools { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
-.selection-source-preview {
-  margin: 0 0 9px;
-  padding: 8px;
-  border: 1px solid var(--ra-border);
-  border-radius: 6px;
-  background: #fff;
-}
-.selection-source-preview img {
-  display: block;
-  width: 100%;
-  max-height: 220px;
-  object-fit: contain;
-  object-position: left center;
-}
-.selection-source-preview figcaption {
-  margin-top: 6px;
-  color: var(--ra-text-tertiary);
-  font-size: 10px;
-  line-height: 1.4;
-}
 .selection-translation { margin-top: 9px; padding: 9px; border-radius: 6px; background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
 .selection-translation small { display: block; margin-bottom: 3px; color: var(--ra-text-tertiary); font-size: 9px; }
 .content-confirm-hint { margin-top: 8px; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.4; }
@@ -791,8 +830,20 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .selection-chat__heading > div { display: flex; flex-direction: column; gap: 2px; }
 .selection-chat__heading b { font-size: 12px; }
 .selection-chat__heading small { color: var(--ra-text-tertiary); font-size: 9px; line-height: 1.4; }
-.selection-chat__heading > button { padding: 3px 5px; border: 0; color: var(--ra-link); background: transparent; cursor: pointer; font-size: 10px; }
-.selection-chat__heading > button:disabled { cursor: wait; opacity: .5; }
+.selection-chat__actions { display: flex !important; flex-direction: row !important; gap: 2px !important; }
+.selection-chat__actions button { padding: 3px 5px; border: 0; color: var(--ra-link); background: transparent; cursor: pointer; font-size: 10px; white-space: nowrap; }
+.selection-chat__actions button:disabled { cursor: wait; opacity: .5; }
+.conversation-picker { display: flex; max-height: 240px; flex-direction: column; gap: 5px; overflow-y: auto; padding: 8px; border: 1px solid var(--ra-border); border-radius: 8px; background: color-mix(in srgb, var(--ra-link) 4%, var(--ra-panel-bg)); }
+.conversation-picker__heading { display: flex; align-items: center; justify-content: space-between; padding: 2px 3px 5px; }
+.conversation-picker__heading b { font-size: 11px; }
+.conversation-picker__heading button { border: 0; color: var(--ra-text-tertiary); background: transparent; cursor: pointer; font-size: 15px; }
+.conversation-picker__item { display: flex; flex-direction: column; gap: 3px; padding: 8px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-text); background: var(--ra-panel-bg); text-align: left; cursor: pointer; }
+.conversation-picker__item:hover, .conversation-picker__item.active { border-color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); }
+.conversation-picker__item:disabled, .conversation-picker__new:disabled { cursor: wait; opacity: .5; }
+.conversation-picker__item span { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-picker__item small, .conversation-picker__empty { color: var(--ra-text-tertiary); font-size: 9px; }
+.conversation-picker__empty { padding: 12px 4px; text-align: center; }
+.conversation-picker__new { padding: 7px; border: 1px dashed color-mix(in srgb, var(--ra-link) 55%, var(--ra-border)); border-radius: 6px; color: var(--ra-link); background: transparent; cursor: pointer; font-size: 10px; }
 .selection-chat__messages { display: flex; min-height: 150px; max-height: 420px; flex: 1; flex-direction: column; gap: 9px; overflow-y: auto; padding: 2px; }
 .selection-chat__empty { display: grid; min-height: 140px; padding: 12px; border: 1px dashed var(--ra-border); border-radius: 9px; place-items: center; align-content: center; color: var(--ra-text-tertiary); text-align: center; }
 .selection-chat__empty > span { margin-bottom: 6px; color: var(--ra-link); font-size: 20px; }
@@ -824,9 +875,5 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .error-state { color: var(--el-color-danger); }
 .warning-state { margin-top: 8px; padding: 7px 8px; border-radius: 5px; color: #8a5a00; background: #fff7e6; font-size: 10px; line-height: 1.45; }
 .math-rich-state { margin-top: 8px; padding: 7px 8px; border-radius: 5px; color: #245f73; background: #edf8fb; font-size: 10px; line-height: 1.45; }
-.future-feature { display: grid; min-height: 420px; border-bottom: 0; place-items: center; align-content: center; text-align: center; }
-.future-feature__badge { padding: 3px 8px; border-radius: 999px; color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 10%, transparent); font-size: 9px; }
-.future-feature h3 { margin: 10px 0 5px; font-size: 15px; }
-.future-feature p { max-width: 280px; margin: 0; color: var(--ra-text-tertiary); font-size: 11px; line-height: 1.6; }
 @media (max-width: 1180px) { .paper-workbench { flex-basis: 320px; } }
 </style>

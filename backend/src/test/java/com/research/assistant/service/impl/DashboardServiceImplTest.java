@@ -3,10 +3,7 @@ package com.research.assistant.service.impl;
 import com.research.assistant.dto.DashboardDto;
 import com.research.assistant.entity.AsyncTaskRecord;
 import com.research.assistant.entity.Folder;
-import com.research.assistant.entity.Paper;
-import com.research.assistant.entity.PaperAnnotation;
 import com.research.assistant.mapper.AsyncTaskRecordMapper;
-import com.research.assistant.mapper.PaperAnnotationMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.FolderService;
 import org.junit.jupiter.api.Test;
@@ -26,10 +23,9 @@ class DashboardServiceImplTest {
     private final PaperMapper paperMapper = mock(PaperMapper.class);
     private final FolderService folderService = mock(FolderService.class);
     private final AsyncTaskRecordMapper taskMapper = mock(AsyncTaskRecordMapper.class);
-    private final PaperAnnotationMapper annotationMapper = mock(PaperAnnotationMapper.class);
 
     private final DashboardServiceImpl service = new DashboardServiceImpl(
-            paperMapper, folderService, taskMapper, annotationMapper);
+            paperMapper, folderService, taskMapper);
 
     @Test
     void aggregateReturnsPaperStats() {
@@ -71,47 +67,6 @@ class DashboardServiceImplTest {
     }
 
     @Test
-    void recentNotesAreMapped() {
-        PaperAnnotation note = new PaperAnnotation();
-        note.setId(1L);
-        note.setType("NOTE");
-        note.setNote("Hello");
-        note.setCreatedAt(LocalDateTime.of(2026, 7, 10, 10, 0));
-
-        stubEmptyCounts();
-        when(annotationMapper.selectList(any())).thenReturn(List.of(note), List.of());
-
-        DashboardDto dto = service.aggregate();
-
-        assertThat(dto.getRecentNotes()).hasSize(1);
-        assertThat(dto.getRecentNotes().get(0).getTitle()).isEqualTo("Hello");
-    }
-
-    @Test
-    void recentAnnotationsAreEnrichedWithPaperTitles() {
-        PaperAnnotation a = new PaperAnnotation();
-        a.setId(1L);
-        a.setPaperId(10L);
-        a.setType("COMMENT");
-        a.setPage(3);
-        a.setNote("note");
-        a.setCreatedAt(LocalDateTime.now());
-
-        Paper paper = new Paper();
-        paper.setId(10L);
-        paper.setTitle("Test Paper");
-
-        stubEmptyCounts();
-        when(annotationMapper.selectList(any())).thenReturn(List.of(), List.of(a));
-        when(paperMapper.selectBatchIds(List.of(10L))).thenReturn(List.of(paper));
-
-        DashboardDto dto = service.aggregate();
-
-        assertThat(dto.getRecentAnnotations()).hasSize(1);
-        assertThat(dto.getRecentAnnotations().get(0).getPaperTitle()).isEqualTo("Test Paper");
-    }
-
-    @Test
     void taskStatsIncludeStatusCountsAndRecentTasks() {
         AsyncTaskRecord task = new AsyncTaskRecord();
         task.setId(1L);
@@ -145,7 +100,6 @@ class DashboardServiceImplTest {
         when(folderService.getTree()).thenReturn(List.of());
         when(taskMapper.countByStatus(any())).thenReturn(0L);
         when(taskMapper.selectRecent(5)).thenReturn(List.of());
-        when(annotationMapper.selectList(any())).thenReturn(List.of());
     }
 
     private void stubEmptyCountsExceptTasks() {
@@ -154,13 +108,11 @@ class DashboardServiceImplTest {
         when(paperMapper.countPinned()).thenReturn(0L);
         when(paperMapper.countCreatedSince(any())).thenReturn(0L);
         when(folderService.getTree()).thenReturn(List.of());
-        when(annotationMapper.selectList(any())).thenReturn(List.of());
     }
 
     private void stubEmptyOther() {
         when(folderService.getTree()).thenReturn(List.of());
         when(taskMapper.countByStatus(any())).thenReturn(0L);
         when(taskMapper.selectRecent(5)).thenReturn(List.of());
-        when(annotationMapper.selectList(any())).thenReturn(List.of());
     }
 }

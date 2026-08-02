@@ -1,8 +1,8 @@
 <template>
-  <section class="formula-region-card" aria-label="当前公式区域">
+  <section class="formula-region-card" aria-label="当前公式选区">
     <div class="formula-region-card__heading">
       <div>
-        <b>公式精确识别</b>
+        <b>固定公式内容</b>
         <small>第 {{ region?.page }} 页</small>
       </div>
       <button type="button" aria-label="清除公式区域" @click="$emit('clear')">×</button>
@@ -15,8 +15,11 @@
       alt="从原始 PDF 裁剪的公式区域"
     />
     <div v-else class="formula-region-card__preview-placeholder">
-      {{ loading ? '正在从原始 PDF 裁剪并识别…' : '已框选公式；需要可编辑 LaTeX 时再进行识别。' }}
+      {{ loading ? '正在准备公式并转换为 LaTeX…' : '已框选公式；固定时会自动生成可编辑 LaTeX。' }}
     </div>
+    <p v-if="!recognition && !loading" class="formula-region-card__message">
+      点击“固定内容”后才会调用公式转换；未经确认的模型结果不会直接进入对话。
+    </p>
 
     <div v-if="recognition" class="formula-region-card__meta">
       <el-tag size="small" :type="statusTagType" effect="plain">{{ statusLabel }}</el-tag>
@@ -45,8 +48,13 @@
     <p v-if="error" class="formula-region-card__error">{{ error }}</p>
 
     <div class="formula-region-card__actions">
-      <el-button size="small" :loading="loading" @click="$emit('retry')">
-        {{ recognition ? '重新识别' : '识别为 LaTeX' }}
+      <el-button
+        :type="recognition ? 'default' : 'primary'"
+        size="small"
+        :loading="loading"
+        @click="$emit('retry')"
+      >
+        {{ recognition ? '重新转换 LaTeX' : '固定内容' }}
       </el-button>
       <el-button
         v-if="recognition"
@@ -55,7 +63,7 @@
         :loading="confirming"
         :disabled="!canConfirm"
         @click="$emit('confirm', draftLatex.trim())"
-      >{{ recognition.confirmed ? '保存校正并固定' : '确认并固定' }}</el-button>
+      >{{ recognition.confirmed ? '保存校正' : '确认固定' }}</el-button>
     </div>
   </section>
 </template>
@@ -107,7 +115,7 @@ const canConfirm = computed(() => Boolean(
   props.recognition?.id && draftLatex.value.trim() && !props.loading && !props.confirming,
 ))
 const statusLabel = computed(() => ({
-  CONFIRMED: '已确认',
+  CONFIRMED: '已固定',
   CANDIDATE: '待确认',
   REGION: '区域模式',
 }[props.recognition?.status] || '待识别'))

@@ -165,7 +165,7 @@
           @selection-change="selectedPaperIds = $event"
           @tag-click="openTagDialog"
           @status-change="(paper, status) => setPaperStatus(paper, status)"
-          @analyze="paperId => goToAnalysis(paperId, 'read')"
+          @analyze="goToAnalysis"
           @info="showPaperInfo"
           @action="(cmd, paper) => handlePaperAction(cmd, paper)"
           @open-pdf="openPaperPdf"
@@ -538,11 +538,7 @@ import { useGlobalTask } from '@/composables/useGlobalTask.js'
 import { usePaperImportRecommendations } from '@/composables/usePaperImportRecommendations.js'
 import LibraryBatchSelectionBar from '@/components/library/LibraryBatchSelectionBar.vue'
 import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
-import {
-  normalizeWorkbenchRouteMode,
-  researchRouteLocation,
-  workbenchModeQueryValue,
-} from '@/router/workbenchRoute.js'
+import { researchRouteLocation } from '@/router/workbenchRoute.js'
 
 defineOptions({ name: 'LibraryView' })
 
@@ -1563,11 +1559,9 @@ async function handleExport(cmd) {
   }
 }
 
-function goToAnalysis(paperId, mode) {
+function goToAnalysis(paperId) {
   if (!paperId) return
-  router.push(researchRouteLocation(paperId, {
-    mode: workbenchModeQueryValue(normalizeWorkbenchRouteMode(mode)),
-  }))
+  router.push(researchRouteLocation(paperId))
 }
 
 function showPaperInfo(paperId) {
@@ -1576,7 +1570,7 @@ function showPaperInfo(paperId) {
 
 async function openPaperPdf(row) {
   if (!row.pdfPath) return
-  await router.push(researchRouteLocation(row.id, { mode: 'analysis' }))
+  await router.push(researchRouteLocation(row.id))
 }
 
 function openCurrentPaperPdf() {

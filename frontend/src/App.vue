@@ -12,7 +12,7 @@
           <el-menu-item index="/" title="看板 (Ctrl+1)">看板</el-menu-item>
           <el-menu-item index="/library" title="文库管理 (Ctrl+2)">文库管理</el-menu-item>
           <el-menu-item index="/search" title="文献检索 (Ctrl+3)">文献检索</el-menu-item>
-          <el-menu-item index="/research" title="论文分析 (Ctrl+4)">论文分析</el-menu-item>
+          <el-menu-item index="/research" title="论文助手 (Ctrl+4)">论文助手</el-menu-item>
           <el-menu-item index="/archive" title="研究档案 (Ctrl+6)">研究档案</el-menu-item>
           <el-menu-item index="/writing" title="写作助手 (Ctrl+8)">写作助手</el-menu-item>
         </el-menu>
@@ -59,6 +59,9 @@
             <el-option v-for="item in channelOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
+        <el-form-item label="Base URL">
+          <el-input v-model="baseUrl" placeholder="供应商默认地址" />
+        </el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="apiKey" type="password" show-password placeholder="例如 sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" size="default" />
         </el-form-item>
@@ -67,29 +70,6 @@
             <el-option v-for="item in modelOptions" :key="item" :label="item" :value="item" />
           </el-select>
         </el-form-item>
-        <el-form-item label="研究主题">
-          <el-input v-model="researchTopic" type="textarea" :rows="2" placeholder="例如：多模态大模型在医疗影像中的应用" size="default" />
-          <p style="font-size:12px;color:var(--ra-text-tertiary);margin:6px 0 0;line-height:1.5">
-            用于分析论文与本研究方向的匹配度，影响入库时的相关性评分与推荐理由。
-          </p>
-        </el-form-item>
-        <el-collapse class="advanced-settings">
-          <el-collapse-item title="高级设置" name="advanced">
-            <el-form-item label="Base URL">
-              <el-input v-model="baseUrl" placeholder="供应商默认地址" />
-            </el-form-item>
-            <el-divider content-position="left">Embedding（可选）</el-divider>
-            <el-form-item label="API Key">
-              <el-input v-model="embeddingApiKey" type="password" show-password placeholder="未配置时使用关键词检索" />
-            </el-form-item>
-            <el-form-item label="模型">
-              <el-input v-model="embeddingModel" placeholder="例如 text-embedding-3-small" />
-            </el-form-item>
-            <el-form-item label="Base URL">
-              <el-input v-model="embeddingBaseUrl" placeholder="Embedding 服务地址" />
-            </el-form-item>
-          </el-collapse-item>
-        </el-collapse>
       </el-form>
       <div v-if="testResult !== null" class="test-result" :class="{ success: testResult.success, fail: !testResult.success }">
         <div>{{ testResult.success ? '✅ ' : '❌ ' }}{{ testResult.message }}</div>
@@ -156,11 +136,6 @@ const aiProvider = ref('kimi')
 const aiChannel = ref('coding')
 const model = ref('')
 const baseUrl = ref('')
-const embeddingApiKey = ref('')
-const savedEmbeddingApiKey = ref('')
-const embeddingModel = ref('')
-const embeddingBaseUrl = ref('')
-const researchTopic = ref('')
 const testing = ref(false)
 const saving = ref(false)
 const testResult = ref(null)
@@ -184,11 +159,6 @@ async function loadSettings() {
       baseUrl.value = channelDefinition(aiProvider.value, aiChannel.value).baseUrl
     }
     if (!model.value) model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
-    embeddingApiKey.value = find('embedding_api_key')
-    savedEmbeddingApiKey.value = embeddingApiKey.value
-    embeddingModel.value = find('embedding_model')
-    embeddingBaseUrl.value = find('embedding_base_url')
-    researchTopic.value = find('research_topic')
     // 后端返回的是脱敏后的 Key，直接显示在密码框中，提示用户已保存
     apiKey.value = savedApiKey.value
     testResult.value = null
@@ -202,25 +172,17 @@ watch(showSettings, (val) => {
 
 async function doSave() {
   const keyInput = apiKey.value.trim()
-  const embeddingKeyInput = embeddingApiKey.value.trim()
   const payload = [
     { keyName: 'ai_provider', value: aiProvider.value },
     { keyName: 'ai_channel', value: aiChannel.value },
     { keyName: 'model', value: model.value },
     { keyName: 'base_url', value: baseUrl.value },
-    { keyName: 'research_topic', value: researchTopic.value },
   ]
   // 只有用户真正填写了新的 Key（与加载回来的脱敏值不同）时才提交，避免用掩码覆盖真实 Key
   if (keyInput && keyInput !== savedApiKey.value) {
     payload.push({ keyName: 'api_key', value: keyInput })
     savedApiKey.value = keyInput
   }
-  if (embeddingKeyInput !== savedEmbeddingApiKey.value) {
-    payload.push({ keyName: 'embedding_api_key', value: embeddingKeyInput })
-    savedEmbeddingApiKey.value = embeddingKeyInput
-  }
-  payload.push({ keyName: 'embedding_model', value: embeddingModel.value.trim() })
-  payload.push({ keyName: 'embedding_base_url', value: embeddingBaseUrl.value.trim() })
   if (payload.length) {
     await api.put('/settings', payload)
   }
@@ -249,7 +211,6 @@ function capabilityLabel(key) {
     stream: '流式输出',
     structured: '结构化输出',
     vision: '图片输入',
-    embedding: 'Embedding',
   }[key] || key
 }
 
@@ -284,7 +245,7 @@ const routeCommands = [
   { id: 'dashboard', title: '打开看板', subtitle: '首页数据面板', route: '/', shortcut: 'Ctrl+1', shortcutKey: '1', keywords: ['看板', 'dashboard', '首页'] },
   { id: 'library', title: '打开文库管理', subtitle: '论文库与文件夹', route: '/library', shortcut: 'Ctrl+2', shortcutKey: '2', keywords: ['文库', 'library', '论文'] },
   { id: 'search', title: '打开文献检索', subtitle: 'AI 检索与多源搜索', route: '/search', shortcut: 'Ctrl+3', shortcutKey: '3', keywords: ['检索', 'search', '文献'] },
-  { id: 'workbench', title: '打开论文分析', subtitle: '全文分析 / 改进空间 / 跨论文对比', route: '/research', shortcut: 'Ctrl+4', shortcutKey: '4', keywords: ['分析', 'analysis', 'gap', '空白', '改进', '对比', '论文分析'] },
+  { id: 'workbench', title: '打开论文助手', subtitle: '基于论文理解的连续科研对话', route: '/research', shortcut: 'Ctrl+4', shortcutKey: '4', keywords: ['助手', '对话', '分析', 'analysis', '论文助手'] },
   { id: 'archive', title: '打开研究档案', subtitle: '对话、分析与证据记录', route: '/archive', shortcut: 'Ctrl+6', shortcutKey: '6', keywords: ['档案', 'archive', '研究', '对话'] },
   { id: 'writing', title: '打开写作助手', subtitle: '大纲 / Related Work / 引用', route: '/writing', shortcut: 'Ctrl+8', shortcutKey: '8', keywords: ['写作', 'writing', '大纲'] },
 ]
@@ -308,7 +269,7 @@ const shortcutList = [
   { desc: '打开看板', keys: 'Ctrl + 1' },
   { desc: '打开文库管理', keys: 'Ctrl + 2' },
   { desc: '打开文献检索', keys: 'Ctrl + 3' },
-  { desc: '打开论文分析', keys: 'Ctrl + 4' },
+  { desc: '打开论文助手', keys: 'Ctrl + 4' },
   { desc: '打开研究档案', keys: 'Ctrl + 6' },
   { desc: '打开写作助手', keys: 'Ctrl + 8' },
 ]

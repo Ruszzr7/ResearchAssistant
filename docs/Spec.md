@@ -1,120 +1,84 @@
 # Research Assistant 项目规格
 
-## 1. 定位
+## 产品定位
 
-Research Assistant 是一个本地运行的 AI 科研助手，面向 CS / AI / EE 研究生。目标不是替代 Zotero，而是把文献管理、论文理解、研究空白验证、阅读和写作串成一条可追踪的工作流。
+Research Assistant 是本地运行的科研助手，目标是把论文管理、PDF 阅读、论文理解、连续问答、研究档案和写作辅助连接成可恢复、可追溯的工作流，而不是替代 Zotero 或训练模型。
 
-设计原则：AI 先解释计划，关键动作由用户确认；长任务可查看阶段、取消、重试；外部服务失败时尽量降级，不阻断基础文库功能。
-
-## 2. 系统边界
+## 当前架构
 
 ```text
-Vue 3 + Vite
-        │ REST / SSE
-Spring Boot
-  ├─ 论文、文件夹、标签、阅读标注、论文记忆、写作业务
-  ├─ Skill Registry / Planner / Workflow Engine
-  ├─ LangChain4j（OpenAI 兼容模型）
-  ├─ 多源检索（arXiv、Crossref、Semantic Scholar、OpenAlex、IEEE、ACM）
-  └─ RAG（MySQL 分片 + 内存向量，或 Qdrant）
-        │
+Vue 3 / Vite
+      │ REST / SSE
+Spring Boot / LangChain4j
+      ├─ 文库、标注、研究档案、写作
+      ├─ 论文结构、记忆、对话与 Evidence Gate
+      ├─ 固定 Workflow、异步任务与模型适配
+      └─ 文献检索及历史 RAG 能力
+      │
 MySQL / 本地 PDF / 可选 Qdrant
 ```
 
-后端负责编排与持久化，不训练模型。需要复杂并行、条件分支、补偿或分布式调度时，再评估 Temporal / Camunda 等工作流引擎。
-
-## 3. 技术栈
-
 | 层 | 当前实现 |
 |---|---|
-| 前端 | Vue 3、Vite、Element Plus、vxe-table、PDF.js |
+| 前端 | Vue 3、Vite、Element Plus、vxe-table、PDF.js canvas、PDFium/WASM 交互层 |
 | 后端 | Java 17、Spring Boot 3.2.6、Maven、MyBatis Plus |
-| 数据 | MySQL 8；Flyway 版本化迁移，MySQL 保存任务/RAG/证据元数据 |
-| AI | LangChain4j 1.15.1；OpenAI 兼容 Chat / Embedding API |
-| PDF | PDF.js + PDFBox；公式区域使用现有框选识别，外部版面解析器暂不启用 |
-| 向量 | 默认内存存储，可切换 Qdrant；MySQL 保存分片元数据 |
+| 数据 | MySQL 8、Flyway、本地 PDF 文件 |
+| AI | LangChain4j 1.15.1，多供应商 OpenAI-compatible Chat API |
+| PDF | PDFBox 版面事实；PDFium 负责浏览器字符命中、选择和搜索 |
+| 检索 | 工作台使用当前问题优先的版面证据检索；旧向量链路默认内存、可选 Qdrant |
 
-当前没有 Redis 和 Pinia 运行依赖。异步任务使用 Spring 线程池，状态、步骤和结果写入 MySQL。
+项目当前不依赖 Redis，也不使用 Pinia。异步任务由 Spring 线程池执行，状态和结果持久化到 MySQL。
 
-## 4. 已实现模块
+## 已实现能力
 
-### 4.1 文库与阅读
+### 文库与阅读
 
-- 文件夹树、标签、多条件分页筛选、排序、置顶、批量移动/删除。
-- PDF 上传、浏览器预览、DOI / arXiv 元数据补全、文本/公式/图表提取。
-- PDF.js 阅读器默认使用文字选择，支持高亮、下划线、选区笔记、选区批注、全文搜索与公式区域框选；笔记和批注具有不同图标、固定内容锚点及可拖动显示位置，批注只在批注列表打开时展示。
-- 右侧批注列表支持跳转、完成和删除；完成项以绿色显示。高亮/下划线直接显示范围拖柄与删除 ×，不再提供独立“调整”模式。
-- 论文助手提供“论文精读 / 缺陷分析 / 论文对比”三项入口；当前完成论文精读，后两项明确保留为后续范围。
-- 阅读状态、页码和阅读时长；阅读计划模块已移除。
+- 文件夹、标签、筛选、批量操作、PDF 上传和 DOI/arXiv 元数据补全。
+- PDF 搜索、缩放、高亮、下划线、选区笔记和选区批注。
+- 批注列表支持跳转、完成和删除；标注范围按需编辑。
+- 文字选择默认由 PDFium 提供；公式精确框选作为需要可编辑 LaTeX 时的后手。
 
-### 4.2 AI 与检索
+### 论文理解与对话
 
-- 论文结构化精读、对比、追问和研究主题相关度评分。
-- 导入后的本地 PDFBox 版面制品生成版本化结构事实；后台按章节/语义分块理解并生成可恢复的全局论文画像。分块结果逐个检查点保存，状态区分处理中、部分就绪、就绪与失败，不阻塞用户先做选区问答。
-- 论文记忆中的模型论断只能引用当前 PDF 版本内的稳定 block ID；无来源或越界引用在持久化前过滤。GROBID 仅作为未来可选增强，不是默认部署依赖，也不调用云解析服务。
-- 选区问答上下文由服务端按固定优先级与独立字符预算组装，前端只发送会话 ID。当前 evidence 是事实与引用的唯一来源；对话历史、论文画像和旧观察只作为追问理解及检索提示。首次执行冻结上下文快照，重试不得重新吸收后来的记忆。
-- 通过证据门禁的问答按论文、PDF hash 与解析版本保存：完整轮次承担短期连续对话，grounded claim 去重后承担长期观察。相同 claim 可累计确认与证据，不同 claim 不自动覆盖；跨论文知识关系留给后续论文对比功能。
-- 库内 Gap 分析、外部来源验证、引用网络扩展和时间加权。
-- 多源检索、去重、排序、引用网络扩展和用户确认后批量入库。
-- 论文分析、摘要、方法、数据集、实验和 PDF 分片可生成 embedding；问答、推荐和 Gap 验证优先走 RAG，可选 LLM 重排序。
+- PDFBox 版面制品和版本化论文结构是服务端论文事实层。
+- 全文理解生成可恢复的论文画像；只有画像就绪后开放论文对话。
+- 论文助手是单一连续对话，不再拆分精读、缺陷分析和论文对比页面。
+- 选区是可选附加锚点；无选区时正常检索全文，指代追问可以弱引用上一轮主题。
+- 每轮问答是独立 workbench run，并绑定 conversation、PDF hash、解析版本、证据、Token 和耗时。
+- 当前 evidence 是论文事实和引用的唯一来源；历史、画像和长期观察只帮助理解及检索。
+- 对比文献只保留添加接口，尚未进入当前实现范围。
 
-### 4.3 Agent 编排
+### Agent、任务与写作
 
-- Skill Registry：原子能力统一注册、描述和测试。
-- Planner + PlanExecutor：将自然语言目标转换为顺序 Skill 计划。
-- Workflow Engine：`paper-import`、`literature-survey`、`gap-research`。
-- 论文精读使用规则路由的固定 Workflow 管理检索、模型调用、Evidence Gate、重试和记忆更新；Skill 保持为可复用原子能力，不允许开放式工具循环跳过引用门禁。
-- 支持异步任务、阶段提示、持久化步骤、失败点重试、取消、执行超时和带过期状态的 `PENDING_USER` 人机确认；可恢复任务通过 MySQL task_type/context 调度，具有队列容量、并发上限、租约和幂等键保护，旧版闭包任务仅兼容进程内执行。
+- Skill Registry 提供原子能力；Planner/Workflow 负责编排、校验、重试和人机确认。
+- 论文问答使用固定 Workflow，不允许模型绕过 Evidence Gate。
+- 异步任务支持持久化状态、取消、重试、超时、容量限制和重启恢复。
+- 写作项目支持论文关联、论点—证据关系、大纲、Related Work 和引用检查。
 
-### 4.4 写作与交互
+## 数据职责
 
-- 写作项目、论文关联、阅读笔记引用。
-- 大纲生成、Related Work 生成、引用位置建议与段落冲突检查。
-- 数据看板、暗色模式、全局快捷键和 Command Palette。
-
-## 5. 主要接口分组
-
-| 分组 | 代表接口 |
+| 数据 | 真源与用途 |
 |---|---|
-| 文库 | `/api/papers`、`/api/folders`、`/api/tags` |
-| 阅读 | `/api/papers/{id}/reading-progress` |
-| 论文记忆 | `/api/papers/{id}/memory`、`/api/papers/{id}/memory/understand` |
-| Agent | `/api/agent/process`、`/api/agent/compare`、`/api/agent/gap`、`/api/agent/chat` |
-| 工作流 | `/api/agent/workflow/{key}`、`/api/agent/workflow/{taskId}/confirm` |
-| 任务 | `/api/agent/tasks`、`/api/agent/task/{taskId}/cancel` |
-| 阅读标注 | `/api/papers/{paperId}/annotations` |
-| 写作 | `/api/writing/projects`、`/api/writing/outline`、`/api/writing/related-work` |
-| 设置 | `/api/settings`、`/api/settings/test` |
+| PDF | 本地文件，原始事实载体 |
+| 版面、结构、画像、会话、观察、任务、写作数据 | MySQL + Flyway |
+| 浏览器字符范围与矩形 | PDFium 交互事实，用于选择、搜索和精确回链 |
+| 向量 | 只用于候选召回，不能作为引用真源 |
 
-统一响应格式为 `{ code, message, data }`；长耗时 AI 操作优先返回任务 ID，再由前端轮询任务状态或使用 SSE。
+所有派生产物绑定 PDF SHA-256 和解析版本；PDF 变化后旧锚点、结构、记忆和索引不得继续用于当前回答。
 
-## 6. 数据与安全约定
+## 安全与运维
 
-- 正式运行只由 `backend/src/main/resources/db/migration` 下的 Flyway 迁移负责初始化和升级；`V12.1` 是无损基线，`V13` 增加 RAG 一致性审计表，`V13.1` 修复旧库实际 schema 缺失。项目不再维护第二套手工建表或升级脚本。
-- 已有数据库切换到 Flyway 前必须备份并核验 schema；只允许在确认数据库对应基线后临时使用 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true`，禁止对未知版本数据库盲目 baseline。
-- RAG 一致性巡检通过 `/api/rag/consistency` 比对 MySQL active 指针、active version 元数据和 active chunk 数量，审计写入 `rag_consistency_audit` 不影响只读巡检结果。
-- MySQL 同时保存版本化论文结构/画像、服务端对话轮次、长期 grounded observations 和冻结的上下文快照；当前不增加 Redis、图数据库或独立知识库。向量后端只负责候选原文证据召回，不能成为 citation 真源。
-- PDF 存放在 `app.storage.pdf-dir`，默认 `./data/papers`。
-- API Key 支持 `RA_API_KEY` 等环境变量覆盖；配置 `RA_MASTER_KEY` 后使用 AES-GCM 加密保存。
-- 测试使用 `test` profile 的 H2 内存库，不得依赖开发库中的论文或任务数据。
+- Flyway 迁移目录是唯一数据库结构真源，测试使用 H2。
+- API Key 可由环境变量覆盖；设置 `RA_MASTER_KEY` 后使用 AES-GCM 加密保存。
+- 生产环境要求明确的 CORS 白名单、MySQL 地址和 PDF 目录。
+- 日志和指标不记录密钥、完整 Prompt、论文正文或 Provider 响应体。
+- 默认部署为 MySQL + Spring Boot + Nginx/Vue；Qdrant 可选，不引入 Redis。
 
-## 6.1 部署与可运维性
+## 当前重点
 
-- 默认交付拓扑是 MySQL + Spring Boot + Nginx/Vue；Qdrant 通过 Compose profile 可选启用，不引入 Redis。
-- `/actuator/health` 用于 liveness/readiness，`/actuator/metrics` 用于低基数任务、AI、外部 API 和 RAG 指标采集；生产日志默认关闭 SQL stdout。
-- 生产 profile 启动时校验 `RA_MASTER_KEY`、MySQL JDBC URL、PDF 目录和明确 CORS 白名单，校验失败即停止启动。
-- MySQL、PDF 数据卷和可选 Qdrant 数据必须分别纳入备份策略；恢复后先检查健康状态，再执行 RAG 一致性巡检。
+1. 将工作台版面检索和旧 RAG 收敛为可降级的混合证据检索。
+2. 让回答段落与 evidence 直接绑定，取消前端模糊引用插入。
+3. 完善证据去重、正文精确回链和双栏公式目标框。
+4. 继续控制论文理解、公式识别和问答的 Token 与延迟。
 
-## 7. 当前待办
-
-1. 在真实多节点环境执行压力测试并接入组织现有告警平台；本 Mission 提供指标、队列边界和测试入口，不引入新的基础设施。
-2. 继续按真实使用数据优化前端大包体积和复杂页面拆分。
-3. 工作流出现并行、条件分支或补偿需求后，再评估专用工作流引擎。
-
-## 8. 文档维护
-
-- `Spec.md`：只保留当前产品边界、架构和接口约定。
-- `progress.md`：只记录阶段、日期、关键交付和验证结果。
-- `knowledge.md`：只保留可复用的设计决策、踩坑和排查方法。
-- 详细历史 diff 以 Git 为准，不在文档中重复保存。
-- 源码、Markdown、配置和脚本统一使用 UTF-8；PowerShell 读取中文文件时显式指定 `-Encoding utf8`。
+详细状态见 [progress.md](progress.md)，稳定约束见 [knowledge.md](knowledge.md)。

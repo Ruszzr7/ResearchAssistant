@@ -45,7 +45,7 @@ class WorkbenchEvidenceRetrievalServiceTest {
 
         List<LayoutEvidence> result = service.retrievePaper(artifact, "latency method", 6, 8_000);
 
-        assertThat(result).hasSize(6);
+        assertThat(result).hasSize(5);
         assertThat(result).extracting(LayoutEvidence::blockId)
                 .contains("abstract", "intro", "method", "results")
                 .doesNotContain("header", "reference", "footer");
@@ -85,11 +85,126 @@ class WorkbenchEvidenceRetrievalServiceTest {
                         "x = y + 1", null, 0.9, DocumentBlockContentMode.STRUCTURED),
                 block("body", DocumentBlockRole.BODY, 2, List.of("Method"), "Method context")));
 
-        List<LayoutEvidence> result = service.retrievePaper(artifact, "formula", 6, 8_000);
+        List<LayoutEvidence> result = service.retrievePaper(artifact, "method context", 6, 8_000);
 
         assertThat(result).extracting(LayoutEvidence::blockId)
                 .contains("structured-formula", "body")
                 .doesNotContain("region-formula");
+    }
+
+    @Test
+    void locationQuestionAddsAdjacentFormulaRegionWithoutTreatingItAsFormulaText() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                block("intro", DocumentBlockRole.BODY, 1, List.of("System Model"),
+                        "We first introduce the transmitted signal."),
+                block("sinr-text", DocumentBlockRole.BODY, 2, List.of("System Model"),
+                        "The common-stream SINR is defined for decoding at the receiver."),
+                new DocumentBlock("sinr-formula-region", 1,
+                        new NormalizedBoundingBox(0.12, 0.35, 0.72, 0.08),
+                        DocumentBlockRole.FORMULA, 3, List.of("System Model"), "",
+                        null, null, 0.6, DocumentBlockContentMode.REGION),
+                block("optimization", DocumentBlockRole.BODY, 8, List.of("Optimization"),
+                        "The objective minimizes total latency.")));
+
+        List<LayoutEvidence> result = service.retrievePaper(
+                artifact, "SINR 在哪里定义？", 5, 8_000);
+
+        assertThat(result.get(0).blockId()).isEqualTo("sinr-text");
+        assertThat(result).extracting(LayoutEvidence::blockId)
+                .contains("sinr-text", "sinr-formula-region");
+        LayoutEvidence region = result.stream()
+                .filter(item -> item.blockId().equals("sinr-formula-region"))
+                .findFirst().orElseThrow();
+        assertThat(region.contentMode()).isEqualTo(DocumentBlockContentMode.REGION);
+        assertThat(region.text()).contains("仅可按页面区域定位");
+    }
+
+    @Test
+    void mixedChineseEnglishLocationQueryLinksOnlyARelevantEquationCluster() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                new DocumentBlock("unrelated-text", 1,
+                        new NormalizedBoundingBox(0.1, 0.10, 0.38, 0.05),
+                        DocumentBlockRole.BODY, 1, List.of("Introduction"),
+                        "The introduction describes autonomous vehicles.",
+                        null, null, 0.9),
+                new DocumentBlock("unrelated-formula", 1,
+                        new NormalizedBoundingBox(0.18, 0.17, 0.22, 0.04),
+                        DocumentBlockRole.FORMULA, 2, List.of("Introduction"), "",
+                        null, null, 0.8, DocumentBlockContentMode.REGION),
+                new DocumentBlock("sinr-definition", 2,
+                        new NormalizedBoundingBox(0.1, 0.42, 0.38, 0.06),
+                        DocumentBlockRole.BODY, 10, List.of("System Model"),
+                        "The signal-to-interference plus noise ratio (SINR) "
+                                + "for the common stream is written as",
+                        null, null, 0.9),
+                new DocumentBlock("equation-label", 2,
+                        new NormalizedBoundingBox(0.14, 0.49, 0.34, 0.04),
+                        DocumentBlockRole.BODY, 11, List.of("System Model"),
+                        "Gamma_c,k = fraction (4)", null, null, 0.86),
+                new DocumentBlock("equation-fragment", 2,
+                        new NormalizedBoundingBox(0.20, 0.50, 0.22, 0.05),
+                        DocumentBlockRole.FORMULA, 12, List.of("System Model"),
+                        "broken mathematical glyphs", null, null, 0.72,
+                        DocumentBlockContentMode.REGION)));
+
+        List<LayoutEvidence> result = service.retrievePaper(
+                artifact, "为我找出SINR公式在哪？", 5, 8_000);
+
+        assertThat(result.get(0).blockId()).isEqualTo("sinr-definition");
+        assertThat(result).extracting(LayoutEvidence::blockId)
+                .contains("sinr-definition", "equation-region:equation-label")
+                .doesNotContain("unrelated-text", "unrelated-formula");
+        LayoutEvidence equation = result.stream()
+                .filter(item -> item.blockId().equals("equation-region:equation-label"))
+                .findFirst().orElseThrow();
+        assertThat(equation.sectionPath()).contains("Equation (4)");
+        assertThat(equation.bbox().bottom()).isGreaterThanOrEqualTo(0.55);
+    }
+
+    @Test
+    void currentTechnicalQuestionRanksMatchingBodyBeforeAbstractAndHeadings() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                block("abstract", DocumentBlockRole.ABSTRACT, 1, List.of(), "Autonomous driving overview"),
+                block("heading", DocumentBlockRole.HEADING, 2, List.of("System Model"), "II. System Model"),
+                block("sinr", DocumentBlockRole.BODY, 3, List.of("System Model"),
+                        "The common-stream SINR gamma_c is defined at the receiver."),
+                block("method", DocumentBlockRole.BODY, 4, List.of("Optimization"),
+                        "The optimization algorithm alternates two subproblems.")));
+
+        List<LayoutEvidence> result = service.retrievePaper(
+                artifact, "SINR gamma_c 在哪里定义？", 3, 8_000);
+
+        assertThat(result.get(0).blockId()).isEqualTo("sinr");
+        assertThat(result).extracting(LayoutEvidence::blockId).contains("sinr");
+    }
+
+    @Test
+    void previousTurnBlockIsOnlyAWeakHintWhenTheCurrentQuestionChangesTopic() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                block("previous", DocumentBlockRole.BODY, 1, List.of("System Model"),
+                        "The SINR expression is introduced here."),
+                block("current", DocumentBlockRole.BODY, 2, List.of("Experiments"),
+                        "The ablation experiment reports latency improvements."),
+                block("abstract", DocumentBlockRole.ABSTRACT, 3, List.of(), "General overview")));
+
+        List<LayoutEvidence> result = service.retrievePaper(
+                artifact, "ablation experiment latency", List.of("previous"), 2, 8_000);
+
+        assertThat(result.get(0).blockId()).isEqualTo("current");
+    }
+
+    @Test
+    void referentialFollowUpKeepsPreviousGroundedBlockAsContext() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                block("previous", DocumentBlockRole.BODY, 1, List.of("System Model"),
+                        "The SINR expression is introduced here."),
+                block("other", DocumentBlockRole.BODY, 2, List.of("Experiments"),
+                        "The experiment reports latency improvements.")));
+
+        List<LayoutEvidence> result = service.retrievePaper(
+                artifact, "这个公式的变量分别是什么意思？", List.of("previous"), 2, 8_000);
+
+        assertThat(result.get(0).blockId()).isEqualTo("previous");
     }
 
     private PaperLayoutArtifact artifact(Long paperId, List<DocumentBlock> blocks) {

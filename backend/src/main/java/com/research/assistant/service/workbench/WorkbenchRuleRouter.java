@@ -24,7 +24,7 @@ public class WorkbenchRuleRouter {
         Workflow workflow = chooseWorkflow(invocation);
         Scope scope = chooseScope(invocation, workflow);
         validateWorkflowInput(invocation, workflow, scope);
-        List<Step> steps = stepsFor(workflow);
+        List<Step> steps = stepsFor(workflow, invocation.selectionAnchor() != null);
         if (steps.size() > invocation.maxSteps()) {
             throw new IllegalArgumentException("requested maxSteps is lower than the fixed workflow requirement");
         }
@@ -76,7 +76,13 @@ public class WorkbenchRuleRouter {
         return switch (workflow) {
             case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> Scope.PAPER;
             case PAPER_COMPARISON, RESEARCH_GAP -> Scope.COMPARISON;
-            case SELECTION_QA, ANNOTATION_SUGGESTION ->
+            case SELECTION_QA -> invocation.selectionAnchor() == null
+                    ? Scope.PAPER
+                    : invocation.requestedScope() == Scope.REGION
+                            || invocation.selectionAnchor() != null
+                            && invocation.selectionAnchor().kind() == SelectionAnchorKind.REGION
+                            ? Scope.REGION : Scope.SELECTION;
+            case ANNOTATION_SUGGESTION ->
                     invocation.requestedScope() == Scope.REGION
                             || invocation.selectionAnchor() != null
                             && invocation.selectionAnchor().kind() == SelectionAnchorKind.REGION
@@ -98,7 +104,7 @@ public class WorkbenchRuleRouter {
         if (!isMultiPaperWorkflow(workflow) && invocation.paperIds().size() != 1) {
             throw new IllegalArgumentException("this workflow accepts exactly one paper");
         }
-        if (selectionWorkflow && invocation.selectionAnchor() == null) {
+        if (workflow == Workflow.ANNOTATION_SUGGESTION && invocation.selectionAnchor() == null) {
             throw new IllegalArgumentException("selection workflow requires a SelectionAnchor");
         }
         if (selectionWorkflow && invocation.question().isBlank()) {
@@ -118,13 +124,19 @@ public class WorkbenchRuleRouter {
         return selectionWorkflow && requested == Scope.SELECTION && actual == Scope.REGION;
     }
 
-    private List<Step> stepsFor(Workflow workflow) {
+    private List<Step> stepsFor(Workflow workflow, boolean hasSelection) {
         return switch (workflow) {
-            case SELECTION_QA -> List.of(
-                    Step.of(0, "解析选区", Skill.RESOLVE_SELECTION_CONTEXT),
-                    Step.of(1, "检索局部证据", Skill.RETRIEVE_LOCAL_EVIDENCE),
-                    Step.of(2, "生成证据回答", Skill.SYNTHESIZE_EVIDENCE_ANSWER),
-                    Step.of(3, "证据门禁", Skill.VALIDATE_EVIDENCE_ANSWER));
+            case SELECTION_QA -> hasSelection
+                    ? List.of(
+                            Step.of(0, "解析选区", Skill.RESOLVE_SELECTION_CONTEXT),
+                            Step.of(1, "检索局部证据", Skill.RETRIEVE_LOCAL_EVIDENCE),
+                            Step.of(2, "生成证据回答", Skill.SYNTHESIZE_EVIDENCE_ANSWER),
+                            Step.of(3, "证据门禁", Skill.VALIDATE_EVIDENCE_ANSWER))
+                    : List.of(
+                            Step.of(0, "准备版面制品", Skill.ENSURE_LAYOUT_ARTIFACT),
+                            Step.of(1, "检索全文证据", Skill.RETRIEVE_PAPER_EVIDENCE),
+                            Step.of(2, "生成证据回答", Skill.SYNTHESIZE_EVIDENCE_ANSWER),
+                            Step.of(3, "证据门禁", Skill.VALIDATE_EVIDENCE_ANSWER));
             case PAPER_ANALYSIS -> List.of(
                     Step.of(0, "准备版面制品", Skill.ENSURE_LAYOUT_ARTIFACT),
                     Step.of(1, "检索全文证据", Skill.RETRIEVE_PAPER_EVIDENCE),

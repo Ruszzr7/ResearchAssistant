@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * 首页看板聚合数据 DTO。
  * <p>
- * 一次性返回论文库、异步任务、最近动态的统计信息，
+ * 一次性返回论文库与异步任务的统计信息，
  * 减少前端多次请求并避免在数据库上做复杂连接查询。
  */
 public class DashboardDto {
@@ -20,12 +20,6 @@ public class DashboardDto {
     /** 异步任务统计 */
     private TaskStats taskStats;
 
-    /** 最近笔记 */
-    private List<RecentNote> recentNotes;
-
-    /** 最近批注 */
-    private List<RecentAnnotation> recentAnnotations;
-
     public PaperStats getPaperStats() { return paperStats; }
     public void setPaperStats(PaperStats paperStats) { this.paperStats = paperStats; }
 
@@ -34,12 +28,6 @@ public class DashboardDto {
 
     public TaskStats getTaskStats() { return taskStats; }
     public void setTaskStats(TaskStats taskStats) { this.taskStats = taskStats; }
-
-    public List<RecentNote> getRecentNotes() { return recentNotes; }
-    public void setRecentNotes(List<RecentNote> recentNotes) { this.recentNotes = recentNotes; }
-
-    public List<RecentAnnotation> getRecentAnnotations() { return recentAnnotations; }
-    public void setRecentAnnotations(List<RecentAnnotation> recentAnnotations) { this.recentAnnotations = recentAnnotations; }
 
     // ===== 嵌套 DTO =====
 
@@ -145,58 +133,4 @@ public class DashboardDto {
         public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     }
 
-    public static class RecentNote {
-        private Long id;
-        private String title;
-        private LocalDateTime createdAt;
-
-        public RecentNote() {}
-
-        public RecentNote(Long id, String title, LocalDateTime createdAt) {
-            this.id = id;
-            this.title = title;
-            this.createdAt = createdAt;
-        }
-
-        public Long getId() { return id; }
-        public void setId(Long id) { this.id = id; }
-        public String getTitle() { return title; }
-        public void setTitle(String title) { this.title = title; }
-        public LocalDateTime getCreatedAt() { return createdAt; }
-        public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    }
-
-    public static class RecentAnnotation {
-        private Long id;
-        private Long paperId;
-        private String paperTitle;
-        private Integer page;
-        private String note;
-        private LocalDateTime createdAt;
-
-        public RecentAnnotation() {}
-
-        public RecentAnnotation(Long id, Long paperId, String paperTitle, Integer page,
-                                String note, LocalDateTime createdAt) {
-            this.id = id;
-            this.paperId = paperId;
-            this.paperTitle = paperTitle;
-            this.page = page;
-            this.note = note;
-            this.createdAt = createdAt;
-        }
-
-        public Long getId() { return id; }
-        public void setId(Long id) { this.id = id; }
-        public Long getPaperId() { return paperId; }
-        public void setPaperId(Long paperId) { this.paperId = paperId; }
-        public String getPaperTitle() { return paperTitle; }
-        public void setPaperTitle(String paperTitle) { this.paperTitle = paperTitle; }
-        public Integer getPage() { return page; }
-        public void setPage(Integer page) { this.page = page; }
-        public String getNote() { return note; }
-        public void setNote(String note) { this.note = note; }
-        public LocalDateTime getCreatedAt() { return createdAt; }
-        public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    }
 }

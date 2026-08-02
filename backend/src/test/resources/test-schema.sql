@@ -63,8 +63,6 @@ CREATE TABLE paper_analysis (
     reproducible_artifacts_json TEXT,
     experiment_setup_json TEXT,
     benchmark_results_json TEXT,
-    relevance_score INT,
-    relevance_reason TEXT,
     formulas_json TEXT,
     figures_json TEXT,
     raw_text TEXT,

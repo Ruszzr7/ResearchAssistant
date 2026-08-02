@@ -56,12 +56,6 @@ public class PaperAnalysisResult {
     @Description("Benchmark / 实验结果列表：指标、数值、与基线对比、来源图表")
     private List<BenchmarkResult> benchmarkResults;
 
-    @Description("与用户研究主题的相关度评分（1-10）。仅当提供了研究主题时才填写，否则必须为 null")
-    private Integer relevanceScore;
-
-    @Description("相关度评分理由，1-2句话说明论文与用户主题为何相关/不相关")
-    private String relevanceReason;
-
     @Data
     public static class Section {
         @Description("章节标题")

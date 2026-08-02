@@ -38,7 +38,7 @@ docs/      规格、进度、知识总结、技术债
 
 ## 开发流程
 
-Plan → Explain → Code → Test → Review。每个实质功能完成后更新 `docs/progress.md`；稳定的技术结论写入 `docs/knowledge.md`。Git commit、分支和推送前必须先征得用户同意。
+Plan →  Code → Test → Review。每个实质功能完成后更新 `docs/progress.md`；稳定的技术结论写入 `docs/knowledge.md`。Git commit、分支和推送前必须先征得用户同意。
 
 ## 常用命令
 
