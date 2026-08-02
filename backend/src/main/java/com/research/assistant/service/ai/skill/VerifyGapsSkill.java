@@ -249,7 +249,7 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
     }
 
     /**
-     * 从本地向量知识库检索与 Gap 语义相似的论文片段，作为补充证据。
+     * 从本地论文索引检索与 Gap 相关的论文片段，作为补充证据。
      */
     private void collectLocalCandidates(GapPart part, List<Map<String, Object>> candidates) {
         try {
@@ -277,7 +277,7 @@ public class VerifyGapsSkill implements Skill<String, List<Map<String, Object>>>
                 candidates.add(normalized);
             }
         } catch (Exception e) {
-            log.debug("本地向量库检索失败: {}", e.getMessage());
+            log.debug("本地论文索引检索失败: {}", e.getMessage());
         }
     }
 

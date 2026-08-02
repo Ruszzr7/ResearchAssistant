@@ -7,9 +7,6 @@ public class RagIndexingException extends RuntimeException {
         INVALID_PAPER,
         ANALYSIS_MISSING,
         NO_CHUNKS,
-        EMBEDDING_UNAVAILABLE,
-        EMBEDDING_MISMATCH,
-        VECTOR_STORE_FAILED,
         INDEX_VERSION_FAILED
     }
 

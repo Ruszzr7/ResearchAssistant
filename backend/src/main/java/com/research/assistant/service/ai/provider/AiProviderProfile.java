@@ -13,8 +13,7 @@ public record AiProviderProfile(
         boolean nativeStructuredOutput,
         boolean jsonResponseFormat,
         boolean reasoning,
-        boolean vision,
-        boolean embedding
+        boolean vision
 ) {
     public String providerValue() {
         return provider.settingValue();

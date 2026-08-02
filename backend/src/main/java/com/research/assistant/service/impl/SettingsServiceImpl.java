@@ -31,9 +31,6 @@ public class SettingsServiceImpl implements SettingsService {
             Map.entry("ai_channel", "RA_AI_CHANNEL"),
             Map.entry("base_url", "RA_BASE_URL"),
             Map.entry("model", "RA_MODEL"),
-            Map.entry("embedding_api_key", "RA_EMBEDDING_API_KEY"),
-            Map.entry("embedding_base_url", "RA_EMBEDDING_BASE_URL"),
-            Map.entry("embedding_model", "RA_EMBEDDING_MODEL"),
             Map.entry("translation_provider", "RA_TRANSLATION_PROVIDER"),
             Map.entry("deepl_auth_key", "DEEPL_AUTH_KEY"),
             Map.entry("deepl_api_base_url", "DEEPL_API_BASE_URL")
@@ -128,7 +125,7 @@ public class SettingsServiceImpl implements SettingsService {
                 "stream", profile.manualStreaming() ? "兼容 SSE" : "标准 SSE",
                 "structured", profile.jsonResponseFormat() ? "JSON 模式" : "Prompt 约束",
                 "vision", profile.vision() ? "支持" : "不支持",
-                "embedding", embeddingStatus());
+                "retrieval", "本地版面与关键词检索");
         try {
             String result = llmService.chat("Reply with exactly one word: OK", "ping");
             boolean ok = result != null && !result.isBlank();
@@ -143,16 +140,6 @@ public class SettingsServiceImpl implements SettingsService {
             return new AiConnectionTestResult(false, safeConnectionMessage(exception),
                     profile.providerValue(), profile.channel(), Map.copyOf(failed));
         }
-    }
-
-    private String embeddingStatus() {
-        return hasValue("embedding_base_url") && hasValue("embedding_model")
-                && hasValue("embedding_api_key") ? "已配置" : "未配置";
-    }
-
-    private boolean hasValue(String key) {
-        String value = getValue(key);
-        return value != null && !value.isBlank();
     }
 
     private String safeConnectionMessage(RuntimeException exception) {

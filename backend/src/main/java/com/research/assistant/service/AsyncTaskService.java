@@ -98,16 +98,14 @@ public class AsyncTaskService {
                     new SkillContext(context.taskId(), context::stage));
         });
         registerIfAbsent(TASK_RAG_INDEX, context -> {
-            context.stage("正在生成向量索引…");
+            context.stage("正在生成本地文本索引…");
             Long paperId = toLong(context.arguments().get("paperId"));
             try {
                 RagIndexingResult result = ragIndexingService.indexPaper(paperId);
                 return Map.of("paperId", result.paperId(), "indexed", result.indexed(),
                         "chunkCount", result.chunkCount());
             } catch (RagIndexingException e) {
-                boolean retryable = e.getReason() == RagIndexingException.Reason.EMBEDDING_UNAVAILABLE
-                        || e.getReason() == RagIndexingException.Reason.VECTOR_STORE_FAILED
-                        || e.getReason() == RagIndexingException.Reason.INDEX_VERSION_FAILED;
+                boolean retryable = e.getReason() == RagIndexingException.Reason.INDEX_VERSION_FAILED;
                 throw new AsyncTaskExecutionException(e.getReason().name(), e.getMessage(), retryable, e);
             }
         });

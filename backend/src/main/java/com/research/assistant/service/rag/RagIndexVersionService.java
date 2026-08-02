@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 管理 RAG 版本生命周期。远程 embedding 不在事务内执行，只有短事务负责版本分配和激活。
+ * 管理本地文本索引的版本生命周期，使版本分配和激活保持短事务。
  */
 @Service
 public class RagIndexVersionService {

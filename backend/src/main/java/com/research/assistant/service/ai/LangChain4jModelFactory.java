@@ -7,9 +7,7 @@ import com.research.assistant.service.ai.provider.AiProviderRegistry;
 import com.research.assistant.service.ai.provider.TokenLimitParameter;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
-import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,8 +32,6 @@ public class LangChain4jModelFactory {
     private volatile String cachedChatSignature;
     private volatile StreamingChatModel cachedStreamingModel;
     private volatile String cachedStreamingSignature;
-    private volatile EmbeddingModel cachedEmbeddingModel;
-    private volatile String cachedEmbeddingSignature;
 
     public LangChain4jModelFactory(SettingsService settingsService) {
         this.settingsService = settingsService;
@@ -95,33 +91,6 @@ public class LangChain4jModelFactory {
         }
     }
 
-    /**
-     * 创建 Embedding 模型，用于 RAG 向量检索。
-     * <p>
-     * 只读取独立的 `embedding_base_url` / `embedding_model` / `embedding_api_key`；
-     * 任一缺失时由上层降级到关键词检索，避免把聊天模型误当作 Embedding 模型。
-     */
-    public EmbeddingModel createEmbeddingModel() {
-        EmbeddingSettings settings = resolveEmbeddingSettings();
-        if (settings.signature().equals(cachedEmbeddingSignature) && cachedEmbeddingModel != null) {
-            return cachedEmbeddingModel;
-        }
-        synchronized (this) {
-            if (settings.signature().equals(cachedEmbeddingSignature) && cachedEmbeddingModel != null) {
-                return cachedEmbeddingModel;
-            }
-            cachedEmbeddingModel = OpenAiEmbeddingModel.builder()
-                    .baseUrl(settings.baseUrl())
-                    .apiKey(settings.apiKey())
-                    .modelName(settings.model())
-                    .timeout(Duration.ofSeconds(60))
-                    .maxRetries(1)
-                    .build();
-            cachedEmbeddingSignature = settings.signature();
-            return cachedEmbeddingModel;
-        }
-    }
-
     /** 设置保存后刷新模型，下一次调用按新配置懒构建。 */
     @EventListener(SettingsChangedEvent.class)
     public void invalidate() {
@@ -129,8 +98,6 @@ public class LangChain4jModelFactory {
         cachedChatSignature = null;
         cachedStreamingModel = null;
         cachedStreamingSignature = null;
-        cachedEmbeddingModel = null;
-        cachedEmbeddingSignature = null;
         log.info("模型配置缓存已刷新");
     }
 
@@ -139,16 +106,6 @@ public class LangChain4jModelFactory {
         String model = requireSetting("model", "模型");
         AiProviderProfile profile = currentProfile(model);
         return new ChatSettings(profile.baseUrl(), apiKey, model, profile);
-    }
-
-    private EmbeddingSettings resolveEmbeddingSettings() {
-        String baseUrl = LLMConfigUtil.normalizeBaseUrl(settingsService.getValue("embedding_base_url"));
-        String model = settingsService.getValue("embedding_model");
-        String apiKey = settingsService.getValue("embedding_api_key");
-        if (baseUrl.isBlank() || model == null || model.isBlank() || apiKey == null || apiKey.isBlank()) {
-            throw new RuntimeException("Embedding 未独立配置，RAG 将降级为关键词检索");
-        }
-        return new EmbeddingSettings(baseUrl, apiKey, model);
     }
 
     public AiProviderProfile currentProfile() {
@@ -201,9 +158,4 @@ public class LangChain4jModelFactory {
         }
     }
 
-    private record EmbeddingSettings(String baseUrl, String apiKey, String model) {
-        String signature() {
-            return baseUrl + "\u0000" + apiKey + "\u0000" + model;
-        }
-    }
 }

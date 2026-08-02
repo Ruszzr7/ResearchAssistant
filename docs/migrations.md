@@ -21,6 +21,7 @@ Flyway 是项目唯一的正式数据库迁移工具。
 - `V27__inline_math_transcription_cache.sql`：按 PDF hash、解析版本、block 字符范围、原文 hash 和 provider 版本缓存行内数学转写；论文删除时级联清理。
 - `V28__remove_research_topic.sql`：删除未参与实际策略的全局研究主题设置及论文分析相关度字段。
 - `V29__remove_embedding_user_settings.sql`：删除普通设置页遗留的独立 Embedding URL、模型和密钥配置。
+- `V30__remove_vector_retrieval_settings.sql`：删除已退役的 Qdrant、向量检索和 LLM 重排配置；本地文本分片表保留兼容列。
 
 空数据库直接启动即可执行迁移。已有数据库必须先备份；baseline history 记录不等于实际 schema 完整，旧库应先让 Flyway 执行增量修复迁移。对部分升级或未知版本数据库，禁止盲目 baseline。Flyway 迁移目录是唯一结构真源，已删除早期手工 schema 和升级脚本。
 

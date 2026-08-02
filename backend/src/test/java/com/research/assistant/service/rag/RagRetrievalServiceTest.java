@@ -1,8 +1,8 @@
 package com.research.assistant.service.rag;
 
+import com.research.assistant.entity.PaperChunk;
+import com.research.assistant.mapper.PaperChunkMapper;
 import com.research.assistant.service.SettingsService;
-import com.research.assistant.service.embedding.EmbeddingService;
-import com.research.assistant.service.embedding.EmbeddingUnavailableException;
 import com.research.assistant.service.observability.ResearchMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,62 +10,56 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyList;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class RagRetrievalServiceTest {
 
-    private EmbeddingService embeddingService;
-    private VectorStore vectorStore;
-    private SettingsService settingsService;
-    private LlmReranker reranker;
+    private final PaperChunkMapper mapper = mock(PaperChunkMapper.class);
+    private final SettingsService settings = mock(SettingsService.class);
     private RagRetrievalService service;
 
     @BeforeEach
     void setUp() {
-        embeddingService = mock(EmbeddingService.class);
-        vectorStore = mock(VectorStore.class);
-        settingsService = mock(SettingsService.class);
-        reranker = mock(LlmReranker.class);
-        service = new RagRetrievalService(embeddingService, vectorStore, settingsService, reranker,
+        service = new RagRetrievalService(mapper, settings,
                 new ResearchMetrics(new SimpleMeterRegistry()));
     }
 
     @Test
-    void shouldReturnSuccessForRelevantChunks() {
-        ScoredChunk chunk = new ScoredChunk(1L, "METHOD", "method", "source", 0.9,
-                "p1-v1-c1-hash", 1, "ANALYSIS_FIELD", null, null, null, null, null);
-        when(embeddingService.embed("query")).thenReturn(List.of(1.0f));
-        when(vectorStore.findRelevant(anyList(), anyInt(), anyDouble())).thenReturn(List.of(chunk));
+    void retrievesActiveChunksWithLocalLexicalRanking() {
+        when(mapper.selectAllActive()).thenReturn(List.of(
+                chunk(7L, "sinr", "The SINR is defined for the common stream."),
+                chunk(8L, "latency", "The experiment reports end-to-end latency.")));
 
-        RagRetrievalResult result = service.retrieveWithStatus("query", 5, 0.6);
+        RagRetrievalResult result = service.retrieveWithStatus("SINR common stream", 5, 0.5);
 
-        assertEquals(RagRetrievalStatus.SUCCESS, result.status());
-        assertEquals("local:1:v1:p1-v1-c1-hash", result.chunks().get(0).evidenceId());
+        assertThat(result.status()).isEqualTo(RagRetrievalStatus.SUCCESS);
+        assertThat(result.chunks()).singleElement().satisfies(item -> {
+            assertThat(item.paperId()).isEqualTo(7L);
+            assertThat(item.content()).contains("SINR");
+        });
     }
 
     @Test
-    void shouldDistinguishEmbeddingFailureFromEmptyResults() {
-        when(embeddingService.embed("query")).thenThrow(
-                new EmbeddingUnavailableException("down", new RuntimeException("down")));
+    void doesNotInvokeAnyModelAndReturnsEmptyWhenThereIsNoLexicalMatch() {
+        when(mapper.selectAllActive()).thenReturn(List.of(
+                chunk(7L, "method", "Alternating optimization is used.")));
 
-        RagRetrievalResult result = service.retrieveWithStatus("query", 5, 0.6);
-
-        assertEquals(RagRetrievalStatus.EMBEDDING_UNAVAILABLE, result.status());
+        assertThat(service.retrieveWithStatus("unrelated dataset", 5, 0.5).status())
+                .isEqualTo(RagRetrievalStatus.EMPTY);
     }
 
-    @Test
-    void shouldExposeMemoryDegradation() {
-        when(embeddingService.embed("query")).thenReturn(List.of(1.0f));
-        when(vectorStore.findRelevant(anyList(), anyInt(), anyDouble())).thenReturn(List.of());
-        when(vectorStore.lastOperationDegraded()).thenReturn(true);
-
-        RagRetrievalResult result = service.retrieveWithStatus("query", 5, 0.6);
-
-        assertEquals(RagRetrievalStatus.DEGRADED_MEMORY, result.status());
+    private PaperChunk chunk(long paperId, String key, String content) {
+        PaperChunk value = new PaperChunk();
+        value.setPaperId(paperId);
+        value.setIndexVersion(1);
+        value.setChunkKey(key);
+        value.setChunkType("RAW");
+        value.setSourceType("PDF_TEXT");
+        value.setContent(content);
+        value.setSource("paper " + paperId);
+        value.setPageStart(1);
+        return value;
     }
 }

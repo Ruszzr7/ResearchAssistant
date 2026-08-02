@@ -13,9 +13,9 @@ Spring Boot / LangChain4j
       ├─ 文库、标注、研究档案、写作
       ├─ 论文结构、记忆、对话与 Evidence Gate
       ├─ 固定 Workflow、异步任务与模型适配
-      └─ 文献检索及历史 RAG 能力
+      └─ 版面混合检索及本地文本兼容索引
       │
-MySQL / 本地 PDF / 可选 Qdrant
+MySQL / 本地 PDF
 ```
 
 | 层 | 当前实现 |
@@ -25,7 +25,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 | 数据 | MySQL 8、Flyway、本地 PDF 文件 |
 | AI | LangChain4j 1.15.1，多供应商 OpenAI-compatible Chat API |
 | PDF | PDFBox 版面事实；PDFium 负责浏览器字符命中、选择和搜索 |
-| 检索 | 工作台使用当前问题优先的版面证据检索；旧向量链路默认内存、可选 Qdrant |
+| 检索 | 工作台使用版面多路召回、融合排序和精确回链；旧 Skill 使用 MySQL 本地文本索引 |
 
 项目当前不依赖 Redis，也不使用 Pinia。异步任务由 Spring 线程池执行，状态和结果持久化到 MySQL。
 
@@ -62,7 +62,7 @@ MySQL / 本地 PDF / 可选 Qdrant
 | PDF | 本地文件，原始事实载体 |
 | 版面、结构、画像、会话、观察、任务、写作数据 | MySQL + Flyway |
 | 浏览器字符范围与矩形 | PDFium 交互事实，用于选择、搜索和精确回链 |
-| 向量 | 只用于候选召回，不能作为引用真源 |
+| 本地文本分片 | 兼容旧 Skill 的关键词召回，不作为工作台点击证据真源 |
 
 所有派生产物绑定 PDF SHA-256 和解析版本；PDF 变化后旧锚点、结构、记忆和索引不得继续用于当前回答。
 
@@ -72,13 +72,12 @@ MySQL / 本地 PDF / 可选 Qdrant
 - API Key 可由环境变量覆盖；设置 `RA_MASTER_KEY` 后使用 AES-GCM 加密保存。
 - 生产环境要求明确的 CORS 白名单、MySQL 地址和 PDF 目录。
 - 日志和指标不记录密钥、完整 Prompt、论文正文或 Provider 响应体。
-- 默认部署为 MySQL + Spring Boot + Nginx/Vue；Qdrant 可选，不引入 Redis。
+- 默认部署为 MySQL + Spring Boot + Nginx/Vue；不引入 Redis、向量数据库或额外检索服务。
 
 ## 当前重点
 
-1. 将工作台版面检索和旧 RAG 收敛为可降级的混合证据检索。
-2. 让回答段落与 evidence 直接绑定，取消前端模糊引用插入。
-3. 完善证据去重、正文精确回链和双栏公式目标框。
-4. 继续控制论文理解、公式识别和问答的 Token 与延迟。
+1. 通过真实论文验收版面混合检索、回答块引用和正文/公式回链。
+2. 根据失败样本扩充查询别名和黄金集，不为单例堆叠特殊判断。
+3. 继续控制论文理解、公式识别和问答的 Token 与延迟。
 
 详细状态见 [progress.md](progress.md)，稳定约束见 [knowledge.md](knowledge.md)。

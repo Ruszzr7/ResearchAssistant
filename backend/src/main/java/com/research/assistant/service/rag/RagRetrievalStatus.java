@@ -4,8 +4,5 @@ package com.research.assistant.service.rag;
 public enum RagRetrievalStatus {
     DISABLED,
     EMPTY,
-    SUCCESS,
-    DEGRADED_MEMORY,
-    EMBEDDING_UNAVAILABLE,
-    VECTOR_STORE_UNAVAILABLE
+    SUCCESS
 }

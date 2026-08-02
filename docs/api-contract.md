@@ -32,6 +32,6 @@
 - `GET /api/workbench/runs/{runId}` 返回 artifact 版本、计划、run/step 状态和低敏摘要；未知 run 使用 HTTP 404。SelectionAnchor 的 hash/parser 过期使用 HTTP 409。
 - `POST /api/papers/{paperId}/workbench/formula-regions/recognize` 接受页码、左上角归一化 `bbox`、刷新标记和可选的有界客户端 PNG。客户端图片只用于降低首轮延迟，服务端校验 MIME、字节、像素、页面和区域；不可用时从当前原始 PDF 重新裁剪。返回值只能是已可信复用的 `CONFIRMED`、待核对的 `CANDIDATE` 或可手填 LaTeX 的 `REGION`，未确认结果不能形成问答 anchor。
 - `PUT /api/papers/{paperId}/workbench/formula-regions/{regionId}/confirm` 只接受最多 4000 字符的非空 LaTeX，并校验区域属于当前论文及当前 PDF hash/parser version；确认后返回 `SelectionAnchor(FORMULA)`。论文/区域不存在使用 404/400，制品版本过期使用 HTTP 409。
-- 工作台客户端通过既有异步任务查询接口轮询 `taskId`，并以 run trace 为结果真源。只有 Evidence Gate 通过的结构化 claims/evidence 才会进入 run result；全文分析报告额外绑定 run ID、PDF hash 和 parser version，便于审计和失效处理。
+- 工作台客户端通过既有异步任务查询接口轮询 `taskId`，并以 run trace 为结果真源。run result 包含兼容的 `answer/claims/evidence`，以及优先渲染的 `answerBlocks`；每个回答块声明 `PAPER_FACT / INFERENCE / GENERAL_KNOWLEDGE / EVIDENCE_LIMIT`，论文事实和推断通过 `citations[{evidenceId, quote}]` 直接绑定本轮 evidence。Evidence Gate 校验 ID、短引文和 PDF 版本后才允许持久化；全文分析报告额外绑定 run ID、PDF hash 和 parser version。
 
 契约测试位于后端 Controller 测试目录，更新字段时应同步更新 Vue 请求和 MockMvc 场景。

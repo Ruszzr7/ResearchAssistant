@@ -1,186 +1,115 @@
 package com.research.assistant.service.rag;
 
+import com.research.assistant.entity.PaperChunk;
+import com.research.assistant.mapper.PaperChunkMapper;
 import com.research.assistant.service.SettingsService;
-import com.research.assistant.service.embedding.EmbeddingService;
-import com.research.assistant.service.embedding.EmbeddingUnavailableException;
 import com.research.assistant.service.observability.ResearchMetrics;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-/**
- * RAG 召回服务 —— 将用户查询转换为 embedding 并检索相关论文片段。
- */
+/** Local lexical retrieval for legacy skills. The PDF workbench uses layout evidence directly. */
 @Service
 public class RagRetrievalService {
 
-    private static final Logger log = LoggerFactory.getLogger(RagRetrievalService.class);
-
     private static final String RAG_ENABLED_KEY = "rag_enabled";
-    private static final String RAG_RERANK_ENABLED_KEY = "rag_rerank_enabled";
-    private static final String RAG_RERANK_TOP_K_KEY = "rag_rerank_top_k";
-    private static final String RAG_ANSWER_TOP_K_KEY = "rag_answer_top_k";
-    private static final String RAG_RERANK_MIN_CHUNKS_KEY = "rag_rerank_min_chunks";
+    private static final Pattern TERM = Pattern.compile("[\\p{IsLatin}\\p{IsGreek}\\p{N}_+/-]{2,}|[\\p{IsHan}]{2,}");
 
-    private final EmbeddingService embeddingService;
-    private final VectorStore vectorStore;
+    private final PaperChunkMapper chunkMapper;
     private final SettingsService settingsService;
-    private final LlmReranker llmReranker;
     private final ResearchMetrics metrics;
 
-    @Autowired
-    public RagRetrievalService(EmbeddingService embeddingService,
-                               VectorStore vectorStore,
+    public RagRetrievalService(PaperChunkMapper chunkMapper,
                                SettingsService settingsService,
-                               LlmReranker llmReranker,
                                ResearchMetrics metrics) {
-        this.embeddingService = embeddingService;
-        this.vectorStore = vectorStore;
+        this.chunkMapper = chunkMapper;
         this.settingsService = settingsService;
-        this.llmReranker = llmReranker;
         this.metrics = metrics;
     }
 
-    public RagRetrievalService(EmbeddingService embeddingService,
-                               VectorStore vectorStore,
-                               SettingsService settingsService,
-                               LlmReranker llmReranker) {
-        this(embeddingService, vectorStore, settingsService, llmReranker,
-                new ResearchMetrics(new SimpleMeterRegistry()));
-    }
-
-    /**
-     * 检索与查询相关的论文片段。
-     *
-     * @param query      用户查询
-     * @param maxResults 最大返回数
-     * @param minScore   最低相似度阈值
-     * @return 相关片段列表；RAG 未启用或 embedding 失败时返回空列表
-     */
     public List<ScoredChunk> retrieve(String query, int maxResults, double minScore) {
         return retrieveWithStatus(query, maxResults, minScore).chunks();
     }
 
-    /**
-     * 带状态的召回入口。调用方可以区分“没有命中”和 embedding/向量库失败。
-     */
     public RagRetrievalResult retrieveWithStatus(String query, int maxResults, double minScore) {
         long startedAt = metrics.startTimer();
         if (!isEnabled() || query == null || query.isBlank()) {
-            return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.DISABLED), startedAt);
+            return record(RagRetrievalResult.empty(RagRetrievalStatus.DISABLED), startedAt);
         }
-        int safeMaxResults = Math.max(1, Math.min(maxResults, 100));
-        double safeMinScore = Math.max(0, Math.min(minScore, 1));
-        try {
-            List<Float> embedding = embeddingService.embed(query);
-            if (embedding == null || embedding.isEmpty()) {
-                return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.EMBEDDING_UNAVAILABLE), startedAt);
-            }
-            List<ScoredChunk> chunks = vectorStore.findRelevant(embedding, safeMaxResults, safeMinScore);
-            RagRetrievalStatus status = vectorStore.lastOperationDegraded()
-                    ? RagRetrievalStatus.DEGRADED_MEMORY
-                    : (chunks == null || chunks.isEmpty() ? RagRetrievalStatus.EMPTY : RagRetrievalStatus.SUCCESS);
-            return recordResult(new RagRetrievalResult(status, chunks, activeVersion(chunks),
-                    chunks == null ? 0 : chunks.size()), startedAt);
-        } catch (EmbeddingUnavailableException e) {
-            log.warn("RAG 召回失败，将降级: {}", e.getMessage());
-            return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.EMBEDDING_UNAVAILABLE), startedAt);
-        } catch (VectorStoreException e) {
-            log.warn("RAG 向量存储不可用: {}", e.getMessage());
-            return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.VECTOR_STORE_UNAVAILABLE), startedAt);
-        } catch (RuntimeException e) {
-            log.warn("RAG 召回异常，返回空结果: errorType={}", e.getClass().getSimpleName());
-            return recordResult(RagRetrievalResult.empty(RagRetrievalStatus.VECTOR_STORE_UNAVAILABLE), startedAt);
-        }
+        int safeMax = Math.max(1, Math.min(100, maxResults));
+        double safeMin = Math.max(0, Math.min(1, minScore));
+        List<String> terms = terms(query);
+        List<ScoredChunk> result = chunkMapper.selectAllActive().stream()
+                .map(record -> scored(record, query, terms))
+                .filter(item -> item.score() >= safeMin)
+                .sorted(Comparator.comparingDouble(ScoredChunk::score).reversed()
+                        .thenComparing(ScoredChunk::paperId)
+                        .thenComparing(item -> item.pageStart() == null ? Integer.MAX_VALUE : item.pageStart()))
+                .limit(safeMax)
+                .toList();
+        RagRetrievalStatus status = result.isEmpty() ? RagRetrievalStatus.EMPTY : RagRetrievalStatus.SUCCESS;
+        Integer activeVersion = result.stream().map(ScoredChunk::indexVersion)
+                .filter(java.util.Objects::nonNull).findFirst().orElse(null);
+        return record(new RagRetrievalResult(status, result, activeVersion, result.size()), startedAt);
     }
 
-    /**
-     * 检索并格式化为 LLM 上下文字符串。
-     */
-    public String retrieveAsContext(String query, int maxResults, double minScore) {
-        List<ScoredChunk> chunks = retrieve(query, maxResults, minScore);
-        return formatAsContext(chunks);
-    }
-
-    /**
-     * 召回 + LLM 重排序，返回 top-K 片段。
-     *
-     * @param query     用户查询
-     * @param retrieveK 向量召回数量
-     * @param minScore  最低相似度阈值
-     * @return 经 LLM 重排序后的片段；重排序关闭或失败时回退到向量排序
-     */
+    /** Kept for callers; local deterministic ranking is already final and makes no extra LLM call. */
     public List<ScoredChunk> retrieveAndRerank(String query, int retrieveK, double minScore) {
-        List<ScoredChunk> retrieved = retrieve(query, retrieveK, minScore);
-        if (!isRerankEnabled()) {
-            return retrieved;
-        }
-        int minChunks = getRerankMinChunks();
-        if (retrieved == null || retrieved.size() < minChunks) {
-            return retrieved;
-        }
-        int rerankTopK = Math.max(1, Math.min(getRerankTopK(), 50));
-        int answerTopK = Math.max(1, Math.min(getAnswerTopK(), rerankTopK));
-        List<ScoredChunk> toRerank = retrieved.size() > rerankTopK ? retrieved.subList(0, rerankTopK) : retrieved;
-        return llmReranker.rerank(query, toRerank, answerTopK);
+        return retrieve(query, retrieveK, minScore);
     }
 
-    /**
-     * 召回 + LLM 重排序，并格式化为 LLM 上下文字符串。
-     */
+    public String retrieveAsContext(String query, int maxResults, double minScore) {
+        return formatAsContext(retrieve(query, maxResults, minScore));
+    }
+
     public String retrieveAndRerankAsContext(String query, int retrieveK, double minScore) {
-        List<ScoredChunk> chunks = retrieveAndRerank(query, retrieveK, minScore);
-        return formatAsContext(chunks);
+        return formatAsContext(retrieve(query, retrieveK, minScore));
+    }
+
+    private ScoredChunk scored(PaperChunk record, String query, List<String> terms) {
+        String content = normalize(record.getContent());
+        String normalizedQuery = normalize(query);
+        long matched = terms.stream().filter(content::contains).count();
+        double coverage = terms.isEmpty() ? 0 : matched / (double) terms.size();
+        double phrase = !normalizedQuery.isBlank() && content.contains(normalizedQuery) ? 0.25 : 0;
+        double type = "RAW".equalsIgnoreCase(record.getChunkType()) ? 0.05 : 0.10;
+        double score = Math.min(1, 0.65 * coverage + phrase + type);
+        return new ScoredChunk(record.getPaperId(), record.getChunkType(), record.getContent(),
+                record.getSource(), score, record.getChunkKey(), record.getIndexVersion(),
+                record.getSourceType(), record.getPageStart(), record.getPageEnd(),
+                record.getCharStart(), record.getCharEnd(), null);
+    }
+
+    private List<String> terms(String query) {
+        Set<String> result = new LinkedHashSet<>();
+        Matcher matcher = TERM.matcher(normalize(query));
+        while (matcher.find()) result.add(matcher.group());
+        return List.copyOf(result);
     }
 
     private String formatAsContext(List<ScoredChunk> chunks) {
-        if (chunks == null || chunks.isEmpty()) {
-            return "";
+        if (chunks == null || chunks.isEmpty()) return "";
+        StringBuilder value = new StringBuilder("\n\n以下是本地索引命中的论文片段：\n");
+        for (int index = 0; index < chunks.size(); index++) {
+            ScoredChunk chunk = chunks.get(index);
+            value.append(index + 1).append(". [evidenceId=").append(chunk.evidenceId())
+                    .append(", paperId=").append(chunk.paperId()).append("]\n")
+                    .append(chunk.content()).append('\n');
         }
-        StringBuilder sb = new StringBuilder("\n\n以下是与问题相关的论文证据片段。只能引用给出的 evidenceId，不要自行生成论文链接或页码：\n");
-        for (int i = 0; i < chunks.size(); i++) {
-            ScoredChunk c = chunks.get(i);
-            sb.append(i + 1).append(". [evidenceId=").append(c.evidenceId())
-                    .append(", paperId=").append(c.paperId())
-                    .append(", source=").append(c.source())
-                    .append(", chunkType=").append(c.chunkType())
-                    .append("]\n")
-                    .append(c.content()).append("\n");
-        }
-        return sb.toString();
+        return value.toString();
     }
 
-    private boolean isRerankEnabled() {
-        return Boolean.parseBoolean(getSetting(RAG_RERANK_ENABLED_KEY, "false"));
-    }
-
-    private int getRerankTopK() {
-        return parseInt(getSetting(RAG_RERANK_TOP_K_KEY, "10"), 10);
-    }
-
-    private int getAnswerTopK() {
-        return parseInt(getSetting(RAG_ANSWER_TOP_K_KEY, "5"), 5);
-    }
-
-    private int getRerankMinChunks() {
-        return Math.max(1, Math.min(parseInt(getSetting(RAG_RERANK_MIN_CHUNKS_KEY, "3"), 3), 50));
-    }
-
-    private String getSetting(String key, String defaultValue) {
-        String value = settingsService.getValue(key);
-        return value != null && !value.isBlank() ? value : defaultValue;
-    }
-
-    private int parseInt(String value, int fallback) {
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
+    private String normalize(String value) {
+        return Normalizer.normalize(value == null ? "" : value, Normalizer.Form.NFKC)
+                .toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
     }
 
     private boolean isEnabled() {
@@ -188,15 +117,8 @@ public class RagRetrievalService {
         return value == null || Boolean.parseBoolean(value);
     }
 
-    private Integer activeVersion(List<ScoredChunk> chunks) {
-        if (chunks == null) {
-            return null;
-        }
-        return chunks.stream().map(ScoredChunk::indexVersion).filter(java.util.Objects::nonNull).findFirst().orElse(null);
-    }
-
-    private RagRetrievalResult recordResult(RagRetrievalResult result, long startedAt) {
-        metrics.ragRetrievalFinished(result.status().name().toLowerCase(java.util.Locale.ROOT),
+    private RagRetrievalResult record(RagRetrievalResult result, long startedAt) {
+        metrics.ragRetrievalFinished(result.status().name().toLowerCase(Locale.ROOT),
                 result.chunks().size(), startedAt);
         return result;
     }

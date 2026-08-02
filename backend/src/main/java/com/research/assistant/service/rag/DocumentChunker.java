@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 论文分块器 —— 将论文原文与结构化分析字段切分为适合向量检索的 chunk。
+ * 论文分块器 —— 将论文原文与结构化分析字段切分为本地可检索 chunk。
  */
 @Component
 public class DocumentChunker {

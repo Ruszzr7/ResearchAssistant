@@ -14,7 +14,7 @@ Spring Boot 负责业务编排、持久化和异步任务；LangChain4j 接入 O
 | 后端 | Java 17 + Spring Boot 3.2.6 + Maven |
 | ORM / 数据库 | MyBatis Plus + MySQL 8 |
 | AI | LangChain4j 1.15.1 + OpenAI 兼容 API |
-| 检索 | 内存向量存储（默认）/ 可选 Qdrant；MySQL 保存分片 |
+| 检索 | PDF 版面混合检索；MySQL 保存兼容文本分片 |
 | PDF | PDFBox 默认实现，可接入 Marker / MinerU / Grobid 外部命令 |
 
 项目当前不依赖 Redis，也不使用 Pinia；异步任务由 Spring 线程池执行并将状态持久化到 MySQL。

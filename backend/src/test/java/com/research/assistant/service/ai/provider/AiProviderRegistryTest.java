@@ -39,7 +39,6 @@ class AiProviderRegistryTest {
         AiProviderProfile openAi = resolve(
                 AiProvider.OPENAI, "default", null, "gpt-5-mini");
         assertThat(openAi.manualStreaming()).isFalse();
-        assertThat(openAi.embedding()).isTrue();
     }
 
     @Test

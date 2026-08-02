@@ -143,7 +143,7 @@ public class WritingAssistantService {
         StringBuilder sb = new StringBuilder();
         sb.append("待检查段落：\n").append(paragraph).append("\n\n");
         if (!chunks.isEmpty()) {
-            sb.append("通过向量检索得到的相关论文片段：\n");
+            sb.append("从本地论文索引命中的相关片段：\n");
             for (int i = 0; i < chunks.size(); i++) {
                 ScoredChunk c = chunks.get(i);
                 sb.append(i + 1).append(". [evidenceId=").append(c.evidenceId())

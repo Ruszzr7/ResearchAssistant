@@ -27,23 +27,23 @@ public final class AiProviderRegistry {
             case DEEPSEEK -> new AiProviderProfile(
                     provider, "default", "DeepSeek", baseUrl, 0.3,
                     TokenLimitParameter.MAX_TOKENS, 4096,
-                    true, true, true, true, false, false);
+                    true, true, true, true, false);
             case GLM -> new AiProviderProfile(
                     provider, channel, "GLM", baseUrl, 0.6,
                     TokenLimitParameter.MAX_TOKENS, 4096,
-                    true, true, true, true, true, false);
+                    true, true, true, true, true);
             case MINIMAX -> new AiProviderProfile(
                     provider, channel, "MiniMax", baseUrl, 1.0,
                     TokenLimitParameter.MAX_COMPLETION_TOKENS, 2048,
-                    true, true, false, true, false, false);
+                    true, true, false, true, false);
             case MIMO -> new AiProviderProfile(
                     provider, channel, "MiMo", baseUrl, null,
                     TokenLimitParameter.MAX_COMPLETION_TOKENS, 4096,
-                    true, true, true, true, true, false);
+                    true, true, true, true, true);
             case OPENAI -> new AiProviderProfile(
                     provider, "default", "OpenAI", baseUrl, 0.3,
                     TokenLimitParameter.MAX_COMPLETION_TOKENS, 4096,
-                    false, true, true, true, true, true);
+                    false, true, true, true, true);
         };
     }
 
@@ -69,7 +69,7 @@ public final class AiProviderRegistry {
         return new AiProviderProfile(
                 AiProvider.KIMI, channel, coding ? "Kimi Coding" : "Kimi 开放平台",
                 baseUrl, null, TokenLimitParameter.MAX_COMPLETION_TOKENS, 4096,
-                true, true, true, true, true, false);
+                true, true, true, true, true);
     }
 
     private static String normalizeChannel(AiProvider provider,

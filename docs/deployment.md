@@ -21,7 +21,7 @@ scripts\deploy-up.bat
 启用 Qdrant：
 
 ```text
-docker compose --profile qdrant up -d --build
+docker compose up -d --build
 ```
 
 ## Flyway

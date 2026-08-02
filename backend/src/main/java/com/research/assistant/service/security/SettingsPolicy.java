@@ -33,10 +33,7 @@ public final class SettingsPolicy {
             "pdf_js_viewer_enabled", "formula_extractor_enabled", "formula_extractor_command",
             "figure_extractor_enabled", "figure_extractor_command",
             "obsidian_vault_path", "zotero_user_id", "zotero_api_key", "zotero_collection_key",
-            "vector_store_provider", "qdrant_host", "qdrant_port", "qdrant_use_tls",
-            "qdrant_api_key", "qdrant_collection",
-            "rag_enabled", "rag_rerank_enabled", "rag_rerank_top_k", "rag_answer_top_k",
-            "rag_rerank_min_chunks",
+            "rag_enabled",
             "translation_provider", "deepl_auth_key", "deepl_api_base_url"
     );
 
@@ -44,8 +41,7 @@ public final class SettingsPolicy {
             "openalex_enabled", "ieee_xplore_enabled", "acm_dl_enabled",
             "pdf_parser_external_enabled", "pdf_js_viewer_enabled",
             "pdf_layout_fallback_enabled",
-            "formula_extractor_enabled", "figure_extractor_enabled",
-            "qdrant_use_tls", "rag_enabled", "rag_rerank_enabled"
+            "formula_extractor_enabled", "figure_extractor_enabled", "rag_enabled"
     );
 
     private static final Set<String> COMMAND_KEYS = Set.of(

@@ -54,21 +54,10 @@ services:
         condition: service_healthy
     networks: [research]
 
-  qdrant:
-    image: qdrant/qdrant:v1.13.0
-    container_name: research-assistant-qdrant
-    profiles: [qdrant]
-    volumes:
-      - qdrant-data:/qdrant/storage
-    networks: [research]
-
 volumes:
   mysql-data:
     name: research-assistant-mysql-data
   papers-data:
     name: research-assistant-papers-data
-  qdrant-data:
-    name: research-assistant-qdrant-data
-
 networks:
   research:

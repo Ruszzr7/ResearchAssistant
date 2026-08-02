@@ -37,7 +37,7 @@ public class PaperChunk {
 
     private String content;
 
-    /** embedding float 数组的 JSON 字符串 */
+    /** 旧表结构的兼容列；新索引固定写入空数组。 */
     private String embeddingJson;
 
     private String source;
