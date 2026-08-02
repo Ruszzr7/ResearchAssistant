@@ -120,4 +120,10 @@ public record LayoutEvidence(String evidenceId,
         if (mode == DocumentBlockContentMode.REGION) return EvidenceLocator.Precision.VISUAL_REGION;
         return EvidenceLocator.Precision.BLOCK;
     }
+
+    public LayoutEvidence withRetrieval(double retrievalScore, List<String> routes) {
+        return new LayoutEvidence(evidenceId, paperId, blockId, page, bbox, role, readingOrder,
+                sectionPath, text, retrievalScore, selected, confidence, documentHash, parserVersion,
+                contentMode, structuredContent, selectedRanges, mathTranscriptions, origin, locator, routes);
+    }
 }

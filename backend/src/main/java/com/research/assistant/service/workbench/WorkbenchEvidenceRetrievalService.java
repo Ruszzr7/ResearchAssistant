@@ -87,7 +87,7 @@ public class WorkbenchEvidenceRetrievalService {
             candidateById.put(block.id(), candidate(
                     block, plan, preferred.contains(block.id())));
         }
-        List<Candidate> ranked = candidateById.values().stream()
+        List<Candidate> ranked = fuseRankings(candidateById.values()).stream()
                 .filter(Candidate::relevant)
                 .sorted(Comparator.comparingDouble(Candidate::score).reversed()
                         .thenComparingInt(item -> item.block().readingOrder()))
@@ -129,7 +129,8 @@ public class WorkbenchEvidenceRetrievalService {
             chosen.sort(Comparator.comparingInt(item -> item.block().readingOrder()));
         }
         return chosen.stream()
-                .map(item -> evidenceProjection.toEvidence(artifact, item.block(), item.score(), false))
+                .map(item -> evidenceProjection.toEvidence(artifact, item.block(), item.score(), false)
+                        .withRetrieval(item.score(), item.routes().keySet().stream().toList()))
                 .toList();
     }
 
@@ -166,16 +167,54 @@ public class WorkbenchEvidenceRetrievalService {
         double lexical = Math.max(
                 LayoutTextSimilarity.queryCoverage(plan.originalQuery(), searchable),
                 plannedTermCoverage(plan, searchable));
-        double phraseBonus = plan.phrases().stream().anyMatch(phrase ->
-                searchable.toLowerCase(Locale.ROOT).contains(phrase)) ? 0.12 : 0;
-        double definitionBonus = plan.queryType() == WorkbenchRetrievalPlan.QueryType.DEFINITION
-                && containsDefinitionCue(block.text(), plan.terms()) ? 0.10 : 0;
+        boolean phraseMatch = plan.phrases().stream().anyMatch(phrase ->
+                searchable.toLowerCase(Locale.ROOT).contains(phrase));
+        double phraseBonus = phraseMatch ? 0.12 : 0;
+        boolean definitionMatch = plan.queryType() == WorkbenchRetrievalPlan.QueryType.DEFINITION
+                && containsDefinitionCue(block.text(), plan.terms());
+        double definitionBonus = definitionMatch ? 0.10 : 0;
         double structured = block.contentMode() == DocumentBlockContentMode.STRUCTURED ? 0.06 : 0;
         double followUp = preferred ? (plan.referentialFollowUp() ? 0.30 : 0.08) : 0;
         double score = Math.min(1, 0.72 * lexical + 0.14 * roleWeight
                 + 0.06 * block.confidence() + structured + followUp + phraseBonus + definitionBonus);
         boolean relevant = lexical > 0 || preferred || broadQuery;
-        return new Candidate(block, relevant ? score : 0, relevant);
+        Map<String, Double> routes = new LinkedHashMap<>();
+        if (phraseMatch) routes.put("EXACT_PHRASE", 1.0);
+        if (lexical > 0) routes.put("LEXICAL_TERM", lexical);
+        double sectionCoverage = plannedTermCoverage(plan, String.join(" ", block.sectionPath()));
+        if (sectionCoverage > 0) routes.put("SECTION_PATH", sectionCoverage);
+        if (definitionMatch) routes.put("DEFINITION_CUE", 1.0);
+        if (preferred) routes.put("CONVERSATION_HINT", plan.referentialFollowUp() ? 1.0 : 0.25);
+        if (structured > 0) routes.put("STRUCTURED_CONTENT", 0.7);
+        if (broadQuery && roleWeight > 0) routes.put("STRUCTURAL_OVERVIEW", roleWeight);
+        return new Candidate(block, relevant ? score : 0, relevant, routes);
+    }
+
+    /** Reciprocal-rank fusion prevents one noisy scoring route from dominating all evidence. */
+    private List<Candidate> fuseRankings(java.util.Collection<Candidate> candidates) {
+        List<Candidate> values = candidates.stream().filter(Candidate::relevant).toList();
+        if (values.isEmpty()) return List.of();
+        Set<String> routeNames = values.stream().flatMap(item -> item.routes().keySet().stream())
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Map<String, Double> fused = new LinkedHashMap<>();
+        for (String route : routeNames) {
+            List<Candidate> routeRanked = values.stream()
+                    .filter(item -> item.routes().getOrDefault(route, 0.0) > 0)
+                    .sorted(Comparator.comparingDouble(
+                            (Candidate item) -> item.routes().get(route)).reversed()
+                            .thenComparingInt(item -> item.block().readingOrder()))
+                    .toList();
+            for (int index = 0; index < routeRanked.size(); index++) {
+                Candidate item = routeRanked.get(index);
+                fused.merge(item.block().id(), 1.0 / (20 + index + 1), Double::sum);
+            }
+        }
+        double maxFusion = fused.values().stream().mapToDouble(Double::doubleValue).max().orElse(1);
+        return values.stream().map(item -> {
+            double normalizedFusion = fused.getOrDefault(item.block().id(), 0.0) / maxFusion;
+            double combined = Math.min(1, 0.68 * item.score() + 0.32 * normalizedFusion);
+            return new Candidate(item.block(), combined, item.relevant(), item.routes());
+        }).toList();
     }
 
     private double plannedTermCoverage(WorkbenchRetrievalPlan plan, String candidate) {
@@ -267,7 +306,8 @@ public class WorkbenchEvidenceRetrievalService {
             DocumentBlock formula = adjacentEquationRegion(allAllowed, anchor.block());
             if (formula == null || !existing.add(formula.id())) continue;
             result.add(new Candidate(
-                    formula, Math.max(0.35, anchor.score() - 0.03), true));
+                    formula, Math.max(0.35, anchor.score() - 0.03), true,
+                    Map.of("ADJACENT_FORMULA", 1.0)));
         }
         return result;
     }
@@ -364,6 +404,12 @@ public class WorkbenchEvidenceRetrievalService {
                 : String.join(" / ", block.sectionPath());
     }
 
-    private record Candidate(DocumentBlock block, double score, boolean relevant) {
+    private record Candidate(DocumentBlock block,
+                             double score,
+                             boolean relevant,
+                             Map<String, Double> routes) {
+        private Candidate {
+            routes = routes == null ? Map.of() : Map.copyOf(routes);
+        }
     }
 }
