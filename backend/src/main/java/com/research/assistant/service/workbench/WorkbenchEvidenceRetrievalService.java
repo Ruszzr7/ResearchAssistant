@@ -382,7 +382,6 @@ public class WorkbenchEvidenceRetrievalService {
                                           DocumentBlock label) {
         String equationLabel = equationLabel(label.text());
         List<DocumentBlock> members = new ArrayList<>();
-        members.add(label);
         blocks.stream()
                 .filter(block -> block.page() == label.page())
                 .filter(block -> block.role() == DocumentBlockRole.FORMULA)
@@ -390,9 +389,11 @@ public class WorkbenchEvidenceRetrievalService {
                 .filter(block -> sameColumn(label.bbox(), block.bbox()))
                 .filter(block -> Math.abs(block.readingOrder() - label.readingOrder()) <= 8)
                 .filter(block -> block.bbox().bottom() >= label.bbox().y() - 0.02)
+                .filter(block -> block.bbox().y() <= label.bbox().bottom() + 0.06)
                 .filter(block -> verticalGap(label.bbox(), block.bbox()) <= 0.04)
                 .forEach(members::add);
-        NormalizedBoundingBox bbox = union(members.stream().map(DocumentBlock::bbox).toList());
+        NormalizedBoundingBox bbox = members.isEmpty() ? label.bbox()
+                : union(members.stream().map(DocumentBlock::bbox).toList());
         List<String> section = new ArrayList<>(label.sectionPath());
         section.add("Equation " + equationLabel);
         return new DocumentBlock(

@@ -40,12 +40,17 @@ function renderBoundBlocks(blocks, evidence) {
   const evidenceById = new Map((evidence || []).map(item => [item.evidenceId, item]))
   const numberById = new Map()
   let nextNumber = 1
-  return blocks.map(block => {
-    const markers = [...new Set((block?.citations || []).map(item => item?.evidenceId))]
-      .filter(id => evidenceById.has(id))
-      .map(id => {
+  return blocks.map((block, blockIndex) => {
+    const seen = new Set()
+    const markers = (block?.citations || [])
+      .map((citation, citationIndex) => ({ citation, citationIndex }))
+      .filter(({ citation }) => citation?.evidenceId && !seen.has(citation.evidenceId)
+        && seen.add(citation.evidenceId) && evidenceById.has(citation.evidenceId))
+      .map(({ citation, citationIndex }) => {
+        const id = citation.evidenceId
         if (!numberById.has(id)) numberById.set(id, nextNumber++)
-        return `[${numberById.get(id)}](#evidence-${encodeURIComponent(id)})`
+        const target = `${encodeURIComponent(id)}~${blockIndex}~${citationIndex}`
+        return `[${numberById.get(id)}](#evidence-${target})`
       }).join('')
     const prefix = block?.basis === 'INFERENCE'
       ? '**据此推断：** '

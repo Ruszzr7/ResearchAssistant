@@ -685,9 +685,21 @@ function citedAnswer(message) {
   return buildCitedAnswer(message.content, message.claims, message.evidence, message.answerBlocks)
 }
 
-function jumpCitation(message, evidenceId) {
+function jumpCitation(message, citationTarget) {
+  const parts = String(citationTarget || '').split('~')
+  const evidenceId = parts[0]
   const item = message.evidence?.find(candidate => candidate.evidenceId === evidenceId)
-  if (item) jump(item)
+  if (!item) return
+  const blockIndex = Number(parts[1])
+  const citationIndex = Number(parts[2])
+  const citation = Number.isInteger(blockIndex) && Number.isInteger(citationIndex)
+    ? message.answerBlocks?.[blockIndex]?.citations?.[citationIndex]
+    : null
+  const targetText = citation?.evidenceId === evidenceId ? citation.quote : ''
+  jump(targetText ? {
+    ...item,
+    locator: { ...(item.locator || {}), targetText },
+  } : item)
 }
 
 function jump(item) {

@@ -43,13 +43,13 @@ public record WorkbenchModelOutput(String answer,
         if (workflow != WorkbenchPlan.Workflow.ANNOTATION_SUGGESTION
                 || normalized.annotationSuggestion() == null) {
             return new WorkbenchEvidenceGate.AnswerDraft(normalized.answer(), normalized.claims(),
-                    normalized.hasOnlyNonPaperBlocks());
+                    normalized.hasOnlyNonPaperBlocks(), normalized.answerBlocks());
         }
         List<WorkbenchEvidenceGate.GroundedClaim> gateClaims = new java.util.ArrayList<>(normalized.claims());
         gateClaims.add(new WorkbenchEvidenceGate.GroundedClaim(
                 normalized.annotationSuggestion().content(), normalized.annotationSuggestion().evidenceIds()));
         return new WorkbenchEvidenceGate.AnswerDraft(normalized.answer(), gateClaims,
-                normalized.hasOnlyNonPaperBlocks());
+                normalized.hasOnlyNonPaperBlocks(), normalized.answerBlocks());
     }
 
     public boolean hasOnlyNonPaperBlocks() {

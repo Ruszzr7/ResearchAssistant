@@ -1612,7 +1612,8 @@ function openComparisonPaperInterface() {
 }
 
 async function jumpToEvidence(item) {
-  if (!item?.page || !item?.bbox) return
+  const targetBox = item?.locator?.targetBbox || item?.bbox
+  if (!item?.page || !targetBox) return
   if (Number(item.paperId) !== Number(props.paper.id)) {
     emit('open-paper-evidence', item)
     return
@@ -1621,10 +1622,10 @@ async function jumpToEvidence(item) {
   const exactBoxes = await locateEvidenceText(item)
   evidenceFocus.value = {
     page: item.page,
-    boxes: exactBoxes.length ? exactBoxes : [item.bbox],
+    boxes: exactBoxes.length ? exactBoxes : [targetBox],
     precision: exactBoxes.length ? 'TEXT' : 'BLOCK',
   }
-  if (!exactBoxes.length) {
+  if (!exactBoxes.length && item?.locator?.precision !== 'FORMULA_REGION') {
     ElMessage.info('已定位到来源段落；PDF 字符映射不足，无法进一步精确到句子')
   }
   if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
@@ -1636,13 +1637,16 @@ async function jumpToEvidence(item) {
 
 async function locateEvidenceText(item) {
   if (!pdfInteractionReady.value || !pdfInteractionEngine) return []
-  const phrases = evidenceSearchPhrases(item.text)
+  if (item?.locator?.precision === 'FORMULA_REGION') return []
+  const targetBox = item?.locator?.targetBbox || item?.bbox
+  const targetText = item?.locator?.targetText || item?.text
+  const phrases = evidenceSearchPhrases(targetText)
   for (const phrase of phrases) {
     try {
       const matches = await pdfInteractionEngine.search(phrase)
       const match = matches.find(candidate => (
         candidate.pageIndex + 1 === item.page
-        && candidate.rects?.some(rect => boxesOverlap(rect, item.bbox))
+        && candidate.rects?.some(rect => boxesOverlap(rect, targetBox))
       ))
       if (match?.rects?.length) return match.rects
     } catch {
@@ -1650,12 +1654,12 @@ async function locateEvidenceText(item) {
     }
   }
   const keywordBoxes = []
-  for (const term of evidenceSearchTerms(item.text)) {
+  for (const term of evidenceSearchTerms(targetText)) {
     try {
       const matches = await pdfInteractionEngine.search(term)
       const match = matches.find(candidate => (
         candidate.pageIndex + 1 === item.page
-        && candidate.rects?.some(rect => boxesOverlap(rect, item.bbox))
+        && candidate.rects?.some(rect => boxesOverlap(rect, targetBox))
       ))
       if (match?.rects?.length) keywordBoxes.push(...match.rects)
     } catch {

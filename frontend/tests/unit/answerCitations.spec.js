@@ -40,7 +40,7 @@ describe('answer citations', () => {
       },
     ])
 
-    expect(cited).toContain('SINR 公式位于第三页。[1](#evidence-lay-sinr)')
+    expect(cited).toContain('SINR 公式位于第三页。[1](#evidence-lay-sinr~0~0)')
     expect(cited).toContain('**通用知识：** 其数值越大')
     expect(cited).not.toContain('legacy answer')
   })

@@ -27,6 +27,22 @@ class WorkbenchEvidenceGateTest {
     }
 
     @Test
+    void rejectsAQuoteThatCannotBeLocatedInTheCitedEvidence() {
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "本文在系统模型中定义 SINR。", WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(new WorkbenchAnswerBlock.Citation("lay_sinr", "invented source quote")));
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                new WorkbenchEvidenceGate.AnswerDraft(block.text(),
+                        List.of(new WorkbenchEvidenceGate.GroundedClaim(
+                                block.text(), List.of("lay_sinr"))), false, List.of(block)),
+                List.of(evidence("lay_sinr", 7L, false)),
+                WorkbenchEvidenceGate.GatePolicy.strict(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.REPAIR);
+        assertThat(result.issues()).contains("answer block 0 citation quote is not in evidence");
+    }
+
+    @Test
     void passesOnlyClaimsGroundedInTheCurrentEvidenceSet() {
         WorkbenchEvidenceGate.AnswerDraft draft = new WorkbenchEvidenceGate.AnswerDraft(
                 "结论 A；结论 B。",

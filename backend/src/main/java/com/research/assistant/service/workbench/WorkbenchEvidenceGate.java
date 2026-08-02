@@ -24,6 +24,7 @@ public class WorkbenchEvidenceGate {
         Set<String> candidates = new LinkedHashSet<>();
         Set<String> presentButUngrounded = new LinkedHashSet<>();
         java.util.Map<String, Long> paperByEvidenceId = new java.util.LinkedHashMap<>();
+        java.util.Map<String, LayoutEvidence> evidenceById = new java.util.LinkedHashMap<>();
         Set<String> selectedEvidenceIds = new LinkedHashSet<>();
         if (evidenceSet != null) {
             evidenceSet.stream()
@@ -32,6 +33,7 @@ public class WorkbenchEvidenceGate {
                         if (item.selected() || item.score() > 0) {
                             candidates.add(item.evidenceId());
                             paperByEvidenceId.put(item.evidenceId(), item.paperId());
+                            evidenceById.put(item.evidenceId(), item);
                             if (item.selected()) selectedEvidenceIds.add(item.evidenceId());
                         } else {
                             presentButUngrounded.add(item.evidenceId());
@@ -80,6 +82,7 @@ public class WorkbenchEvidenceGate {
             }
             if (hasValidCitation) groundedClaims += 1;
         }
+        validateAnswerBlocks(draft, evidenceById, issues);
 
         if (!invalidIds.isEmpty()) issues.add("answer cites evidence outside the current run");
         if (!irrelevantIds.isEmpty()) issues.add("answer cites evidence with no query relevance");
@@ -127,14 +130,69 @@ public class WorkbenchEvidenceGate {
         }
     }
 
-    public record AnswerDraft(String answer, List<GroundedClaim> claims, boolean onlyNonPaperBlocks) {
+    private void validateAnswerBlocks(AnswerDraft draft,
+                                      java.util.Map<String, LayoutEvidence> evidenceById,
+                                      List<String> issues) {
+        if (draft == null || draft.answerBlocks().isEmpty()) return;
+        for (int index = 0; index < draft.answerBlocks().size(); index++) {
+            WorkbenchAnswerBlock block = draft.answerBlocks().get(index);
+            if (block.requiresPaperEvidence() && block.citations().isEmpty()) {
+                issues.add("answer block " + index + " has no paper citation");
+            }
+            if (!block.requiresPaperEvidence() && !block.citations().isEmpty()) {
+                issues.add("answer block " + index + " attaches paper citations to non-paper knowledge");
+            }
+            if (block.basis() == WorkbenchAnswerBlock.Basis.INFERENCE
+                    && !containsInferenceCue(block.text())) {
+                issues.add("answer block " + index + " does not label its inference");
+            }
+            for (WorkbenchAnswerBlock.Citation citation : block.citations()) {
+                LayoutEvidence evidence = evidenceById.get(citation.evidenceId());
+                if (evidence == null) continue;
+                if (evidence.contentMode()
+                        == com.research.assistant.service.pdf.layout.DocumentBlockContentMode.REGION) {
+                    continue;
+                }
+                if (citation.quote().isBlank()) {
+                    issues.add("answer block " + index + " citation has no source quote");
+                    continue;
+                }
+                String source = normalizeQuote(evidence.text() + " " + evidence.structuredContent());
+                if (!source.contains(normalizeQuote(citation.quote()))) {
+                    issues.add("answer block " + index + " citation quote is not in evidence");
+                }
+            }
+        }
+    }
+
+    private boolean containsInferenceCue(String text) {
+        String normalized = text == null ? "" : text.toLowerCase(java.util.Locale.ROOT);
+        return List.of("推断", "可能", "表明", "暗示", "suggest", "infer", "indicate", "likely")
+                .stream().anyMatch(normalized::contains);
+    }
+
+    private String normalizeQuote(String value) {
+        return java.text.Normalizer.normalize(value == null ? "" : value,
+                        java.text.Normalizer.Form.NFKC)
+                .toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
+    }
+
+    public record AnswerDraft(String answer,
+                              List<GroundedClaim> claims,
+                              boolean onlyNonPaperBlocks,
+                              List<WorkbenchAnswerBlock> answerBlocks) {
         public AnswerDraft {
             answer = answer == null ? "" : answer.trim();
             claims = claims == null ? List.of() : List.copyOf(claims);
+            answerBlocks = answerBlocks == null ? List.of() : List.copyOf(answerBlocks);
         }
 
         public AnswerDraft(String answer, List<GroundedClaim> claims) {
-            this(answer, claims, false);
+            this(answer, claims, false, List.of());
+        }
+
+        public AnswerDraft(String answer, List<GroundedClaim> claims, boolean onlyNonPaperBlocks) {
+            this(answer, claims, onlyNonPaperBlocks, List.of());
         }
     }
 
