@@ -4,6 +4,8 @@ import com.research.assistant.entity.PaperFormulaRegionRecord;
 import com.research.assistant.mapper.PaperFormulaRegionMapper;
 import com.research.assistant.service.pdf.layout.DocumentBlockContentMode;
 import com.research.assistant.service.pdf.layout.DocumentBlockRole;
+import com.research.assistant.service.pdf.layout.EvidenceLocator;
+import com.research.assistant.service.pdf.layout.EvidenceOrigin;
 import com.research.assistant.service.pdf.layout.LayoutEvidence;
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
@@ -72,7 +74,13 @@ public class ConfirmedFormulaRegionService {
                         artifact.documentHash(),
                         artifact.parserVersion(),
                         DocumentBlockContentMode.STRUCTURED,
-                        record.getLatex()));
+                        record.getLatex(),
+                        List.of(),
+                        List.of(),
+                        EvidenceOrigin.CONFIRMED_FORMULA,
+                        new EvidenceLocator(box(record), record.getLatex(),
+                                EvidenceLocator.Precision.FORMULA_REGION),
+                        List.of("CONFIRMED_FORMULA")));
     }
 
     public SelectionAnchor anchor(PaperLayoutArtifact artifact, PaperFormulaRegionRecord record) {

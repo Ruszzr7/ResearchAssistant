@@ -186,8 +186,24 @@ public class PaperLayoutEvidenceService {
                 block.contentMode(),
                 structuredContent(block),
                 ranges,
-                mathTranscriptions(artifact, block, ranges, selected, anchor)
+                mathTranscriptions(artifact, block, ranges, selected, anchor),
+                EvidenceOrigin.CURRENT_LAYOUT,
+                locator(block, ranges),
+                List.of()
         );
+    }
+
+    private EvidenceLocator locator(DocumentBlock block, List<SelectionBlockRange> ranges) {
+        if (!ranges.isEmpty()) {
+            return new EvidenceLocator(block.bbox(), evidenceText(block, ranges),
+                    EvidenceLocator.Precision.TEXT_RANGE);
+        }
+        EvidenceLocator.Precision precision = block.role() == DocumentBlockRole.FORMULA
+                && block.contentMode() == DocumentBlockContentMode.REGION
+                ? EvidenceLocator.Precision.FORMULA_REGION
+                : block.contentMode() == DocumentBlockContentMode.REGION
+                ? EvidenceLocator.Precision.VISUAL_REGION : EvidenceLocator.Precision.BLOCK;
+        return new EvidenceLocator(block.bbox(), block.text(), precision);
     }
 
     private String evidenceText(DocumentBlock block, List<SelectionBlockRange> ranges) {
