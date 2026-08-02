@@ -89,10 +89,13 @@ public class WorkbenchEvidenceGate {
             issues.add("answer does not cite every required paper");
         }
         if (effectivePolicy.requireSelectedEvidence()
+                && !claims.isEmpty()
                 && validIds.stream().noneMatch(selectedEvidenceIds::contains)) {
             issues.add("answer does not cite the selected passage");
         }
-        double coverage = evaluatedClaims == 0 ? (effectivePolicy.evidenceRequired() ? 0 : 1)
+        double coverage = evaluatedClaims == 0
+                ? (draft != null && draft.onlyNonPaperBlocks() ? 1
+                : effectivePolicy.evidenceRequired() ? 0 : 1)
                 : groundedClaims / (double) evaluatedClaims;
         if (coverage + 1e-9 < effectivePolicy.minimumClaimCoverage()) {
             issues.add("claim evidence coverage is below the required threshold");

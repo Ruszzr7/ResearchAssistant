@@ -24,7 +24,9 @@ public class WorkbenchOutputQualityGate {
         switch (workflow) {
             case SELECTION_QA -> {
                 if (output.answer().length() < 12) issues.add("selection answer is too short");
-                if (output.claims().isEmpty()) issues.add("selection answer has no claims");
+                if (output.claims().isEmpty() && !output.hasOnlyNonPaperBlocks()) {
+                    issues.add("selection answer has no claims");
+                }
             }
             case PAPER_ANALYSIS -> {
                 if (output.answer().length() < 180) issues.add("paper analysis is too short");

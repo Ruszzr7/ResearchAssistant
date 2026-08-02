@@ -14,6 +14,19 @@ class WorkbenchEvidenceGateTest {
     private final WorkbenchEvidenceGate gate = new WorkbenchEvidenceGate();
 
     @Test
+    void permitsExplicitGeneralKnowledgeWithoutInventingPaperCitations() {
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                new WorkbenchEvidenceGate.AnswerDraft(
+                        "这是通用概念解释，不是本文结论。", List.of(), true),
+                List.of(evidence("lay_selected", 7L, true)),
+                WorkbenchEvidenceGate.GatePolicy.selection(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.PASS);
+        assertThat(result.claimCoverage()).isEqualTo(1);
+        assertThat(result.validEvidenceIds()).isEmpty();
+    }
+
+    @Test
     void passesOnlyClaimsGroundedInTheCurrentEvidenceSet() {
         WorkbenchEvidenceGate.AnswerDraft draft = new WorkbenchEvidenceGate.AnswerDraft(
                 "结论 A；结论 B。",
