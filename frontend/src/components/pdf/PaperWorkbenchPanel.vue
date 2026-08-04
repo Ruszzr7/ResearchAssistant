@@ -199,20 +199,17 @@
                 {{ message.contextInherited ? '沿用对话上下文' : '基于论文理解' }}
               </small>
             </template>
-            <details v-if="message.claims?.length" class="chat-claim-list">
-              <summary>查看依据（{{ message.claims.length }}）</summary>
+            <details v-if="messageCitationSources(message).length" class="chat-claim-list">
+              <summary>查看依据（{{ messageCitationSources(message).length }}）</summary>
               <ol>
-                <li v-for="(claim, claimIndex) in message.claims" :key="claimIndex">
-                  <span>{{ claim.text }}</span>
-                  <div class="evidence-links">
-                    <button
-                      v-for="item in messageEvidenceForClaim(message, claim)"
-                      :key="item.evidenceId"
-                      type="button"
-                      :title="item.text"
-                      @click="jump(item)"
-                    >p.{{ item.page }}</button>
-                  </div>
+                <li v-for="source in messageCitationSources(message)" :key="source.key">
+                  <span class="evidence-source__excerpt">{{ source.excerpt }}</span>
+                  <button
+                    type="button"
+                    class="evidence-source__jump"
+                    :title="source.title"
+                    @click="jump(source.target)"
+                  >{{ source.kind }} · p.{{ source.page }}</button>
                 </li>
               </ol>
             </details>
@@ -273,7 +270,7 @@ import {
 } from '@/api/researchArchive.js'
 import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 import ResearchMarkdown from '@/components/ResearchMarkdown.vue'
-import { buildCitedAnswer } from '@/utils/answerCitations.js'
+import { buildCitationSources, buildCitedAnswer } from '@/utils/answerCitations.js'
 import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
 import {
   detectTextLanguage,
@@ -676,16 +673,17 @@ function freshSelectionConversationId(sessionId) {
   return `session-${id}-${Date.now().toString(36)}-${selectionConversationSequence}`.slice(0, 64)
 }
 
-function messageEvidenceForClaim(message, claim) {
-  const index = new Map((message?.evidence || []).map(item => [item.evidenceId, item]))
-  return (claim?.evidenceIds || []).map(id => index.get(id)).filter(Boolean)
-}
-
 function citedAnswer(message) {
   return buildCitedAnswer(message.content, message.claims, message.evidence, message.answerBlocks)
 }
 
 function jumpCitation(message, citationTarget) {
+  const sources = messageCitationSources(message)
+  const sourceMatch = /^source~(\d+)$/.exec(String(citationTarget || ''))
+  if (sourceMatch) {
+    jump(sources.find(source => source.number === Number(sourceMatch[1]))?.target)
+    return
+  }
   const parts = String(citationTarget || '').split('~')
   const evidenceId = parts[0]
   const item = message.evidence?.find(candidate => candidate.evidenceId === evidenceId)
@@ -700,6 +698,10 @@ function jumpCitation(message, citationTarget) {
     ...item,
     locator: { ...(item.locator || {}), targetText },
   } : item)
+}
+
+function messageCitationSources(message) {
+  return buildCitationSources(message?.claims, message?.evidence, message?.answerBlocks)
 }
 
 function jump(item) {
@@ -875,8 +877,8 @@ section { padding: 13px 14px; border-bottom: 1px solid var(--ra-border); }
 .chat-claim-list summary { color: var(--ra-link); cursor: pointer; }
 .chat-claim-list ol { display: flex; flex-direction: column; gap: 7px; margin: 7px 0 0; padding-left: 17px; }
 .chat-claim-list li { font-size: 10px; line-height: 1.45; }
-.evidence-links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-.evidence-links button { padding: 2px 6px; border: 1px solid color-mix(in srgb, var(--ra-link) 45%, var(--ra-border)); border-radius: 999px; color: var(--ra-link); background: transparent; font-size: 10px; cursor: pointer; }
+.evidence-source__excerpt { display: block; color: var(--ra-text-secondary); }
+.evidence-source__jump { margin-top: 4px; padding: 2px 6px; border: 1px solid color-mix(in srgb, var(--ra-link) 45%, var(--ra-border)); border-radius: 999px; color: var(--ra-link); background: transparent; font-size: 10px; cursor: pointer; }
 .assistant-composer { padding: 8px; border: 1px solid var(--ra-border); border-radius: 10px; background: var(--ra-panel-bg); box-shadow: 0 4px 14px rgb(0 0 0 / 5%); }
 .assistant-composer.disabled { background: var(--ra-hover-bg); }
 .assistant-composer :deep(.el-textarea__inner) { padding: 4px; border: 0; background: transparent; box-shadow: none; }

@@ -41,6 +41,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -299,6 +300,72 @@ class WorkbenchExecutionEngineTest {
     }
 
     @Test
+    void accurateButIncompleteAnswerIsRepairedAgainstTheSameRequirementPlan() {
+        List<WorkbenchAnswerRequirement> requirements = List.of(
+                new WorkbenchAnswerRequirement("r1", WorkbenchAnswerRequirement.Type.DIRECT,
+                        "回答用户的直接问题", true, List.of(new WorkbenchAnswerBlock.Citation(
+                        "lay_p7", "Evidence for paper 7"))),
+                new WorkbenchAnswerRequirement("r2", WorkbenchAnswerRequirement.Type.CONTEXT,
+                        "补充影响结论的关键条件", true, List.of(new WorkbenchAnswerBlock.Citation(
+                        "lay_p7", "Evidence for paper 7"))));
+        WorkbenchAnswerBlock direct = new WorkbenchAnswerBlock(
+                "这是用户所需的直接答案。", WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(new WorkbenchAnswerBlock.Citation("lay_p7", "Evidence for paper 7")),
+                List.of("r1"));
+        WorkbenchAnswerBlock context = new WorkbenchAnswerBlock(
+                "这里同时补充影响结论的关键条件。", WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(new WorkbenchAnswerBlock.Citation("lay_p7", "Evidence for paper 7")),
+                List.of("r2"));
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (calls.getAndIncrement() == 0) {
+                return new WorkbenchModelService.ModelCall(new WorkbenchModelOutput(
+                        "这是用户所需的直接答案。", List.of(), null, List.of(direct), requirements),
+                        true, 100, 50, 150);
+            }
+            WorkbenchModelOutput previous = invocation.getArgument(5);
+            List<String> issues = invocation.getArgument(6);
+            assertThat(previous.requirements()).containsExactlyElementsOf(requirements);
+            assertThat(issues).anyMatch(issue -> issue.contains("required answer item r2 is missing"));
+            return new WorkbenchModelService.ModelCall(new WorkbenchModelOutput(
+                    "这是用户所需的直接答案。这里同时补充影响结论的关键条件。", List.of(), null,
+                    List.of(direct, context), requirements), true, 120, 60, 180);
+        }).when(modelService).generate(
+                any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList());
+        WorkbenchRunTrace planned = traceService.plan(invocation(
+                WorkbenchIntent.ASK_SELECTION, List.of(7L), anchor(7L), "解释论文方法", 6_000));
+
+        WorkbenchWorkflowResult result = engine.execute(
+                planned.runId(), "task-requirement-repair", null);
+
+        assertThat(result.answer()).contains("直接答案", "关键条件");
+        assertThat(result.repairCount()).isEqualTo(1);
+        assertThat(calls).hasValue(2);
+    }
+
+    @Test
+    void terminalEvidenceRejectionPersistsTheActualGateIssues() {
+        doReturn(new WorkbenchModelService.ModelCall(
+                        new WorkbenchModelOutput("plain answer without citations", List.of(), null),
+                        false, 10, 5, 15))
+                .when(modelService).generate(
+                        any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList());
+        WorkbenchRunTrace planned = traceService.plan(new WorkbenchInvocation(
+                List.of(7L), "论文在哪定义 SINR？", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 10_000, "", "gate-audit-thread"));
+
+        assertThatThrownBy(() -> engine.execute(planned.runId(), "task-gate-audit", null))
+                .isInstanceOf(AsyncTaskExecutionException.class);
+
+        WorkbenchRunTrace failed = traceService.requireTrace(planned.runId());
+        assertThat(failed.status()).isEqualTo(WorkbenchRunStatus.FAILED);
+        assertThat(failed.steps().get(2).inputSummary().toString())
+                .contains("repairIssues", "grounded claims are required");
+        assertThat(failed.steps().get(3).outputSummary().toString())
+                .contains("issues", "model output is not structured JSON", "grounded claims are required");
+    }
+
+    @Test
     void retriesTransientModelFailureWithoutReplanningTheRun() {
         AtomicInteger calls = new AtomicInteger();
         doAnswer(invocation -> {
@@ -328,6 +395,37 @@ class WorkbenchExecutionEngineTest {
         WorkbenchRunTrace completed = traceService.requireTrace(planned.runId());
         assertThat(completed.steps().get(2).retryCount()).isEqualTo(1);
         assertThat(completed.steps().get(2).totalTokens()).isEqualTo(135);
+    }
+
+    @Test
+    void providerFailureDuringEvidenceRepairIsTerminalWithoutCorruptTaskReplay() {
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (calls.getAndIncrement() == 0) {
+                return new WorkbenchModelService.ModelCall(
+                        new WorkbenchModelOutput("not-json", List.of(), null), false, 10, 5, 15);
+            }
+            throw new WorkbenchModelException(
+                    "MODEL_CALL_FAILED", "模型服务暂时不可用", true, 30, 20, 50, null, 1);
+        }).when(modelService).generate(
+                any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList());
+        WorkbenchRunTrace planned = traceService.plan(invocation(
+                WorkbenchIntent.ASK_SELECTION, List.of(7L), anchor(7L), "解释选区", 6_000));
+
+        assertThatThrownBy(() -> engine.execute(planned.runId(), "task-repair-provider-failure", null))
+                .isInstanceOf(AsyncTaskExecutionException.class)
+                .satisfies(error -> {
+                    AsyncTaskExecutionException taskError = (AsyncTaskExecutionException) error;
+                    assertThat(taskError.isRetryable()).isFalse();
+                    assertThat(taskError.getFailureCode()).isEqualTo("MODEL_CALL_FAILED");
+                });
+
+        WorkbenchRunTrace failed = traceService.requireTrace(planned.runId());
+        assertThat(failed.status()).isEqualTo(WorkbenchRunStatus.FAILED);
+        assertThat(failed.errorCode()).isEqualTo("MODEL_CALL_FAILED");
+        assertThat(failed.metrics().repairCount()).isEqualTo(1);
+        assertThat(failed.steps().get(2).status()).isEqualTo(WorkbenchStepStatus.FAILED);
+        assertThat(calls).hasValue(2);
     }
 
     @Test

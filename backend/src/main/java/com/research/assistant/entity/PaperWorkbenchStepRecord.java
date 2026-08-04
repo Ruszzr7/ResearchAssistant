@@ -1,6 +1,8 @@
 package com.research.assistant.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -22,11 +24,17 @@ public class PaperWorkbenchStepRecord {
     private Integer completionTokens;
     private Integer totalTokens;
     private Long latencyMs;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String inputSummaryJson;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String outputSummaryJson;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String errorCode;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String errorMessage;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private LocalDateTime startedAt;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -158,6 +158,8 @@ class WorkbenchEvidenceRetrievalServiceTest {
                 .filter(item -> item.blockId().equals("equation-region:equation-label"))
                 .findFirst().orElseThrow();
         assertThat(equation.sectionPath()).contains("Equation (4)");
+        assertThat(equation.bbox().x()).isEqualTo(0.14);
+        assertThat(equation.bbox().right()).isGreaterThanOrEqualTo(0.48);
         assertThat(equation.bbox().bottom()).isGreaterThanOrEqualTo(0.55);
     }
 

@@ -40,16 +40,31 @@ public class WorkbenchModelService {
                 {
                   "text": "一个完整回答段或列表项",
                   "basis": "PAPER_FACT|INFERENCE|GENERAL_KNOWLEDGE|EVIDENCE_LIMIT",
-                  "citations": [{"evidenceId":"lay_...","quote":"同一 evidence 中的短原文"}]
+                  "citations": [{"evidenceId":"lay_...","quote":"同一 evidence 中的短原文"}],
+                  "requirementIds": ["r1"]
                 }
               ],
               "claims": [],
               "annotationSuggestion": null
             }
             PAPER_FACT 和 INFERENCE 必须引用本轮 evidence；quote 应是对应 evidence 中可直接找到的短原文。
+            一个 PAPER_FACT/INFERENCE answerBlock 只表达一个可由其 citations 共同直接支撑的事实单元；
+            若不同来源句分别支撑不同事实，必须拆成多个 answerBlocks，避免一个引用标记对应多项事实。
             INFERENCE 必须在 text 中明确写成“据此推断/可能”；GENERAL_KNOWLEDGE 不得引用论文 evidence；
             EVIDENCE_LIMIT 只说明证据不足。claims 可留空，服务端会从 answerBlocks 生成兼容 claims。
+            输入含 answerRequirements 时，每个 required=true 的要求都必须由至少一个 answerBlock 的
+            requirementIds 明确处理；有证据则回答并引用，没有证据则用 EVIDENCE_LIMIT 明确说明，不能遗漏。
             """;
+    private static final String REPAIR_SYSTEM_PROMPT = """
+            你只负责修复一份科研回答，不输出思考过程。
+            论文事实只能引用本轮 evidence 中的 evidenceId；不得虚构引用或扩大结论。
+            返回完整 JSON：{"answer":"Markdown","answerBlocks":[{"text":"回答单元","basis":"PAPER_FACT|INFERENCE|GENERAL_KNOWLEDGE|EVIDENCE_LIMIT","citations":[{"evidenceId":"lay_...","quote":"evidence 中可直接找到的短原文"}],"requirementIds":["r1"]}],"claims":[],"annotationSuggestion":null}。
+            PAPER_FACT/INFERENCE 必须引用 evidence；INFERENCE 明确标注推断；其他类型不得附论文引用。
+            每个论文事实块只保留由其 citations 共同直接支撑的一项事实；不同来源句支撑的事实要拆块。
+            保留原回答中没有出现在 repairIssues 里的有效内容；修复引用覆盖时，应拆分事实块或补充精确原文，不得直接丢弃问题要求的其他已引用结果。
+            answerRequirements 中 required=true 的每一项都必须由 requirementIds 覆盖；只补齐 repairIssues 指出的缺失项。
+            """;
+    private static final int MAX_REPAIR_EVIDENCE = 8;
 
     private final LLMService llmService;
     private final ObjectMapper objectMapper;
@@ -82,38 +97,46 @@ public class WorkbenchModelService {
             throw new WorkbenchModelException("TOKEN_BUDGET_EXCEEDED", "剩余模型预算不足", false);
         }
         List<LayoutEvidence> normalizedEvidence = evidence == null ? List.of() : List.copyOf(evidence);
-        int firstBudget = firstAttemptBudget(workflow, callTokenBudget);
-        Attempt first = invoke(workflow, question, paperTitles, normalizedEvidence,
-                previousOutput, repairIssues, firstBudget, false, visualEvidence);
-        if (hasContent(first)) {
-            return successfulCall(workflow, first, 1, false);
+        boolean gateRepair = previousOutput != null;
+        List<WorkbenchAnswerRequirement> requirements = gateRepair
+                ? previousOutput.requirements()
+                : directRequirements(workflow, question);
+        List<LayoutEvidence> attemptEvidence = gateRepair
+                ? repairEvidence(normalizedEvidence, previousOutput) : normalizedEvidence;
+        // Recovery is charged from the provider's actual usage. Reserving part of the budget up front
+        // can starve the first response after an async retry and truncate otherwise valid JSON.
+        int firstBudget = callTokenBudget;
+        Attempt first = invoke(workflow, question, paperTitles, attemptEvidence,
+                previousOutput, repairIssues, requirements, firstBudget, gateRepair, visualEvidence);
+        if (hasContent(first) && !outputWasTruncated(first)) {
+            return successfulCall(workflow, first, 1, false, requirements);
         }
 
         int consumed = consumedBudget(first, firstBudget);
-        int remaining = Math.max(0, callTokenBudget - consumed);
-        if (supportsEmptyOutputRecovery(workflow) && remaining >= MIN_CALL_BUDGET) {
+        int remaining = Math.max(0, firstBudget - consumed);
+        if (!gateRepair && supportsEmptyOutputRecovery(workflow) && remaining >= MIN_CALL_BUDGET) {
             List<LayoutEvidence> reducedEvidence = selectedEvidenceOnly(normalizedEvidence);
             final Attempt recovered;
             try {
                 recovered = invoke(workflow, question, paperTitles, reducedEvidence,
-                        previousOutput, repairIssues, remaining, true, visualEvidence);
+                        previousOutput, repairIssues, requirements, remaining, true, visualEvidence);
             } catch (WorkbenchModelException retryFailure) {
                 throw combineRecoveryFailure(first, retryFailure);
             }
             int promptTokens = first.promptTokens() + recovered.promptTokens();
             int completionTokens = first.completionTokens() + recovered.completionTokens();
             int totalTokens = first.totalTokens() + recovered.totalTokens();
-            if (hasContent(recovered)) {
+            if (hasContent(recovered) && !outputWasTruncated(recovered)) {
                 ParsedOutput parsed = parse(recovered.content(), workflow);
-                return new ModelCall(parsed.output(), parsed.structured(), promptTokens,
+                return new ModelCall(parsed.output().withRequirements(requirements), parsed.structured(), promptTokens,
                         completionTokens, totalTokens, recovered.finishReason(), 2, true,
                         first.visualEvidenceUsed() || recovered.visualEvidenceUsed(),
                         first.visualFallbackUsed() || recovered.visualFallbackUsed());
             }
             throw emptyOutputException(first, recovered, promptTokens, completionTokens, totalTokens, 2);
         }
-        throw emptyOutputException(first, null, first.promptTokens(), first.completionTokens(),
-                first.totalTokens(), 1);
+        throw emptyOutputException(first, null, first.promptTokens(),
+                first.completionTokens(), first.totalTokens(), 1);
     }
 
     private WorkbenchModelException combineRecoveryFailure(Attempt first,
@@ -138,6 +161,7 @@ public class WorkbenchModelService {
                                     List<LayoutEvidence> evidence,
                                     WorkbenchModelOutput previousOutput,
                                     List<String> repairIssues,
+                                    List<WorkbenchAnswerRequirement> requirements,
                                     boolean compact,
                                     WorkbenchSelectionVisualEvidence visualEvidence,
                                     boolean visualAttached) {
@@ -150,6 +174,9 @@ public class WorkbenchModelService {
         payload.put("evidenceVersions", evidenceVersions(evidence));
         payload.put("evidence", evidence == null ? List.of() : evidence.stream()
                 .map(item -> evidencePayload(item, compact)).toList());
+        if (requirements != null && !requirements.isEmpty()) {
+            payload.put("answerRequirements", requirements);
+        }
         if (visualEvidence != null) {
             Map<String, Object> visual = new LinkedHashMap<>();
             visual.put("status", visualAttached ? "ATTACHED" : "UNAVAILABLE");
@@ -162,14 +189,15 @@ public class WorkbenchModelService {
                     + "；不得猜测缺失公式，回答必须明确说明当前公式理解不完整。");
             payload.put("selectionVisualEvidence", visual);
         }
-        if (compact) {
+        if (compact && previousOutput == null) {
             payload.put("recoveryInstruction",
                     "上一次生成未产生正文。仅回答精确选中证据，答案不超过 450 个汉字、最多 3 条 claims。");
         }
         if (previousOutput != null) {
-            payload.put("previousOutput", previousOutput);
+            payload.put("previousOutput", compact ? compactPreviousOutput(previousOutput) : previousOutput);
             payload.put("repairIssues", repairIssues == null ? List.of() : repairIssues);
-            payload.put("repairInstruction", "只使用同一 evidence 修正引用和覆盖问题；不要扩大范围。输出完整替换 JSON。");
+            payload.put("repairInstruction",
+                    "只使用所给 evidence 修正引用和覆盖问题；保留其他已通过引用支撑的回答内容，不要扩大范围。输出完整替换 JSON。");
         }
         return write(payload);
     }
@@ -212,10 +240,10 @@ public class WorkbenchModelService {
         value.put("role", item.role().name());
         value.put("confidence", item.confidence());
         if (!compact) value.put("sectionPath", item.sectionPath());
-        value.put("text", bounded(readablePdfText(item.text()), compact ? 1_600 : 4_000));
+        value.put("text", bounded(readablePdfText(item.text()), compact ? 450 : 4_000));
         value.put("contentMode", item.contentMode().name());
         if (!item.structuredContent().isBlank()) {
-            value.put("structuredContent", bounded(item.structuredContent(), compact ? 1_600 : 4_000));
+            value.put("structuredContent", bounded(item.structuredContent(), compact ? 450 : 4_000));
         }
         if (item.selected() && !item.selectedRanges().isEmpty()) {
             value.put("selectedRanges", item.selectedRanges());
@@ -251,20 +279,58 @@ public class WorkbenchModelService {
         return List.copyOf(versions.values());
     }
 
+    private List<WorkbenchAnswerRequirement> directRequirements(WorkbenchPlan.Workflow workflow,
+                                                                 String question) {
+        return workflow == WorkbenchPlan.Workflow.SELECTION_QA
+                ? List.of(directRequirement(question)) : List.of();
+    }
+
+    private WorkbenchAnswerRequirement directRequirement(String question) {
+        String value = question == null ? "" : question.trim();
+        int marker = value.lastIndexOf("当前问题：");
+        if (marker >= 0) value = value.substring(marker + "当前问题：".length()).trim();
+        value = bounded(value, 260).trim();
+        if (value.isBlank()) value = "直接回答用户当前问题";
+        return new WorkbenchAnswerRequirement("r1", WorkbenchAnswerRequirement.Type.DIRECT,
+                value, true, List.of());
+    }
+
+    private Map<String, Object> compactPreviousOutput(WorkbenchModelOutput output) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("answer", bounded(output.answer(), 800));
+        value.put("bindings", output.answerBlocks().stream().limit(8).map(block -> Map.of(
+                "basis", block.basis().name(),
+                "requirementIds", block.requirementIds(),
+                "evidenceIds", block.citations().stream()
+                        .map(WorkbenchAnswerBlock.Citation::evidenceId).toList())).toList());
+        if (output.answerBlocks().isEmpty()) {
+            value.put("claims", output.claims().stream().limit(8).map(claim -> Map.of(
+                    "text", bounded(claim.text(), 300),
+                    "evidenceIds", claim.evidenceIds())).toList());
+        }
+        if (output.annotationSuggestion() != null) {
+            value.put("annotationSuggestion", output.annotationSuggestion());
+        }
+        return value;
+    }
+
     private Attempt invoke(WorkbenchPlan.Workflow workflow,
                            String question,
                            Map<Long, String> paperTitles,
                            List<LayoutEvidence> evidence,
                            WorkbenchModelOutput previousOutput,
                            List<String> repairIssues,
+                           List<WorkbenchAnswerRequirement> requirements,
                            int attemptBudget,
                            boolean compact,
                            WorkbenchSelectionVisualEvidence visualEvidence) {
         boolean imageAvailable = visualEvidence != null && visualEvidence.available();
         String userMessage = buildUserMessage(
-                workflow, question, paperTitles, evidence, previousOutput, repairIssues, compact,
+                workflow, question, paperTitles, evidence, previousOutput, repairIssues,
+                requirements, compact,
                 visualEvidence, imageAvailable);
-        int estimatedInputTokens = estimatePromptTokens(SYSTEM_PROMPT, userMessage);
+        String systemPrompt = previousOutput == null ? SYSTEM_PROMPT : REPAIR_SYSTEM_PROMPT;
+        int estimatedInputTokens = estimatePromptTokens(systemPrompt, userMessage);
         if (estimatedInputTokens + MIN_CALL_BUDGET > attemptBudget) {
             throw new WorkbenchModelException(
                     "TOKEN_BUDGET_EXCEEDED", "证据上下文超过本次模型预算", false);
@@ -273,11 +339,12 @@ public class WorkbenchModelService {
         LlmCallPolicy policy = new LlmCallPolicy(
                 "paper-workbench-" + workflow.name().toLowerCase(java.util.Locale.ROOT) + "-v2"
                         + (compact ? "-compact-retry" : ""),
-                SYSTEM_PROMPT.length() + userMessage.length(),
+                systemPrompt.length() + userMessage.length(),
                 estimatedInputTokens,
                 maxOutputTokens,
                 1,
-                true);
+                true,
+                lowReasoningEffort(workflow));
 
         final LlmResponse response;
         boolean visualEvidenceUsed = false;
@@ -287,7 +354,7 @@ public class WorkbenchModelService {
             if (imageAvailable) {
                 try {
                     attempted = llmService.chatWithImageUsage(
-                            SYSTEM_PROMPT, userMessage, visualEvidence.png(), "image/png", policy);
+                            systemPrompt, userMessage, visualEvidence.png(), "image/png", policy);
                     visualEvidenceUsed = true;
                 } catch (RuntimeException imageFailure) {
                     log.info("event=workbench_selection_visual_model_fallback errorType={}",
@@ -295,11 +362,11 @@ public class WorkbenchModelService {
                     visualFallbackUsed = true;
                     String fallbackMessage = buildUserMessage(
                             workflow, question, paperTitles, evidence, previousOutput, repairIssues,
-                            compact, visualEvidence, false);
-                    attempted = llmService.chatWithUsage(SYSTEM_PROMPT, fallbackMessage, policy);
+                            requirements, compact, visualEvidence, false);
+                    attempted = llmService.chatWithUsage(systemPrompt, fallbackMessage, policy);
                 }
             } else {
-                attempted = llmService.chatWithUsage(SYSTEM_PROMPT, userMessage, policy);
+                attempted = llmService.chatWithUsage(systemPrompt, userMessage, policy);
             }
             response = attempted;
         } catch (RuntimeException e) {
@@ -326,10 +393,11 @@ public class WorkbenchModelService {
     private ModelCall successfulCall(WorkbenchPlan.Workflow workflow,
                                      Attempt attempt,
                                      int attempts,
-                                     boolean recoveryUsed) {
+                                     boolean recoveryUsed,
+                                     List<WorkbenchAnswerRequirement> requirements) {
         ParsedOutput parsed = parse(attempt.content(), workflow);
-        return new ModelCall(parsed.output(), parsed.structured(), attempt.promptTokens(),
-                attempt.completionTokens(), attempt.totalTokens(), attempt.finishReason(), attempts,
+        return new ModelCall(parsed.output().withRequirements(requirements), parsed.structured(),
+                attempt.promptTokens(), attempt.completionTokens(), attempt.totalTokens(), attempt.finishReason(), attempts,
                 recoveryUsed, attempt.visualEvidenceUsed(), attempt.visualFallbackUsed());
     }
 
@@ -351,10 +419,9 @@ public class WorkbenchModelService {
                 totalTokens, latest == null ? null : latest.finishReason(), attempts);
     }
 
-    private int firstAttemptBudget(WorkbenchPlan.Workflow workflow, int callTokenBudget) {
-        if (!supportsEmptyOutputRecovery(workflow) || callTokenBudget < 4_000) return callTokenBudget;
-        int reserve = Math.min(2_000, Math.max(1_200, callTokenBudget / 3));
-        return Math.max(1_024, callTokenBudget - reserve);
+    private String lowReasoningEffort(WorkbenchPlan.Workflow workflow) {
+        return workflow == WorkbenchPlan.Workflow.SELECTION_QA
+                || workflow == WorkbenchPlan.Workflow.ANNOTATION_SUGGESTION ? "low" : null;
     }
 
     private boolean supportsEmptyOutputRecovery(WorkbenchPlan.Workflow workflow) {
@@ -366,6 +433,38 @@ public class WorkbenchModelService {
         List<LayoutEvidence> selected = evidence.stream().filter(LayoutEvidence::selected).toList();
         if (!selected.isEmpty()) return selected;
         return evidence.isEmpty() ? List.of() : List.of(evidence.get(0));
+    }
+
+    /** A gate repair sees cited evidence first and a small number of top-ranked fallbacks. */
+    private List<LayoutEvidence> repairEvidence(List<LayoutEvidence> evidence,
+                                                WorkbenchModelOutput previousOutput) {
+        if (evidence.isEmpty()) return evidence;
+        java.util.Set<String> citedIds = new java.util.LinkedHashSet<>();
+        previousOutput.claims().forEach(claim -> citedIds.addAll(claim.evidenceIds()));
+        previousOutput.answerBlocks().forEach(block -> block.citations()
+                .forEach(citation -> citedIds.add(citation.evidenceId())));
+        java.util.Set<String> requirementIds = new java.util.LinkedHashSet<>();
+        previousOutput.requirements().forEach(requirement -> requirement.evidenceRefs()
+                .forEach(ref -> {
+                    requirementIds.add(ref.evidenceId());
+                    citedIds.add(ref.evidenceId());
+                }));
+        java.util.Map<String, LayoutEvidence> chosen = new java.util.LinkedHashMap<>();
+        for (LayoutEvidence item : evidence) {
+            if (chosen.size() >= MAX_REPAIR_EVIDENCE) break;
+            if (item.selected() || requirementIds.contains(item.evidenceId())) {
+                chosen.putIfAbsent(item.evidenceId(), item);
+            }
+        }
+        for (LayoutEvidence item : evidence) {
+            if (chosen.size() >= MAX_REPAIR_EVIDENCE) break;
+            if (citedIds.contains(item.evidenceId())) chosen.putIfAbsent(item.evidenceId(), item);
+        }
+        for (LayoutEvidence item : evidence) {
+            if (chosen.size() >= MAX_REPAIR_EVIDENCE) break;
+            chosen.putIfAbsent(item.evidenceId(), item);
+        }
+        return List.copyOf(chosen.values());
     }
 
     private int consumedBudget(Attempt attempt, int reservedAttemptBudget) {
@@ -401,6 +500,13 @@ public class WorkbenchModelService {
             offset += Character.charCount(codePoint);
         }
         return cleaned.toString().replaceAll("\\s+", " ").strip();
+    }
+
+    private String sourceText(LayoutEvidence evidence) {
+        String structured = evidence.structuredContent() == null
+                ? "" : evidence.structuredContent().trim();
+        String text = evidence.text() == null ? "" : evidence.text().trim();
+        return (text + " " + structured).trim();
     }
 
     private ParsedOutput parse(String raw, WorkbenchPlan.Workflow workflow) {
@@ -463,6 +569,12 @@ public class WorkbenchModelService {
             this(output, structured, promptTokens, completionTokens, totalTokens,
                     null, 1, false, false, false);
         }
+
+        public ModelCall withOutput(WorkbenchModelOutput replacement) {
+            return new ModelCall(replacement, structured, promptTokens, completionTokens,
+                    totalTokens, finishReason, attemptCount, recoveryUsed,
+                    visualEvidenceUsed, visualFallbackUsed);
+        }
     }
 
     private record Attempt(String content,
@@ -477,4 +589,5 @@ public class WorkbenchModelService {
 
     private record ParsedOutput(WorkbenchModelOutput output, boolean structured) {
     }
+
 }

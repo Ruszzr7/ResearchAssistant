@@ -1281,7 +1281,8 @@ async function goToPage(requestedPage = currentPage.value) {
   visiblePageStart.value = Math.max(1, targetPage - 1)
   visiblePageEnd.value = Math.min(count, targetPage + 1)
   await nextTick()
-  container.scrollTop = pageOffset(targetPage)
+  const mountedPage = container.querySelector(`[data-page="${targetPage}"]`)
+  container.scrollTop = Math.max(0, mountedPage?.offsetTop ?? pageOffset(targetPage))
   updateVisiblePageRange()
   cancelStalePageRenders()
   await renderVisiblePages()
@@ -1620,11 +1621,14 @@ async function jumpToEvidence(item) {
   }
   await goToPage(item.page)
   const exactBoxes = await locateEvidenceText(item)
+  const focusBoxes = exactBoxes.length ? exactBoxes : [targetBox]
   evidenceFocus.value = {
     page: item.page,
-    boxes: exactBoxes.length ? exactBoxes : [targetBox],
+    boxes: focusBoxes,
     precision: exactBoxes.length ? 'TEXT' : 'BLOCK',
   }
+  await nextTick()
+  scrollEvidenceIntoView(item.page, focusBoxes)
   if (!exactBoxes.length && item?.locator?.precision !== 'FORMULA_REGION') {
     ElMessage.info('已定位到来源段落；PDF 字符映射不足，无法进一步精确到句子')
   }
@@ -1641,18 +1645,20 @@ async function locateEvidenceText(item) {
   const targetBox = item?.locator?.targetBbox || item?.bbox
   const targetText = item?.locator?.targetText || item?.text
   const phrases = evidenceSearchPhrases(targetText)
+  const phraseBoxes = []
   for (const phrase of phrases) {
     try {
       const matches = await pdfInteractionEngine.search(phrase)
-      const match = matches.find(candidate => (
+      const pageMatches = matches.filter(candidate => (
         candidate.pageIndex + 1 === item.page
         && candidate.rects?.some(rect => boxesOverlap(rect, targetBox))
       ))
-      if (match?.rects?.length) return match.rects
+      pageMatches.forEach(match => phraseBoxes.push(...(match.rects || [])))
     } catch {
       return []
     }
   }
+  if (phraseBoxes.length) return dedupeEvidenceBoxes(phraseBoxes)
   const keywordBoxes = []
   for (const term of evidenceSearchTerms(targetText)) {
     try {
@@ -1675,10 +1681,46 @@ function evidenceSearchPhrases(text) {
   if (!source) return []
   const fragments = source.split(/(?<=[。！？.!?])|\r?\n/)
     .map(value => value.trim())
-    .filter(value => value.length >= 18)
-    .sort((first, second) => second.length - first.length)
+    .filter(value => value.length >= 10)
   const candidates = [...fragments, source]
-  return [...new Set(candidates.map(value => value.slice(0, 120)).filter(Boolean))].slice(0, 2)
+  return [...new Set(candidates.map(value => value.slice(0, 180)).filter(Boolean))].slice(0, 5)
+}
+
+function dedupeEvidenceBoxes(boxes) {
+  const unique = new Map()
+  for (const box of boxes || []) {
+    const key = [box.x, box.y, box.width, box.height]
+      .map(value => Math.round(Number(value || 0) * 10000)).join(':')
+    unique.set(key, box)
+  }
+  return [...unique.values()].sort((first, second) => first.y - second.y || first.x - second.x)
+}
+
+function scrollEvidenceIntoView(pageNum, boxes) {
+  const container = containerRef.value
+  const page = renderedPages.value[Number(pageNum) - 1]
+  const validBoxes = (boxes || []).filter(Boolean)
+  if (!container || !page || !validBoxes.length) return
+  const pageElement = container.querySelector(`[data-page="${pageNum}"]`)
+  const pageTop = pageElement?.offsetTop ?? pageOffset(pageNum)
+  const pageLeft = pageElement?.offsetLeft ?? 0
+  const top = Math.min(...validBoxes.map(box => Number(box.y || 0)))
+  const left = Math.min(...validBoxes.map(box => Number(box.x || 0)))
+  const right = Math.max(...validBoxes.map(box => Number(box.x || 0) + Number(box.width || 0)))
+  const absoluteTop = pageTop + top * pageHeight(page)
+  const topMargin = Math.min(140, container.clientHeight * 0.22)
+  container.scrollTop = Math.max(0, Math.min(
+    absoluteTop - topMargin,
+    Math.max(0, container.scrollHeight - container.clientHeight),
+  ))
+
+  const absoluteLeft = pageLeft + left * Number(page.width || 0)
+  const absoluteRight = pageLeft + right * Number(page.width || 0)
+  const horizontalMargin = 36
+  if (absoluteLeft < container.scrollLeft + horizontalMargin
+      || absoluteRight > container.scrollLeft + container.clientWidth - horizontalMargin) {
+    container.scrollLeft = Math.max(0, absoluteLeft - horizontalMargin)
+  }
 }
 
 function evidenceSearchTerms(text) {

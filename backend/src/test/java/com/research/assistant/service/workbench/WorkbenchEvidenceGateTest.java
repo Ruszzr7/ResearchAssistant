@@ -43,6 +43,177 @@ class WorkbenchEvidenceGateTest {
     }
 
     @Test
+    void repairsACombinedClaimWhenItsQuoteOmitsAReferencedTechnicalFact() {
+        LayoutEvidence source = new LayoutEvidence(
+                "lay_sinr", 7L, "p4-b0048", 4,
+                new NormalizedBoundingBox(0.08, 0.58, 0.41, 0.12),
+                DocumentBlockRole.BODY, 150, List.of("II. SYSTEM MODEL"),
+                "The SINR of the weakest user should be focused. We assume perfect SIC.",
+                0.95, false, 0.9, "a".repeat(64), "parser-v1");
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "论文关注最弱用户的 SINR，并假设完美 SIC。",
+                WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(new WorkbenchAnswerBlock.Citation(
+                        "lay_sinr", "The SINR of the weakest user should be focused.")));
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                new WorkbenchEvidenceGate.AnswerDraft(block.text(),
+                        List.of(new WorkbenchEvidenceGate.GroundedClaim(
+                                block.text(), List.of("lay_sinr"))), false, List.of(block)),
+                List.of(source), WorkbenchEvidenceGate.GatePolicy.strict(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.REPAIR);
+        assertThat(result.issues()).contains(
+                "answer block 0 citation quotes omit source technical anchors: SIC");
+    }
+
+    @Test
+    void acceptsTechnicalAnchorsWhenTheyAreCoveredAcrossSeveralCitations() {
+        LayoutEvidence body = new LayoutEvidence(
+                "lay_body", 7L, "p4-b0037", 4,
+                new NormalizedBoundingBox(0.08, 0.52, 0.41, 0.04),
+                DocumentBlockRole.BODY, 141, List.of("II. SYSTEM MODEL"),
+                "The SINR for the common stream can be written as", 0.95, false,
+                0.9, "a".repeat(64), "parser-v1");
+        LayoutEvidence formula = new LayoutEvidence(
+                "lay_formula", 7L, "equation-region:p4-b0041", 4,
+                new NormalizedBoundingBox(0.14, 0.55, 0.35, 0.04),
+                DocumentBlockRole.FORMULA, 143, List.of("II. SYSTEM MODEL", "Equation (4)"),
+                "Equation (4)", 0.95, false, 0.9, "a".repeat(64), "parser-v1");
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "公共流 SINR 见 Equation (4)。", WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(
+                        new WorkbenchAnswerBlock.Citation("lay_body", "SINR"),
+                        new WorkbenchAnswerBlock.Citation("lay_formula", "Equation (4)")));
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                new WorkbenchEvidenceGate.AnswerDraft(block.text(),
+                        List.of(new WorkbenchEvidenceGate.GroundedClaim(
+                                block.text(), List.of("lay_body", "lay_formula"))),
+                        false, List.of(block)),
+                List.of(body, formula), WorkbenchEvidenceGate.GatePolicy.strict(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.PASS);
+    }
+
+    @Test
+    void sectionHeadingWordsAreNotMistakenForUnquotedTechnicalFacts() {
+        LayoutEvidence source = new LayoutEvidence(
+                "lay_sinr", 7L, "p4-b0037", 4,
+                new NormalizedBoundingBox(0.08, 0.52, 0.41, 0.04),
+                DocumentBlockRole.BODY, 141, List.of("II. SYSTEM MODEL"),
+                "The SINR for the common stream can be written as", 0.95, false,
+                0.9, "a".repeat(64), "parser-v1");
+        LayoutEvidence heading = new LayoutEvidence(
+                "lay_heading", 7L, "p4-b0036", 4,
+                new NormalizedBoundingBox(0.08, 0.48, 0.41, 0.03),
+                DocumentBlockRole.HEADING, 140, List.of("II. SYSTEM MODEL"),
+                "II. SYSTEM MODEL", 0.95, false,
+                0.9, "a".repeat(64), "parser-v1");
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "公共流 SINR 位于 II. SYSTEM MODEL。", WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(new WorkbenchAnswerBlock.Citation("lay_sinr", "SINR"),
+                        new WorkbenchAnswerBlock.Citation("lay_heading", "II.")));
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                new WorkbenchEvidenceGate.AnswerDraft(block.text(),
+                        List.of(new WorkbenchEvidenceGate.GroundedClaim(
+                                block.text(), List.of("lay_sinr", "lay_heading"))), false, List.of(block)),
+                List.of(source, heading), WorkbenchEvidenceGate.GatePolicy.strict(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.PASS);
+    }
+
+    @Test
+    void serverCanonicalizesProviderParaphraseToAnExactEvidenceQuote() {
+        LayoutEvidence source = new LayoutEvidence(
+                "lay_sinr", 7L, "p4-b0037", 4,
+                new NormalizedBoundingBox(0.08, 0.52, 0.41, 0.04),
+                DocumentBlockRole.BODY, 141, List.of("II. SYSTEM MODEL"),
+                "The signal-to-interference plus noise ratio (SINR) for the common stream at vehicle-k can be written as",
+                0.95, false, 0.9, "a".repeat(64), "parser-v1");
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "公共流 SINR 定义位于第 4 页系统模型。", WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(new WorkbenchAnswerBlock.Citation("lay_sinr", "公共流 SINR 的定义")));
+        WorkbenchModelOutput normalized = new WorkbenchModelOutput(
+                block.text(), List.of(), null, List.of(block)).normalizeEvidenceQuotes(List.of(source));
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                normalized.toGateDraft(WorkbenchPlan.Workflow.SELECTION_QA), List.of(source),
+                WorkbenchEvidenceGate.GatePolicy.strict(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.PASS);
+        assertThat(normalized.answerBlocks().get(0).citations().get(0).quote())
+                .contains("signal-to-interference plus noise ratio", "SINR");
+    }
+
+    @Test
+    void rejectsAnAccurateButIncompleteAnswerWhenARequiredItemIsMissing() {
+        LayoutEvidence source = new LayoutEvidence(
+                "lay_method", 7L, "p2-b0010", 2,
+                new NormalizedBoundingBox(0.08, 0.3, 0.4, 0.08),
+                DocumentBlockRole.BODY, 40, List.of("Method"),
+                "The method reduces complexity. It assumes perfect channel knowledge.",
+                0.95, false, 0.9, "a".repeat(64), "parser-v1");
+        List<WorkbenchAnswerRequirement> requirements = List.of(
+                new WorkbenchAnswerRequirement("r1", WorkbenchAnswerRequirement.Type.DIRECT,
+                        "说明方法的作用", true, List.of(new WorkbenchAnswerBlock.Citation(
+                        "lay_method", "The method reduces complexity"))),
+                new WorkbenchAnswerRequirement("r2", WorkbenchAnswerRequirement.Type.CONTEXT,
+                        "说明关键假设", true, List.of(new WorkbenchAnswerBlock.Citation(
+                        "lay_method", "It assumes perfect channel knowledge"))));
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "该方法降低了复杂度。", WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(new WorkbenchAnswerBlock.Citation(
+                        "lay_method", "The method reduces complexity")), List.of("r1"));
+        WorkbenchModelOutput output = new WorkbenchModelOutput(
+                block.text(), List.of(), null, List.of(block), requirements);
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                output.toGateDraft(WorkbenchPlan.Workflow.SELECTION_QA), List.of(source),
+                WorkbenchEvidenceGate.GatePolicy.strict(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.REPAIR);
+        assertThat(result.issues()).contains(
+                "required answer item r2 is missing: 说明关键假设");
+    }
+
+    @Test
+    void acceptsDifferentQuestionTypesWhenEveryRequirementIsExplicitlyCovered() {
+        LayoutEvidence source = new LayoutEvidence(
+                "lay_result", 7L, "p6-b0020", 6,
+                new NormalizedBoundingBox(0.52, 0.4, 0.4, 0.08),
+                DocumentBlockRole.BODY, 210, List.of("Experiments"),
+                "Accuracy improves by 8 percent under low mobility. The gain decreases at high mobility.",
+                0.95, false, 0.9, "a".repeat(64), "parser-v1");
+        List<WorkbenchAnswerRequirement> requirements = List.of(
+                new WorkbenchAnswerRequirement("r1", WorkbenchAnswerRequirement.Type.DIRECT,
+                        "解释实验增益", true, List.of(new WorkbenchAnswerBlock.Citation(
+                        "lay_result", "Accuracy improves by 8 percent under low mobility"))),
+                new WorkbenchAnswerRequirement("r2", WorkbenchAnswerRequirement.Type.CONTEXT,
+                        "说明适用范围", true, List.of(new WorkbenchAnswerBlock.Citation(
+                        "lay_result", "The gain decreases at high mobility"))));
+        List<WorkbenchAnswerBlock> blocks = List.of(
+                new WorkbenchAnswerBlock("低移动性下准确率提升 8%。",
+                        WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                        List.of(new WorkbenchAnswerBlock.Citation("lay_result",
+                                "Accuracy improves by 8 percent under low mobility")), List.of("r1")),
+                new WorkbenchAnswerBlock("高移动性下增益会下降。",
+                        WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                        List.of(new WorkbenchAnswerBlock.Citation("lay_result",
+                                "The gain decreases at high mobility")), List.of("r2")));
+        WorkbenchModelOutput output = new WorkbenchModelOutput(
+                "低移动性下准确率提升 8%；高移动性下增益下降。",
+                List.of(), null, blocks, requirements);
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                output.toGateDraft(WorkbenchPlan.Workflow.SELECTION_QA), List.of(source),
+                WorkbenchEvidenceGate.GatePolicy.strict(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.PASS);
+    }
+
+    @Test
     void passesOnlyClaimsGroundedInTheCurrentEvidenceSet() {
         WorkbenchEvidenceGate.AnswerDraft draft = new WorkbenchEvidenceGate.AnswerDraft(
                 "结论 A；结论 B。",

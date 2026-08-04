@@ -100,8 +100,9 @@ public class WorkbenchExecutionEngine {
             rememberSelectionSafely(traceService.requireTrace(runId), result);
             return result;
         } catch (WorkbenchModelException e) {
-            failRunIfTerminal(runId, e.code(), e.getMessage(), e.retryable());
-            throw new AsyncTaskExecutionException(e.code(), e.getMessage(), e.retryable(), e);
+            boolean safeToReplay = e.retryable() && repairCount(runId) == 0;
+            failRunIfTerminal(runId, e.code(), e.getMessage(), safeToReplay);
+            throw new AsyncTaskExecutionException(e.code(), e.getMessage(), safeToReplay, e);
         } catch (StepFailure e) {
             failRunIfTerminal(runId, e.code, e.getMessage(), e.retryable);
             throw new AsyncTaskExecutionException(e.code, e.getMessage(), e.retryable, e);
@@ -278,6 +279,7 @@ public class WorkbenchExecutionEngine {
         WorkbenchModelService.ModelCall call = modelStep(
                 trace, modelStepIndex, evidence, null, List.of(), firstCallBudget(trace),
                 modelQuestion, context, visualEvidence);
+        call = call.withOutput(call.output().normalizeEvidenceQuotes(evidence));
         WorkbenchEvidenceGate.GateResult gateResult = gateStep(
                 traceService.requireTrace(trace.runId()), gateStepIndex,
                 call.output(), call.structured(), evidence, 0);
@@ -288,7 +290,8 @@ public class WorkbenchExecutionEngine {
             WorkbenchRunTrace repairTrace = traceService.requireTrace(trace.runId());
             WorkbenchModelService.ModelCall repaired = modelStep(
                     repairTrace, modelStepIndex, evidence, call.output(), gateResult.issues(),
-                    remainingTokenBudget(repairTrace), modelQuestion, context, visualEvidence);
+                    remainingTokenBudget(repairTrace), trace.invocation().question(), context, visualEvidence);
+            repaired = repaired.withOutput(repaired.output().normalizeEvidenceQuotes(evidence));
             gateResult = gateStep(
                     traceService.requireTrace(trace.runId()), gateStepIndex,
                     repaired.output(), repaired.structured(), evidence, 1);
@@ -324,6 +327,9 @@ public class WorkbenchExecutionEngine {
         inputSummary.put("evidenceCount", evidence.size());
         inputSummary.put("callTokenBudget", callBudget);
         inputSummary.put("repair", previous != null);
+        if (previous != null && repairIssues != null && !repairIssues.isEmpty()) {
+            inputSummary.put("repairIssues", repairIssues);
+        }
         if (context != null) {
             inputSummary.put("contextSchemaVersion", context.schemaVersion());
             inputSummary.put("conversationTurns", context.conversationTurns().size());
@@ -403,6 +409,7 @@ public class WorkbenchExecutionEngine {
         summary.put("emptyOutputRecoveryUsed", call.recoveryUsed());
         summary.put("selectionVisualUsed", call.visualEvidenceUsed());
         summary.put("selectionVisualFallback", call.visualFallbackUsed());
+        summary.put("answerRequirementCount", call.output().requirements().size());
         if (call.finishReason() != null && !call.finishReason().isBlank()) {
             summary.put("finishReason", call.finishReason());
         }
@@ -454,7 +461,7 @@ public class WorkbenchExecutionEngine {
             traceService.failStep(trace.runId(), stepIndex,
                     result.decision() == WorkbenchEvidenceGate.Decision.REPAIR
                             ? "EVIDENCE_REPAIR_REQUIRED" : "EVIDENCE_GATE_REJECTED",
-                    "证据门禁未通过", elapsed(started));
+                    "证据门禁未通过", summary, 0, 0, elapsed(started));
         }
         return result;
     }
@@ -607,6 +614,15 @@ public class WorkbenchExecutionEngine {
     }
 
     private long elapsed(long started) { return Math.max(0, (System.nanoTime() - started) / 1_000_000); }
+
+    /**
+     * A failed first generation can be replayed because it has no in-memory predecessor. Once the
+     * evidence repair starts, replaying the task would lose that predecessor while retaining the
+     * persisted one-repair counter, so the original provider error must remain terminal and visible.
+     */
+    private int repairCount(String runId) {
+        return traceService.requireTrace(runId).metrics().repairCount();
+    }
 
     private void failRunIfTerminal(String runId, String code, String message, boolean retryable) {
         if (retryable) return;

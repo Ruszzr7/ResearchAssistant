@@ -213,6 +213,23 @@ class WorkbenchRunTraceServiceTest {
         assertThat(recovered.steps().get(3).retryCount()).isEqualTo(1);
     }
 
+    @Test
+    void completedRetryClearsThePreviousStepError() {
+        WorkbenchRunTrace planned = service.plan(selectionInvocation(anchor("a".repeat(64))));
+        service.prepareExecutionAttempt(planned.runId(), "task-clear-error");
+        service.startStep(planned.runId(), 0, Map.of("attempt", 1));
+        service.failStep(planned.runId(), 0, "TEMPORARY_FAILURE", "temporary", 1);
+
+        service.prepareExecutionAttempt(planned.runId(), "task-clear-error");
+        service.startStep(planned.runId(), 0, Map.of("attempt", 2));
+        service.completeStep(planned.runId(), 0, Map.of("ok", true), 0, 0, 0, 1);
+
+        WorkbenchRunTrace.StepTrace completed = service.requireTrace(planned.runId()).steps().get(0);
+        assertThat(completed.status()).isEqualTo(WorkbenchStepStatus.COMPLETED);
+        assertThat(completed.errorCode()).isNull();
+        assertThat(completed.errorMessage()).isNull();
+    }
+
     private WorkbenchInvocation selectionInvocation(SelectionAnchor anchor) {
         return new WorkbenchInvocation(
                 List.of(7L), "解释这个选区", WorkbenchIntent.ASK_SELECTION,

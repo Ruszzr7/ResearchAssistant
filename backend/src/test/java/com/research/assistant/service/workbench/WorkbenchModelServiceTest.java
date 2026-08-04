@@ -249,6 +249,37 @@ class WorkbenchModelServiceTest {
     }
 
     @Test
+    void bindsTheCurrentQuestionWithoutAnExtraPlanningCall() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(new LlmResponse("""
+                        {"answer":"分层编码降低了解码复杂度，但依赖完美信道知识。","answerBlocks":[
+                          {"text":"分层编码降低了解码复杂度。","basis":"PAPER_FACT","citations":[{"evidenceId":"lay_method","quote":"reduces decoding complexity"}],"requirementIds":["r1"]},
+                          {"text":"该结论依赖完美信道知识假设。","basis":"PAPER_FACT","citations":[{"evidenceId":"lay_method","quote":"assumes perfect channel knowledge"}],"requirementIds":["r1"]}
+                        ],"claims":[]}
+                        """, 700, 260, 960, "STOP"));
+
+        WorkbenchModelService.ModelCall result = service.generate(
+                WorkbenchPlan.Workflow.SELECTION_QA,
+                "作者为什么采用分层编码？",
+                Map.of(7L, "Paper"),
+                List.of(evidence("lay_method",
+                        "The layered design reduces decoding complexity and assumes perfect channel knowledge.",
+                        false)),
+                10_000, null, List.of());
+
+        assertThat(result.output().requirements()).extracting(WorkbenchAnswerRequirement::content)
+                .containsExactly("作者为什么采用分层编码？");
+        assertThat(result.output().answerBlocks()).extracting(WorkbenchAnswerBlock::requirementIds)
+                .containsExactly(List.of("r1"), List.of("r1"));
+        assertThat(result.totalTokens()).isEqualTo(960);
+
+        ArgumentCaptor<String> messages = ArgumentCaptor.forClass(String.class);
+        verify(llmService).chatWithUsage(anyString(), messages.capture(), any(LlmCallPolicy.class));
+        assertThat(messages.getValue()).contains(
+                "answerRequirements", "作者为什么采用分层编码？");
+    }
+
+    @Test
     void retriesBlankTruncatedSelectionWithOnlyDirectEvidence() {
         when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
                 .thenReturn(
@@ -283,6 +314,58 @@ class WorkbenchModelServiceTest {
     }
 
     @Test
+    void retriesNonBlankTruncatedJsonWithoutArtificiallyReservingTheFirstBudget() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(
+                        new LlmResponse("{\"answer\":\"partial", 3_065, 535, 3_600, "LENGTH"),
+                        new LlmResponse("""
+                                {"answer":"SINR 位于第 4 页。","claims":[{"text":"SINR 位于第 4 页","evidenceIds":["lay_selected"]}]}
+                                """, 500, 400, 900, "STOP"));
+
+        WorkbenchModelService.ModelCall result = service.generate(
+                WorkbenchPlan.Workflow.SELECTION_QA,
+                "为我找出 SINR 公式在哪",
+                Map.of(7L, "Paper"),
+                List.of(evidence("lay_selected", "The SINR for decoding its private stream", true)),
+                6_500,
+                null,
+                List.of());
+
+        assertThat(result.recoveryUsed()).isTrue();
+        assertThat(result.structured()).isTrue();
+        assertThat(result.output().answer()).contains("第 4 页");
+        assertThat(result.totalTokens()).isEqualTo(4_500);
+
+        ArgumentCaptor<LlmCallPolicy> policies = ArgumentCaptor.forClass(LlmCallPolicy.class);
+        verify(llmService, times(2)).chatWithUsage(anyString(), anyString(), policies.capture());
+        LlmCallPolicy first = policies.getAllValues().get(0);
+        assertThat(first.maxInputTokens() + first.maxOutputTokens()).isEqualTo(6_500);
+        assertThat(first.reasoningEffort()).isEqualTo("low");
+    }
+
+    @Test
+    void truncatedGateRepairIsRejectedInsteadOfEnteringTheEvidenceGate() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(new LlmResponse("{\"answer\":\"partial", 800, 400, 1_200, "LENGTH"));
+        WorkbenchModelOutput previous = new WorkbenchModelOutput(
+                "旧回答", List.of(new WorkbenchEvidenceGate.GroundedClaim(
+                "旧结论", List.of("lay_a"))), null);
+
+        assertThatThrownBy(() -> service.generate(
+                WorkbenchPlan.Workflow.SELECTION_QA, "why", Map.of(),
+                List.of(evidence("lay_a", "selected", true)), 3_000, previous,
+                List.of("repair issue")))
+                .isInstanceOf(WorkbenchModelException.class)
+                .satisfies(error -> {
+                    WorkbenchModelException modelError = (WorkbenchModelException) error;
+                    assertThat(modelError.code()).isEqualTo("MODEL_OUTPUT_TRUNCATED");
+                    assertThat(modelError.retryable()).isFalse();
+                });
+
+        verify(llmService, times(1)).chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class));
+    }
+
+    @Test
     void reportsUsageAndFinishReasonWhenCompactRetryIsStillBlank() {
         when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
                 .thenReturn(
@@ -302,6 +385,46 @@ class WorkbenchModelServiceTest {
                     assertThat(modelError.totalTokens()).isEqualTo(500);
                     assertThat(modelError.finishReason()).isEqualTo("STOP");
                 });
+    }
+
+    @Test
+    void gateRepairUsesTheRealRemainingBudgetAndOnlyNecessaryEvidence() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(new LlmResponse("""
+                        {"answer":"SINR 位于第 4 页。","answerBlocks":[{"text":"SINR 位于第 4 页。","basis":"PAPER_FACT","citations":[{"evidenceId":"lay_target","quote":"SINR"}]}],"claims":[]}
+                        """, 1_800, 400, 2_200, "STOP"));
+        WorkbenchModelOutput previous = new WorkbenchModelOutput(
+                "SINR 位于第 4 页。" + "旧回答详细内容。".repeat(300), List.of(), null,
+                List.of(new WorkbenchAnswerBlock(
+                        "SINR 位于第 4 页。", WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                        List.of(
+                                new WorkbenchAnswerBlock.Citation("lay_7", "source 7"),
+                                new WorkbenchAnswerBlock.Citation("lay_8", "source 8"),
+                                new WorkbenchAnswerBlock.Citation("lay_9", "source 9"),
+                                new WorkbenchAnswerBlock.Citation("lay_10", "source 10"),
+                                new WorkbenchAnswerBlock.Citation("lay_11", "source 11"),
+                                new WorkbenchAnswerBlock.Citation("lay_target", "paraphrased")))));
+        List<LayoutEvidence> evidence = new java.util.ArrayList<>();
+        for (int index = 0; index < 12; index++) {
+            evidence.add(evidence("lay_" + index, "irrelevant-" + index + " " + "x".repeat(700), false));
+        }
+        evidence.add(evidence("lay_target", "SINR for the common stream at vehicle-k", false));
+
+        WorkbenchModelService.ModelCall result = service.generate(
+                WorkbenchPlan.Workflow.SELECTION_QA, "为我找出 SINR 公式在哪",
+                Map.of(7L, "Paper"), evidence, 3_949, previous,
+                List.of("answer block citation quote is not in evidence"));
+
+        assertThat(result.totalTokens()).isEqualTo(2_200);
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<LlmCallPolicy> policy = ArgumentCaptor.forClass(LlmCallPolicy.class);
+        verify(llmService).chatWithUsage(anyString(), message.capture(), policy.capture());
+        assertThat(message.getValue()).contains(
+                        "lay_7", "lay_8", "lay_9", "lay_10", "lay_11",
+                        "lay_target", "repairInstruction")
+                .doesNotContain("lay_2", "recoveryInstruction")
+                .hasSizeLessThan(12_000);
+        assertThat(policy.getValue().maxOutputTokens()).isGreaterThanOrEqualTo(512);
     }
 
     private LayoutEvidence evidence(String id, String text) {

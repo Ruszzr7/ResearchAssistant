@@ -36,22 +36,38 @@ export function buildCitedAnswer(answer, claims = [], evidence = [], answerBlock
     : result
 }
 
-function renderBoundBlocks(blocks, evidence) {
+/**
+ * Returns the same source sequence used by inline citation markers. Formula text and its
+ * sibling formula-region locator are presented as one source: text proves what is readable,
+ * while the region supplies the click target.
+ */
+export function buildCitationSources(claims = [], evidence = [], answerBlocks = []) {
+  if (answerBlocks?.length) return boundCitationContext(answerBlocks, evidence).sources
   const evidenceById = new Map((evidence || []).map(item => [item.evidenceId, item]))
-  const numberById = new Map()
-  let nextNumber = 1
-  return blocks.map((block, blockIndex) => {
+  const seen = new Set()
+  const sources = []
+  for (const claim of claims || []) {
+    for (const evidenceId of claim?.evidenceIds || []) {
+      if (seen.has(evidenceId)) continue
+      const item = evidenceById.get(evidenceId)
+      if (!item) continue
+      seen.add(evidenceId)
+      sources.push(sourceView(sources.length + 1, `evidence:${evidenceId}`, item, item,
+        item.locator?.targetText || item.text || ''))
+    }
+  }
+  return sources
+}
+
+function renderBoundBlocks(blocks, evidence) {
+  const context = boundCitationContext(blocks, evidence)
+  return blocks.map((block) => {
     const seen = new Set()
     const markers = (block?.citations || [])
-      .map((citation, citationIndex) => ({ citation, citationIndex }))
-      .filter(({ citation }) => citation?.evidenceId && !seen.has(citation.evidenceId)
-        && seen.add(citation.evidenceId) && evidenceById.has(citation.evidenceId))
-      .map(({ citation, citationIndex }) => {
-        const id = citation.evidenceId
-        if (!numberById.has(id)) numberById.set(id, nextNumber++)
-        const target = `${encodeURIComponent(id)}~${blockIndex}~${citationIndex}`
-        return `[${numberById.get(id)}](#evidence-${target})`
-      }).join('')
+      .map(citation => context.sourceForCitation(citation, block))
+      .filter(source => source && !seen.has(source.key) && seen.add(source.key))
+      .map(source => `[${source.number}](#evidence-${encodeURIComponent(`source~${source.number}`)})`)
+      .join('')
     const prefix = block?.basis === 'INFERENCE'
       ? '**据此推断：** '
       : block?.basis === 'GENERAL_KNOWLEDGE'
@@ -61,6 +77,210 @@ function renderBoundBlocks(blocks, evidence) {
           : ''
     return `${prefix}${String(block?.text || '').trim()}${markers}`
   }).filter(Boolean).join('\n\n')
+}
+
+function boundCitationContext(blocks, evidence) {
+  const evidenceById = new Map((evidence || []).map(item => [item.evidenceId, item]))
+  const formulaRegionByBase = new Map()
+  for (const item of evidence || []) {
+    if (isFormulaRegion(item)) formulaRegionByBase.set(formulaBaseBlockId(item), item)
+  }
+  const sources = []
+  const sourceByKey = new Map()
+  const sourceKeyByCitation = new WeakMap()
+
+  function descriptor(citation) {
+    const item = evidenceById.get(citation?.evidenceId)
+    if (!item) return null
+    const ownFormulaRegion = isFormulaRegion(item) ? item : null
+    const siblingFormulaRegion = formulaRegionByBase.get(String(item.blockId || ''))
+    const formulaTarget = ownFormulaRegion || (siblingFormulaRegion && looksLikeFormulaCitation(citation, item)
+      ? siblingFormulaRegion : null)
+    const base = formulaTarget ? formulaBaseBlockId(formulaTarget) : ''
+    const formulaKey = formulaTarget
+      ? `formula:${item.paperId || ''}:${item.page || ''}:${base}`
+      : ''
+    const quote = String(citation?.quote || '').trim()
+    return { citation, formulaKey, item, formulaTarget, quote }
+  }
+
+  function sourceForCitation(citation) {
+    return citation && typeof citation === 'object'
+      ? sourceByKey.get(sourceKeyByCitation.get(citation)) || null
+      : null
+  }
+
+  for (const block of blocks || []) {
+    const groups = []
+    for (const citation of block?.citations || []) {
+      const value = descriptor(citation)
+      if (!value) continue
+      const previousGroup = groups[groups.length - 1]
+      const previousValue = previousGroup?.[previousGroup.length - 1]
+      if (previousValue && canMergeCitationContinuation(previousValue, value)) {
+        previousGroup.push(value)
+      } else {
+        groups.push([value])
+      }
+    }
+
+    for (const group of groups) {
+      const value = group.length > 1 ? mergedTextDescriptor(group) : singleDescriptor(group[0])
+      group.forEach(entry => sourceKeyByCitation.set(entry.citation, value.key))
+      const existing = sourceByKey.get(value.key)
+      if (existing) {
+        if (moreInformativeQuote(value.quote, existing.quote)) {
+          existing.quote = value.quote
+          existing.excerpt = sourceExcerpt(value.quote, existing.target)
+          existing.title = value.quote
+        }
+        continue
+      }
+      const source = sourceView(sources.length + 1, value.key, value.item, value.target, value.quote)
+      source.evidenceIds = value.evidenceIds
+      sources.push(source)
+      sourceByKey.set(value.key, source)
+    }
+  }
+  return { sources, sourceForCitation }
+}
+
+function singleDescriptor(value) {
+  const targetItem = value.formulaTarget || value.item
+  const targetText = value.formulaTarget ? '' : value.quote
+  const key = value.formulaKey || citationQuoteKey(value.item, value.quote)
+  return {
+    key,
+    item: value.item,
+    quote: value.quote,
+    evidenceIds: [value.item.evidenceId],
+    target: {
+      ...targetItem,
+      locator: { ...(targetItem.locator || {}), targetText },
+    },
+  }
+}
+
+function mergedTextDescriptor(values) {
+  const items = values.map(value => value.item)
+  const quotes = values.map(value => value.quote).filter(Boolean)
+  const targetBbox = unionBoundingBoxes(items.map(item => item.locator?.targetBbox || item.bbox))
+  const quote = quotes.join(' ').replace(/\s+/g, ' ').trim()
+  const first = items[0]
+  const key = `span:${first.paperId || ''}:${first.page || ''}:${items.map(item => item.blockId).join('|')}:${normalize(quote)}`
+  return {
+    key,
+    item: first,
+    quote,
+    evidenceIds: items.map(item => item.evidenceId),
+    target: {
+      ...first,
+      blockId: `citation-span:${items.map(item => item.blockId).join('|')}`,
+      bbox: targetBbox,
+      text: quote,
+      locator: {
+        ...(first.locator || {}),
+        targetBbox,
+        // Keep physical line fragments separate for PDFium search while displaying one sentence.
+        targetText: quotes.join('\n'),
+        precision: 'TEXT_SPAN',
+      },
+    },
+  }
+}
+
+function citationQuoteKey(item, quote) {
+  const targetText = quote || item?.locator?.targetText || item?.text || ''
+  return `evidence:${item?.evidenceId || ''}:quote:${normalize(targetText)}`
+}
+
+function canMergeCitationContinuation(previous, current) {
+  if (previous.formulaTarget || current.formulaTarget) return false
+  if (!previous.quote || !current.quote || previous.item.evidenceId === current.item.evidenceId) return false
+  if (Number(previous.item.paperId) !== Number(current.item.paperId)
+      || Number(previous.item.page) !== Number(current.item.page)) return false
+  if (/[.!?。！？;；:]\s*$/.test(previous.quote)) return false
+  const previousOrder = Number(previous.item.readingOrder)
+  const currentOrder = Number(current.item.readingOrder)
+  if (Number.isFinite(previousOrder) && Number.isFinite(currentOrder)
+      && (currentOrder <= previousOrder || currentOrder - previousOrder > 2)) return false
+  const first = previous.item.locator?.targetBbox || previous.item.bbox
+  const second = current.item.locator?.targetBbox || current.item.bbox
+  return boxesShareColumn(first, second) && boxesAreVerticallyContinuous(first, second)
+}
+
+function boxesShareColumn(first, second) {
+  if (!first || !second) return false
+  const overlap = Math.max(0, Math.min(Number(first.x) + Number(first.width), Number(second.x) + Number(second.width))
+    - Math.max(Number(first.x), Number(second.x)))
+  const narrower = Math.max(0.0001, Math.min(Number(first.width), Number(second.width)))
+  return overlap / narrower >= 0.55 || Math.abs(Number(first.x) - Number(second.x)) <= 0.035
+}
+
+function boxesAreVerticallyContinuous(first, second) {
+  if (!first || !second) return false
+  const firstTop = Number(first.y)
+  const firstBottom = firstTop + Number(first.height)
+  const secondTop = Number(second.y)
+  const gap = secondTop - firstBottom
+  return secondTop >= firstTop - 0.01 && gap <= 0.025
+}
+
+function unionBoundingBoxes(boxes) {
+  const valid = (boxes || []).filter(Boolean)
+  if (!valid.length) return null
+  const left = Math.min(...valid.map(box => Number(box.x)))
+  const top = Math.min(...valid.map(box => Number(box.y)))
+  const right = Math.max(...valid.map(box => Number(box.x) + Number(box.width)))
+  const bottom = Math.max(...valid.map(box => Number(box.y) + Number(box.height)))
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
+function sourceView(number, key, item, target, quote) {
+  const formula = isFormulaRegion(target)
+  return {
+    number,
+    key,
+    evidenceId: item?.evidenceId || '',
+    page: target?.page || item?.page,
+    quote: String(quote || '').trim(),
+    excerpt: sourceExcerpt(quote, target || item),
+    title: String(quote || target?.text || item?.text || '').trim(),
+    kind: formula ? '公式' : '正文',
+    target,
+  }
+}
+
+function sourceExcerpt(quote, item) {
+  const value = String(quote || '').trim()
+  const placeholder = !value || /^\[(?:公式|表格|图形)区域/.test(value)
+  const formulaLabel = [...(item?.sectionPath || [])].reverse().find(part => /Equation|公式/i.test(part))
+  const source = placeholder ? (formulaLabel || (isFormulaRegion(item) ? '公式区域' : item?.text || '')) : value
+  return source.length <= 220 ? source : `${source.slice(0, 217).trim()}…`
+}
+
+function isFormulaRegion(item) {
+  return item?.locator?.precision === 'FORMULA_REGION'
+    || item?.role === 'FORMULA' && item?.contentMode === 'REGION'
+    || String(item?.blockId || '').startsWith('equation-region:')
+}
+
+function formulaBaseBlockId(item) {
+  return String(item?.blockId || '').replace(/^equation-region:/, '')
+}
+
+function looksLikeFormulaCitation(citation, item) {
+  const value = `${citation?.quote || ''} ${item?.text || ''}`
+  return /(?:[=<>≤≥∑∫√Γ]|\(\d{1,3}\)|\b(?:equation|formula)\b)/i.test(value)
+}
+
+function moreInformativeQuote(candidate, current) {
+  const score = value => {
+    const text = String(value || '').trim()
+    if (!text || /^\[.*区域/.test(text)) return 0
+    return Math.min(500, text.length) + (/=|Γ|∑|∫|√|\(\d+\)/.test(text) ? 500 : 0)
+  }
+  return score(candidate) > score(current)
 }
 
 function closestSentenceRange(source, claim) {

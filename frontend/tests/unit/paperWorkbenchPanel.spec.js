@@ -386,7 +386,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     const details = wrapper.get('.chat-claim-list')
     expect(details.attributes('open')).toBeUndefined()
     expect(details.get('summary').text()).toContain('查看依据（1）')
-    await details.get('.evidence-links button').trigger('click')
+    await details.get('.evidence-source__jump').trigger('click')
     expect(wrapper.emitted('jump-evidence')?.[1][0]).toEqual(
       expect.objectContaining({ evidenceId: 'e-1', page: 2 }),
     )

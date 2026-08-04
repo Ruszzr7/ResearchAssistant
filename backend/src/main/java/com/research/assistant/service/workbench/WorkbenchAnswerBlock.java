@@ -5,12 +5,19 @@ import java.util.List;
 /** One user-visible answer unit with an explicit epistemic basis and direct evidence bindings. */
 public record WorkbenchAnswerBlock(String text,
                                    Basis basis,
-                                   List<Citation> citations) {
+                                   List<Citation> citations,
+                                   List<String> requirementIds) {
     public WorkbenchAnswerBlock {
         text = text == null ? "" : text.trim();
         basis = basis == null ? Basis.PAPER_FACT : basis;
         citations = citations == null ? List.of() : citations.stream()
                 .filter(item -> item != null && !item.evidenceId().isBlank()).distinct().toList();
+        requirementIds = requirementIds == null ? List.of() : requirementIds.stream()
+                .filter(id -> id != null && !id.isBlank()).map(String::trim).distinct().toList();
+    }
+
+    public WorkbenchAnswerBlock(String text, Basis basis, List<Citation> citations) {
+        this(text, basis, citations, List.of());
     }
 
     public boolean requiresPaperEvidence() {

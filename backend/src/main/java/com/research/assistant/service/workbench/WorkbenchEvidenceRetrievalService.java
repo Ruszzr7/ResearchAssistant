@@ -392,8 +392,12 @@ public class WorkbenchEvidenceRetrievalService {
                 .filter(block -> block.bbox().y() <= label.bbox().bottom() + 0.06)
                 .filter(block -> verticalGap(label.bbox(), block.bbox()) <= 0.04)
                 .forEach(members::add);
-        NormalizedBoundingBox bbox = members.isEmpty() ? label.bbox()
-                : union(members.stream().map(DocumentBlock::bbox).toList());
+        // The label block often contains the readable baseline and equation number while REGION
+        // members contain only tall glyph fragments. Excluding it creates a visibly narrow target.
+        List<NormalizedBoundingBox> clusterBoxes = new ArrayList<>();
+        clusterBoxes.add(label.bbox());
+        clusterBoxes.addAll(members.stream().map(DocumentBlock::bbox).toList());
+        NormalizedBoundingBox bbox = union(clusterBoxes);
         List<String> section = new ArrayList<>(label.sectionPath());
         section.add("Equation " + equationLabel);
         return new DocumentBlock(

@@ -271,6 +271,8 @@ public class WorkbenchRunTraceService {
         LocalDateTime now = LocalDateTime.now();
         step.setStatus(WorkbenchStepStatus.COMPLETED.name());
         step.setOutputSummaryJson(writeNullable(outputSummary));
+        step.setErrorCode(null);
+        step.setErrorMessage(null);
         step.setEvidenceCount(Math.max(value(step.getEvidenceCount()), nonNegative(evidenceCount)));
         step.setPromptTokens(value(step.getPromptTokens()) + nonNegative(promptTokens));
         step.setCompletionTokens(value(step.getCompletionTokens()) + nonNegative(completionTokens));

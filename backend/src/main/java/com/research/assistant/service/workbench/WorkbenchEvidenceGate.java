@@ -8,6 +8,8 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Deterministic grounding boundary. Unknown citations can never reach the final answer. */
 @Component
@@ -16,6 +18,12 @@ public class WorkbenchEvidenceGate {
     private static final int MAX_ANSWER_CHARS = 60_000;
     private static final int MAX_CLAIMS = 100;
     private static final int MAX_CITATIONS_PER_CLAIM = 8;
+    private static final Pattern ACRONYM = Pattern.compile(
+            "(?<![A-Za-z0-9])[A-Z][A-Z0-9-]{1,11}(?![A-Za-z0-9])");
+    private static final Pattern EQUATION_REFERENCE = Pattern.compile(
+            "(?i)\\bequation\\s*\\(\\d{1,4}\\)");
+    private static final Pattern GREEK_IDENTIFIER = Pattern.compile(
+            "[\\p{IsGreek}][A-Za-z0-9_,{}∈]{1,24}");
 
     public GateResult validate(AnswerDraft draft,
                                Collection<LayoutEvidence> evidenceSet,
@@ -83,6 +91,7 @@ public class WorkbenchEvidenceGate {
             if (hasValidCitation) groundedClaims += 1;
         }
         validateAnswerBlocks(draft, evidenceById, issues);
+        validateAnswerRequirements(draft, issues);
 
         if (!invalidIds.isEmpty()) issues.add("answer cites evidence outside the current run");
         if (!irrelevantIds.isEmpty()) issues.add("answer cites evidence with no query relevance");
@@ -146,9 +155,16 @@ public class WorkbenchEvidenceGate {
                     && !containsInferenceCue(block.text())) {
                 issues.add("answer block " + index + " does not label its inference");
             }
+            StringBuilder citedSource = new StringBuilder();
+            StringBuilder citedQuotes = new StringBuilder();
+            StringBuilder citedSectionMetadata = new StringBuilder();
             for (WorkbenchAnswerBlock.Citation citation : block.citations()) {
                 LayoutEvidence evidence = evidenceById.get(citation.evidenceId());
                 if (evidence == null) continue;
+                citedSource.append(' ').append(evidence.text())
+                        .append(' ').append(evidence.structuredContent());
+                citedQuotes.append(' ').append(citation.quote());
+                citedSectionMetadata.append(' ').append(String.join(" ", evidence.sectionPath()));
                 if (evidence.contentMode()
                         == com.research.assistant.service.pdf.layout.DocumentBlockContentMode.REGION) {
                     continue;
@@ -162,7 +178,107 @@ public class WorkbenchEvidenceGate {
                     issues.add("answer block " + index + " citation quote is not in evidence");
                 }
             }
+            Set<String> missingAnchors = missingQuotedTechnicalAnchors(
+                    block.text(), citedSource.toString(), citedQuotes.toString(),
+                    citedSectionMetadata.toString());
+            if (!missingAnchors.isEmpty()) {
+                issues.add("answer block " + index
+                        + " citation quotes omit source technical anchors: "
+                        + String.join(", ", missingAnchors));
+            }
         }
+    }
+
+    private void validateAnswerRequirements(AnswerDraft draft, List<String> issues) {
+        if (draft == null || draft.requirements().isEmpty()) return;
+        java.util.Map<String, WorkbenchAnswerRequirement> requirementsById = new java.util.LinkedHashMap<>();
+        draft.requirements().forEach(item -> requirementsById.put(item.id(), item));
+
+        for (int blockIndex = 0; blockIndex < draft.answerBlocks().size(); blockIndex++) {
+            WorkbenchAnswerBlock block = draft.answerBlocks().get(blockIndex);
+            if (block.requirementIds().isEmpty()) {
+                issues.add("answer block " + blockIndex + " is not bound to an answer requirement");
+            }
+            for (String requirementId : block.requirementIds()) {
+                if (!requirementsById.containsKey(requirementId)) {
+                    issues.add("answer block " + blockIndex
+                            + " references unknown answer requirement " + requirementId);
+                }
+            }
+        }
+
+        for (WorkbenchAnswerRequirement requirement : draft.requirements()) {
+            if (!requirement.required()) continue;
+            List<WorkbenchAnswerBlock> coveringBlocks = draft.answerBlocks().stream()
+                    .filter(block -> block.requirementIds().contains(requirement.id()))
+                    .toList();
+            if (coveringBlocks.isEmpty()) {
+                issues.add("required answer item " + requirement.id() + " is missing: "
+                        + boundedIssue(requirement.content()));
+                continue;
+            }
+            if (requirement.evidenceRefs().isEmpty()) continue;
+            for (WorkbenchAnswerBlock.Citation requiredRef : requirement.evidenceRefs()) {
+                boolean covered = coveringBlocks.stream().flatMap(block -> block.citations().stream())
+                        .anyMatch(actual -> actual.evidenceId().equals(requiredRef.evidenceId())
+                                && quotesOverlap(actual.quote(), requiredRef.quote()));
+                if (!covered) {
+                    issues.add("required answer item " + requirement.id()
+                            + " omits evidence " + requiredRef.evidenceId() + ": "
+                            + boundedIssue(requiredRef.quote()));
+                }
+            }
+        }
+    }
+
+    private boolean quotesOverlap(String actual, String required) {
+        String normalizedActual = normalizeQuote(actual);
+        String normalizedRequired = normalizeQuote(required);
+        return !normalizedActual.isBlank() && !normalizedRequired.isBlank()
+                && (normalizedActual.contains(normalizedRequired)
+                || normalizedRequired.contains(normalizedActual));
+    }
+
+    private String boundedIssue(String value) {
+        String normalized = value == null ? "" : value.replaceAll("\\s+", " ").trim();
+        return normalized.length() <= 160 ? normalized : normalized.substring(0, 160);
+    }
+
+    /**
+     * A paper claim may mention several exact technical identifiers while quoting only the first
+     * sentence that supports it. Requiring those identifiers in the quoted excerpts gives the UI
+     * a deterministic text target without attempting cross-language semantic alignment.
+     */
+    private Set<String> missingQuotedTechnicalAnchors(String blockText,
+                                                      String citedSource,
+                                                      String citedQuotes,
+                                                      String citedSectionMetadata) {
+        String normalizedSource = normalizeQuote(citedSource);
+        String normalizedQuotes = normalizeQuote(citedQuotes);
+        String normalizedSectionMetadata = normalizeQuote(citedSectionMetadata);
+        Set<String> missing = new LinkedHashSet<>();
+        for (String anchor : technicalAnchors(blockText)) {
+            String normalizedAnchor = normalizeQuote(anchor);
+            if (normalizedSource.contains(normalizedAnchor)
+                    && !normalizedQuotes.contains(normalizedAnchor)
+                    && !normalizedSectionMetadata.contains(normalizedAnchor)) {
+                missing.add(anchor);
+            }
+        }
+        return missing;
+    }
+
+    private Set<String> technicalAnchors(String text) {
+        Set<String> anchors = new LinkedHashSet<>();
+        collectMatches(ACRONYM, text, anchors);
+        collectMatches(EQUATION_REFERENCE, text, anchors);
+        collectMatches(GREEK_IDENTIFIER, text, anchors);
+        return anchors;
+    }
+
+    private void collectMatches(Pattern pattern, String text, Set<String> target) {
+        Matcher matcher = pattern.matcher(text == null ? "" : text);
+        while (matcher.find()) target.add(matcher.group().trim());
     }
 
     private boolean containsInferenceCue(String text) {
@@ -180,19 +296,28 @@ public class WorkbenchEvidenceGate {
     public record AnswerDraft(String answer,
                               List<GroundedClaim> claims,
                               boolean onlyNonPaperBlocks,
-                              List<WorkbenchAnswerBlock> answerBlocks) {
+                              List<WorkbenchAnswerBlock> answerBlocks,
+                              List<WorkbenchAnswerRequirement> requirements) {
         public AnswerDraft {
             answer = answer == null ? "" : answer.trim();
             claims = claims == null ? List.of() : List.copyOf(claims);
             answerBlocks = answerBlocks == null ? List.of() : List.copyOf(answerBlocks);
+            requirements = requirements == null ? List.of() : List.copyOf(requirements);
         }
 
         public AnswerDraft(String answer, List<GroundedClaim> claims) {
-            this(answer, claims, false, List.of());
+            this(answer, claims, false, List.of(), List.of());
         }
 
         public AnswerDraft(String answer, List<GroundedClaim> claims, boolean onlyNonPaperBlocks) {
-            this(answer, claims, onlyNonPaperBlocks, List.of());
+            this(answer, claims, onlyNonPaperBlocks, List.of(), List.of());
+        }
+
+        public AnswerDraft(String answer,
+                           List<GroundedClaim> claims,
+                           boolean onlyNonPaperBlocks,
+                           List<WorkbenchAnswerBlock> answerBlocks) {
+            this(answer, claims, onlyNonPaperBlocks, answerBlocks, List.of());
         }
     }
 
