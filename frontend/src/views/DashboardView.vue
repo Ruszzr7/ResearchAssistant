@@ -2,8 +2,9 @@
   <div class="dashboard-view">
     <div class="dashboard-header">
       <div>
+        <span class="dashboard-eyebrow">科研工作台</span>
         <h2 class="dashboard-title">Research Assistant</h2>
-        <p class="dashboard-subtitle">科研工作台 · 一眼掌握论文、分析与任务</p>
+        <p class="dashboard-subtitle">一眼掌握论文、分析与任务</p>
       </div>
       <el-button type="primary" @click="$router.push('/library')">
         进入文库
@@ -14,19 +15,19 @@
 
     <template v-else-if="data">
       <!-- 论文统计 -->
-      <el-row :gutter="16" class="stat-row">
-        <el-col :xs="12" :sm="8" :md="4" v-for="s in paperStatList" :key="s.key">
-          <el-card shadow="hover" class="stat-card" :body-style="{ padding: '16px' }">
+      <div class="stat-row">
+        <div v-for="s in paperStatList" :key="s.key" class="stat-cell">
+          <el-card shadow="never" class="stat-card" :body-style="{ padding: '16px' }">
             <div class="stat-label">{{ s.label }}</div>
             <el-statistic :value="s.value" />
           </el-card>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
 
-      <el-row :gutter="16" class="panel-row">
+      <div class="panel-row">
         <!-- 文件夹分布 -->
-        <el-col :xs="24" :md="12">
-          <el-card shadow="hover" class="panel-card">
+        <div class="panel-cell">
+          <el-card shadow="never" class="panel-card">
             <template #header>
               <div class="panel-header">
                 <span>文件夹分布</span>
@@ -44,11 +45,11 @@
             </div>
             <el-empty v-else description="暂无文件夹数据" :image-size="60" />
           </el-card>
-        </el-col>
+        </div>
 
         <!-- 任务状态 -->
-        <el-col :xs="24" :md="12">
-          <el-card shadow="hover" class="panel-card">
+        <div class="panel-cell">
+          <el-card shadow="never" class="panel-card">
             <template #header>
               <div class="panel-header">
                 <span>任务中心</span>
@@ -71,8 +72,8 @@
               <el-empty v-if="!data.taskStats.recent.length" description="暂无任务" :image-size="60" />
             </div>
           </el-card>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
 
     </template>
   </div>
@@ -159,19 +160,23 @@ onMounted(load)
 
 <style scoped>
 .dashboard-view {
-  padding: 20px;
-  max-width: 1400px;
+  box-sizing: border-box;
+  padding: 30px 34px 44px;
+  max-width: 1500px;
   margin: 0 auto;
 }
 .dashboard-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
+.dashboard-eyebrow { display: block; margin-bottom: 7px; color: var(--ra-text-tertiary); font-size: 11px; }
 .dashboard-title {
   margin: 0;
-  font-size: 22px;
+  font-size: 27px;
+  line-height: 1.12;
+  letter-spacing: -.7px;
   color: var(--ra-text);
 }
 .dashboard-subtitle {
@@ -179,28 +184,33 @@ onMounted(load)
   font-size: 13px;
   color: var(--ra-text-secondary);
 }
-.stat-row {
-  margin-bottom: 16px;
-}
+.stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.stat-cell { min-width: 0; }
 .stat-card {
-  margin-bottom: 16px;
-  background: var(--ra-header-bg);
-  border: 1px solid var(--ra-border);
+  height: 92px;
+  border: 1px solid var(--ra-border-light);
+  border-radius: 14px;
+  background: var(--ra-panel-bg);
+  box-shadow: 0 5px 20px rgba(0, 0, 0, .035);
 }
+.stat-card :deep(.el-card__body) { box-sizing:border-box; height:100%; overflow:hidden !important; }
 .stat-label {
   font-size: 12px;
   color: var(--ra-text-secondary);
   margin-bottom: 8px;
 }
-.panel-row {
-  margin-bottom: 16px;
-}
+.stat-card :deep(.el-statistic__number) { color: var(--ra-text); font-size: 25px; font-weight: 650; letter-spacing: -.5px; }
+.panel-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 16px; }
+.panel-cell { min-width: 0; }
 .panel-card {
-  background: var(--ra-header-bg);
-  border: 1px solid var(--ra-border);
-  margin-bottom: 16px;
-  min-height: 220px;
+  min-height: 370px;
+  border: 1px solid var(--ra-border-light);
+  border-radius: 15px;
+  background: var(--ra-panel-bg);
+  box-shadow: 0 5px 22px rgba(0, 0, 0, .035);
 }
+.panel-card :deep(.el-card__header) { padding: 16px 18px; border-bottom: 1px solid var(--ra-border-light); }
+.panel-card :deep(.el-card__body) { padding: 17px 18px; }
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -211,7 +221,7 @@ onMounted(load)
 .folder-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 15px;
 }
 .folder-item {
   display: flex;
@@ -224,6 +234,8 @@ onMounted(load)
   font-size: 13px;
   color: var(--ra-text);
 }
+.folder-item :deep(.el-progress-bar__outer) { background: var(--ra-bg); }
+.folder-item :deep(.el-progress-bar__inner) { background: linear-gradient(90deg, #168cff, #73baff); }
 .folder-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -242,7 +254,7 @@ onMounted(load)
 .task-chip {
   font-size: 12px;
   padding: 4px 10px;
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--ra-bg);
   color: var(--ra-text);
   border: 1px solid var(--ra-border);
@@ -266,6 +278,9 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 32px;
+  padding-top: 3px;
+  border-top: 1px solid var(--ra-border-light);
   font-size: 13px;
 }
 .task-title {
@@ -279,5 +294,14 @@ onMounted(load)
   font-size: 12px;
   color: var(--ra-text-secondary);
   white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 800px) {
+  .dashboard-view { padding: 22px 18px 36px; }
+  .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panel-row { grid-template-columns: 1fr; }
 }
 </style>

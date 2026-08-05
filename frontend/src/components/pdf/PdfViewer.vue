@@ -2441,7 +2441,7 @@ function colorName(color) {
 
 <style scoped>
 .pdf-viewer {
-  --pdf-toolbar-height: 45px;
+  --pdf-toolbar-height: 48px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -2479,9 +2479,21 @@ function colorName(color) {
   bottom: 0;
   left: 3px;
   width: 1px;
-  background: var(--ra-border);
+  background: var(--ra-border-light);
   content: '';
   transition: width .12s ease, left .12s ease, background .12s ease;
+}
+.workbench-divider > span {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 2px;
+  width: 4px;
+  height: 22px;
+  transform: translateY(-50%);
+  border-radius: 4px;
+  background: radial-gradient(circle, var(--ra-text-tertiary) 1px, transparent 1.3px) center / 4px 5px;
+  opacity: .45;
 }
 .workbench-divider:hover::before,
 .workbench-divider:focus-visible::before,
@@ -2494,9 +2506,9 @@ function colorName(color) {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
   align-items: center;
-  padding: 8px 12px;
+  padding: 7px 12px;
   background: var(--ra-panel-bg);
-  border-bottom: 1px solid var(--ra-border);
+  border-bottom: 1px solid var(--ra-border-light);
   gap: 12px;
   flex-shrink: 0;
   overflow-x: auto;
@@ -2504,6 +2516,7 @@ function colorName(color) {
   box-sizing: border-box;
   transition: margin-right .16s ease;
 }
+.pdf-toolbar :deep(.el-button) { border-radius: 8px; }
 .pdf-toolbar-left, .pdf-toolbar-right {
   display: flex;
   align-items: center;

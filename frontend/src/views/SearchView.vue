@@ -1,13 +1,36 @@
 <template>
   <div class="search-page">
+    <div class="search-heading">
+      <div>
+        <h1>文献检索</h1>
+        <p>用自然语言描述研究方向，由 Agent 提炼关键词并进行多源检索</p>
+      </div>
+      <el-tooltip content="开启后调用 literature-survey 工作流，支持多源检索与人机确认入库">
+        <el-switch v-model="workflowMode" active-text="工作流模式" size="small" />
+      </el-tooltip>
+    </div>
+
+    <div class="search-progress" aria-label="检索进度">
+      <div v-for="(label, index) in ['描述研究方向', 'Agent 理解确认', '精选搜索结果', '扩展检索']" :key="label"
+        class="progress-step" :class="{ active: step === index + 1, done: step > index + 1 }">
+        <span class="progress-dot">{{ step > index + 1 ? '✓' : index + 1 }}</span>
+        <span>{{ label }}</span>
+      </div>
+    </div>
+
+    <div v-if="step >= 3 && extraction" class="search-context">
+      <div><small>当前研究方向</small><strong>{{ userInput }}</strong></div>
+      <div class="context-tags">
+        <el-tag v-for="kw in extraction.keywords_en" :key="kw" size="small" effect="plain">{{ kw }}</el-tag>
+        <el-tag v-if="extraction.time_range" size="small" type="warning" effect="plain">{{ extraction.time_range }}</el-tag>
+      </div>
+      <el-button size="small" plain @click="step = 1; extraction = null; results = []">重新描述</el-button>
+    </div>
 
     <!-- ====== Step 1: 用户输入 ====== -->
-    <div class="step" :class="{ active: step === 1, done: step > 1 }">
+    <div v-if="step === 1" class="step active">
       <div class="step-header">
         <span><span class="step-num">1</span> 描述研究方向</span>
-        <el-tooltip content="开启后调用 literature-survey 工作流，支持多源检索与人机确认入库">
-          <el-switch v-model="workflowMode" active-text="工作流模式" size="small" style="margin-left:auto" />
-        </el-tooltip>
       </div>
       <div v-if="step >= 1" class="step-body">
         <div class="input-row">
@@ -28,7 +51,7 @@
     </div>
 
     <!-- ====== Step 2: Agent 提炼确认 ====== -->
-    <div class="step" :class="{ active: step === 2, done: step > 2 }" v-if="step >= 2">
+    <div class="step active" v-if="step === 2">
       <div class="step-header"><span class="step-num">2</span> Agent 理解确认 <span style="font-weight:400;font-size:12px;color:#909399">— 可编辑每一项</span></div>
       <div v-if="extraction" class="step-body agent-confirm">
         <div class="extraction-grid">
@@ -65,7 +88,7 @@
     </div>
 
     <!-- ====== Step 3: 搜索结果 ====== -->
-    <div class="step" :class="{ active: step === 3, done: step > 3 }" v-if="step >= 3">
+    <div class="step active results-step" v-if="step === 3">
       <div class="step-header"><span class="step-num">3</span> 精选搜索结果 <span v-if="results.length" class="result-count">（Top {{ results.length }}）</span></div>
       <div v-if="searchLoading" class="step-body">
         <div class="action-col">
@@ -380,16 +403,37 @@ onMounted(async () => {
 
 <style scoped>
 .search-page {
-  padding: 24px 8%;
-  min-height: calc(100vh - 61px);
-  background: var(--ra-panel-bg);
-  max-width: 960px;
+  box-sizing: border-box;
+  padding: 25px 30px 44px;
+  min-height: 100vh;
+  max-width: 1440px;
   margin: 0 auto;
 }
+.search-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:18px; }
+.search-heading h1 { margin:0; color:var(--ra-text); font-size:27px; line-height:1.2; letter-spacing:-.65px; }
+.search-heading p { margin:7px 0 0; color:var(--ra-text-tertiary); font-size:12px; }
+.search-progress { display:grid; grid-template-columns:repeat(4, 1fr); padding:10px 12px; margin-bottom:14px; border:1px solid var(--ra-border-light); border-radius:14px; background:var(--ra-panel-bg); box-shadow:0 4px 18px rgba(0,0,0,.03); }
+.progress-step { position:relative; display:flex; min-height:40px; align-items:center; justify-content:center; gap:9px; color:var(--ra-text-tertiary); font-size:12px; }
+.progress-step:not(:last-child)::after { content:''; position:absolute; right:-8px; width:16px; height:1px; background:var(--ra-border-light); }
+.progress-step.active { border-radius:10px; background:var(--ra-active-bg); color:var(--ra-active-text); font-weight:600; }
+.progress-step.done { color:var(--ra-text-secondary); }
+.progress-dot { display:grid; width:21px; height:21px; flex:0 0 21px; place-items:center; border-radius:50%; background:var(--ra-hover-bg); font-size:10px; }
+.progress-step.active .progress-dot { background:var(--ra-link); color:#fff; }
+.progress-step.done .progress-dot { background:#e9f7ef; color:#2ca66f; }
+.search-context { display:flex; align-items:center; gap:16px; padding:14px 16px; margin-bottom:14px; border:1px solid var(--ra-border-light); border-radius:13px; background:var(--ra-panel-bg); }
+.search-context > div:first-child { display:flex; min-width:220px; flex-direction:column; gap:4px; }
+.search-context small { color:var(--ra-text-tertiary); font-size:10px; }
+.search-context strong { color:var(--ra-text); font-size:13px; }
+.context-tags { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:5px; }
 
 /* 步骤 */
 .step {
-  margin-bottom: 28px;
+  margin-bottom: 22px;
+  padding:18px;
+  border:1px solid var(--ra-border-light);
+  border-radius:14px;
+  background:var(--ra-panel-bg);
+  box-shadow:0 5px 20px rgba(0,0,0,.03);
   opacity: 0.5;
   transition: opacity 0.3s;
 }
@@ -418,7 +462,7 @@ onMounted(async () => {
 .step.done .step-num { background: #67c23a; }
 
 .step-body {
-  padding-left: 34px;
+  padding-left: 33px;
 }
 
 .input-row {
@@ -437,7 +481,7 @@ onMounted(async () => {
 /* Agent 确认 */
 .agent-confirm {
   background: var(--ra-bg);
-  border-radius: 8px;
+  border-radius: 11px;
   padding: 16px;
 }
 .agent-msg { margin-bottom: 16px; }
@@ -471,23 +515,23 @@ onMounted(async () => {
 .result-card {
   display: flex;
   align-items: flex-start;
-  padding: 12px 0;
-  border-bottom: 1px solid #f0f1f3;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ra-border-light);
 }
 
 .result-main { flex: 1; min-width: 0; }
 
 .result-title {
   font-size: 14px; font-weight: 600;
-  color: #303133; margin-bottom: 4px; line-height: 1.4;
+  color: var(--ra-text); margin-bottom: 4px; line-height: 1.4;
 }
 .result-meta {
-  font-size: 12px; color: #909399;
+  font-size: 12px; color: var(--ra-text-tertiary);
   display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
 }
 .meta-sep { margin: 0 4px; color: #dcdfe6; }
 .result-summary {
-  font-size: 13px; color: #606266; line-height: 1.5; margin: 4px 0;
+  font-size: 13px; color: var(--ra-text-secondary); line-height: 1.5; margin: 5px 0;
 }
 .result-reason {
   font-size: 12px; color: #67c23a; font-style: italic;
@@ -500,5 +544,13 @@ onMounted(async () => {
 
 .step-body ul {
   margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8;
+}
+
+@media (max-width: 760px) {
+  .search-page { padding:20px 14px 36px; }
+  .search-progress { grid-template-columns:1fr 1fr; }
+  .progress-step:not(:last-child)::after { display:none; }
+  .search-context { align-items:flex-start; flex-direction:column; }
+  .input-row, .extraction-grid { display:flex; flex-direction:column; }
 }
 </style>

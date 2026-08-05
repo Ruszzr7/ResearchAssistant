@@ -1,5 +1,5 @@
 <template>
-  <div class="library" :class="{ 'is-resizing': resizing }" @mousemove="onResize" @mouseup="stopResize" @mouseleave="stopResize">
+  <div ref="libraryRef" class="library" :class="{ 'is-resizing': resizing }" @mousemove="onResize" @mouseup="stopResize" @mouseleave="stopResize">
 
     <!-- ==================== 左栏 ==================== -->
     <div class="left-panel" :class="{ collapsed: !sidebarVisible }" :style="{ width: sidebarVisible ? leftWidth + 'px' : '0px' }">
@@ -581,6 +581,7 @@ const sortDir = ref('DESC')
 const folderSortMode = ref('custom')
 const folderSortDir = ref('ASC')
 const leftWidth = ref(240)
+const libraryRef = ref(null)
 const rightWidth = ref(300)
 const editingTitle = ref(false)
 const editTitleText = ref('')
@@ -1126,8 +1127,10 @@ async function createFolder() {
 
 function startResize(e,side){resizing.value=side;e.preventDefault()}
 function onResize(e){
-  if(resizing.value==='left')leftWidth.value=Math.max(160,Math.min(400,e.clientX-6))
-  else if(resizing.value==='right')rightWidth.value=Math.max(240,Math.min(500,window.innerWidth-e.clientX-6))
+  const rect=libraryRef.value?.getBoundingClientRect()
+  if(!rect)return
+  if(resizing.value==='left')leftWidth.value=Math.max(160,Math.min(400,e.clientX-rect.left-4))
+  else if(resizing.value==='right')rightWidth.value=Math.max(240,Math.min(500,rect.right-e.clientX-4))
 }
 function stopResize(){
   resizing.value=null
@@ -1696,26 +1699,26 @@ onUnmounted(detachLibraryEvents)
 </script>
 
 <style scoped>
-.library { display:flex; height:calc(100vh - 61px); }
+.library { display:flex; height:100vh; background:var(--ra-panel-bg); }
 .library.is-resizing { user-select:none; }
 
 /* ===== 三栏配色 ===== */
-.left-panel { flex-shrink:0; overflow-y:auto; padding:10px 14px; transition:width 0.2s; background:var(--ra-bg); display:flex; flex-direction:column; }
+.left-panel { flex-shrink:0; overflow-y:auto; box-sizing:border-box; padding:10px 13px; transition:width 0.2s; background:var(--ra-sidebar-bg); display:flex; flex-direction:column; }
 .left-panel.collapsed { padding:0; overflow:hidden; }
 .filter-section { margin-top:auto; padding:6px 0 12px; border-top:1px solid var(--ra-border-light); }
 .filter-section h4 { margin:4px 0 6px; font-size:14px; font-weight:600; color:var(--ra-text); }
 .filter-group { margin-bottom:6px; }
 .filter-label { display:block; font-size:11px; color:var(--ra-text-tertiary); margin-bottom:2px; }
-.center-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; padding:0 12px; background:var(--ra-panel-bg); }
-.right-panel { flex-shrink:0; overflow-y:auto; padding:8px 0 0 12px; transition:width 0.2s; background:var(--ra-bg); }
+.center-panel { flex:1; display:flex; min-width:0; flex-direction:column; overflow:hidden; padding:0; background:var(--ra-panel-bg); }
+.right-panel { flex-shrink:0; overflow-y:auto; box-sizing:border-box; padding:20px 18px; transition:width 0.2s; background:var(--ra-bg); }
 
 /* 顶栏 */
-.panel-header { display:flex; align-items:center; gap:4px; padding:6px 0; }
+.panel-header { display:flex; align-items:center; gap:4px; min-height:36px; padding:4px 0 8px; }
 .header-search { display:flex; align-items:center; gap:2px; }
 .search-input { width:130px; }
 
 /* 树 */
-.folder-all { display:flex; align-items:center; gap:4px; padding:5px 8px; cursor:pointer; font-size:13px; border-radius:4px; margin-bottom:2px; color:var(--ra-text); }
+.folder-all { display:flex; align-items:center; gap:7px; padding:7px 9px; cursor:pointer; font-size:12px; border-radius:8px; margin-bottom:2px; color:var(--ra-text); }
 .folder-all:hover { background:var(--ra-hover-bg); }
 .folder-all.active { color:var(--ra-active-text); font-weight:600; background:var(--ra-active-bg); }
 .folder-all.sub { padding-left:20px; }
@@ -1735,17 +1738,20 @@ onUnmounted(detachLibraryEvents)
 .w-full { width:100%; }
 
 /* 分割线 */
-.divider { width:1px; flex-shrink:0; cursor:col-resize; position:relative; background:var(--ra-border); transition:width 0.15s,background 0.15s; }
-.divider:hover { background:var(--ra-text-tertiary); }
-.divider.active { width:4px; background:var(--ra-link); }
-.divider-handle { position:absolute; top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:28px;border-radius:2px;background:var(--ra-text-tertiary);opacity:0;transition:opacity 0.15s; }
+.divider { width:7px; flex-shrink:0; cursor:col-resize; position:relative; background:transparent; transition:background 0.15s; }
+.divider::after { content:''; position:absolute; inset:0 auto 0 3px; width:1px; background:var(--ra-border-light); }
+.divider:hover { background:var(--ra-hover-bg); }
+.divider.active { width:7px; background:color-mix(in srgb, var(--ra-link) 8%, transparent); }
+.divider.active::after { background:var(--ra-link); }
+.divider-handle { position:absolute; z-index:1; top:50%;left:50%;transform:translate(-50%,-50%);width:3px;height:34px;border-radius:3px;background:var(--ra-text-tertiary);opacity:0;transition:opacity 0.15s; }
 .divider:hover .divider-handle { opacity:1; }
 .divider.active .divider-handle { opacity:0; }
 
 /* 工具栏 */
-.toolbar { display:flex; align-items:center; justify-content:space-between; padding:4px 0 6px; gap:4px; }
+.toolbar { display:flex; min-height:47px; box-sizing:border-box; align-items:center; justify-content:space-between; padding:6px 12px; gap:8px; border-bottom:1px solid var(--ra-border-light); }
 .toolbar-left, .toolbar-right { display:flex; align-items:center; gap:2px; }
-.toolbar-search { width:150px; }
+.toolbar-search { width:170px; }
+.toolbar-search :deep(.el-input__wrapper) { border-radius:9px; box-shadow:0 0 0 1px var(--ra-border) inset; }
 .toolbar-divider { display:inline-block; width:1px; height:16px; background:var(--ra-border); margin:0 3px; vertical-align:middle; }
 
 /* 表格 */
@@ -1760,9 +1766,9 @@ onUnmounted(detachLibraryEvents)
 /* 右栏详情 */
 .detail-header { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:6px; }
 .detail-title-row { display:flex; flex-direction:column; align-items:flex-start; gap:8px; flex:1; min-width:0; }
-.detail-title { font-size:18px; font-weight:600; margin:0; cursor:text; line-height:1.4; width:100%; }
+.detail-title { font-size:20px; font-weight:650; margin:0; cursor:text; line-height:1.32; letter-spacing:-.35px; width:100%; }
 .detail-title:hover { background:var(--ra-hover-bg); border-radius:3px; }
-.detail-ai-status { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; font-size:12px; }
+.detail-ai-status { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:14px 0 12px; font-size:12px; }
 .detail-ai-status .stage-text { color:var(--ra-link); }
 .detail-ai-status .error-text { color:#f56c6c; }
 .stage-text { font-size:12px; color:var(--ra-link); margin-left:4px; }
@@ -1778,7 +1784,7 @@ onUnmounted(detachLibraryEvents)
 .title-input { font-size:18px; font-weight:600; width:100%; }
 .title-input :deep(.el-textarea__inner) { border:1px solid var(--ra-link); border-radius:3px; padding:2px 6px; font-size:18px; font-weight:600; line-height:1.4; resize:none; min-height:32px; }
 .detail-divider { height:1px; background:var(--ra-border-light); margin:10px 4px 14px; }
-.detail-item { margin-bottom:12px; font-size:13px; line-height:1.6; }
+.detail-item { margin-bottom:0; padding:10px 0; border-bottom:1px solid var(--ra-border-light); font-size:12px; line-height:1.55; }
 .detail-item .label { font-size:12px; color:var(--ra-text-tertiary); display:block; margin-bottom:2px; }
 .extracted-text { margin:0; font-size:12px; color:var(--ra-text-secondary); line-height:1.5; max-height:120px; overflow-y:auto; white-space:pre-wrap; }
 /** 上传区域 */

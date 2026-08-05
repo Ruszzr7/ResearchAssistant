@@ -1,4 +1,4 @@
-export const PDF_WORKBENCH_WIDTH_KEY = 'research-assistant.pdf-workbench-width-ratio'
+export const PDF_WORKBENCH_WIDTH_KEY = 'research-assistant.pdf-workbench-width-ratio-v2'
 export const DEFAULT_WORKBENCH_RATIO = 0.4
 export const MIN_WORKBENCH_RATIO = 0.2
 export const MAX_WORKBENCH_RATIO = 0.65
@@ -37,20 +37,12 @@ export function workbenchWidthForContainer(
   const usableWidth = Math.max(0, width - WORKBENCH_DIVIDER_WIDTH)
   if (usableWidth === 0) return 0
 
-  const requestedPdfWidth = Math.max(MIN_PDF_WIDTH, Number(minimumPdfWidth) || MIN_PDF_WIDTH)
-  const completePageMaximum = usableWidth - requestedPdfWidth
-  let minimum
-  let maximum
-  if (completePageMaximum >= MIN_COMPACT_WORKBENCH_WIDTH) {
-    // The divider may move left only while a complete 100% PDF page still fits.
-    maximum = completePageMaximum
-    minimum = Math.min(MIN_WORKBENCH_WIDTH, maximum)
-  } else {
-    // Very narrow windows cannot show a full page and a usable assistant at the
-    // same time. Keep both panes operable and let the PDF retain horizontal scroll.
-    minimum = Math.min(MIN_WORKBENCH_WIDTH, usableWidth * 0.45)
-    maximum = Math.max(minimum, usableWidth - Math.min(MIN_PDF_WIDTH, usableWidth * 0.55))
-  }
+  // The approved 60/40 workbench gives the assistant the space released by the
+  // compact app rail. A wide PDF may scroll horizontally instead of forcing the
+  // assistant below its requested ratio.
+  void minimumPdfWidth
+  const minimum = Math.min(MIN_WORKBENCH_WIDTH, usableWidth * 0.45)
+  const maximum = Math.max(minimum, usableWidth - Math.min(MIN_PDF_WIDTH, usableWidth * 0.55))
   return Math.round(clamp(usableWidth * normalizeWorkbenchRatio(ratio), minimum, maximum))
 }
 

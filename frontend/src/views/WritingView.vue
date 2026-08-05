@@ -711,7 +711,7 @@ onMounted(async () => {
 
 <style scoped>
 .writing-page {
-  height: calc(100vh - 61px);
+  height: 100vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -459,7 +459,7 @@ onMounted(() => {
   align-items: center;
   gap: 24px;
   padding: 60px 20px;
-  min-height: calc(100vh - 61px);
+  min-height: 100vh;
   background: var(--ra-bg);
 }
 .settings-card {

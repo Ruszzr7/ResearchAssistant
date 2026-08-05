@@ -1,40 +1,65 @@
 <template>
-  <div class="app-container">
-    <el-container>
-      <el-header class="app-header">
-        <span class="app-title" @click="$router.push('/')">Research Assistant</span>
-        <el-menu
-          :default-active="$route.path.startsWith('/research') ? '/research' : $route.path"
-          mode="horizontal"
-          router
-          class="app-nav"
+  <div class="app-container" :class="{ 'is-dashboard': isDashboard, 'is-nav-open': navOverlayOpen }">
+    <aside class="app-sidebar" :class="{ 'is-expanded': isDashboard || navOverlayOpen }">
+      <button class="app-brand" type="button" title="返回看板" @click="goTo('/')">
+        <span class="brand-mark">R</span>
+        <span class="brand-copy"><b>Research</b><small>Assistant</small></span>
+      </button>
+
+      <button
+        v-if="!isDashboard"
+        class="nav-collapse-toggle"
+        type="button"
+        :title="navOverlayOpen ? '收起导航' : '展开导航'"
+        :aria-expanded="navOverlayOpen"
+        @click="navOverlayOpen = !navOverlayOpen"
+      >
+        <el-icon><Fold v-if="navOverlayOpen" /><Expand v-else /></el-icon>
+        <span>{{ navOverlayOpen ? '收起导航' : '展开导航' }}</span>
+      </button>
+
+      <nav class="sidebar-nav" aria-label="主导航">
+        <button
+          v-for="item in navigationItems"
+          :key="item.route"
+          type="button"
+          class="sidebar-nav-item"
+          :class="{ 'is-active': routeIsActive(item.route) }"
+          :title="`${item.label} (${item.shortcut})`"
+          @click="goTo(item.route)"
         >
-          <el-menu-item index="/" title="看板 (Ctrl+1)">看板</el-menu-item>
-          <el-menu-item index="/library" title="文库管理 (Ctrl+2)">文库管理</el-menu-item>
-          <el-menu-item index="/search" title="文献检索 (Ctrl+3)">文献检索</el-menu-item>
-          <el-menu-item index="/research" title="论文助手 (Ctrl+4)">论文助手</el-menu-item>
-          <el-menu-item index="/archive" title="研究档案 (Ctrl+6)">研究档案</el-menu-item>
-          <el-menu-item index="/writing" title="写作助手 (Ctrl+8)">写作助手</el-menu-item>
-        </el-menu>
-        <div class="header-actions">
-        <TaskDrawer />
-          <el-button text class="theme-btn" @click="toggleTheme" :title="dark.dark ? '切换亮色' : '切换暗色'">
-          <el-icon v-if="dark.dark" :size="18"><Moon /></el-icon>
-          <el-icon v-else :size="18"><Sunny /></el-icon>
-        </el-button>
-        <el-button text class="settings-btn" @click="showSettings = true" title="设置">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 10a2 2 0 100-4 2 2 0 000 4z"/><path d="M14.46 6.54l-1.08-.42a5.1 5.1 0 00-.56-1.36l.42-1.08a.5.5 0 00-.12-.62l-.92-.92a.5.5 0 00-.62-.12l-1.08.42a5.1 5.1 0 00-1.36-.56L8.72 1.54a.5.5 0 00-.46-.34h-1.3a.5.5 0 00-.46.34l-.42 1.08a5.1 5.1 0 00-1.36.56l-1.08-.42a.5.5 0 00-.62.12l-.92.92a.5.5 0 00-.12.62l.42 1.08a5.1 5.1 0 00-.56 1.36l-1.08.42a.5.5 0 00-.34.46v1.3a.5.5 0 00.34.46l1.08.42c.1.48.3.94.56 1.36l-.42 1.08a.5.5 0 00.12.62l.92.92a.5.5 0 00.62.12l1.08-.42c.42.26.88.46 1.36.56l.42 1.08a.5.5 0 00.46.34h1.3a.5.5 0 00.46-.34l.42-1.08c.48-.1.94-.3 1.36-.56l1.08.42a.5.5 0 00.62-.12l.92-.92a.5.5 0 00.12-.62l-.42-1.08c.26-.42.46-.88.56-1.36l1.08-.42a.5.5 0 00.34-.46v-1.3a.5.5 0 00-.34-.46z"/></svg>
-        </el-button>
-        <el-button text class="help-btn" @click="showShortcuts = true" title="快捷键帮助 (?)">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M6 6a2 2 0 0 1 2-2 2 2 0 0 1 2 2c0 1.5-2 2-2 3.5"/><circle cx="8" cy="11.5" r="0.8" fill="currentColor" stroke="none"/></svg>
-        </el-button>
+          <el-icon><component :is="item.icon" /></el-icon>
+          <span>{{ item.label }}</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-utility-actions">
+          <button class="sidebar-nav-item" type="button" :title="dark.dark ? '切换亮色' : '切换暗色'" @click="toggleTheme">
+            <el-icon><Moon v-if="dark.dark" /><Sunny v-else /></el-icon>
+            <span>{{ dark.dark ? '切换亮色' : '切换暗色' }}</span>
+          </button>
+          <button class="sidebar-nav-item" type="button" title="API 设置" @click="showSettings = true">
+            <el-icon><Setting /></el-icon><span>API 设置</span>
+          </button>
+          <button class="sidebar-nav-item" type="button" title="快捷键 (?)" @click="showShortcuts = true">
+            <el-icon><QuestionFilled /></el-icon><span>快捷键</span>
+          </button>
         </div>
-      </el-header>
-      <div class="app-divider"></div>
-      <el-main>
+        <div class="sidebar-task-actions">
+          <button class="sidebar-nav-item" type="button" title="任务中心" @click="goTo('/tasks')">
+            <el-icon><Tickets /></el-icon><span>任务中心</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+    <button v-if="!isDashboard && navOverlayOpen" class="nav-scrim" type="button" aria-label="收起导航" @click="navOverlayOpen = false"></button>
+
+    <section class="app-content-shell">
+      <main class="app-main">
         <CachedRouterView :include="['LibraryView', 'PaperResearchView']" />
-      </el-main>
-    </el-container>
+      </main>
+    </section>
 
     <!-- ====== 设置弹窗 ====== -->
     <el-dialog
@@ -86,7 +111,7 @@
     <!-- ====== 命令面板 ====== -->
     <CommandPalette v-model="showPalette" :commands="commands" @execute="onCommandExecute" />
 
-    <!-- ====== 快捷键帮助 ====== -->
+    <!-- ====== 快捷键 ====== -->
     <el-dialog
       v-model="showShortcuts"
       title="键盘快捷键"
@@ -105,15 +130,17 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
-import { Moon, Sunny } from '@element-plus/icons-vue'
+import {
+  Collection, Document, Expand, Fold, House, Moon, QuestionFilled,
+  Reading, Search, Setting, Sunny, Tickets,
+} from '@element-plus/icons-vue'
 import { useTheme } from '@/stores/themeStore'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import CommandPalette from '@/components/CommandPalette.vue'
 import CachedRouterView from '@/components/navigation/CachedRouterView.vue'
-import TaskDrawer from '@/components/TaskDrawer.vue'
 import {
   AI_PROVIDERS,
   channelDefinition,
@@ -125,7 +152,31 @@ import {
 } from '@/config/aiProviders'
 
 const router = useRouter()
+const route = useRoute()
 const { dark, toggle: toggleTheme } = useTheme()
+
+const navOverlayOpen = ref(false)
+const isDashboard = computed(() => route.path === '/')
+const navigationItems = [
+  { label: '看板', route: '/', shortcut: 'Ctrl+1', icon: House },
+  { label: '文库管理', route: '/library', shortcut: 'Ctrl+2', icon: Collection },
+  { label: '文献检索', route: '/search', shortcut: 'Ctrl+3', icon: Search },
+  { label: '论文助手', route: '/research', shortcut: 'Ctrl+4', icon: Reading },
+  { label: '研究档案', route: '/archive', shortcut: 'Ctrl+5', icon: Document },
+  { label: '写作助手', route: '/writing', shortcut: 'Ctrl+6', icon: Document },
+]
+
+function routeIsActive(target) {
+  if (target === '/') return route.path === '/'
+  return route.path.startsWith(target)
+}
+
+function goTo(target) {
+  navOverlayOpen.value = false
+  router.push(target)
+}
+
+watch(() => route.fullPath, () => { navOverlayOpen.value = false })
 
 const showSettings = ref(false)
 const showShortcuts = ref(false)
@@ -246,8 +297,8 @@ const routeCommands = [
   { id: 'library', title: '打开文库管理', subtitle: '论文库与文件夹', route: '/library', shortcut: 'Ctrl+2', shortcutKey: '2', keywords: ['文库', 'library', '论文'] },
   { id: 'search', title: '打开文献检索', subtitle: 'AI 检索与多源搜索', route: '/search', shortcut: 'Ctrl+3', shortcutKey: '3', keywords: ['检索', 'search', '文献'] },
   { id: 'workbench', title: '打开论文助手', subtitle: '基于论文理解的连续科研对话', route: '/research', shortcut: 'Ctrl+4', shortcutKey: '4', keywords: ['助手', '对话', '分析', 'analysis', '论文助手'] },
-  { id: 'archive', title: '打开研究档案', subtitle: '对话、分析与证据记录', route: '/archive', shortcut: 'Ctrl+6', shortcutKey: '6', keywords: ['档案', 'archive', '研究', '对话'] },
-  { id: 'writing', title: '打开写作助手', subtitle: '大纲 / Related Work / 引用', route: '/writing', shortcut: 'Ctrl+8', shortcutKey: '8', keywords: ['写作', 'writing', '大纲'] },
+  { id: 'archive', title: '打开研究档案', subtitle: '对话、分析与证据记录', route: '/archive', shortcut: 'Ctrl+5', shortcutKey: '5', keywords: ['档案', 'archive', '研究', '对话'] },
+  { id: 'writing', title: '打开写作助手', subtitle: '大纲 / Related Work / 引用', route: '/writing', shortcut: 'Ctrl+6', shortcutKey: '6', keywords: ['写作', 'writing', '大纲'] },
 ]
 
 const commands = [
@@ -270,8 +321,8 @@ const shortcutList = [
   { desc: '打开文库管理', keys: 'Ctrl + 2' },
   { desc: '打开文献检索', keys: 'Ctrl + 3' },
   { desc: '打开论文助手', keys: 'Ctrl + 4' },
-  { desc: '打开研究档案', keys: 'Ctrl + 6' },
-  { desc: '打开写作助手', keys: 'Ctrl + 8' },
+  { desc: '打开研究档案', keys: 'Ctrl + 5' },
+  { desc: '打开写作助手', keys: 'Ctrl + 6' },
 ]
 
 useKeyboardShortcuts([
@@ -292,36 +343,40 @@ onMounted(() => {
 
 <style>
 :root {
-  --ra-bg: #f5f6f8;
+  --ra-bg: #f5f5f7;
   --ra-panel-bg: #ffffff;
-  --ra-header-bg: #ffffff;
-  --ra-text: #303133;
-  --ra-text-secondary: #606266;
-  --ra-text-tertiary: #909399;
-  --ra-border: #dcdfe6;
-  --ra-border-light: #e4e7ed;
-  --ra-link: #409eff;
-  --ra-hover-bg: #f0f2f5;
-  --ra-active-bg: #ecf5ff;
-  --ra-active-text: #1677d2;
+  --ra-header-bg: rgba(255, 255, 255, .82);
+  --ra-sidebar-bg: #f0f0f2;
+  --ra-text: #1d1d1f;
+  --ra-text-secondary: #5f6065;
+  --ra-text-tertiary: #8e8e93;
+  --ra-border: #d8d8dc;
+  --ra-border-light: #e8e8eb;
+  --ra-link: #0071e3;
+  --ra-hover-bg: rgba(0, 0, 0, .045);
+  --ra-active-bg: rgba(0, 113, 227, .1);
+  --ra-active-text: #0066cc;
+  --ra-shadow: 0 12px 40px rgba(0, 0, 0, .08);
 }
 html.dark {
-  --ra-bg: #1a1b1e;
-  --ra-panel-bg: #232428;
-  --ra-header-bg: #1f2024;
-  --ra-text: #e4e5e7;
-  --ra-text-secondary: #a8aaaf;
-  --ra-text-tertiary: #7c7f84;
-  --ra-border: #3c3e44;
-  --ra-border-light: #2e3035;
-  --ra-link: #79bbff;
-  --ra-hover-bg: #2a2c31;
-  --ra-active-bg: #203045;
-  --ra-active-text: #79bbff;
+  --ra-bg: #111214;
+  --ra-panel-bg: #1c1d20;
+  --ra-header-bg: rgba(28, 29, 32, .84);
+  --ra-sidebar-bg: #18191c;
+  --ra-text: #f5f5f7;
+  --ra-text-secondary: #b0b0b5;
+  --ra-text-tertiary: #7f8087;
+  --ra-border: #36373c;
+  --ra-border-light: #2b2c31;
+  --ra-link: #2997ff;
+  --ra-hover-bg: rgba(255, 255, 255, .06);
+  --ra-active-bg: rgba(41, 151, 255, .16);
+  --ra-active-text: #64b5ff;
+  --ra-shadow: 0 18px 55px rgba(0, 0, 0, .38);
 }
 body {
   margin: 0;
-  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'PingFang SC', sans-serif;
   background: var(--ra-bg);
   color: var(--ra-text);
 }
@@ -339,7 +394,12 @@ html.dark .el-tag--danger { --el-tag-bg-color: #3b1e1e; --el-tag-text-color: #f8
 html.dark .el-tag--primary { --el-tag-bg-color: #1e3348; --el-tag-text-color: #79bbff; --el-tag-border-color: #2e4a66; }
 
 /* vxe-table 暗色模式适配 */
-html.dark .vxe-table { color: var(--ra-text); }
+html.dark .vxe-table {
+  --vxe-ui-table-border-color: var(--ra-border-light);
+  --vxe-ui-table-header-background-color: var(--ra-panel-bg);
+  color: var(--ra-text);
+  border-color: var(--ra-border-light) !important;
+}
 html.dark .vxe-table .vxe-header--column { background-color: var(--ra-header-bg); border-color: var(--ra-border); color: var(--ra-text) !important; }
 html.dark .vxe-table .vxe-sort--asc-btn,
 html.dark .vxe-table .vxe-sort--desc-btn { color: var(--ra-text-tertiary) !important; }
@@ -356,6 +416,8 @@ html.dark .vxe-pager .vxe-pager--btn-wrapper .vxe-pager--num-btn:not(.vxe-pager-
 html.dark .vxe-pager .vxe-pager--prev-btn,
 html.dark .vxe-pager .vxe-pager--next-btn { color: var(--ra-text-secondary); }
 html.dark .vxe-pager .vxe-pager--num-btn--active { background-color: var(--ra-active-bg); color: var(--ra-active-text); border-color: var(--ra-border); }
+html.dark .vxe-pager button,
+html.dark .vxe-pager input { border-color: var(--ra-border) !important; background: var(--ra-panel-bg) !important; color: var(--ra-text-secondary) !important; }
 
 /* Element Plus 弹窗/下拉/输入框暗色微调 */
 html.dark .el-dialog { --el-dialog-bg-color: var(--ra-panel-bg); }
@@ -367,89 +429,103 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
 .app-container {
   min-height: 100vh;
   background: var(--ra-bg);
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  overflow: hidden;
+  transition: grid-template-columns .24s cubic-bezier(.4, 0, .2, 1);
 }
-.app-header {
-  display: flex;
-  align-items: center;
-  padding: 0 20px;
-  height: 60px;
-  border-bottom: none !important;
-  background: var(--ra-header-bg);
-}
-.app-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin-right: 20px;
-  white-space: nowrap;
-  width: 200px;
-  flex-shrink: 0;
-  cursor: pointer;
-  user-select: none;
-  color: var(--ra-text);
-}
-.app-title:hover { color: var(--ra-link); }
-.app-nav {
-  flex: 1;
-  border-bottom: none !important;
-  min-width: 0;
-}
-html.dark .app-nav.el-menu,
-html.dark .app-nav.el-menu--horizontal {
-  background-color: var(--ra-header-bg) !important;
-}
-html.dark .app-nav .el-menu-item {
-  background-color: transparent !important;
-}
-html.dark .app-nav .el-menu-item.is-active {
-  background-color: var(--ra-active-bg) !important;
-}
-.app-nav .el-menu-item {
-  font-size: 14px;
-  font-weight: 600;
-  padding: 0 10px;
-}
-.app-divider {
-  height: 1px;
-  background: var(--ra-border);
-  flex-shrink: 0;
+.app-container.is-dashboard { grid-template-columns: 220px minmax(0, 1fr); }
+.app-sidebar {
   position: relative;
-  z-index: 10;
-}
-.el-main {
-  padding: 0 !important;
-  background: var(--ra-bg);
-}
-.theme-btn {
-  padding: 6px 8px !important;
-  min-width: auto !important;
-  color: var(--ra-text-secondary);
-  overflow: visible !important;
-}
-.theme-btn:hover { color: var(--ra-link); }
-.settings-btn {
-  padding: 6px 8px !important;
-  min-width: auto !important;
-  color: var(--ra-text-secondary);
-  overflow: visible !important;
-}
-.settings-btn:hover { color: var(--ra-link); }
-.help-btn {
-  padding: 6px 8px !important;
-  min-width: auto !important;
-  color: var(--ra-text-secondary);
-  overflow: visible !important;
-}
-.help-btn:hover { color: var(--ra-link); }
-.header-actions {
+  z-index: 110;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  margin-left: auto;
-  padding-left: 12px;
+  width: 52px;
+  height: 100vh;
+  box-sizing: border-box;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--ra-border-light);
+  background: var(--ra-sidebar-bg);
+  color: var(--ra-text);
+  transition: width .24s cubic-bezier(.4, 0, .2, 1), box-shadow .24s ease;
 }
-.header-actions .el-button > svg {
-  display: block;
+.app-sidebar.is-expanded { width: 220px; }
+.app-container:not(.is-dashboard) .app-sidebar.is-expanded {
+  position: fixed;
+  inset: 0 auto 0 0;
+  box-shadow: var(--ra-shadow);
+}
+.nav-scrim {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: rgba(0, 0, 0, .16);
+}
+.app-brand,
+.nav-collapse-toggle,
+.sidebar-nav-item {
+  display: flex;
+  width: calc(100% - 12px);
+  min-height: 40px;
+  margin: 0 6px;
+  padding: 0 11px;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ra-text-secondary);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.app-brand { min-height: 58px; margin-top: 2px; color: var(--ra-text); }
+.app-sidebar:not(.is-expanded) .app-brand { padding-left:6px; }
+.app-brand:focus { outline:none; }
+.app-brand:focus-visible { outline:none; box-shadow:none; }
+.brand-mark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #3aa0ff, #0066cc);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: 0 5px 14px rgba(0, 102, 204, .22);
+}
+.brand-copy { display: flex; flex-direction: column; line-height: 1.05; opacity: 0; transition: opacity .12s ease; }
+.brand-copy b { font-size: 14px; letter-spacing: -.15px; }
+.brand-copy small { margin-top: 3px; color: var(--ra-text-tertiary); font-size: 10px; }
+.app-sidebar.is-expanded .brand-copy { opacity: 1; }
+.nav-collapse-toggle { margin-top: 2px; color: var(--ra-text-tertiary); }
+.sidebar-nav { display: flex; flex: 1; flex-direction: column; gap: 4px; padding-top: 10px; }
+.sidebar-footer { display: flex; flex-direction: column; padding: 8px 0 14px; }
+.sidebar-utility-actions,
+.sidebar-task-actions { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-task-actions { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ra-border-light); }
+.sidebar-nav-item .el-icon,
+.nav-collapse-toggle .el-icon { width: 18px; height: 18px; flex: 0 0 18px; font-size: 18px; }
+.sidebar-nav-item span,
+.nav-collapse-toggle span { opacity: 0; transition: opacity .12s ease; }
+.app-sidebar.is-expanded .sidebar-nav-item span,
+.app-sidebar.is-expanded .nav-collapse-toggle span { opacity: 1; }
+.sidebar-nav-item:hover,
+.nav-collapse-toggle:hover,
+.app-brand:hover { background: var(--ra-hover-bg); color: var(--ra-text); }
+.sidebar-nav-item.is-active { background: var(--ra-active-bg); color: var(--ra-active-text); font-weight: 600; }
+.app-content-shell { position:relative; grid-column:2; min-width: 0; height: 100vh; overflow: hidden; }
+.app-main {
+  height: 100vh;
+  min-width: 0;
+  overflow: auto;
+  background: var(--ra-bg);
 }
 .test-result {
   padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-top: 8px;
@@ -469,4 +545,11 @@ html.dark .app-nav .el-menu-item.is-active {
 }
 html.dark .test-result.success { background: #1e3924; color: #85ce61; }
 html.dark .test-result.fail { background: #3b1e1e; color: #f89898; }
+
+@media (max-width: 760px) {
+  .app-container.is-dashboard { grid-template-columns: 52px minmax(0, 1fr); }
+  .app-container.is-dashboard .app-sidebar { width: 52px; }
+  .app-container.is-dashboard .brand-copy,
+  .app-container.is-dashboard .sidebar-nav-item span { opacity: 0; }
+}
 </style>

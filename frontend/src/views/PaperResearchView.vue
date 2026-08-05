@@ -260,7 +260,7 @@ function safeReturnTarget(value) {
 
 <style scoped>
 .paper-research-view {
-  height: calc(100vh - 61px);
+  height: 100vh;
   min-height: 0;
   overflow: hidden;
   background: var(--ra-bg);

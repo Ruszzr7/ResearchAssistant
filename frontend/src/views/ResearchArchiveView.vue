@@ -314,26 +314,31 @@ function runStatusType(status) {
 </script>
 
 <style scoped>
-.research-archive-page { min-height: 100%; padding: 20px; box-sizing: border-box; color: var(--ra-text); }
-.archive-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 12px; }
-.archive-header h2 { margin: 0 0 6px; font-size: 22px; }
+.research-archive-page { min-height: 100%; padding: 27px 30px 40px; box-sizing: border-box; color: var(--ra-text); }
+.archive-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 8px; }
+.archive-header h2 { margin: 0 0 7px; font-size: 27px; line-height:1.2; letter-spacing:-.6px; }
 .archive-header p { margin: 0; color: var(--ra-text-tertiary); font-size: 12px; }
 .archive-actions { display: flex; gap: 8px; width: 360px; }
-.archive-browser { display: grid; min-height: 360px; grid-template-columns: minmax(210px, 28%) 1px minmax(0, 1fr); gap: 16px; }
-.paper-column { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
-.paper-column button { display: flex; min-width: 0; flex-direction: column; gap: 6px; padding: 13px; border: 1px solid color-mix(in srgb, var(--ra-link) 18%, var(--ra-border)); border-radius: 9px; color: var(--ra-text); background: color-mix(in srgb, var(--ra-link) 5%, var(--ra-panel-bg)); text-align: left; cursor: pointer; }
-.paper-column button:hover, .paper-column button.active { border-color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 11%, var(--ra-panel-bg)); }
+.archive-actions :deep(.el-input__wrapper), .archive-actions :deep(.el-button) { border-radius:10px; }
+.research-archive-page :deep(.el-tabs__header) { margin-bottom:12px; }
+.research-archive-page :deep(.el-tabs__nav-wrap::after) { height:1px; background:var(--ra-border-light); }
+.archive-browser { display: grid; min-height: 570px; grid-template-columns: 272px 1px minmax(0, 1fr); overflow:hidden; gap:0; border:1px solid var(--ra-border-light); border-radius:15px; background:var(--ra-panel-bg); box-shadow:0 5px 22px rgba(0,0,0,.035); }
+.paper-column { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding:20px 12px; background:color-mix(in srgb, var(--ra-bg) 72%, var(--ra-panel-bg)); }
+.paper-column::before { content:'论文'; padding:0 5px 8px; color:var(--ra-text-tertiary); font-size:10px; }
+.paper-column button { display: flex; min-width: 0; flex-direction: column; gap: 7px; padding: 13px 11px; border: 1px solid transparent; border-radius: 10px; color: var(--ra-text); background:transparent; text-align: left; cursor: pointer; }
+.paper-column button:hover { background:var(--ra-hover-bg); }
+.paper-column button.active { border-color:color-mix(in srgb, var(--ra-link) 12%, var(--ra-border-light)); background:var(--ra-active-bg); }
 .paper-column b { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .paper-column span { color: var(--ra-text-tertiary); font-size: 10px; }
-.archive-divider { background: var(--ra-border); }
-.conversation-column { display: grid; min-width: 0; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-content: start; gap: 10px; }
+.archive-divider { background: var(--ra-border-light); }
+.conversation-column { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(240px, 1fr)); align-content: start; gap: 12px; padding:22px 20px; }
 .conversation-column > header { display: flex; grid-column: 1 / -1; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 3px; }
 .conversation-column > header small, .conversation-column > header span { color: var(--ra-text-tertiary); font-size: 10px; }
-.conversation-column > header h3 { margin: 3px 0 0; font-size: 15px; }
-.conversation-card { min-width: 0; padding: 13px; border: 1px solid color-mix(in srgb, var(--el-color-success) 24%, var(--ra-border)); border-radius: 9px; background: color-mix(in srgb, var(--el-color-success) 4%, var(--ra-panel-bg)); cursor: pointer; transition: border-color .15s, transform .15s; }
-.conversation-card:hover, .conversation-card:focus-visible { border-color: var(--el-color-success); outline: none; transform: translateY(-1px); }
+.conversation-column > header h3 { margin: 4px 0 0; font-size: 18px; letter-spacing:-.25px; }
+.conversation-card { position:relative; min-width: 0; min-height:105px; box-sizing:border-box; padding: 14px; border: 1px solid var(--ra-border-light); border-radius: 12px; background:var(--ra-panel-bg); cursor: pointer; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.conversation-card:hover, .conversation-card:focus-visible { border-color: color-mix(in srgb, var(--ra-link) 42%, var(--ra-border)); outline: none; transform: translateY(-1px); box-shadow:0 7px 18px rgba(0,0,0,.045); }
 .conversation-card__heading, .conversation-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ra-text-tertiary); font-size: 10px; }
-.conversation-card h4 { overflow: hidden; margin: 12px 0 16px; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-card h4 { overflow: hidden; margin: 12px 0 17px; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-card footer { justify-content: flex-start; gap: 14px; }
 .archive-detail { color: var(--ra-text); }
 .detail-summary { margin-bottom: 8px; padding: 10px; border: 1px solid var(--ra-border); border-radius: 8px; }
@@ -352,5 +357,6 @@ function runStatusType(status) {
 .run-list article > div { display: flex; align-items: center; justify-content: space-between; }
 .run-answer { max-height: 160px; overflow: auto; margin: 7px 0 0; color: var(--ra-text-secondary); font-size: 11px; line-height: 1.5; }
 .detail-footer { display: flex; justify-content: flex-end; gap: 8px; }
-@media (max-width: 760px) { .archive-header { flex-direction: column; } .archive-actions { width: 100%; } .archive-browser { grid-template-columns: 1fr; } .archive-divider { height: 1px; } }
+@media (max-width: 900px) { .conversation-column { grid-template-columns:1fr; } }
+@media (max-width: 760px) { .research-archive-page { padding:20px 14px 34px; } .archive-header { flex-direction: column; } .archive-actions { width: 100%; } .archive-browser { grid-template-columns: 1fr; } .archive-divider { height: 1px; } }
 </style>

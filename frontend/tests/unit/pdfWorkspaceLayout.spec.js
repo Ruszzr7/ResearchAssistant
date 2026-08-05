@@ -18,12 +18,12 @@ describe('PDF workbench split layout', () => {
     expect(workbenchWidthForContainer(600, 0.2)).toBe(266)
   })
 
-  it('stops leftward dragging where a complete 100% PDF page still fits', () => {
+  it('keeps the approved assistant ratio and lets wide PDF pages scroll when needed', () => {
     const minimumPdfWidth = completePdfPaneWidth(918, 22)
     expect(minimumPdfWidth).toBe(940)
-    expect(workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(972)
-    expect(1920 - 8 - workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(940)
-    expect(workbenchWidthForContainer(1200, 0.65, minimumPdfWidth)).toBe(252)
+    expect(workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(1243)
+    expect(1920 - 8 - workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(669)
+    expect(workbenchWidthForContainer(1200, 0.65, minimumPdfWidth)).toBe(712)
   })
 
   it('maps divider movement to a bounded right-pane ratio', () => {
