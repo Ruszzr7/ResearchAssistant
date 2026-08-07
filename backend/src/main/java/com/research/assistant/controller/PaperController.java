@@ -50,7 +50,7 @@ public class PaperController {
     private final WorkflowService workflowService;
     private final PaperLayoutArtifactService layoutArtifactService;
 
-    @Value("${app.storage.pdf-dir:./data/papers}")
+    @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
     public PaperController(PaperService paperService,

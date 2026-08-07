@@ -22,7 +22,7 @@ import java.nio.file.Path;
 @Component
 public class PdfExtractor {
 
-    @Value("${app.storage.pdf-dir:./data/papers}")
+    @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
     private final ExternalCommandPdfParser pdfParser;

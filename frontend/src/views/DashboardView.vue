@@ -6,7 +6,7 @@
         <h2 class="dashboard-title">Research Assistant</h2>
         <p class="dashboard-subtitle">一眼掌握论文、分析与任务</p>
       </div>
-      <el-button type="primary" @click="$router.push('/library')">
+      <el-button class="enter-library-button" type="primary" @click="$router.push('/library')">
         进入文库
       </el-button>
     </div>
@@ -57,10 +57,9 @@
               </div>
             </template>
             <div class="task-stats">
-              <div class="task-chip processing">进行中 {{ data.taskStats.processing }}</div>
-              <div class="task-chip processing">重试等待 {{ data.taskStats.retryWait || 0 }}</div>
-              <div class="task-chip pending">等待处理 {{ data.taskStats.pending }}</div>
-              <div class="task-chip failed">需要处理 {{ taskAttentionCount }}</div>
+              <div class="task-chip processing">处理中 {{ processingTaskCount }}</div>
+              <div class="task-chip completed">已完成 {{ data.taskStats.completed || 0 }}</div>
+              <div class="task-chip failed">失败 {{ failedTaskCount }}</div>
             </div>
             <div class="recent-tasks">
               <div class="recent-title">最近任务</div>
@@ -104,9 +103,14 @@ const folderBacklogWithPercent = computed(() => {
   const max = Math.max(...list.map(f => f.paperCount), 1)
   return list.map(f => ({ ...f, percent: Math.round((f.paperCount / max) * 100) }))
 })
-const taskAttentionCount = computed(() => {
+const processingTaskCount = computed(() => {
   const stats = data.value?.taskStats || {}
-  return Number(stats.failed || 0) + Number(stats.pendingUser || 0) + Number(stats.deadLetter || 0)
+  return Number(stats.processing || 0) + Number(stats.pending || 0) + Number(stats.retryWait || 0)
+})
+const failedTaskCount = computed(() => {
+  const stats = data.value?.taskStats || {}
+  return Number(stats.failed || 0) + Number(stats.pendingUser || 0)
+    + Number(stats.deadLetter || 0) + Number(stats.expired || 0)
 })
 
 async function load() {
@@ -171,6 +175,7 @@ onMounted(load)
   align-items: center;
   margin-bottom: 24px;
 }
+.enter-library-button { align-self:center; margin-top:10px; font-size:14px; }
 .dashboard-eyebrow { display: block; margin-bottom: 7px; color: var(--ra-text-tertiary); font-size: 11px; }
 .dashboard-title {
   margin: 0;

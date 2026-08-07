@@ -5,6 +5,8 @@ import com.research.assistant.dto.AnnotationDto;
 import com.research.assistant.dto.AnnotationRequest;
 import com.research.assistant.entity.PaperAnnotation;
 import com.research.assistant.mapper.PaperAnnotationMapper;
+import com.research.assistant.mapper.PaperMapper;
+import com.research.assistant.entity.Paper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -19,12 +21,17 @@ import static org.mockito.Mockito.*;
 class AnnotationServiceTest {
 
     private PaperAnnotationMapper mapper;
+    private PaperMapper paperMapper;
     private AnnotationService service;
 
     @BeforeEach
     void setUp() {
         mapper = mock(PaperAnnotationMapper.class);
-        service = new AnnotationService(mapper, new ObjectMapper());
+        paperMapper = mock(PaperMapper.class);
+        Paper paper = new Paper();
+        paper.setId(10L);
+        when(paperMapper.selectById(10L)).thenReturn(paper);
+        service = new AnnotationService(mapper, paperMapper, new ObjectMapper());
     }
 
     @Test
@@ -54,6 +61,17 @@ class AnnotationServiceTest {
         assertThat(dto.getCoordinates()).containsEntry("source", "paper-workbench");
         assertThat(dto.getCoordinates()).containsEntry("workbenchRunId", "run-42");
         assertThat(dto.getCoordinates().get("sourceEvidenceIds")).isEqualTo(List.of("e1", "e2"));
+    }
+
+    @Test
+    void shouldRejectAnnotationForDeletedPaperBeforeForeignKeyFailure() {
+        when(paperMapper.selectById(99L)).thenReturn(null);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.create(99L, request("COMMENT", 1, "#f44336", "content")));
+
+        assertThat(error.getMessage()).contains("论文不存在");
+        verify(mapper, never()).insert(any(PaperAnnotation.class));
     }
 
     @Test

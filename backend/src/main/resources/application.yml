@@ -70,7 +70,8 @@ app:
     max-queue-depth: ${ASYNC_MAX_QUEUE_DEPTH:500}
     dispatch-enabled: ${ASYNC_DISPATCH_ENABLED:true}
   storage:
-    pdf-dir: ${APP_STORAGE_PDF_DIR:./data/papers}
+    pdf-dir: ${APP_STORAGE_PDF_DIR:../data/papers}
+    figures-dir: ${APP_STORAGE_FIGURES_DIR:../data/figures}
   encryption:
     # 敏感设置（如 api_key）加密主密钥；优先读取环境变量 RA_MASTER_KEY。
     # 未配置时 API Key 会明文保存，仅适合本地临时开发。

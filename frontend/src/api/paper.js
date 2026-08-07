@@ -13,3 +13,7 @@ export function listPapers(params = {}) {
 export function getPaper(id) {
   return api.get(`/papers/${id}`)
 }
+
+export function openPaperStorageDirectory() {
+  return api.post('/papers/storage-directory/open').then(r => r.data)
+}

@@ -1,28 +1,16 @@
 # ResearchAssistant 部署与数据安全
 
-## Docker 一键部署
+## Docker 部署
 
 1. 复制 `.env.example` 为 `.env`。
 2. 设置随机的 `RA_MASTER_KEY`，并修改数据库密码。
 3. 执行：
 
 ```text
-scripts\deploy-up.bat
-```
-
-或：
-
-```bash
-./scripts/deploy-up.sh
+docker compose up -d --build
 ```
 
 启动后访问 `http://localhost:8088`。MySQL、PDF 文件和可选 Qdrant 均使用持久化卷。
-
-启用 Qdrant：
-
-```text
-docker compose up -d --build
-```
 
 ## Flyway
 
@@ -32,23 +20,13 @@ docker compose up -d --build
 
 ## 备份与恢复
 
-```text
-scripts\backup-mysql.bat
-scripts\restore-mysql.bat backups\research_assistant_YYYYMMDD_HHMMSS.sql
-scripts/backup-mysql.sh
-scripts/restore-mysql.sh backups/research_assistant_YYYYMMDD_HHMMSS.sql
-```
+项目不再维护重复的备份包装脚本。MySQL 使用 `mysqldump`/`mysql` 原生命令备份与恢复；Docker 命名卷使用 Docker 提供的卷备份方式。MySQL 备份不能替代 PDF 目录或 `research-assistant-papers-data` 数据卷备份。
 
-MySQL 备份不能替代 PDF 目录备份。使用以下脚本备份或恢复命名数据卷：
+恢复数据前停止后端和前端容器；恢复后重新启动并依次检查 `/actuator/health`、Flyway 状态和 `/api/rag/consistency`。
 
-```text
-scripts/backup-volumes.sh
-scripts/backup-volumes.bat
-scripts/restore-volume.sh research-assistant-papers-data backups/research-assistant-papers-data_YYYYMMDD_HHMMSS.tar.gz
-scripts\restore-volume.bat research-assistant-papers-data backups\research-assistant-papers-data_YYYYMMDD_HHMMSS.tar.gz
-```
+## Windows 本地脚本
 
-恢复数据卷前停止后端和前端容器；恢复后重新启动并依次检查 `/actuator/health`、Flyway 状态和 `/api/rag/consistency`。Qdrant 数据卷只在启用 Qdrant profile 时需要恢复。
+`scripts` 只保留五个面向开发环境的 `.cmd`：分别启动数据库、启动前端、启动/重启后端、整体启动和整体终止。脚本以 PID 文件管理自己启动的进程，并在端口由未知进程占用时拒绝强制终止。
 
 ## 健康检查
 

@@ -25,7 +25,7 @@ public class ImportSelectedPapersSkill implements Skill<ImportSelectedPapersInpu
     private final PaperMapper paperMapper;
     private final ArxivFetcher arxivFetcher;
 
-    @Value("${app.storage.pdf-dir:./data/papers}")
+    @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
     public ImportSelectedPapersSkill(PaperMapper paperMapper, ArxivFetcher arxivFetcher) {

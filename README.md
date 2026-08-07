@@ -7,28 +7,33 @@
 需要 JDK 17、Node.js 和 MySQL 8。Windows 可直接运行：
 
 ```text
-scripts\start-all.bat
+scripts\start-all.cmd
 ```
 
-也可以分别启动：
+也可以分别启动或终止：
 
 ```text
-scripts\start-database.bat
-scripts\start-backend.bat
-scripts\start-frontend.bat
+scripts\start-database.cmd
+scripts\start-backend.cmd
+scripts\start-frontend.cmd
+scripts\stop-all.cmd
 ```
+
+`start-backend.cmd` 在后端未运行时启动后端，在后端已运行时重启后端。脚本会等待端口和健康检查就绪；若目标端口被项目外的未知进程占用，则拒绝误杀并提示人工处理。
 
 前端地址为 `http://127.0.0.1:5173`，后端健康检查为 `http://127.0.0.1:8080/actuator/health`。模型供应商、通道、Base URL、模型和 API Key 在设置页配置。
 
+本地导入的论文默认保存在项目根目录的 `data/papers`。文献库工具栏中的文件夹按钮可直接用系统文件管理器打开该目录；数据库只保存文件名，不保存绑定当前电脑的绝对路径。
+
 ## 部署
 
-复制 `.env.example` 为 `.env`，配置数据库、模型和 `RA_MASTER_KEY` 后运行：
+复制 `.env.example` 为 `.env`，配置数据库、模型和 `RA_MASTER_KEY` 后直接使用 Docker Compose：
 
 ```text
-scripts\deploy-up.bat
+docker compose up -d --build
 ```
 
-Linux/macOS 使用 `scripts/deploy-up.sh`。完整说明见 [部署与数据安全](docs/deployment.md)。数据库结构只由 Flyway 管理，旧库升级前请先阅读 [迁移说明](docs/migrations.md)。
+完整说明见 [部署与数据安全](docs/deployment.md)。数据库结构只由 Flyway 管理，旧库升级前请先阅读 [迁移说明](docs/migrations.md)。
 
 ## 开发验证
 

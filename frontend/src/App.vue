@@ -2,8 +2,15 @@
   <div class="app-container" :class="{ 'is-dashboard': isDashboard, 'is-nav-open': navOverlayOpen }">
     <aside class="app-sidebar" :class="{ 'is-expanded': isDashboard || navOverlayOpen }">
       <button class="app-brand" type="button" title="返回看板" @click="goTo('/')">
-        <span class="brand-mark">R</span>
-        <span class="brand-copy"><b>Research</b><small>Assistant</small></span>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M7 5.5h11.5L25 12v14.5H7z" />
+            <path class="brand-mark-accent" d="M18.5 5.5V12H25M11 17h10M11 21h7" />
+            <circle class="brand-mark-dot" cx="23.5" cy="23.5" r="4" />
+            <path class="brand-mark-dot" d="m26.4 26.4 2.1 2.1" />
+          </svg>
+        </span>
+        <span class="brand-copy"><b>Research Assistant</b></span>
       </button>
 
       <button
@@ -434,7 +441,7 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
   overflow: hidden;
   transition: grid-template-columns .24s cubic-bezier(.4, 0, .2, 1);
 }
-.app-container.is-dashboard { grid-template-columns: 220px minmax(0, 1fr); }
+.app-container.is-dashboard { grid-template-columns: 208px minmax(0, 1fr); }
 .app-sidebar {
   position: relative;
   z-index: 110;
@@ -449,7 +456,7 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
   color: var(--ra-text);
   transition: width .24s cubic-bezier(.4, 0, .2, 1), box-shadow .24s ease;
 }
-.app-sidebar.is-expanded { width: 220px; }
+.app-sidebar.is-expanded { width: 208px; }
 .app-container:not(.is-dashboard) .app-sidebar.is-expanded {
   position: fixed;
   inset: 0 auto 0 0;
@@ -489,20 +496,18 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
 .app-brand:focus-visible { outline:none; box-shadow:none; }
 .brand-mark {
   display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
   place-items: center;
-  border-radius: 8px;
-  background: linear-gradient(145deg, #3aa0ff, #0066cc);
-  color: #fff;
-  font-size: 15px;
-  font-weight: 700;
-  box-shadow: 0 5px 14px rgba(0, 102, 204, .22);
+  color: var(--ra-text);
 }
-.brand-copy { display: flex; flex-direction: column; line-height: 1.05; opacity: 0; transition: opacity .12s ease; }
-.brand-copy b { font-size: 14px; letter-spacing: -.15px; }
-.brand-copy small { margin-top: 3px; color: var(--ra-text-tertiary); font-size: 10px; }
+.brand-mark svg { width:30px; height:30px; overflow:visible; }
+.brand-mark svg > path:first-child { fill:var(--ra-panel-bg); stroke:currentColor; stroke-width:1.8; stroke-linejoin:round; }
+.brand-mark-accent { stroke:var(--ra-link); stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.brand-mark-dot { fill:var(--ra-panel-bg); stroke:var(--ra-link); stroke-width:1.8; stroke-linecap:round; }
+.brand-copy { display:flex; align-items:center; line-height:1; opacity:0; transition:opacity .12s ease; }
+.brand-copy b { color:var(--ra-text); font-size:16px; font-weight:650; letter-spacing:-.3px; }
 .app-sidebar.is-expanded .brand-copy { opacity: 1; }
 .nav-collapse-toggle { margin-top: 2px; color: var(--ra-text-tertiary); }
 .sidebar-nav { display: flex; flex: 1; flex-direction: column; gap: 4px; padding-top: 10px; }

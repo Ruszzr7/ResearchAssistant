@@ -13,7 +13,7 @@ public class PaperPdfFileResolver {
 
     private final Path storageRoot;
 
-    public PaperPdfFileResolver(@Value("${app.storage.pdf-dir:./data/papers}") String pdfStorageDir) {
+    public PaperPdfFileResolver(@Value("${app.storage.pdf-dir:../data/papers}") String pdfStorageDir) {
         Path configured = Path.of(pdfStorageDir);
         if (!configured.isAbsolute()) {
             configured = Path.of(System.getProperty("user.dir")).resolve(configured);

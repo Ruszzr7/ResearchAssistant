@@ -6,6 +6,7 @@ import com.research.assistant.dto.AnnotationDto;
 import com.research.assistant.dto.AnnotationRequest;
 import com.research.assistant.entity.PaperAnnotation;
 import com.research.assistant.mapper.PaperAnnotationMapper;
+import com.research.assistant.mapper.PaperMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,10 +28,12 @@ public class AnnotationService {
             "HIGHLIGHT", "UNDERLINE", "NOTE", "COMMENT", "FREEHAND");
 
     private final PaperAnnotationMapper annotationMapper;
+    private final PaperMapper paperMapper;
     private final ObjectMapper objectMapper;
 
-    public AnnotationService(PaperAnnotationMapper annotationMapper, ObjectMapper objectMapper) {
+    public AnnotationService(PaperAnnotationMapper annotationMapper, PaperMapper paperMapper, ObjectMapper objectMapper) {
         this.annotationMapper = annotationMapper;
+        this.paperMapper = paperMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -50,6 +53,9 @@ public class AnnotationService {
     }
 
     public AnnotationDto create(Long paperId, AnnotationRequest request, boolean aiGenerated) {
+        if (paperId == null || paperMapper.selectById(paperId) == null) {
+            throw new IllegalArgumentException("论文不存在或已被删除: " + paperId);
+        }
         PaperAnnotation entity = new PaperAnnotation();
         entity.setPaperId(paperId);
         entity.setAiGenerated(aiGenerated);

@@ -52,7 +52,7 @@ public class AsyncTaskService {
     private final RagIndexingService ragIndexingService;
     private final AsyncTaskHandlerRegistry handlerRegistry;
 
-    @Value("${app.storage.pdf-dir:./data/papers}")
+    @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
     public AsyncTaskService(@Lazy AgentOrchestrator agentOrchestrator,

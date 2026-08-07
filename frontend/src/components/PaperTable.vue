@@ -139,7 +139,7 @@ const pagerConfig = computed(() => ({
   layouts: ['PrevPage', 'JumpNumber', 'NextPage', 'FullJump', 'Total']
 }))
 
-const emptyText = '暂无论文 — 点击左上角「+ 导入」添加第一篇论文'
+const emptyText = '暂无论文 — 点击左上角「导入」添加第一篇论文'
 
 const columns = ref([
   { type: 'checkbox', width: 40, fixed: 'left', align: 'center', resizable: false },
@@ -376,16 +376,29 @@ html.dark .paper-table-vxe .vxe-body--row.row--hover:not(.row-active) .vxe-body-
   padding-right: 8px !important;
   white-space: nowrap !important;
   word-break: keep-all;
+  min-height: 42px;
+  line-height: 1;
 }
 .paper-table-vxe .vxe-header--column .vxe-cell--title {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap !important;
   text-overflow: ellipsis;
+  line-height: 16px;
 }
 .paper-table-vxe .vxe-header--column .vxe-cell--sort {
+  display:inline-flex;
+  align-items:center;
   flex: 0 0 auto;
   white-space: nowrap;
+}
+.paper-table-vxe .vxe-pager .vxe-pager--jump .vxe-input {
+  width: 34px !important;
+  min-width: 34px !important;
+}
+.paper-table-vxe .vxe-pager .vxe-pager--jump .vxe-input--inner {
+  padding: 0 3px;
+  text-align: center;
 }
 .paper-table-vxe .vxe-body--column .vxe-cell {
   min-width: 0;

@@ -5,7 +5,7 @@
     <div class="left-panel" :class="{ collapsed: !sidebarVisible }" :style="{ width: sidebarVisible ? leftWidth + 'px' : '0px' }">
       <div class="panel-header">
         <el-tooltip content="新建" placement="top">
-          <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openNewFolderForm" ref="newFolderBtnRef">
+          <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openNewFolderForm">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5A1.5 1.5 0 013.5 3h3l1.5 2h4A1.5 1.5 0 0113.5 6.5v5A1.5 1.5 0 0112 13H4a1.5 1.5 0 01-1.5-1.5z"/><path d="M8 8v3M6.5 9.5h3"/></svg>
           </el-button>
         </el-tooltip>
@@ -36,20 +36,7 @@
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4"/><path d="M9.5 9.5L13 13"/></svg>
             </el-button>
           </el-tooltip>
-          <el-input v-if="showFolderSearch" v-model="folderSearchKeyword" placeholder="搜文件夹…" size="small" clearable class="search-input" ref="folderSearchRef" />
-        </div>
-      </div>
-
-      <!-- 新建文件夹表单 -->
-      <div v-if="showNewFolderForm" class="inline-form" ref="newFolderFormRef">
-        <div class="inline-form-fields">
-          <el-tree-select v-model="newFolderParentId" :data="folderTreeWithRoot" :props="treeProps"
-            check-strictly node-key="id" placeholder="父文件夹" clearable size="small" style="flex:1;min-width:0" />
-          <el-input v-model="newFolderName" placeholder="文件夹名" size="small" style="flex:1;min-width:0" @keyup.enter="createFolder" />
-        </div>
-        <div class="inline-form-actions">
-          <el-button size="small" type="primary" @click="createFolder">创建</el-button>
-          <el-button size="small" @click="showNewFolderForm = false">取消</el-button>
+          <el-input v-if="showFolderSearch" v-model="folderSearchKeyword" placeholder="搜索文件夹" size="small" clearable class="search-input" ref="folderSearchRef" />
         </div>
       </div>
 
@@ -77,6 +64,7 @@
             'path-0': pathKeys.get(data.id) === 0,
             'path-1': pathKeys.get(data.id) === 1,
             'path-2': pathKeys.get(data.id) === 2,
+            'folder-search-match': folderMatchesSearch(data),
           }">
             <span class="folder-name">{{ data.name }}</span>
             <span class="folder-count">({{ data.paperCount ?? 0 }})</span>
@@ -112,7 +100,7 @@
       <div class="toolbar">
         <div class="toolbar-left">
           <el-tooltip :content="sidebarVisible ? '收起侧栏' : '展开侧栏'" placement="top">
-            <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="sidebarVisible = !sidebarVisible">
+            <el-button class="sidebar-toggle-button" size="small" text @click="sidebarVisible = !sidebarVisible">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="4" height="12" rx="1"/><rect x="6" y="2" width="8" height="12" rx="1"/></svg>
             </el-button>
           </el-tooltip>
@@ -122,19 +110,11 @@
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10v2.5A1.5 1.5 0 003.5 14h9a1.5 1.5 0 001.5-1.5V10M8 2v9M5 8l3 3 3-3"/></svg>
             </el-button>
           </el-tooltip>
-          <el-dropdown trigger="click" @command="handleExport">
-            <el-button size="small" text style="padding:2px 4px;min-width:auto">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h12M8 2v12"/></svg>
+          <el-tooltip content="查看文献文件夹" placement="top">
+            <el-button size="small" text style="padding:2px 4px;min-width:auto" aria-label="查看文献文件夹" @click="openPaperFolder">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.75 4.25A1.25 1.25 0 013 3h3l1.3 1.5H13A1.25 1.25 0 0114.25 5.75v6A1.25 1.25 0 0113 13H3a1.25 1.25 0 01-1.25-1.25v-7.5z"/></svg>
             </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="bibtex-single" :disabled="!currentPaper">导出当前 BibTeX</el-dropdown-item>
-                <el-dropdown-item command="bibtex-batch" :disabled="!selectedPaperIds.length">导出选中 BibTeX</el-dropdown-item>
-                <el-dropdown-item command="obsidian" :disabled="!selectedPaperIds.length">同步到 Obsidian</el-dropdown-item>
-                <el-dropdown-item command="zotero" :disabled="!selectedPaperIds.length">同步到 Zotero</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          </el-tooltip>
           <!-- 批量操作 -->
           <LibraryBatchSelectionBar
             :count="selectedPaperIds.length"
@@ -373,6 +353,25 @@
     </el-dialog>
 
     <!-- ==================== 编辑文件夹弹窗 ==================== -->
+    <el-dialog v-model="showNewFolderForm" title="新建文件夹" width="460px" destroy-on-close>
+      <el-form label-width="82px" @submit.prevent="createFolder">
+        <el-form-item label="父文件夹">
+          <el-tree-select v-model="newFolderParentId" :data="folderTreeWithRoot" :props="treeProps"
+            check-strictly node-key="id" placeholder="我的文库" clearable style="width:100%" />
+        </el-form-item>
+        <p class="new-folder-path" :title="folderPath(newFolderParentId)">
+          创建位置：{{ folderPath(newFolderParentId) }}
+        </p>
+        <el-form-item label="文件夹名">
+          <el-input v-model="newFolderName" placeholder="请输入文件夹名" autofocus @keyup.enter="createFolder" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showNewFolderForm = false">取消</el-button>
+        <el-button type="primary" :disabled="!newFolderName.trim()" @click="createFolder">创建</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="showEditFoldersDialog" title="编辑文件夹" width="500px" destroy-on-close>
       <p style="font-size:12px;color:#909399;margin:0 0 8px">点击选中文件夹，操作后点「确认」保存</p>
       <div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap">
@@ -477,8 +476,10 @@
           <span v-else>PDF 需要手动上传，出版社权限可能限制下载</span>
         </div>
         <div class="import-preview" v-if="form.title || uploadFile">
-          <div class="preview-title">识别结果</div>
-          <p class="import-helper">自动填充会从 PDF 识别 DOI/arXiv ID，再获取标题、作者、年份、来源和摘要；摘要最多填充 3000 字，也可以继续手动修改。</p>
+          <div class="preview-heading">
+            <div class="preview-title">识别结果</div>
+            <p class="import-helper">自动填充会从 PDF 识别 DOI/arXiv ID，再获取标题、作者、年份、来源和摘要；摘要最多填充 3000 字，也可以继续手动修改。</p>
+          </div>
           <el-form label-width="70px" size="small">
             <el-form-item label="标题"><el-input v-model="form.title" placeholder="自动填充或手动输入论文标题" /></el-form-item>
             <el-form-item label="作者"><el-input v-model="form.authors" placeholder="自动识别或手动输入" /></el-form-item>
@@ -537,7 +538,7 @@ import { waitForAnalysis } from '@/utils/analysis.js'
 import { useGlobalTask } from '@/composables/useGlobalTask.js'
 import { usePaperImportRecommendations } from '@/composables/usePaperImportRecommendations.js'
 import LibraryBatchSelectionBar from '@/components/library/LibraryBatchSelectionBar.vue'
-import { exportSingleBibTeX, exportBatchBibTeX, syncObsidian, syncZotero, downloadBlob } from '@/api/export'
+import { openPaperStorageDirectory } from '@/api/paper.js'
 import { researchRouteLocation } from '@/router/workbenchRoute.js'
 
 defineOptions({ name: 'LibraryView' })
@@ -565,8 +566,6 @@ const showFolderSearch = ref(false)
 const tableLoading = ref(false)
 const folderSearchRef = ref(null)
 const folderSearchWrapRef = ref(null)
-const newFolderBtnRef = ref(null)
-const newFolderFormRef = ref(null)
 const pagination = ref({ page: 1, size: 20, total: 0 })
 const showNewFolderForm = ref(false)
 const newFolderName = ref('')
@@ -580,7 +579,7 @@ const sortBy = ref('created_at')
 const sortDir = ref('DESC')
 const folderSortMode = ref('custom')
 const folderSortDir = ref('ASC')
-const leftWidth = ref(240)
+const leftWidth = ref(220)
 const libraryRef = ref(null)
 const rightWidth = ref(300)
 const editingTitle = ref(false)
@@ -892,6 +891,10 @@ function filterFolderNode(value, data) {
   if (!value) return true
   return (data.name || '').toLowerCase().includes(value.toLowerCase())
 }
+function folderMatchesSearch(data) {
+  const keyword = folderSearchKeyword.value.trim().toLowerCase()
+  return Boolean(keyword && String(data?.name || '').toLowerCase().includes(keyword))
+}
 watch(folderSearchKeyword, v => treeRef.value?.filter(v))
 
 function collectAllIds(nodes) { const ids=[]; for(const n of nodes){ids.push(n.id);if(n.children)ids.push(...collectAllIds(n.children))} return ids }
@@ -1121,15 +1124,29 @@ function moveFolderToLocal(targetId) {
 function openNewFolderForm() { newFolderName.value=''; newFolderParentId.value=selectedFolderId.value; showNewFolderForm.value=true }
 async function createFolder() {
   if(!newFolderName.value.trim())return
-  try{await api.post('/folders',{name:newFolderName.value.trim(),parentId:newFolderParentId.value});newFolderName.value='';showNewFolderForm.value=false;loadFolders()}
-  catch(e){alert('创建失败：'+(e.response?.data?.message||e.message))}
+  const parentId = newFolderParentId.value
+  try {
+    const response = await api.post('/folders', { name: newFolderName.value.trim(), parentId })
+    const createdId = response.data?.id
+    newFolderName.value = ''
+    showNewFolderForm.value = false
+    await loadFolders()
+    await nextTick()
+    const path = findPathToNode(folders.value, createdId) || (parentId == null ? [] : findPathToNode(folders.value, parentId)) || []
+    path.forEach(id => treeRef.value?.getNode(id)?.expand())
+    if (parentId != null) treeRef.value?.getNode(parentId)?.expand()
+    expandedId.value = parentId ?? createdId ?? null
+    ElMessage.success('文件夹已创建')
+  } catch(e) {
+    ElMessage.error('创建失败：'+(e.response?.data?.message||e.message))
+  }
 }
 
 function startResize(e,side){resizing.value=side;e.preventDefault()}
 function onResize(e){
   const rect=libraryRef.value?.getBoundingClientRect()
   if(!rect)return
-  if(resizing.value==='left')leftWidth.value=Math.max(160,Math.min(400,e.clientX-rect.left-4))
+  if(resizing.value==='left')leftWidth.value=Math.max(210,Math.min(400,e.clientX-rect.left-4))
   else if(resizing.value==='right')rightWidth.value=Math.max(240,Math.min(500,rect.right-e.clientX-4))
 }
 function stopResize(){
@@ -1492,7 +1509,19 @@ async function applyRecommendedFolder(paperId, folderId) {
   await selectPaper(paperId)
   await loadPapers()
 }
-function toggleFolderSearch(){showFolderSearch.value=!showFolderSearch.value;if(showFolderSearch.value)setTimeout(()=>folderSearchRef.value?.focus(),100)}
+function closeFolderSearch() {
+  showFolderSearch.value = false
+  folderSearchKeyword.value = ''
+  treeRef.value?.filter('')
+}
+function toggleFolderSearch(){
+  if (showFolderSearch.value) {
+    closeFolderSearch()
+    return
+  }
+  showFolderSearch.value=true
+  setTimeout(()=>folderSearchRef.value?.focus(),100)
+}
 function startEditTitle(){editTitleText.value=currentPaper.value.title;editingTitle.value=true;setTimeout(()=>titleInputRef.value?.focus(),100)}
 async function saveTitle(){editingTitle.value=false;if(editTitleText.value.trim()&&editTitleText.value!==currentPaper.value.title){currentPaper.value.title=editTitleText.value.trim();await savePaper(currentPaper.value)}}
 async function confirmDelete(paper){
@@ -1541,24 +1570,12 @@ async function confirmBatchDelete() {
   }
 }
 
-async function handleExport(cmd) {
+async function openPaperFolder() {
   try {
-    if (cmd === 'bibtex-single') {
-      if (!currentPaper.value) return
-      const res = await exportSingleBibTeX(currentPaper.value.id)
-      downloadBlob(res.data, `${currentPaper.value.title || 'paper'}.bib`)
-    } else if (cmd === 'bibtex-batch') {
-      const res = await exportBatchBibTeX(selectedPaperIds.value)
-      downloadBlob(res.data, 'papers.bib')
-    } else if (cmd === 'obsidian') {
-      const data = await syncObsidian(selectedPaperIds.value)
-      ElMessage[data.success ? 'success' : 'error'](data.message || `已同步 ${data.count} 篇`)
-    } else if (cmd === 'zotero') {
-      const data = await syncZotero(selectedPaperIds.value)
-      ElMessage[data.success ? 'success' : 'error'](data.message || `已同步 ${data.count} 篇`)
-    }
+    const data = await openPaperStorageDirectory()
+    ElMessage.success(`已打开文献文件夹：${data.path}`)
   } catch (e) {
-    ElMessage.error('导出失败：' + (e.response?.data?.message || e.message))
+    ElMessage.error('打开文献文件夹失败：' + (e.response?.data?.message || e.message))
   }
 }
 
@@ -1665,12 +1682,7 @@ async function initLibrary() {
 }
 function handleDocClick(e) {
   if (showFolderSearch.value && folderSearchWrapRef.value && !folderSearchWrapRef.value.contains(e.target)) {
-    showFolderSearch.value = false
-  }
-  const newFolderBtnEl = newFolderBtnRef.value?.$el
-  if (showNewFolderForm.value && newFolderFormRef.value && !newFolderFormRef.value.contains(e.target)
-      && !(newFolderBtnEl && newFolderBtnEl.contains(e.target))) {
-    showNewFolderForm.value = false
+    closeFolderSearch()
   }
 }
 let libraryEventsAttached = false
@@ -1703,7 +1715,7 @@ onUnmounted(detachLibraryEvents)
 .library.is-resizing { user-select:none; }
 
 /* ===== 三栏配色 ===== */
-.left-panel { flex-shrink:0; overflow-y:auto; box-sizing:border-box; padding:10px 13px; transition:width 0.2s; background:var(--ra-sidebar-bg); display:flex; flex-direction:column; }
+.left-panel { flex-shrink:0; overflow-y:auto; box-sizing:border-box; padding:10px 8px 10px 13px; transition:width 0.2s; background:var(--ra-sidebar-bg); display:flex; flex-direction:column; }
 .left-panel.collapsed { padding:0; overflow:hidden; }
 .filter-section { margin-top:auto; padding:6px 0 12px; border-top:1px solid var(--ra-border-light); }
 .filter-section h4 { margin:4px 0 6px; font-size:14px; font-weight:600; color:var(--ra-text); }
@@ -1714,8 +1726,8 @@ onUnmounted(detachLibraryEvents)
 
 /* 顶栏 */
 .panel-header { display:flex; align-items:center; gap:4px; min-height:36px; padding:4px 0 8px; }
-.header-search { display:flex; align-items:center; gap:2px; }
-.search-input { width:130px; }
+.header-search { display:flex; flex:1; min-width:0; align-items:center; gap:2px; }
+.search-input { width:auto; min-width:0; flex:1; }
 
 /* 树 */
 .folder-all { display:flex; align-items:center; gap:7px; padding:7px 9px; cursor:pointer; font-size:12px; border-radius:8px; margin-bottom:2px; color:var(--ra-text); }
@@ -1727,14 +1739,17 @@ onUnmounted(detachLibraryEvents)
 .tree-node-label.path-0 { color:var(--ra-active-text); font-weight:600; }
 .tree-node-label.path-1 { color:#79bbff; font-weight:600; }
 .tree-node-label.path-2 { color:#a0cfff; font-weight:600; }
-.folder-count { color:var(--ra-text-tertiary); font-size:11px; margin-right:8px; }
+.tree-node-label.folder-search-match {
+  border-radius:4px;
+  color:var(--ra-active-text);
+  background:color-mix(in srgb, var(--ra-link) 15%, transparent);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--ra-link) 15%, transparent);
+}
+.folder-count { color:var(--ra-text-tertiary); font-size:11px; margin-right:0; }
 .el-tree-node.is-current>.el-tree-node__content,
 .el-tree-node.is-current>.el-tree-node__content:hover { background-color:var(--ra-active-bg) !important; }
 
-.inline-form { display:flex; gap:12px; margin-bottom:8px; align-items:center; }
-.inline-form-fields { display:flex; gap:3px; flex:1; min-width:0; }
-.inline-form-actions { display:flex; gap:2px; flex-shrink:0; }
-.inline-form-actions :deep(.el-button + .el-button) { margin-left: 0 !important; }
+.new-folder-path { margin:-10px 0 14px 82px; color:var(--ra-text-tertiary); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
 .w-full { width:100%; }
 
 /* 分割线 */
@@ -1748,11 +1763,12 @@ onUnmounted(detachLibraryEvents)
 .divider.active .divider-handle { opacity:0; }
 
 /* 工具栏 */
-.toolbar { display:flex; min-height:47px; box-sizing:border-box; align-items:center; justify-content:space-between; padding:6px 12px; gap:8px; border-bottom:1px solid var(--ra-border-light); }
-.toolbar-left, .toolbar-right { display:flex; align-items:center; gap:2px; }
+.toolbar { display:flex; min-height:54px; box-sizing:border-box; align-items:center; justify-content:space-between; padding:11px 12px 7px 0; gap:8px; border-bottom:1px solid var(--ra-border-light); }
+.toolbar-left, .toolbar-right { display:flex; align-items:center; gap:2px; min-height:30px; }
+.sidebar-toggle-button { width:39px; min-width:39px !important; padding:2px 4px !important; }
 .toolbar-search { width:170px; }
 .toolbar-search :deep(.el-input__wrapper) { border-radius:9px; box-shadow:0 0 0 1px var(--ra-border) inset; }
-.toolbar-divider { display:inline-block; width:1px; height:16px; background:var(--ra-border); margin:0 3px; vertical-align:middle; }
+.toolbar-divider { display:inline-block; width:1px; height:20px; background:var(--ra-border); margin:0 6px 0 0; vertical-align:middle; }
 
 /* 表格 */
 .table-wrapper { flex:1; overflow:auto; }
@@ -1801,11 +1817,12 @@ onUnmounted(detachLibraryEvents)
 .doi-input-wrap { display:flex; gap:6px; flex:1; flex-wrap:wrap; }
 .doi-source-hint { display:flex; align-items:center; gap:10px; margin:-4px 0 10px 70px; color:var(--ra-text-tertiary); font-size:12px; line-height:1.5; flex-wrap:wrap; }
 .doi-source-hint a { color:var(--ra-link); }
-.import-helper { margin: -2px 0 8px 70px; color:var(--ra-text-tertiary); font-size:12px; line-height:1.5; }
+.import-helper { min-width:0; margin:0; color:var(--ra-text-tertiary); font-size:12px; line-height:1.5; }
 
 /** 识别结果 */
 .import-preview { border-top:1px solid var(--ra-border-light); padding-top:10px; }
-.preview-title { font-size:13px; font-weight:600; color:var(--ra-text); margin-bottom:8px; }
+.preview-heading { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:14px; margin-bottom:10px; }
+.preview-title { padding-top:1px; font-size:13px; font-weight:600; color:var(--ra-text); white-space:nowrap; }
 
 /** PDF 全屏预览 */
 

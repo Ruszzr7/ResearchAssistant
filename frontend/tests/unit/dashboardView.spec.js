@@ -43,7 +43,9 @@ describe('DashboardView', () => {
 
     expect(wrapper.text()).toContain('文件夹分布')
     expect(wrapper.text()).toContain('任务中心')
-    expect(wrapper.text()).toContain('需要处理 4')
+    expect(wrapper.text()).toContain('处理中 4')
+    expect(wrapper.text()).toContain('已完成 0')
+    expect(wrapper.text()).toContain('失败 4')
     expect(wrapper.text()).not.toContain('最近笔记')
     expect(wrapper.text()).not.toContain('最近批注')
     expect(wrapper.text()).not.toContain('引用关系')

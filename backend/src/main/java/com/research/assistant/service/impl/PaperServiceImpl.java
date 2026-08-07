@@ -10,6 +10,7 @@ import com.research.assistant.mapper.TagMapper;
 import com.research.assistant.service.AgentOrchestrator;
 import com.research.assistant.service.AsyncTaskService;
 import com.research.assistant.service.PaperService;
+import com.research.assistant.service.PaperAssetLifecycleService;
 import com.research.assistant.service.PdfExtractor;
 import com.research.assistant.service.metadata.MetadataNormalizer;
 import com.research.assistant.service.metadata.PdfMetadataHeuristics;
@@ -46,17 +47,20 @@ public class PaperServiceImpl implements PaperService {
     private final PdfExtractor pdfExtractor;
     private final AgentOrchestrator agentOrchestrator;
     private final AsyncTaskService asyncTaskService;
+    private final PaperAssetLifecycleService paperAssetLifecycleService;
 
-    @Value("${app.storage.pdf-dir:./data/papers}")
+    @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
     public PaperServiceImpl(PaperMapper paperMapper, TagMapper tagMapper, PdfExtractor pdfExtractor,
-                            AgentOrchestrator agentOrchestrator, AsyncTaskService asyncTaskService) {
+                            AgentOrchestrator agentOrchestrator, AsyncTaskService asyncTaskService,
+                            PaperAssetLifecycleService paperAssetLifecycleService) {
         this.paperMapper = paperMapper;
         this.tagMapper = tagMapper;
         this.pdfExtractor = pdfExtractor;
         this.agentOrchestrator = agentOrchestrator;
         this.asyncTaskService = asyncTaskService;
+        this.paperAssetLifecycleService = paperAssetLifecycleService;
     }
 
     @Override
@@ -123,8 +127,11 @@ public class PaperServiceImpl implements PaperService {
     @Override
     @Transactional
     public void delete(Long id) {
-        // MyBatis Plus 默认不处理关联表；paper_tag 由数据库外键 CASCADE 自动清理
+        Paper paper = paperMapper.selectById(id);
+        if (paper == null) return;
+        // Paper-owned database data (including annotations) is removed by foreign-key cascades.
         paperMapper.deleteById(id);
+        paperAssetLifecycleService.deleteAfterCommit(List.of(paper));
     }
 
     // ========== PDF 文件管理 ==========
@@ -204,7 +211,10 @@ public class PaperServiceImpl implements PaperService {
             }
             paperMapper.updateById(paper);
             uploadPdf(duplicate.getId(), file);
-            deleteStoredPdf(oldPdfPath);
+            Paper replaced = new Paper();
+            replaced.setId(duplicate.getId());
+            replaced.setPdfPath(oldPdfPath);
+            paperAssetLifecycleService.deleteAfterCommit(List.of(replaced));
             triggerAsyncProcessing(duplicate.getId());
             return getById(duplicate.getId());
         }
@@ -271,19 +281,13 @@ public class PaperServiceImpl implements PaperService {
         return file.isFile() ? file : null;
     }
 
-    private void deleteStoredPdf(String storedName) {
-        File oldFile = resolveStoredFile(storedName);
-        if (oldFile != null) {
-            try { Files.deleteIfExists(oldFile.toPath()); }
-            catch (IOException e) { log.warn("删除被覆盖的旧 PDF 失败: {}", oldFile.getName()); }
-        }
-    }
-
     @Override
     @Transactional
     public void deleteBatch(List<Long> ids) {
         if (ids == null || ids.isEmpty()) return;
+        List<Paper> papers = paperMapper.selectBatchIds(ids);
         paperMapper.deleteBatchIds(ids);
+        paperAssetLifecycleService.deleteAfterCommit(papers);
     }
 
     @Override

@@ -2426,6 +2426,9 @@ function onWindowClick() {
   if (zoomMenuVisible.value) zoomMenuVisible.value = false
   if (colorMenuVisible.value) colorMenuVisible.value = false
   if (notePreview.value) notePreview.value = null
+  if (selectedAnnotation.value && !resizingAnnotation && !draggingNote) {
+    selectedAnnotation.value = null
+  }
 }
 
 function colorName(color) {
@@ -2504,7 +2507,7 @@ function colorName(color) {
 }
 .pdf-toolbar {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
+  grid-template-columns: minmax(180px, 1.35fr) auto minmax(132px, .65fr);
   align-items: center;
   padding: 7px 12px;
   background: var(--ra-panel-bg);
@@ -2517,6 +2520,22 @@ function colorName(color) {
   transition: margin-right .16s ease;
 }
 .pdf-toolbar :deep(.el-button) { border-radius: 8px; }
+.pdf-toolbar :deep(.el-button-group) {
+  display:inline-flex;
+  flex-wrap:nowrap;
+  align-items:center;
+}
+.pdf-toolbar :deep(.el-button-group > .el-button:first-child) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.pdf-toolbar :deep(.el-button-group > .el-button:last-child) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.pdf-toolbar :deep(.el-button-group > .el-button:not(:first-child):not(:last-child)) {
+  border-radius: 0;
+}
 .pdf-toolbar-left, .pdf-toolbar-right {
   display: flex;
   align-items: center;
@@ -2525,6 +2544,7 @@ function colorName(color) {
 }
 .pdf-toolbar-right {
   justify-content: flex-end;
+  gap: 2px;
   white-space: nowrap;
 }
 .pdf-toolbar-center {
