@@ -34,6 +34,14 @@ public class AnnotationController {
         return Result.ok(annotationService.create(paperId, request));
     }
 
+    /** Saves a UI-executed, server-validated workbench action with explicit provenance. */
+    @PostMapping("/agent")
+    public Result<AnnotationDto> createAgentAnnotation(
+            @PathVariable Long paperId,
+            @RequestBody @Valid AnnotationRequest request) {
+        return Result.ok(annotationService.create(paperId, request, true));
+    }
+
     @PutMapping("/{annotationId}")
     public Result<AnnotationDto> update(
             @PathVariable Long paperId,

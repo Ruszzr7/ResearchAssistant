@@ -107,7 +107,7 @@ class WorkbenchExecutionEngineTest {
                 traceService, artifactService, anchorResolver, localEvidenceService, wholeEvidenceService,
                 modelService, new WorkbenchEvidenceGate(), new WorkbenchOutputQualityGate(), reportService,
                 contextAssembler, observationService, paperMapper, objectMapper, visualEvidenceService,
-                new WorkbenchEvidencePackager());
+                new WorkbenchEvidencePackager(), new WorkbenchCommandPlanner());
     }
 
     @Test
@@ -208,6 +208,34 @@ class WorkbenchExecutionEngineTest {
         verify(wholeEvidenceService).retrievePaper(
                 any(), anyString(), eq(List.of("p1-b0001")), eq(18), eq(14_000));
         verify(contextAssembler).assemble(any(), org.mockito.ArgumentMatchers.isNull());
+        assertCompleted(planned.runId(), 4);
+    }
+
+    @Test
+    void conversationWithoutSelectionCanAnswerOrdinaryQuestionsWithoutPaperEvidence() {
+        when(wholeEvidenceService.retrievePaper(any(), anyString(), anyList(), anyInt(), anyInt()))
+                .thenReturn(List.of());
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "快速排序的平均时间复杂度是 O(n log n)。",
+                WorkbenchAnswerBlock.Basis.GENERAL_KNOWLEDGE, List.of(), List.of("r1"));
+        WorkbenchModelOutput output = new WorkbenchModelOutput(
+                block.text(), List.of(), null, List.of(block), List.of());
+        doReturn(new WorkbenchModelService.ModelCall(output, true, 10, 5, 15))
+                .when(modelService).generate(eq(WorkbenchPlan.Workflow.SELECTION_QA), anyString(),
+                        anyMap(), anyList(), anyInt(), any(), anyList());
+        WorkbenchInvocation invocation = new WorkbenchInvocation(
+                List.of(7L), "快速排序的复杂度是什么？", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 10_000, "", "paper-thread-general");
+        WorkbenchRunTrace planned = traceService.plan(invocation);
+
+        WorkbenchWorkflowResult result = engine.execute(
+                planned.runId(), "task-general-conversation", null);
+
+        assertThat(result.answer()).contains("O(n log n)");
+        assertThat(result.evidence()).isEmpty();
+        assertThat(result.answerBlocks()).singleElement()
+                .extracting(WorkbenchAnswerBlock::basis)
+                .isEqualTo(WorkbenchAnswerBlock.Basis.GENERAL_KNOWLEDGE);
         assertCompleted(planned.runId(), 4);
     }
 
@@ -360,9 +388,9 @@ class WorkbenchExecutionEngineTest {
         WorkbenchRunTrace failed = traceService.requireTrace(planned.runId());
         assertThat(failed.status()).isEqualTo(WorkbenchRunStatus.FAILED);
         assertThat(failed.steps().get(2).inputSummary().toString())
-                .contains("repairIssues", "grounded claims are required");
+                .contains("repairIssues", "selection answer has no claims");
         assertThat(failed.steps().get(3).outputSummary().toString())
-                .contains("issues", "model output is not structured JSON", "grounded claims are required");
+                .contains("issues", "model output is not structured JSON", "selection answer has no claims");
     }
 
     @Test

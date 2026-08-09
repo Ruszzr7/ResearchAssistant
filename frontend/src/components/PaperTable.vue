@@ -20,6 +20,15 @@
     @checkbox-all="onCheckboxAll"
     @cell-dblclick="onCellDblclick"
   >
+    <template #title_header><span class="paper-header-label">标题</span></template>
+    <template #category_header><span class="paper-header-label">类目</span></template>
+    <template #tags_header><span class="paper-header-label">标签</span></template>
+    <template #status_header><span class="paper-header-label">状态</span></template>
+    <template #source_header><span class="paper-header-label">期刊/会议</span></template>
+    <template #year_header><span class="paper-header-label">出版年份</span></template>
+    <template #createdAt_header><span class="paper-header-label">导入年份</span></template>
+    <template #actions_header><span class="paper-header-label">操作</span></template>
+
     <template #title_default="{ row }">
       <div class="scroll-cell" :title="row.title">{{ row.title }}</div>
     </template>
@@ -143,14 +152,14 @@ const emptyText = '暂无论文 — 点击左上角「导入」添加第一篇�
 
 const columns = ref([
   { type: 'checkbox', width: 40, fixed: 'left', align: 'center', resizable: false },
-  { field: 'title', title: '标题', width: 260, sortable: true, headerAlign: 'left', align: 'left', showOverflow: false, slots: { default: 'title_default' } },
-  { field: 'category', title: '类目', width: 80, headerAlign: 'left', align: 'left', slots: { default: 'category_default' } },
-  { field: 'tags', title: '标签', width: 130, headerAlign: 'left', align: 'left', slots: { default: 'tags_default' } },
-  { field: 'readingStatus', title: '状态', width: 80, headerAlign: 'left', align: 'left', slots: { default: 'status_default' } },
-  { field: 'source', title: '期刊/会议', width: 180, sortable: true, headerAlign: 'left', align: 'left', showOverflow: false, slots: { default: 'source_default' } },
-  { field: 'year', title: '出版年份', width: 90, sortable: true, headerAlign: 'left', align: 'left' },
-  { field: 'createdAt', title: '导入年份', width: 100, sortable: true, headerAlign: 'left', align: 'left', resizable: false, slots: { default: 'createdAt_default' } },
-  { field: 'actions', title: '操作', width: 150, minWidth: 150, maxWidth: 150, fixed: 'right', headerAlign: 'center', align: 'center', resizable: false, slots: { default: 'actions_default' } }
+  { field: 'title', title: '标题', width: 260, sortable: true, headerAlign: 'left', align: 'left', showOverflow: false, slots: { header: 'title_header', default: 'title_default' } },
+  { field: 'category', title: '类目', width: 80, headerAlign: 'left', align: 'left', slots: { header: 'category_header', default: 'category_default' } },
+  { field: 'tags', title: '标签', width: 130, headerAlign: 'left', align: 'left', slots: { header: 'tags_header', default: 'tags_default' } },
+  { field: 'readingStatus', title: '状态', width: 80, headerAlign: 'left', align: 'left', slots: { header: 'status_header', default: 'status_default' } },
+  { field: 'source', title: '期刊/会议', width: 180, sortable: true, headerAlign: 'left', align: 'left', showOverflow: false, slots: { header: 'source_header', default: 'source_default' } },
+  { field: 'year', title: '出版年份', width: 90, sortable: true, headerAlign: 'left', align: 'left', slots: { header: 'year_header' } },
+  { field: 'createdAt', title: '导入年份', width: 100, sortable: true, headerAlign: 'left', align: 'left', resizable: false, slots: { header: 'createdAt_header', default: 'createdAt_default' } },
+  { field: 'actions', title: '操作', width: 150, minWidth: 150, maxWidth: 150, fixed: 'right', headerAlign: 'center', align: 'center', resizable: false, slots: { header: 'actions_header', default: 'actions_default' } }
 ])
 
 const tableShellRef = ref(null)
@@ -376,15 +385,30 @@ html.dark .paper-table-vxe .vxe-body--row.row--hover:not(.row-active) .vxe-body-
   padding-right: 8px !important;
   white-space: nowrap !important;
   word-break: keep-all;
+  height: 100%;
   min-height: 42px;
+  box-sizing: border-box;
   line-height: 1;
 }
+.paper-table-vxe .vxe-header--column {
+  vertical-align: middle !important;
+}
 .paper-table-vxe .vxe-header--column .vxe-cell--title {
+  display: inline-flex;
+  height: 16px;
+  align-items: center;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap !important;
   text-overflow: ellipsis;
   line-height: 16px;
+}
+.paper-table-vxe .paper-header-label {
+  display: inline-flex;
+  height: 16px;
+  align-items: center;
+  line-height: 16px;
+  vertical-align: middle;
 }
 .paper-table-vxe .vxe-header--column .vxe-cell--sort {
   display:inline-flex;
@@ -392,11 +416,14 @@ html.dark .paper-table-vxe .vxe-body--row.row--hover:not(.row-active) .vxe-body-
   flex: 0 0 auto;
   white-space: nowrap;
 }
-.paper-table-vxe .vxe-pager .vxe-pager--jump .vxe-input {
-  width: 34px !important;
-  min-width: 34px !important;
+.paper-table-vxe .vxe-pager .vxe-pager--jump .vxe-pager--goto {
+  width: 2.15em !important;
+  min-width: 2.15em !important;
+  height: 2.15em !important;
+  box-sizing: border-box !important;
+  line-height: 2em !important;
 }
-.paper-table-vxe .vxe-pager .vxe-pager--jump .vxe-input--inner {
+.paper-table-vxe .vxe-pager .vxe-pager--jump .vxe-pager--goto .vxe-input--inner {
   padding: 0 3px;
   text-align: center;
 }

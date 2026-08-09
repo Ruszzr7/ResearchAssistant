@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { distanceToRect, isNearTextRect } from '@/utils/pdfTextSelection.js'
+import { distanceToRect, isNearTextRect, isTextSelectionDrag } from '@/utils/pdfTextSelection.js'
 
 const glyphRect = { left: 100, right: 180, top: 50, bottom: 70 }
 
@@ -20,5 +20,10 @@ describe('PDF native selection start hit testing', () => {
 
   it('treats malformed rectangles as non-selectable', () => {
     expect(isNearTextRect(100, 60, { left: 100, right: 90, top: 50, bottom: 70 })).toBe(false)
+  })
+
+  it('requires an intentional drag instead of selecting a glyph on click', () => {
+    expect(isTextSelectionDrag({ x: 100, y: 50 }, { x: 101, y: 51 })).toBe(false)
+    expect(isTextSelectionDrag({ x: 100, y: 50 }, { x: 104, y: 50 })).toBe(true)
   })
 })

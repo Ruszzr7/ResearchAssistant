@@ -8,6 +8,10 @@ export function createAnnotation(paperId, annotation) {
   return api.post(`/papers/${paperId}/annotations`, annotation).then(r => r.data)
 }
 
+export function createAgentAnnotation(paperId, annotation) {
+  return api.post(`/papers/${paperId}/annotations/agent`, annotation).then(r => r.data)
+}
+
 export function updateAnnotation(paperId, annotationId, annotation) {
   return api.put(`/papers/${paperId}/annotations/${annotationId}`, annotation).then(r => r.data)
 }

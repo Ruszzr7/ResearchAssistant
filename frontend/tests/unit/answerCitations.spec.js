@@ -75,7 +75,9 @@ describe('answer citations', () => {
     expect(cited.match(/#evidence-source~1/g)).toHaveLength(1)
     expect(sources).toHaveLength(1)
     expect(sources[0]).toMatchObject({ number: 1, kind: '公式', page: 4, excerpt: 'Γp,k = ... (5)' })
-    expect(sources[0].target.locator).toMatchObject({ precision: 'FORMULA_REGION', targetText: '' })
+    expect(sources[0].target.locator).toMatchObject({
+      precision: 'FORMULA_REGION', targetText: 'Γp,k = ... (5)',
+    })
   })
 
   it('keeps different quoted sentences from one evidence block as separate sources', () => {
@@ -146,5 +148,35 @@ describe('answer citations', () => {
       targetText: 'signal-to-interference plus noise ratio (SINR) for the common\nstream at vehicle-k can be written as',
       targetBbox: { x: 0.08, y: 0.522, width: 0.41, height: 0.04300000000000004 },
     })
+  })
+
+  it('merges one wrapped source sentence even when its citations occur in separate answer blocks', () => {
+    const evidence = [
+      {
+        evidenceId: 'lay-a', paperId: 7, blockId: 'p2-b10', page: 2, readingOrder: 10,
+        role: 'BODY', contentMode: 'TEXT', text: 'The proposed method treats the remaining',
+        bbox: { x: 0.08, y: 0.4, width: 0.4, height: 0.02 }, locator: { precision: 'BLOCK' },
+      },
+      {
+        evidenceId: 'lay-b', paperId: 7, blockId: 'p2-b11', page: 2, readingOrder: 11,
+        role: 'BODY', contentMode: 'TEXT', text: 'private streams as background noise.',
+        bbox: { x: 0.08, y: 0.42, width: 0.35, height: 0.02 }, locator: { precision: 'BLOCK' },
+      },
+    ]
+    const blocks = [
+      { text: '该处理对象是剩余私有流。', basis: 'PAPER_FACT', citations: [
+        { evidenceId: 'lay-a', quote: 'The proposed method treats the remaining' },
+      ] },
+      { text: '它们被视作背景噪声。', basis: 'PAPER_FACT', citations: [
+        { evidenceId: 'lay-b', quote: 'private streams as background noise.' },
+      ] },
+    ]
+
+    const cited = buildCitedAnswer('', [], evidence, blocks)
+    const sources = buildCitationSources([], evidence, blocks)
+
+    expect(sources).toHaveLength(1)
+    expect(cited.match(/#evidence-source~1/g)).toHaveLength(2)
+    expect(sources[0].excerpt).toContain('remaining private streams as background noise')
   })
 })

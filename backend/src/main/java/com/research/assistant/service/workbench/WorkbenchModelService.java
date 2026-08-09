@@ -207,7 +207,8 @@ public class WorkbenchModelService {
             case SELECTION_QA -> "用中文直接回答当前追问，不超过 1200 个汉字，最多 6 条 claims；"
                     + (hasCurrentSelection
                     ? "把 selected=true 的内容作为本轮附加锚点，并结合全文相关 evidence 回答；"
-                    : "本轮没有新选区，基于论文全文相关 evidence 与同一对话历史正常回答；")
+                    : "本轮没有新选区：若问题承接历史，延续同一对话；若询问本文，使用相关 evidence；"
+                    + "若问题与本文及历史都无关，则像普通 LLM 一样直接回答并标为 GENERAL_KNOWLEDGE，不得强行引用论文；")
                     + "明确区分选区内容与论文其他位置的信息，不得使用对话历史替代论文证据；"
                     + "位置类问题应直接给出 evidence 中可确定的页码、章节及区域，不要因缺少公式转写而拒绝回答位置；"
                     + "inlineMath 的 sourceText 是 PDF 原文事实，latex 只是带状态的理解辅助；"

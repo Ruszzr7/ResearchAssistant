@@ -179,6 +179,7 @@ import api from '@/api'
 import { listTasks, cancelTask as cancelTaskApi, retryWorkflowTask, deleteTask as deleteTaskApi, confirmWorkflowTask } from '@/api/tasks.js'
 import { useTaskPolling, isTerminal } from '@/composables/useTaskPolling.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { TASK_STATUS_META } from '@/utils/taskStatus.js'
 
 const route = useRoute()
 
@@ -195,17 +196,7 @@ const confirmFolderId = ref(null)
 const confirming = ref(false)
 const treeProps = { children: 'children', label: 'name' }
 
-const statusMeta = {
-  PENDING: { label: '排队中', type: 'info' },
-  PROCESSING: { label: '运行中', type: 'primary' },
-  RETRY_WAIT: { label: '等待重试', type: 'warning' },
-  COMPLETED: { label: '已完成', type: 'success' },
-  FAILED: { label: '失败', type: 'danger' },
-  CANCELLED: { label: '已取消', type: 'warning' },
-  PENDING_USER: { label: '待确认', type: 'warning' },
-  EXPIRED: { label: '已过期', type: 'info' },
-  DEAD_LETTER: { label: '超过重试上限', type: 'danger' }
-}
+const statusMeta = TASK_STATUS_META
 
 const typeMeta = {
   plain: { label: '普通任务', type: 'info' },

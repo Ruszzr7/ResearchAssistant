@@ -82,6 +82,7 @@ describe('FormulaRegionCard', () => {
     expect(wrapper.find('.katex').exists()).toBe(true)
     expect(wrapper.text()).toContain('待确认')
     expect(wrapper.text()).toContain('图像识别候选')
+    expect(wrapper.text()).not.toContain('请核对')
     expect(wrapper.findAll('.formula-region-card__actions button')[0].text())
       .toContain('重新转换 LaTeX')
     await wrapper.get('textarea').setValue('\\int_0^1 x\\,dx')

@@ -59,7 +59,7 @@
         <p class="capture-hint">
           {{ captureMode === 'formula'
             ? '直接选取不完整时可精确框选公式；点击固定内容后，系统会自动生成可编辑 LaTeX。'
-            : '直接在 PDF 中拖动选择文字或公式，确认固定后作为当前对话焦点。' }}
+            : '直接在 PDF 中拖动选择文字或公式，确认后作为下一条消息的附件。' }}
         </p>
       </section>
 
@@ -101,9 +101,9 @@
               :loading="displayedSelectionLoading"
               :disabled="!selectionAnchor || Boolean(displayedSelectionError)"
               @click="confirmTextSelection"
-            >确认并固定</el-button>
+            >附加到下一条消息</el-button>
             <template v-else>
-              <el-tag size="small" type="success" effect="plain">已固定</el-tag>
+              <el-tag size="small" type="success" effect="plain">待发送</el-tag>
               <el-button size="small" plain @click="clearTextSelection">重新选择</el-button>
             </template>
           </div>
@@ -121,14 +121,14 @@
           <div v-else-if="selectionIsMathRich" class="math-rich-state" role="status">
             已精确定位文字；检测到多个行内数学片段。提问时会同时提供 PDF 原文和本地 LaTeX 辅助，近似转写仍以原页排版为准。
           </div>
-          <div v-else-if="!fixedTextSelection" class="content-confirm-hint">确认后才会作为当前对话焦点；继续拖选可调整范围。</div>
-          <div v-else class="content-confirm-hint">固定内容会持续用于后续追问，直到你重新选择或点击 × 清除。</div>
+          <div v-else-if="!fixedTextSelection" class="content-confirm-hint">确认后只附加到下一条消息；继续拖选可调整范围。</div>
+          <div v-else class="content-confirm-hint">该内容只用于下一条消息，发送后自动移除；对话历史会继续保留。</div>
         </section>
 
         <section v-else class="content-empty">
           <div class="content-empty__icon" aria-hidden="true">⌁</div>
           <b>{{ captureMode === 'formula' ? '框选一个公式' : '选择一段论文内容' }}</b>
-          <p>{{ captureMode === 'formula' ? '框选预览和固定过程中生成的 LaTeX 会显示在这里。' : '原文会显示在这里，确认后固定为对话焦点。' }}</p>
+          <p>{{ captureMode === 'formula' ? '框选预览和固定过程中生成的 LaTeX 会显示在这里。' : '原文会显示在这里，确认后附加到下一条消息。' }}</p>
         </section>
       </div>
 
@@ -137,12 +137,12 @@
           <div>
             <b>论文对话</b>
             <small v-if="activeSelectionAnchor">
-              当前焦点：第 {{ activeSelectionAnchor.page }} 页固定内容
+              下一条消息已附加：第 {{ activeSelectionAnchor.page }} 页内容
             </small>
             <small v-else-if="canContinueSelectionConversation">
               当前未附加新选区；将沿用本对话历史与论文理解
             </small>
-            <small v-else>基于论文理解开始对话；也可固定一段内容作为焦点</small>
+            <small v-else>基于论文理解开始对话；也可附加一段内容后提问</small>
           </div>
           <div class="selection-chat__actions">
             <button type="button" :disabled="running" @click="openConversationPicker">切换对话</button>
@@ -235,10 +235,10 @@
             :placeholder="!memoryReady
               ? '论文理解完成后即可提问'
               : (activeSelectionAnchor
-                ? '向论文助手提问…'
+                ? '针对已附加内容提问…'
                 : (canContinueSelectionConversation
                   ? '继续当前对话，或附加新选区后提问…'
-                  : '基于论文理解开始提问，也可先选择内容…'))"
+                  : '可以询问论文，也可以像普通对话一样提问…'))"
             @keydown.ctrl.enter.prevent="sendSelectionMessage"
           />
           <div class="assistant-composer__footer">
@@ -301,7 +301,7 @@ const props = defineProps({
 const emit = defineEmits([
   'clear-selection', 'clear-formula', 'retry-formula', 'confirm-formula',
   'capture-mode-change', 'jump-evidence', 'research-session-change',
-  'add-comparison-paper',
+  'add-comparison-paper', 'execute-actions',
 ])
 
 const { running, error, run, loadRecent } = usePaperWorkbench()
@@ -493,7 +493,9 @@ async function sendSelectionMessage() {
       selectionAnchor: anchor,
       conversationId,
     })
-    const completed = await run(request)
+    const completed = await run(request, {
+      onAccepted: () => detachSubmittedSelection(anchor),
+    })
     if (selectionConversationId.value !== conversationId) return
     selectionMessages.value.push({
       id: completed.runId || `assistant-${++selectionMessageSequence}`,
@@ -503,7 +505,13 @@ async function sendSelectionMessage() {
       answerBlocks: completed.result?.answerBlocks || [],
       evidence: completed.result?.evidence || [],
       regionFallback: Boolean(completed.result?.regionFallback),
+      actions: completed.result?.actions || [],
     })
+    emit('execute-actions', (completed.result?.actions || []).map(action => ({
+      ...action,
+      evidence: (completed.result?.evidence || [])
+        .find(item => item.evidenceId === action.evidenceId) || null,
+    })))
     try {
       await appendResearchMessages(sessionId, [
         {
@@ -519,6 +527,7 @@ async function sendSelectionMessage() {
             answerBlocks: completed.result?.answerBlocks || [],
             evidence: completed.result?.evidence || [],
             regionFallback: Boolean(completed.result?.regionFallback),
+            actions: completed.result?.actions || [],
             conversationId,
           },
         },
@@ -534,6 +543,15 @@ async function sendSelectionMessage() {
       selectionChatError.value = requestErrorMessage(reason, '选区对话失败')
     }
   }
+}
+
+function detachSubmittedSelection(anchor) {
+  if (!anchor) return
+  if (fixedTextSelection.value?.anchor === anchor) {
+    fixedTextSelection.value = null
+    emit('clear-selection')
+  }
+  if (confirmedFormula.value?.anchor === anchor) emit('clear-formula')
 }
 
 async function translateSelection() {
@@ -607,6 +625,7 @@ async function restoreResearchMessages(sessionId) {
       answerBlocks: message.evidence?.answerBlocks || [],
       evidence: message.evidence?.evidence || [],
       regionFallback: Boolean(message.evidence?.regionFallback),
+      actions: message.evidence?.actions || [],
       selectionAnchor: message.selectionAnchor || null,
       contextInherited: Boolean(message.evidence?.contextInherited),
     }))
@@ -728,16 +747,21 @@ function requestErrorMessage(reason, fallback) {
 .paper-workbench {
   flex: 0 0 360px;
   min-width: 0;
-  overflow-y: auto;
+  min-height: 0;
+  height: calc(100% + var(--pdf-toolbar-height));
+  margin-top: calc(-1 * var(--pdf-toolbar-height));
+  overflow: hidden;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   background: var(--ra-panel-bg);
   color: var(--ra-text);
-  margin-top: 0;
   border-top: 1px solid var(--ra-border-light);
 }
 section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .assistant-context-header {
-  position: sticky;
+  position: relative;
+  flex: 0 0 auto;
   z-index: 4;
   top: 0;
   display: flex;
@@ -762,7 +786,7 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
   cursor: pointer;
   font-size: 10px;
 }
-.memory-status { display: flex; align-items: center; gap: 9px; padding-block: 9px; background: color-mix(in srgb, var(--ra-link) 5%, var(--ra-panel-bg)); }
+.memory-status { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; padding-block: 9px; background: color-mix(in srgb, var(--ra-link) 5%, var(--ra-panel-bg)); }
 .memory-orbit { position: relative; flex: 0 0 24px; width: 24px; height: 24px; border: 1px solid color-mix(in srgb, var(--ra-link) 28%, transparent); border-radius: 50%; animation: memory-orbit 1.4s linear infinite; }
 .memory-orbit::before, .memory-orbit span { position: absolute; border-radius: 50%; background: var(--ra-link); content: ''; }
 .memory-orbit::before { top: 1px; left: 9px; width: 5px; height: 5px; }
@@ -781,7 +805,7 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 @media (prefers-reduced-motion: reduce) {
   .memory-orbit, .memory-orbit span { animation: none; }
 }
-.capture-section { padding-bottom: 10px; }
+.capture-section { flex: 0 0 auto; padding-bottom: 10px; }
 .capture-switch {
   position: relative;
   display: grid;
@@ -816,7 +840,7 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 }
 .capture-switch button.active { color: var(--ra-link); font-weight: 600; }
 .capture-hint { margin: 8px 2px 0; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.45; }
-.content-stage { border-bottom: 1px solid var(--ra-border); }
+.content-stage { flex: 0 1 auto; max-height: min(46%, 430px); overflow-y: auto; border-bottom: 1px solid var(--ra-border); }
 .content-stage :deep(.formula-region-card) { border-bottom: 0; }
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .section-heading > div { display: flex; flex-direction: column; gap: 2px; }
@@ -842,9 +866,9 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .content-confirm-hint { margin-top: 8px; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.4; }
 .content-empty { display: grid; min-height: 132px; border-bottom: 0; place-items: center; align-content: center; text-align: center; }
 .content-empty__icon { display: grid; width: 34px; height: 34px; margin-bottom: 8px; border-radius: 50%; place-items: center; color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 10%, transparent); font-size: 20px; }
-.content-empty b { font-size: 12px; }
+.content-empty b { color: var(--ra-text); font-size: 12px; }
 .content-empty p { max-width: 260px; margin: 5px 0 0; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.5; }
-.selection-chat { display: flex; min-height: 380px; flex-direction: column; gap: 11px; border-bottom: 0; }
+.selection-chat { display: flex; min-height: 0; flex: 1 1 0; overflow: hidden; flex-direction: column; gap: 9px; border-bottom: 0; }
 .selection-chat__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .selection-chat__heading > div { display: flex; flex-direction: column; gap: 2px; }
 .selection-chat__heading b { font-size: 12px; }
@@ -863,10 +887,10 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .conversation-picker__item small, .conversation-picker__empty { color: var(--ra-text-tertiary); font-size: 9px; }
 .conversation-picker__empty { padding: 12px 4px; text-align: center; }
 .conversation-picker__new { padding: 7px; border: 1px dashed color-mix(in srgb, var(--ra-link) 55%, var(--ra-border)); border-radius: 6px; color: var(--ra-link); background: transparent; cursor: pointer; font-size: 10px; }
-.selection-chat__messages { display: flex; min-height: 170px; max-height: 460px; flex: 1; flex-direction: column; gap: 10px; overflow-y: auto; padding: 2px; }
-.selection-chat__empty { display: grid; min-height: 140px; padding: 12px; border: 1px dashed var(--ra-border); border-radius: 9px; place-items: center; align-content: center; color: var(--ra-text-tertiary); text-align: center; }
+.selection-chat__messages { display: flex; min-height: 0; max-height: none; flex: 1 1 0; flex-direction: column; gap: 10px; overflow-y: auto; padding: 2px; }
+.selection-chat__empty { display: grid; min-height: 0; height: 100%; padding: 12px; box-sizing: border-box; border: 1px dashed var(--ra-border); border-radius: 9px; place-items: center; align-content: center; color: var(--ra-text-tertiary); text-align: center; }
 .selection-chat__empty > span { margin-bottom: 6px; color: var(--ra-link); font-size: 20px; }
-.selection-chat__empty b { color: var(--ra-text-secondary); font-size: 11px; }
+.selection-chat__empty b { color: var(--ra-text); font-size: 12px; }
 .selection-chat__empty p { max-width: 260px; margin: 5px 0 0; font-size: 10px; line-height: 1.5; }
 .chat-message { max-width: 92%; padding: 11px 12px; border: 1px solid var(--ra-border-light); border-radius: 12px; background: var(--ra-panel-bg); }
 .chat-message.is-user { align-self: flex-end; border-color: color-mix(in srgb, var(--ra-link) 30%, var(--ra-border)); background: color-mix(in srgb, var(--ra-link) 8%, var(--ra-panel-bg)); }
@@ -881,7 +905,7 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .chat-claim-list li { font-size: 10px; line-height: 1.45; }
 .evidence-source__excerpt { display: block; color: var(--ra-text-secondary); }
 .evidence-source__jump { margin-top: 4px; padding: 2px 6px; border: 1px solid color-mix(in srgb, var(--ra-link) 45%, var(--ra-border)); border-radius: 999px; color: var(--ra-link); background: transparent; font-size: 10px; cursor: pointer; }
-.assistant-composer { padding: 9px; border: 1px solid var(--ra-border); border-radius: 12px; background: var(--ra-panel-bg); box-shadow: 0 5px 18px rgb(0 0 0 / 5%); }
+.assistant-composer { flex: 0 0 auto; padding: 9px; border: 1px solid var(--ra-border); border-radius: 12px; background: var(--ra-panel-bg); box-shadow: 0 5px 18px rgb(0 0 0 / 5%); }
 .assistant-composer.disabled { background: var(--ra-hover-bg); }
 .assistant-composer :deep(.el-textarea__inner) { padding: 4px; border: 0; background: transparent; box-shadow: none; }
 .assistant-composer__footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; }

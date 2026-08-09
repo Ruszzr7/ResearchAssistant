@@ -346,6 +346,15 @@ public class WorkbenchEvidenceGate {
             return new GatePolicy(true, 1.0, repairAttempt, 1, Set.of(), true);
         }
 
+        /**
+         * A conversation turn may be unrelated to the paper. Paper-backed claims are still
+         * validated at full coverage, while an answer made only of GENERAL_KNOWLEDGE blocks is
+         * allowed to pass without manufacturing a citation.
+         */
+        public static GatePolicy conversation(int repairAttempt) {
+            return new GatePolicy(false, 1.0, repairAttempt, 1, Set.of(), false);
+        }
+
         public static GatePolicy comparison(int repairAttempt, Set<Long> paperIds) {
             return new GatePolicy(true, 1.0, repairAttempt, 1, paperIds, false);
         }

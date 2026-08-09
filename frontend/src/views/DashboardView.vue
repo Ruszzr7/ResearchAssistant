@@ -82,6 +82,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getDashboard } from '@/api/dashboard'
+import { taskStatusMeta } from '@/utils/taskStatus.js'
 
 const loading = ref(true)
 const data = ref(null)
@@ -132,31 +133,11 @@ function formatTime(iso) {
 }
 
 function taskStatusText(status) {
-  const map = {
-    PENDING: '待处理',
-    PROCESSING: '进行中',
-    RETRY_WAIT: '等待重试',
-    COMPLETED: '已完成',
-    FAILED: '失败',
-    CANCELLED: '取消',
-    PENDING_USER: '待确认',
-    EXPIRED: '已过期',
-    DEAD_LETTER: '超过重试上限',
-  }
-  return map[status] || status
+  return taskStatusMeta(status).label
 }
 
 function taskTagType(status) {
-  switch (status) {
-    case 'COMPLETED': return 'success'
-    case 'FAILED': return 'danger'
-    case 'PROCESSING': return 'warning'
-    case 'RETRY_WAIT': return 'warning'
-    case 'CANCELLED':
-    case 'EXPIRED': return 'info'
-    case 'DEAD_LETTER': return 'danger'
-    default: return ''
-  }
+  return taskStatusMeta(status).type
 }
 
 onMounted(load)
@@ -175,7 +156,7 @@ onMounted(load)
   align-items: center;
   margin-bottom: 24px;
 }
-.enter-library-button { align-self:center; margin-top:10px; font-size:14px; }
+.enter-library-button { align-self:center; margin-top:18px; font-size:18px; }
 .dashboard-eyebrow { display: block; margin-bottom: 7px; color: var(--ra-text-tertiary); font-size: 11px; }
 .dashboard-title {
   margin: 0;
@@ -265,7 +246,7 @@ onMounted(load)
   border: 1px solid var(--ra-border);
 }
 .task-chip.pending { color: #909399; }
-.task-chip.processing { color: #e6a23c; }
+.task-chip.processing { color: var(--el-color-primary); }
 .task-chip.completed { color: #67c23a; }
 .task-chip.failed { color: #f56c6c; }
 .task-chip.cancelled { color: #909399; }

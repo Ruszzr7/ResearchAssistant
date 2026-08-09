@@ -5,6 +5,7 @@
  * tolerance for anti-aliased / sub-pixel edges).
  */
 export const PDF_TEXT_HIT_SLOP = 4
+export const PDF_TEXT_DRAG_THRESHOLD = 4
 
 export function distanceToRect(x, y, rect) {
   if (!Number.isFinite(x) || !Number.isFinite(y) || !rect) return Number.POSITIVE_INFINITY
@@ -24,4 +25,11 @@ export function distanceToRect(x, y, rect) {
 
 export function isNearTextRect(x, y, rect, hitSlop = PDF_TEXT_HIT_SLOP) {
   return distanceToRect(x, y, rect) <= hitSlop
+}
+
+export function isTextSelectionDrag(start, current, threshold = PDF_TEXT_DRAG_THRESHOLD) {
+  if (!start || !current) return false
+  const dx = Number(current.x) - Number(start.x)
+  const dy = Number(current.y) - Number(start.y)
+  return Number.isFinite(dx) && Number.isFinite(dy) && Math.hypot(dx, dy) >= threshold
 }

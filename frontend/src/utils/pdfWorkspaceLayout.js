@@ -5,6 +5,7 @@ export const MAX_WORKBENCH_RATIO = 0.65
 export const MIN_WORKBENCH_WIDTH = 320
 export const MIN_COMPACT_WORKBENCH_WIDTH = 240
 export const MIN_PDF_WIDTH = 480
+export const MIN_PDF_TOOLBAR_WIDTH = 820
 export const DEFAULT_PDF_VIEWPORT_RESERVE = 20
 export const WORKBENCH_DIVIDER_WIDTH = 8
 export const DEFAULT_COMMENT_PANEL_WIDTH = 280
@@ -24,8 +25,11 @@ export function normalizeWorkbenchRatio(value, fallback = DEFAULT_WORKBENCH_RATI
 
 export function completePdfPaneWidth(pageWidthAt100, viewportReserve = DEFAULT_PDF_VIEWPORT_RESERVE) {
   const pageWidth = Math.max(0, Number(pageWidthAt100) || 0)
-  if (pageWidth === 0) return MIN_PDF_WIDTH
-  return Math.ceil(Math.max(MIN_PDF_WIDTH, pageWidth + Math.max(0, Number(viewportReserve) || 0)))
+  if (pageWidth === 0) return MIN_PDF_TOOLBAR_WIDTH
+  return Math.ceil(Math.max(
+    MIN_PDF_TOOLBAR_WIDTH,
+    pageWidth + Math.max(0, Number(viewportReserve) || 0),
+  ))
 }
 
 export function workbenchWidthForContainer(
@@ -37,12 +41,9 @@ export function workbenchWidthForContainer(
   const usableWidth = Math.max(0, width - WORKBENCH_DIVIDER_WIDTH)
   if (usableWidth === 0) return 0
 
-  // The approved 60/40 workbench gives the assistant the space released by the
-  // compact app rail. A wide PDF may scroll horizontally instead of forcing the
-  // assistant below its requested ratio.
-  void minimumPdfWidth
   const minimum = Math.min(MIN_WORKBENCH_WIDTH, usableWidth * 0.45)
-  const maximum = Math.max(minimum, usableWidth - Math.min(MIN_PDF_WIDTH, usableWidth * 0.55))
+  const requestedPdfMinimum = Math.max(MIN_PDF_WIDTH, Number(minimumPdfWidth) || 0)
+  const maximum = Math.max(minimum, usableWidth - requestedPdfMinimum)
   return Math.round(clamp(usableWidth * normalizeWorkbenchRatio(ratio), minimum, maximum))
 }
 

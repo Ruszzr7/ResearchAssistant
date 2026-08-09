@@ -110,8 +110,11 @@ function boundCitationContext(blocks, evidence) {
       : null
   }
 
+  // Build logical source groups across the whole answer, not once per answer block. A single
+  // PDF sentence is often split into two layout blocks and the model may cite each half from a
+  // different answer block. Keeping one global grouping prevents duplicate source numbers.
+  const groups = []
   for (const block of blocks || []) {
-    const groups = []
     for (const citation of block?.citations || []) {
       const value = descriptor(citation)
       if (!value) continue
@@ -123,31 +126,34 @@ function boundCitationContext(blocks, evidence) {
         groups.push([value])
       }
     }
+  }
 
-    for (const group of groups) {
-      const value = group.length > 1 ? mergedTextDescriptor(group) : singleDescriptor(group[0])
-      group.forEach(entry => sourceKeyByCitation.set(entry.citation, value.key))
-      const existing = sourceByKey.get(value.key)
-      if (existing) {
-        if (moreInformativeQuote(value.quote, existing.quote)) {
-          existing.quote = value.quote
-          existing.excerpt = sourceExcerpt(value.quote, existing.target)
-          existing.title = value.quote
-        }
-        continue
+  for (const group of groups) {
+    const value = group.length > 1 ? mergedTextDescriptor(group) : singleDescriptor(group[0])
+    group.forEach(entry => sourceKeyByCitation.set(entry.citation, value.key))
+    const existing = sourceByKey.get(value.key)
+    if (existing) {
+      if (moreInformativeQuote(value.quote, existing.quote)) {
+        existing.quote = value.quote
+        existing.excerpt = sourceExcerpt(value.quote, existing.target)
+        existing.title = value.quote
       }
-      const source = sourceView(sources.length + 1, value.key, value.item, value.target, value.quote)
-      source.evidenceIds = value.evidenceIds
-      sources.push(source)
-      sourceByKey.set(value.key, source)
+      continue
     }
+    const source = sourceView(sources.length + 1, value.key, value.item, value.target, value.quote)
+    source.evidenceIds = value.evidenceIds
+    sources.push(source)
+    sourceByKey.set(value.key, source)
   }
   return { sources, sourceForCitation }
 }
 
 function singleDescriptor(value) {
   const targetItem = value.formulaTarget || value.item
-  const targetText = value.formulaTarget ? '' : value.quote
+  // PDFium can often locate selectable formula glyphs more precisely than the fallback region.
+  // Keep the canonical quote as a first-choice target; PdfViewer still falls back to the formula
+  // region when that text cannot be mapped.
+  const targetText = usableSearchQuote(value.quote) ? value.quote : ''
   const key = value.formulaKey || citationQuoteKey(value.item, value.quote)
   return {
     key,
@@ -159,6 +165,11 @@ function singleDescriptor(value) {
       locator: { ...(targetItem.locator || {}), targetText },
     },
   }
+}
+
+function usableSearchQuote(value) {
+  const quote = String(value || '').trim()
+  return Boolean(quote) && !/^\[(?:公式|表格|图形)区域/.test(quote)
 }
 
 function mergedTextDescriptor(values) {

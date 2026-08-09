@@ -48,6 +48,7 @@ public class WorkbenchExecutionEngine {
     private final ObjectMapper objectMapper;
     private final WorkbenchSelectionVisualEvidenceService visualEvidenceService;
     private final WorkbenchEvidencePackager evidencePackager;
+    private final WorkbenchCommandPlanner commandPlanner;
 
     public WorkbenchExecutionEngine(WorkbenchRunTraceService traceService,
                                     PaperLayoutArtifactService artifactService,
@@ -63,7 +64,8 @@ public class WorkbenchExecutionEngine {
                                     PaperMapper paperMapper,
                                     ObjectMapper objectMapper,
                                     WorkbenchSelectionVisualEvidenceService visualEvidenceService,
-                                    WorkbenchEvidencePackager evidencePackager) {
+                                    WorkbenchEvidencePackager evidencePackager,
+                                    WorkbenchCommandPlanner commandPlanner) {
         this.traceService = traceService;
         this.artifactService = artifactService;
         this.anchorResolver = anchorResolver;
@@ -79,6 +81,7 @@ public class WorkbenchExecutionEngine {
         this.objectMapper = objectMapper;
         this.visualEvidenceService = visualEvidenceService;
         this.evidencePackager = evidencePackager;
+        this.commandPlanner = commandPlanner;
     }
 
     public WorkbenchWorkflowResult execute(String runId, String taskId, Consumer<String> stageUpdater) {
@@ -262,9 +265,10 @@ public class WorkbenchExecutionEngine {
                                                   int gateStepIndex,
                                                   String modelQuestion,
                                                   PaperContextSnapshot context) {
-        if (evidence == null || evidence.isEmpty()) {
+        if ((evidence == null || evidence.isEmpty()) && initialTrace.plan().evidenceRequired()) {
             throw new StepFailure("NO_EVIDENCE", "该范围没有可安全引用的论文证据", false);
         }
+        evidence = evidence == null ? List.of() : evidence;
         regionFallback = regionFallback || evidence.stream().anyMatch(item ->
                 item.contentMode() == com.research.assistant.service.pdf.layout.DocumentBlockContentMode.REGION);
         WorkbenchRunTrace trace = traceService.requireTrace(initialTrace.runId());
@@ -290,7 +294,7 @@ public class WorkbenchExecutionEngine {
             WorkbenchRunTrace repairTrace = traceService.requireTrace(trace.runId());
             WorkbenchModelService.ModelCall repaired = modelStep(
                     repairTrace, modelStepIndex, evidence, call.output(), gateResult.issues(),
-                    remainingTokenBudget(repairTrace), trace.invocation().question(), context, visualEvidence);
+                    remainingTokenBudget(repairTrace), modelQuestion, context, visualEvidence);
             repaired = repaired.withOutput(repaired.output().normalizeEvidenceQuotes(evidence));
             gateResult = gateStep(
                     traceService.requireTrace(trace.runId()), gateStepIndex,
@@ -306,10 +310,11 @@ public class WorkbenchExecutionEngine {
                 ? output.answer() + "\n\n> 当前模型未接受选区图像，数学公式需回原页核对。"
                 : output.answer();
         WorkbenchRunTrace passedTrace = traceService.requireTrace(trace.runId());
+        List<WorkbenchAction> actions = commandPlanner.plan(passedTrace, output, evidence);
         WorkbenchWorkflowResult result = new WorkbenchWorkflowResult(
                 trace.runId(), trace.plan().workflow(), trace.plan().scope(), trace.invocation().paperIds(),
                 answer, output.claims(), evidence, output.annotationSuggestion(), regionFallback,
-                passedTrace.metrics().repairCount(), output.answerBlocks());
+                passedTrace.metrics().repairCount(), output.answerBlocks(), actions);
         traceService.checkpointResult(trace.runId(), result);
         return result;
     }
@@ -469,7 +474,7 @@ public class WorkbenchExecutionEngine {
     private WorkbenchEvidenceGate.GatePolicy gatePolicy(WorkbenchRunTrace trace, int repairAttempt) {
         return switch (trace.plan().workflow()) {
             case SELECTION_QA -> trace.invocation().selectionAnchor() == null
-                    ? WorkbenchEvidenceGate.GatePolicy.strict(repairAttempt)
+                    ? WorkbenchEvidenceGate.GatePolicy.conversation(repairAttempt)
                     : WorkbenchEvidenceGate.GatePolicy.selection(repairAttempt);
             case ANNOTATION_SUGGESTION -> WorkbenchEvidenceGate.GatePolicy.selection(repairAttempt);
             case PAPER_COMPARISON, RESEARCH_GAP -> WorkbenchEvidenceGate.GatePolicy.comparison(

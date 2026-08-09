@@ -195,6 +195,26 @@ class PaperContextAssemblerTest {
         assertThat(snapshot.retrievalQuery()).doesNotContain("当前选区：");
     }
 
+    @Test
+    void unrelatedQuestionDoesNotReuseThePreviousTurnsRetrievalFocus() {
+        WorkbenchRunTrace trace = traceWithoutSelection(
+                "run-general-chat", "paper-thread-3", "快速排序的复杂度是什么？");
+        when(traceService.readContextSnapshot(trace.runId(), PaperContextSnapshot.class)).thenReturn(null);
+        when(observationService.recentConversation(
+                7L, "paper-thread-3", HASH, PARSER, 8))
+                .thenReturn(List.of(turn(4, "论文的 SINR 在哪里？", "位于系统模型部分。")));
+        when(observationService.relevantObservations(
+                eq(7L), eq(HASH), eq(PARSER), anyString(), eq("paper-thread-3"), eq(8)))
+                .thenReturn(List.of());
+
+        PaperContextSnapshot snapshot = assembler.assemble(trace, null);
+
+        assertThat(snapshot.modelQuestion()).contains("论文的 SINR 在哪里？");
+        assertThat(snapshot.retrievalQuery()).isEqualTo("快速排序的复杂度是什么？");
+        assertThat(snapshot.preferredEvidenceBlockIds()).isEmpty();
+        assertThat(snapshot.isReferentialFollowUp()).isFalse();
+    }
+
     private WorkbenchRunTrace trace(String runId) {
         return trace(runId, "它有什么作用？");
     }
@@ -217,8 +237,14 @@ class PaperContextAssemblerTest {
     }
 
     private WorkbenchRunTrace traceWithoutSelection(String runId, String conversationId) {
+        return traceWithoutSelection(runId, conversationId, "继续解释");
+    }
+
+    private WorkbenchRunTrace traceWithoutSelection(String runId,
+                                                     String conversationId,
+                                                     String question) {
         WorkbenchInvocation invocation = new WorkbenchInvocation(
-                List.of(7L), "继续解释", WorkbenchIntent.ASK_SELECTION,
+                List.of(7L), question, WorkbenchIntent.ASK_SELECTION,
                 WorkbenchPlan.Scope.PAPER, null, 6, 10_000,
                 "", conversationId);
         WorkbenchPlan plan = new WorkbenchRuleRouter().route(invocation);

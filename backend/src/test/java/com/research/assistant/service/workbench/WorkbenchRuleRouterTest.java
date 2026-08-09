@@ -62,6 +62,7 @@ class WorkbenchRuleRouterTest {
 
         assertThat(plan.workflow()).isEqualTo(WorkbenchPlan.Workflow.SELECTION_QA);
         assertThat(plan.scope()).isEqualTo(WorkbenchPlan.Scope.PAPER);
+        assertThat(plan.evidenceRequired()).isFalse();
         assertThat(plan.steps()).extracting(WorkbenchPlan.Step::skill).containsExactly(
                 WorkbenchPlan.Skill.ENSURE_LAYOUT_ARTIFACT,
                 WorkbenchPlan.Skill.RETRIEVE_PAPER_EVIDENCE,

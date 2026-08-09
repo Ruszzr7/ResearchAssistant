@@ -36,7 +36,7 @@
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4"/><path d="M9.5 9.5L13 13"/></svg>
             </el-button>
           </el-tooltip>
-          <el-input v-if="showFolderSearch" v-model="folderSearchKeyword" placeholder="搜索文件夹" size="small" clearable class="search-input" ref="folderSearchRef" />
+          <el-input v-if="showFolderSearch" v-model="folderSearchKeyword" placeholder="搜索文件夹" size="small" class="search-input" ref="folderSearchRef" />
         </div>
       </div>
 
@@ -99,29 +99,33 @@
     <div class="center-panel">
       <div class="toolbar">
         <div class="toolbar-left">
-          <el-tooltip :content="sidebarVisible ? '收起侧栏' : '展开侧栏'" placement="top">
-            <el-button class="sidebar-toggle-button" size="small" text @click="sidebarVisible = !sidebarVisible">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="4" height="12" rx="1"/><rect x="6" y="2" width="8" height="12" rx="1"/></svg>
-            </el-button>
-          </el-tooltip>
-          <span class="toolbar-divider"></span>
-          <el-tooltip content="导入论文" placement="top">
-            <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openImportDialog">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10v2.5A1.5 1.5 0 003.5 14h9a1.5 1.5 0 001.5-1.5V10M8 2v9M5 8l3 3 3-3"/></svg>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="查看文献文件夹" placement="top">
-            <el-button size="small" text style="padding:2px 4px;min-width:auto" aria-label="查看文献文件夹" @click="openPaperFolder">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.75 4.25A1.25 1.25 0 013 3h3l1.3 1.5H13A1.25 1.25 0 0114.25 5.75v6A1.25 1.25 0 0113 13H3a1.25 1.25 0 01-1.25-1.25v-7.5z"/></svg>
-            </el-button>
-          </el-tooltip>
-          <!-- 批量操作 -->
-          <LibraryBatchSelectionBar
-            :count="selectedPaperIds.length"
-            @move="openBatchMoveDialog"
-            @delete="confirmBatchDelete"
-            @clear="selectedPaperIds = []"
-          />
+          <div class="table-leading-tools">
+            <el-tooltip :content="sidebarVisible ? '收起侧栏' : '展开侧栏'" placement="top">
+              <el-button class="sidebar-toggle-button" size="small" text @click="sidebarVisible = !sidebarVisible">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="4" height="12" rx="1"/><rect x="6" y="2" width="8" height="12" rx="1"/></svg>
+              </el-button>
+            </el-tooltip>
+            <span class="toolbar-divider"></span>
+          </div>
+          <div class="toolbar-paper-actions">
+            <el-tooltip content="导入论文" placement="top">
+              <el-button size="small" text style="padding:2px 4px;min-width:auto" @click="openImportDialog">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10v2.5A1.5 1.5 0 003.5 14h9a1.5 1.5 0 001.5-1.5V10M8 2v9M5 8l3 3 3-3"/></svg>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="查看文献文件夹" placement="top">
+              <el-button size="small" text style="padding:2px 4px;min-width:auto" aria-label="查看文献文件夹" @click="openPaperFolder">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.75 4.25A1.25 1.25 0 013 3h3l1.3 1.5H13A1.25 1.25 0 0114.25 5.75v6A1.25 1.25 0 0113 13H3a1.25 1.25 0 01-1.25-1.25v-7.5z"/></svg>
+              </el-button>
+            </el-tooltip>
+            <!-- 批量操作 -->
+            <LibraryBatchSelectionBar
+              :count="selectedPaperIds.length"
+              @move="openBatchMoveDialog"
+              @delete="confirmBatchDelete"
+              @clear="selectedPaperIds = []"
+            />
+          </div>
         </div>
         <div class="toolbar-right">
           <el-input v-model="paperSearchKeyword" placeholder="搜索论文…" size="small" clearable class="toolbar-search" @input="onPaperSearch" />
@@ -1715,7 +1719,7 @@ onUnmounted(detachLibraryEvents)
 .library.is-resizing { user-select:none; }
 
 /* ===== 三栏配色 ===== */
-.left-panel { flex-shrink:0; overflow-y:auto; box-sizing:border-box; padding:10px 8px 10px 13px; transition:width 0.2s; background:var(--ra-sidebar-bg); display:flex; flex-direction:column; }
+.left-panel { flex-shrink:0; overflow-y:auto; box-sizing:border-box; padding:0 8px 10px 13px; transition:width 0.2s; background:var(--ra-sidebar-bg); display:flex; flex-direction:column; }
 .left-panel.collapsed { padding:0; overflow:hidden; }
 .filter-section { margin-top:auto; padding:6px 0 12px; border-top:1px solid var(--ra-border-light); }
 .filter-section h4 { margin:4px 0 6px; font-size:14px; font-weight:600; color:var(--ra-text); }
@@ -1725,9 +1729,13 @@ onUnmounted(detachLibraryEvents)
 .right-panel { flex-shrink:0; overflow-y:auto; box-sizing:border-box; padding:20px 18px; transition:width 0.2s; background:var(--ra-bg); }
 
 /* 顶栏 */
-.panel-header { display:flex; align-items:center; gap:4px; min-height:36px; padding:4px 0 8px; }
+.panel-header { display:flex; align-items:center; gap:4px; height:54px; min-height:54px; box-sizing:border-box; padding:9px 0; }
+.panel-header :deep(.el-button), .toolbar :deep(.el-button) { height:32px; box-sizing:border-box; }
 .header-search { display:flex; flex:1; min-width:0; align-items:center; gap:2px; }
-.search-input { width:auto; min-width:0; flex:1; }
+.header-search > :deep(.el-tooltip__trigger) { flex:0 0 auto; }
+.search-input { width:100%; min-width:0; flex:1; }
+.search-input :deep(.el-input__wrapper) { min-width:0; padding-right:4px; padding-left:7px; }
+.search-input :deep(.el-input__inner) { min-width:0; }
 
 /* 树 */
 .folder-all { display:flex; align-items:center; gap:7px; padding:7px 9px; cursor:pointer; font-size:12px; border-radius:8px; margin-bottom:2px; color:var(--ra-text); }
@@ -1763,12 +1771,15 @@ onUnmounted(detachLibraryEvents)
 .divider.active .divider-handle { opacity:0; }
 
 /* 工具栏 */
-.toolbar { display:flex; min-height:54px; box-sizing:border-box; align-items:center; justify-content:space-between; padding:11px 12px 7px 0; gap:8px; border-bottom:1px solid var(--ra-border-light); }
-.toolbar-left, .toolbar-right { display:flex; align-items:center; gap:2px; min-height:30px; }
-.sidebar-toggle-button { width:39px; min-width:39px !important; padding:2px 4px !important; }
+.toolbar { display:flex; height:54px; min-height:54px; box-sizing:border-box; align-items:center; justify-content:space-between; padding:9px 12px 9px 0; gap:8px; border-bottom:1px solid var(--ra-border-light); }
+.toolbar-left, .toolbar-right, .toolbar-paper-actions { display:flex; align-items:center; min-height:30px; }
+.toolbar-left { gap:8px; }
+.toolbar-right, .toolbar-paper-actions { gap:2px; }
+.table-leading-tools { position:relative; display:flex; flex:0 0 41px; width:41px; min-height:32px; align-items:center; }
+.sidebar-toggle-button { flex:0 0 40px; width:40px; min-width:40px !important; padding:2px 4px !important; }
 .toolbar-search { width:170px; }
 .toolbar-search :deep(.el-input__wrapper) { border-radius:9px; box-shadow:0 0 0 1px var(--ra-border) inset; }
-.toolbar-divider { display:inline-block; width:1px; height:20px; background:var(--ra-border); margin:0 6px 0 0; vertical-align:middle; }
+.toolbar-divider { position:absolute; top:6px; left:40px; display:block; width:1px; height:20px; background:var(--ra-border); margin:0; }
 
 /* 表格 */
 .table-wrapper { flex:1; overflow:auto; }

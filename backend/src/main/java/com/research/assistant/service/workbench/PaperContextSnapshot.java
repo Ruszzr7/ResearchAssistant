@@ -124,17 +124,28 @@ public record PaperContextSnapshot(String schemaVersion,
         StringBuilder value = new StringBuilder();
         appendWithin(value, question, safeMaximum);
         if (!selectedText.isBlank()) appendWithin(value, "\n当前选区：" + selectedText, safeMaximum);
-        for (ConversationItem item : conversationTurns.stream()
-                .skip(Math.max(0, conversationTurns.size() - 2L)).toList()) {
-            appendWithin(value, "\n历史追问：" + item.question(), safeMaximum);
+        if (isReferentialFollowUp()) {
+            for (ConversationItem item : conversationTurns.stream()
+                    .skip(Math.max(0, conversationTurns.size() - 2L)).toList()) {
+                appendWithin(value, "\n历史追问：" + item.question(), safeMaximum);
+            }
         }
         return value.toString();
     }
 
     /** Recent grounded blocks are a weak follow-up hint, never a replacement for current-query relevance. */
     public List<String> preferredEvidenceBlockIds() {
-        if (conversationTurns.isEmpty()) return List.of();
+        if (conversationTurns.isEmpty() || !isReferentialFollowUp()) return List.of();
         return conversationTurns.get(conversationTurns.size() - 1).evidenceBlockIds();
+    }
+
+    /** Only explicit linguistic references inherit the previous turn's retrieval focus. */
+    public boolean isReferentialFollowUp() {
+        String normalized = question.toLowerCase(java.util.Locale.ROOT);
+        return List.of("这个", "这一", "上述", "前面", "继续", "接着", "它", "其",
+                        "该方法", "该公式", "this", "that", "above", "continue",
+                        "former", "latter", "follow up", "further")
+                .stream().anyMatch(normalized::contains);
     }
 
     /** Stable identity of the canonical, version-bound selection used to assemble this snapshot. */

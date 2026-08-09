@@ -149,22 +149,25 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     wrapper.unmount()
   })
 
-  it('uses only a confirmed selection as the persistent conversation focus', async () => {
-    mocks.state.run.mockResolvedValue({
-      runId: 'selection-turn-1',
-      result: { answer: '该方法解决估计问题。', claims: [], evidence: [] },
+  it('uses a confirmed selection only as the next-message attachment', async () => {
+    mocks.state.run.mockImplementation(async (_request, options) => {
+      options?.onAccepted?.()
+      return {
+        runId: 'selection-turn-1',
+        result: { answer: '该方法解决估计问题。', claims: [], evidence: [] },
+      }
     })
     const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
     await flushPromises()
 
     expect(wrapper.get('.selection-card__text').text()).toContain('selected method')
     expect(wrapper.text()).not.toContain('正文已映射')
-    expect(wrapper.text()).toContain('确认并固定')
-    expect(wrapper.get('.selection-chat__heading').text()).not.toContain('当前焦点')
+    expect(wrapper.text()).toContain('附加到下一条消息')
+    expect(wrapper.get('.selection-chat__heading').text()).not.toContain('下一条消息已附加')
     await wrapper.findAll('.selection-tools button')
-      .find(button => button.text().includes('确认并固定')).trigger('click')
+      .find(button => button.text().includes('附加到下一条消息')).trigger('click')
     await wrapper.get('.assistant-composer textarea').setValue('这段方法解决什么问题？')
-    expect(wrapper.get('.selection-chat__heading').text()).toContain('当前焦点')
+    expect(wrapper.get('.selection-chat__heading').text()).toContain('下一条消息已附加')
     expect(sendButton(wrapper).attributes()).not.toHaveProperty('disabled')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
@@ -173,9 +176,9 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
       question: '这段方法解决什么问题？',
       selectionAnchor: textAnchor,
       conversationId: expect.stringMatching(/^session-91-/),
-    }))
-    expect(wrapper.emitted('clear-selection')).toBeUndefined()
-    expect(wrapper.text()).toContain('已固定')
+    }), expect.objectContaining({ onAccepted: expect.any(Function) }))
+    expect(wrapper.emitted('clear-selection')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('待发送')
     expect(wrapper.text()).toContain('该方法解决估计问题')
   })
 
@@ -238,7 +241,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
     await flushPromises()
     await wrapper.findAll('.selection-tools button')
-      .find(button => button.text().includes('确认并固定')).trigger('click')
+      .find(button => button.text().includes('附加到下一条消息')).trigger('click')
     await wrapper.get('.assistant-composer textarea').setValue('第一问')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
@@ -272,7 +275,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
     await flushPromises()
     await wrapper.findAll('.selection-tools button')
-      .find(button => button.text().includes('确认并固定')).trigger('click')
+      .find(button => button.text().includes('附加到下一条消息')).trigger('click')
     await wrapper.get('.assistant-composer textarea').setValue('第一问')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
@@ -399,7 +402,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
     await flushPromises()
     await wrapper.findAll('.selection-tools button')
-      .find(button => button.text().includes('确认并固定')).trigger('click')
+      .find(button => button.text().includes('附加到下一条消息')).trigger('click')
     await wrapper.get('.assistant-composer textarea').setValue('第一问')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
@@ -413,7 +416,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     })
     await flushPromises()
     await wrapper.findAll('.selection-tools button')
-      .find(button => button.text().includes('确认并固定')).trigger('click')
+      .find(button => button.text().includes('附加到下一条消息')).trigger('click')
     expect(wrapper.text()).toContain('第一问')
     await wrapper.get('.assistant-composer textarea').setValue('新选区问题')
     await sendButton(wrapper).trigger('click')

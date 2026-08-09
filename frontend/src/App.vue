@@ -1,16 +1,12 @@
 <template>
+  <el-config-provider :message="globalMessageConfig">
   <div class="app-container" :class="{ 'is-dashboard': isDashboard, 'is-nav-open': navOverlayOpen }">
     <aside class="app-sidebar" :class="{ 'is-expanded': isDashboard || navOverlayOpen }">
       <button class="app-brand" type="button" title="返回看板" @click="goTo('/')">
         <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" fill="none">
-            <path d="M7 5.5h11.5L25 12v14.5H7z" />
-            <path class="brand-mark-accent" d="M18.5 5.5V12H25M11 17h10M11 21h7" />
-            <circle class="brand-mark-dot" cx="23.5" cy="23.5" r="4" />
-            <path class="brand-mark-dot" d="m26.4 26.4 2.1 2.1" />
-          </svg>
+          <img :src="researchAssistantLogoUrl" alt="" />
         </span>
-        <span class="brand-copy"><b>Research Assistant</b></span>
+        <span class="brand-copy"><b>Research</b><small>Assistant</small></span>
       </button>
 
       <button
@@ -133,6 +129,7 @@
       </el-table>
     </el-dialog>
   </div>
+  </el-config-provider>
 </template>
 
 <script setup>
@@ -148,6 +145,7 @@ import { useTheme } from '@/stores/themeStore'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import CommandPalette from '@/components/CommandPalette.vue'
 import CachedRouterView from '@/components/navigation/CachedRouterView.vue'
+import researchAssistantLogoUrl from '@/assets/research-assistant-logo-v2.png'
 import {
   AI_PROVIDERS,
   channelDefinition,
@@ -164,6 +162,7 @@ const { dark, toggle: toggleTheme } = useTheme()
 
 const navOverlayOpen = ref(false)
 const isDashboard = computed(() => route.path === '/')
+const globalMessageConfig = Object.freeze({ max: 2, duration: 1800, grouping: true })
 const navigationItems = [
   { label: '看板', route: '/', shortcut: 'Ctrl+1', icon: House },
   { label: '文库管理', route: '/library', shortcut: 'Ctrl+2', icon: Collection },
@@ -441,7 +440,7 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
   overflow: hidden;
   transition: grid-template-columns .24s cubic-bezier(.4, 0, .2, 1);
 }
-.app-container.is-dashboard { grid-template-columns: 208px minmax(0, 1fr); }
+.app-container.is-dashboard { grid-template-columns: 184px minmax(0, 1fr); }
 .app-sidebar {
   position: relative;
   z-index: 110;
@@ -456,7 +455,7 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
   color: var(--ra-text);
   transition: width .24s cubic-bezier(.4, 0, .2, 1), box-shadow .24s ease;
 }
-.app-sidebar.is-expanded { width: 208px; }
+.app-sidebar.is-expanded { width: 184px; }
 .app-container:not(.is-dashboard) .app-sidebar.is-expanded {
   position: fixed;
   inset: 0 auto 0 0;
@@ -495,19 +494,28 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
 .app-brand:focus { outline:none; }
 .app-brand:focus-visible { outline:none; box-shadow:none; }
 .brand-mark {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  place-items: center;
-  color: var(--ra-text);
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  overflow: hidden;
+  box-sizing: border-box;
 }
-.brand-mark svg { width:30px; height:30px; overflow:visible; }
-.brand-mark svg > path:first-child { fill:var(--ra-panel-bg); stroke:currentColor; stroke-width:1.8; stroke-linejoin:round; }
-.brand-mark-accent { stroke:var(--ra-link); stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
-.brand-mark-dot { fill:var(--ra-panel-bg); stroke:var(--ra-link); stroke-width:1.8; stroke-linecap:round; }
-.brand-copy { display:flex; align-items:center; line-height:1; opacity:0; transition:opacity .12s ease; }
+.brand-mark img {
+  position:absolute;
+  top:50%;
+  left:50%;
+  display:block;
+  width:44px;
+  height:44px;
+  max-width:none;
+  object-fit:contain;
+  transform:translate(-50%, -50%);
+}
+html.dark .brand-mark img { filter:brightness(1.35) saturate(1.3); }
+.brand-copy { display:flex; min-width:0; flex-direction:column; align-items:flex-start; gap:2px; line-height:1; opacity:0; transition:opacity .12s ease; }
 .brand-copy b { color:var(--ra-text); font-size:16px; font-weight:650; letter-spacing:-.3px; }
+.brand-copy small { color:var(--ra-text-tertiary); font-size:13px; font-weight:550; letter-spacing:-.1px; }
 .app-sidebar.is-expanded .brand-copy { opacity: 1; }
 .nav-collapse-toggle { margin-top: 2px; color: var(--ra-text-tertiary); }
 .sidebar-nav { display: flex; flex: 1; flex-direction: column; gap: 4px; padding-top: 10px; }

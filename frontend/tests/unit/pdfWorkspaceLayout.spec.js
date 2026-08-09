@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_WORKBENCH_RATIO,
+  MIN_PDF_TOOLBAR_WIDTH,
   PDF_WORKBENCH_WIDTH_KEY,
   completePdfPaneWidth,
   normalizeWorkbenchRatio,
@@ -21,9 +22,14 @@ describe('PDF workbench split layout', () => {
   it('keeps the approved assistant ratio and lets wide PDF pages scroll when needed', () => {
     const minimumPdfWidth = completePdfPaneWidth(918, 22)
     expect(minimumPdfWidth).toBe(940)
-    expect(workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(1243)
-    expect(1920 - 8 - workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(669)
-    expect(workbenchWidthForContainer(1200, 0.65, minimumPdfWidth)).toBe(712)
+    expect(workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(972)
+    expect(1920 - 8 - workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(940)
+    expect(workbenchWidthForContainer(1200, 0.65, minimumPdfWidth)).toBe(320)
+  })
+
+  it('reserves enough width for the complete PDF toolbar even before a page is measured', () => {
+    expect(completePdfPaneWidth(0)).toBe(MIN_PDF_TOOLBAR_WIDTH)
+    expect(completePdfPaneWidth(600, 20)).toBe(MIN_PDF_TOOLBAR_WIDTH)
   })
 
   it('maps divider movement to a bounded right-pane ratio', () => {

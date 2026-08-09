@@ -14,6 +14,22 @@ class WorkbenchEvidenceGateTest {
     private final WorkbenchEvidenceGate gate = new WorkbenchEvidenceGate();
 
     @Test
+    void allowsAnOrdinaryConversationTurnWhenPaperRetrievalFindsNothing() {
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "快速排序的平均时间复杂度是 O(n log n)。",
+                WorkbenchAnswerBlock.Basis.GENERAL_KNOWLEDGE, List.of(), List.of("r1"));
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                new WorkbenchEvidenceGate.AnswerDraft(block.text(), List.of(), true,
+                        List.of(block), List.of(new WorkbenchAnswerRequirement(
+                        "r1", WorkbenchAnswerRequirement.Type.DIRECT,
+                        "快速排序的复杂度是什么？", true, List.of()))),
+                List.of(), WorkbenchEvidenceGate.GatePolicy.conversation(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.PASS);
+        assertThat(result.claimCoverage()).isEqualTo(1);
+    }
+
+    @Test
     void permitsExplicitGeneralKnowledgeWithoutInventingPaperCitations() {
         WorkbenchEvidenceGate.GateResult result = gate.validate(
                 new WorkbenchEvidenceGate.AnswerDraft(

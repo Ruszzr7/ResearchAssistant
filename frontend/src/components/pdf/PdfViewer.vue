@@ -5,7 +5,7 @@
       :style="{ marginRight: workbenchPanelVisible ? `${assistantPanelWidth + 8}px` : '0px' }"
     >
       <div class="pdf-toolbar-left">
-        <span class="pdf-title">{{ paper?.title }}</span>
+        <span class="pdf-title" :title="paper?.title">{{ paper?.title }}</span>
         <slot name="toolbar-extra" />
       </div>
       <div class="pdf-toolbar-center">
@@ -456,6 +456,7 @@
         @confirm-formula="confirmCurrentFormulaRegion"
         @capture-mode-change="selectWorkbenchCaptureMode"
         @jump-evidence="jumpToEvidence"
+        @execute-actions="executeAgentActions"
         @add-comparison-paper="openComparisonPaperInterface"
         @research-session-change="$emit('research-session-change', $event)"
       />
@@ -532,7 +533,13 @@
 import { ref, shallowRef, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
-import { listAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } from '@/api/annotation'
+import {
+  listAnnotations,
+  createAnnotation,
+  createAgentAnnotation,
+  updateAnnotation,
+  deleteAnnotation,
+} from '@/api/annotation'
 import PaperWorkbenchPanel from '@/components/pdf/PaperWorkbenchPanel.vue'
 import {
   annotationDisplayColor,
@@ -573,6 +580,7 @@ import { ElMessage } from 'element-plus'
 import { createPdfInteractionEngine } from '@/services/pdfiumInteractionEngine.js'
 import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
 import { normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
+import { isTextSelectionDrag } from '@/utils/pdfTextSelection.js'
 import {
   invalidatePageRenderSurface,
   pageRenderSurfaceIsUsable,
@@ -1484,6 +1492,9 @@ async function beginTextSelection(event, pageNum) {
   if (currentTool.value !== 'select' || event.button !== 0) return
 
   if (formulaRegion.value) clearFormulaRegion()
+  // A plain click—on text or page whitespace—clears only the transient blue
+  // selection. A new selection is created only after an intentional drag.
+  clearPendingTextSelection()
   const layer = event.currentTarget
   event.preventDefault()
   const anchor = await pdfiumEndpointAtPoint(pageNum, layer, event.clientX, event.clientY)
@@ -1498,6 +1509,8 @@ async function beginTextSelection(event, pageNum) {
     layer,
     anchor: anchor.charIndex,
     focus: anchor.charIndex,
+    startPoint: { x: event.clientX, y: event.clientY },
+    moved: false,
     revision: 0,
   }
   layer.setPointerCapture?.(event.pointerId)
@@ -1508,6 +1521,13 @@ async function updateTextSelection(event, pageNum) {
   if (!drag || drag.pointerId !== event.pointerId || drag.pageNum !== pageNum || currentTool.value !== 'select') return
 
   event.preventDefault()
+  if (!drag.moved) {
+    drag.moved = isTextSelectionDrag(
+      drag.startPoint,
+      { x: event.clientX, y: event.clientY },
+    )
+  }
+  if (!drag.moved) return
   const revision = ++drag.revision
   const focus = await pdfiumEndpointAtPoint(pageNum, drag.layer, event.clientX, event.clientY)
   if (!focus) return
@@ -1525,6 +1545,7 @@ async function finishTextSelection(event, pageNum) {
   if (layoutSelectionDrag !== drag) return
   drag.layer.releasePointerCapture?.(event.pointerId)
   layoutSelectionDrag = null
+  if (!drag.moved) return
   const selection = pendingTextSelection.value
   if (selection?.groups?.length) {
     workbenchPanelVisible.value = true
@@ -1639,51 +1660,149 @@ async function jumpToEvidence(item) {
   }, 8000)
 }
 
+async function executeAgentActions(actions) {
+  for (const action of actions || []) {
+    if (action?.type !== 'HIGHLIGHT') continue
+    if (action.status !== 'READY' || !action.evidence) {
+      ElMessage.warning(action.message || '没有找到可精确高亮的论文原文')
+      continue
+    }
+    if (Number(action.paperId) !== Number(props.paper.id)) {
+      ElMessage.warning('高亮目标不在当前论文中，未执行')
+      continue
+    }
+    const target = {
+      ...action.evidence,
+      locator: {
+        ...(action.evidence.locator || {}),
+        targetText: action.targetText || action.evidence.locator?.targetText || '',
+      },
+    }
+    await goToPage(target.page)
+    const exactBoxes = await locateEvidenceText(target)
+    const fallbackBox = target.locator?.targetBbox || target.bbox
+    const formulaFallback = target.locator?.precision === 'FORMULA_REGION' && fallbackBox
+      ? [fallbackBox] : []
+    const boxes = exactBoxes.length ? exactBoxes : formulaFallback
+    if (!boxes.length) {
+      ElMessage.warning(`已找到“${action.query}”的来源，但无法建立精确字符位置，因此未高亮`)
+      continue
+    }
+    if (annotations.value.some(annotation => (
+      annotation.aiGenerated
+      && annotation.coordinates?.agentActionId === action.actionId
+    ))) {
+      await jumpToEvidence(target)
+      ElMessage.info('该内容已经高亮')
+      continue
+    }
+    const page = renderedPages.value[Number(target.page) - 1]
+    const quads = boxes.map(boundingBoxToViewportQuad).filter(Boolean)
+    if (!page?.viewport || !quads.length) {
+      ElMessage.warning('PDF 页面尚未准备完成，未执行高亮')
+      continue
+    }
+    const annotation = {
+      localId: nextLocalId++,
+      paperId: props.paper.id,
+      type: 'HIGHLIGHT',
+      page: target.page,
+      color: currentColor.value,
+      note: '',
+      completed: false,
+      aiGenerated: true,
+      coordinates: {
+        coordinateSpace: 'viewport',
+        pageWidth: page.viewport.width,
+        pageHeight: page.viewport.height,
+        rotation: page.viewport.rotation,
+        scale: page.viewport.scale,
+        quads,
+        anchorKind: 'AGENT_EVIDENCE',
+        anchorText: String(action.targetText || action.query || '').slice(0, 500),
+        evidenceId: action.evidenceId,
+        agentActionId: action.actionId,
+      },
+    }
+    try {
+      await persistNewAgentAnnotation(annotation)
+      selectedAnnotation.value = null
+      evidenceFocus.value = { page: target.page, boxes, precision: exactBoxes.length ? 'TEXT' : 'FORMULA_REGION' }
+      await nextTick()
+      scrollEvidenceIntoView(target.page, boxes)
+      ElMessage.success(`已在原文中高亮“${action.query}”`)
+    } catch (error) {
+      ElMessage.error(`自动高亮保存失败：${requestErrorMessage(error)}`)
+    }
+  }
+}
+
 async function locateEvidenceText(item) {
   if (!pdfInteractionReady.value || !pdfInteractionEngine) return []
-  if (item?.locator?.precision === 'FORMULA_REGION') return []
   const targetBox = item?.locator?.targetBbox || item?.bbox
   const targetText = item?.locator?.targetText || item?.text
-  const phrases = evidenceSearchPhrases(targetText)
-  const phraseBoxes = []
-  for (const phrase of phrases) {
-    try {
-      const matches = await pdfInteractionEngine.search(phrase)
-      const pageMatches = matches.filter(candidate => (
-        candidate.pageIndex + 1 === item.page
-        && candidate.rects?.some(rect => boxesOverlap(rect, targetBox))
-      ))
-      pageMatches.forEach(match => phraseBoxes.push(...(match.rects || [])))
-    } catch {
-      return []
-    }
+  if (item?.locator?.precision === 'FORMULA_REGION' && !String(targetText || '').trim()) return []
+  const fragments = String(targetText || '').split(/\r?\n/)
+    .map(value => value.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  const located = []
+  for (const fragment of fragments.length ? fragments : [String(targetText || '')]) {
+    const boxes = await locateEvidenceFragment(item.page, fragment, targetBox)
+    if (!boxes.length) return []
+    located.push(...boxes)
   }
-  if (phraseBoxes.length) return dedupeEvidenceBoxes(phraseBoxes)
-  const keywordBoxes = []
-  for (const term of evidenceSearchTerms(targetText)) {
-    try {
-      const matches = await pdfInteractionEngine.search(term)
-      const match = matches.find(candidate => (
-        candidate.pageIndex + 1 === item.page
-        && candidate.rects?.some(rect => boxesOverlap(rect, targetBox))
-      ))
-      if (match?.rects?.length) keywordBoxes.push(...match.rects)
-    } catch {
-      return []
-    }
+  return dedupeEvidenceBoxes(located)
+}
+
+async function locateEvidenceFragment(page, text, targetBox) {
+  for (const phrase of evidenceSearchPhrases(text)) {
+    let matches
+    try { matches = await pdfInteractionEngine.search(phrase) }
+    catch { return [] }
+    const pageMatches = (matches || []).filter(candidate => candidate.pageIndex + 1 === page)
+    if (!pageMatches.length) continue
+    const overlapping = pageMatches.filter(candidate => (
+      candidate.rects?.some(rect => boxesOverlap(rect, targetBox))
+    ))
+    if (overlapping.length === 1) return overlapping[0].rects || []
+    // A unique exact phrase is safer than a stale block bbox. This fixes citations whose layout
+    // block spans both the cited sentence and the following sentence.
+    if (pageMatches.length === 1) return pageMatches[0].rects || []
+    const candidates = overlapping.length ? overlapping : pageMatches
+    const nearest = candidates
+      .map(candidate => ({ candidate, distance: evidenceMatchDistance(candidate.rects, targetBox) }))
+      .sort((first, second) => first.distance - second.distance)[0]?.candidate
+    if (nearest?.rects?.length && phrase.length >= 16) return nearest.rects
   }
-  if (keywordBoxes.length >= 2) return keywordBoxes
   return []
 }
 
 function evidenceSearchPhrases(text) {
-  const source = String(text || '').trim()
+  const source = String(text || '').replace(/\s+/g, ' ').trim()
   if (!source) return []
-  const fragments = source.split(/(?<=[。！？.!?])|\r?\n/)
-    .map(value => value.trim())
-    .filter(value => value.length >= 10)
-  const candidates = [...fragments, source]
-  return [...new Set(candidates.map(value => value.slice(0, 180)).filter(Boolean))].slice(0, 5)
+  const candidates = [source.slice(0, 240)]
+  const words = source.split(' ').filter(Boolean)
+  if (words.length > 12) {
+    const windows = [
+      words.slice(0, 12),
+      words.slice(Math.max(0, Math.floor(words.length / 2) - 6), Math.floor(words.length / 2) + 6),
+      words.slice(-12),
+    ]
+    windows.forEach(window => candidates.push(window.join(' ')))
+  }
+  if (words.length > 7) {
+    candidates.push(words.slice(0, 7).join(' '), words.slice(-7).join(' '))
+  }
+  return [...new Set(candidates.map(value => value.trim()).filter(value => value.length >= 8))]
+}
+
+function evidenceMatchDistance(rects, targetBox) {
+  if (!targetBox || !rects?.length) return Number.POSITIVE_INFINITY
+  const x = rects.reduce((sum, rect) => sum + Number(rect.x || 0) + Number(rect.width || 0) / 2, 0) / rects.length
+  const y = rects.reduce((sum, rect) => sum + Number(rect.y || 0) + Number(rect.height || 0) / 2, 0) / rects.length
+  const targetX = Number(targetBox.x || 0) + Number(targetBox.width || 0) / 2
+  const targetY = Number(targetBox.y || 0) + Number(targetBox.height || 0) / 2
+  return Math.hypot(x - targetX, y - targetY)
 }
 
 function dedupeEvidenceBoxes(boxes) {
@@ -1721,17 +1840,6 @@ function scrollEvidenceIntoView(pageNum, boxes) {
       || absoluteRight > container.scrollLeft + container.clientWidth - horizontalMargin) {
     container.scrollLeft = Math.max(0, absoluteLeft - horizontalMargin)
   }
-}
-
-function evidenceSearchTerms(text) {
-  const ignored = new Set([
-    'where', 'which', 'their', 'there', 'these', 'those', 'using', 'based',
-    'paper', 'method', 'results', 'system', 'model', 'with', 'from', 'that',
-  ])
-  return [...new Set(String(text || '').match(/[A-Za-z][A-Za-z0-9_-]{3,}/g) || [])]
-    .filter(term => !ignored.has(term.toLowerCase()))
-    .sort((first, second) => second.length - first.length)
-    .slice(0, 3)
 }
 
 function boxesOverlap(first, second) {
@@ -2288,6 +2396,18 @@ async function persistNewAnnotation(annotation) {
   }
 }
 
+async function persistNewAgentAnnotation(annotation) {
+  annotations.value.push(annotation)
+  try {
+    const saved = await createAgentAnnotation(props.paper.id, toPayload(annotation))
+    Object.assign(annotation, saved, { localId: annotation.localId })
+    return annotation
+  } catch (error) {
+    annotations.value = annotations.value.filter(item => item.localId !== annotation.localId)
+    throw error
+  }
+}
+
 async function persistUpdatedAnnotation(annotation) {
   if (!annotation.id) return persistNewAnnotation(annotation)
   const saved = await updateAnnotation(props.paper.id, annotation.id, toPayload(annotation))
@@ -2512,14 +2632,14 @@ function colorName(color) {
   padding: 7px 12px;
   background: var(--ra-panel-bg);
   border-bottom: 1px solid var(--ra-border-light);
-  gap: 12px;
+  gap: 8px;
   flex-shrink: 0;
   overflow-x: auto;
   min-height: var(--pdf-toolbar-height);
   box-sizing: border-box;
   transition: margin-right .16s ease;
 }
-.pdf-toolbar :deep(.el-button) { border-radius: 8px; }
+.pdf-toolbar :deep(.el-button) { border-radius: 8px; padding-inline: 7px; }
 .pdf-toolbar :deep(.el-button-group) {
   display:inline-flex;
   flex-wrap:nowrap;
@@ -2547,10 +2667,11 @@ function colorName(color) {
   gap: 2px;
   white-space: nowrap;
 }
+.pdf-toolbar-right :deep(.el-button + .el-button) { margin-left: 0 !important; }
 .pdf-toolbar-center {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: nowrap;
   justify-content: center;
   white-space: nowrap;
@@ -2558,12 +2679,13 @@ function colorName(color) {
 .pdf-tool-group, .zoom-controls, .page-navigation {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
 }
+.zoom-controls :deep(.el-button) { width:24px; min-width:24px; padding:4px; }
 .zoom-value {
   min-height: 26px;
-  min-width: 42px;
-  padding: 2px 5px;
+  min-width: 36px;
+  padding: 2px 3px;
   border: 0;
   border-radius: 4px;
   color: var(--ra-text-secondary);
@@ -2613,7 +2735,7 @@ function colorName(color) {
   white-space: nowrap;
 }
 .page-navigation input {
-  width: 42px;
+  width: 30px;
   min-width: 0;
   box-sizing: border-box;
   padding: 3px 4px;

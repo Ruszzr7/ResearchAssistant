@@ -34,36 +34,40 @@
       尚无可预览公式，可在下方手动填写 LaTeX。
     </div>
 
-    <el-input
-      v-if="recognition"
-      v-model="draftLatex"
-      type="textarea"
-      :rows="3"
-      maxlength="4000"
-      show-word-limit
-      placeholder="核对或填写 LaTeX，不要包含 $$ 分隔符"
-      aria-label="公式 LaTeX"
-    />
-    <p v-if="recognition?.message" class="formula-region-card__message">{{ recognition.message }}</p>
+    <div v-if="recognition" class="formula-region-card__editor">
+      <el-input
+        v-model="draftLatex"
+        type="textarea"
+        :rows="3"
+        maxlength="4000"
+        show-word-limit
+        placeholder="核对或填写 LaTeX，不要包含 $$ 分隔符"
+        aria-label="公式 LaTeX"
+      />
+      <div class="formula-region-card__actions">
+        <el-button
+          size="small"
+          :loading="loading"
+          @click="$emit('retry')"
+        >重新转换 LaTeX</el-button>
+        <el-button
+          type="primary"
+          size="small"
+          :loading="confirming"
+          :disabled="!canConfirm"
+          @click="$emit('confirm', draftLatex.trim())"
+        >{{ recognition.confirmed ? '保存校正' : '确认固定' }}</el-button>
+      </div>
+    </div>
     <p v-if="error" class="formula-region-card__error">{{ error }}</p>
 
-    <div class="formula-region-card__actions">
+    <div v-if="!recognition" class="formula-region-card__actions">
       <el-button
-        :type="recognition ? 'default' : 'primary'"
+        type="primary"
         size="small"
         :loading="loading"
         @click="$emit('retry')"
-      >
-        {{ recognition ? '重新转换 LaTeX' : '固定内容' }}
-      </el-button>
-      <el-button
-        v-if="recognition"
-        type="primary"
-        size="small"
-        :loading="confirming"
-        :disabled="!canConfirm"
-        @click="$emit('confirm', draftLatex.trim())"
-      >{{ recognition.confirmed ? '保存校正' : '确认固定' }}</el-button>
+      >固定内容</el-button>
     </div>
   </section>
 </template>
@@ -138,7 +142,7 @@ const sourceLabel = computed(() => ({
 .formula-region-card__heading b { font-size: 13px; }
 .formula-region-card__heading small { color: var(--ra-text-tertiary); font-size: 10px; }
 .formula-region-card__heading button { border: 0; color: var(--ra-text-secondary); background: transparent; cursor: pointer; font-size: 18px; }
-.formula-region-card__preview { display: block; width: 100%; max-height: 150px; box-sizing: border-box; object-fit: contain; border: 1px solid var(--ra-border); border-radius: 6px; background: #fff; }
+.formula-region-card__preview { display: block; width: auto; max-width: 100%; max-height: 62px; margin: 0 auto; box-sizing: border-box; object-fit: contain; border: 1px solid var(--ra-border); border-radius: 6px; background: #fff; }
 .formula-region-card__preview-placeholder { display: grid; min-height: 72px; place-items: center; border: 1px dashed var(--ra-border); border-radius: 6px; color: var(--ra-text-tertiary); font-size: 10px; }
 .formula-region-card__meta { display: flex; align-items: center; gap: 7px; margin: 8px 0; color: var(--ra-text-tertiary); font-size: 10px; }
 .formula-region-card__rendered { overflow-x: auto; margin: 8px 0; padding: 8px; border-radius: 6px; background: var(--ra-hover-bg); color: var(--ra-text); text-align: center; }
@@ -146,5 +150,6 @@ const sourceLabel = computed(() => ({
 .formula-region-card__empty { margin: 8px 0; padding: 8px; border-radius: 6px; color: var(--ra-text-tertiary); background: var(--ra-hover-bg); font-size: 10px; line-height: 1.45; }
 .formula-region-card__message, .formula-region-card__error { margin: 7px 0 0; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.45; }
 .formula-region-card__error { color: var(--el-color-danger); }
-.formula-region-card__actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 9px; }
+.formula-region-card__editor { margin-top: 8px; }
+.formula-region-card__actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 7px; }
 </style>

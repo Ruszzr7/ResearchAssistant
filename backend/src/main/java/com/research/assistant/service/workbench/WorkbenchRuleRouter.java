@@ -33,7 +33,12 @@ public class WorkbenchRuleRouter {
             throw new IllegalArgumentException("tokenBudget must be between 256 and 60000");
         }
         Set<Skill> allowed = steps.stream().map(Step::skill).collect(java.util.stream.Collectors.toUnmodifiableSet());
-        return new WorkbenchPlan(workflow, scope, steps, allowed, invocation.maxSteps(), tokenBudget, true, 1);
+        // A current selection is an explicit paper-evidence attachment and therefore stays strict.
+        // A paper conversation without a new attachment may instead be a follow-up, a paper-wide
+        // question, or an ordinary LLM question; evidence is optional for that one workflow only.
+        boolean evidenceRequired = workflow != Workflow.SELECTION_QA || invocation.selectionAnchor() != null;
+        return new WorkbenchPlan(workflow, scope, steps, allowed, invocation.maxSteps(), tokenBudget,
+                evidenceRequired, 1);
     }
 
     private void validateBase(WorkbenchInvocation invocation) {

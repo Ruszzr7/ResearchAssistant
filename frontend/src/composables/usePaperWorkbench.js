@@ -70,7 +70,7 @@ export function usePaperWorkbench() {
     }
   }
 
-  async function run(request) {
+  async function run(request, { onAccepted } = {}) {
     stopWatching()
     trace.value = null
     stageText.value = '正在生成受限计划…'
@@ -81,6 +81,7 @@ export function usePaperWorkbench() {
       trace.value = planned
       const submission = await executeWorkbenchRun(planned.runId)
       trace.value = { ...planned, taskId: submission.taskId, status: submission.status }
+      if (typeof onAccepted === 'function') onAccepted(trace.value)
       return await watchRun(planned.runId, submission.taskId)
     } catch (reason) {
       if (reason?.message !== 'aborted') error.value = reason?.response?.data?.message || reason?.message || '论文助手启动失败'

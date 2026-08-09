@@ -15,13 +15,30 @@ public record WorkbenchWorkflowResult(String runId,
                                       WorkbenchModelOutput.AnnotationSuggestion annotationSuggestion,
                                       boolean regionFallback,
                                       int repairCount,
-                                      List<WorkbenchAnswerBlock> answerBlocks) {
+                                      List<WorkbenchAnswerBlock> answerBlocks,
+                                      List<WorkbenchAction> actions) {
     public WorkbenchWorkflowResult {
         paperIds = paperIds == null ? List.of() : List.copyOf(paperIds);
         answer = answer == null ? "" : answer;
         claims = claims == null ? List.of() : List.copyOf(claims);
         evidence = evidence == null ? List.of() : List.copyOf(evidence);
         answerBlocks = answerBlocks == null ? List.of() : List.copyOf(answerBlocks);
+        actions = actions == null ? List.of() : List.copyOf(actions);
+    }
+
+    public WorkbenchWorkflowResult(String runId,
+                                   WorkbenchPlan.Workflow workflow,
+                                   WorkbenchPlan.Scope scope,
+                                   List<Long> paperIds,
+                                   String answer,
+                                   List<WorkbenchEvidenceGate.GroundedClaim> claims,
+                                   List<LayoutEvidence> evidence,
+                                   WorkbenchModelOutput.AnnotationSuggestion annotationSuggestion,
+                                   boolean regionFallback,
+                                   int repairCount,
+                                   List<WorkbenchAnswerBlock> answerBlocks) {
+        this(runId, workflow, scope, paperIds, answer, claims, evidence, annotationSuggestion,
+                regionFallback, repairCount, answerBlocks, List.of());
     }
 
     public WorkbenchWorkflowResult(String runId,
@@ -35,6 +52,6 @@ public record WorkbenchWorkflowResult(String runId,
                                    boolean regionFallback,
                                    int repairCount) {
         this(runId, workflow, scope, paperIds, answer, claims, evidence, annotationSuggestion,
-                regionFallback, repairCount, List.of());
+                regionFallback, repairCount, List.of(), List.of());
     }
 }

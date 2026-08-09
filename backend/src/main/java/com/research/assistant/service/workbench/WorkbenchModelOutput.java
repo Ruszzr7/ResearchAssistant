@@ -151,9 +151,13 @@ public record WorkbenchModelOutput(String answer,
     }
 
     private String bestQuote(String source, String claim) {
-        List<String> sentences = java.util.Arrays.stream(source.split("(?<=[.!?。！？;；])\\s*|\\R+"))
+        // PDF layout extraction frequently stores visual line wraps as hard newlines. They are not
+        // sentence boundaries and must not become separate citations or separate click targets.
+        String logicalText = source.replaceAll("(?<=\\p{L})-\\R(?=\\p{L})", "")
+                .replaceAll("\\R+", " ").replaceAll("\\s+", " ").trim();
+        List<String> sentences = java.util.Arrays.stream(logicalText.split("(?<=[.!?。！？;；])\\s*"))
                 .map(String::trim).filter(value -> !value.isBlank()).toList();
-        if (sentences.isEmpty()) sentences = List.of(source.trim());
+        if (sentences.isEmpty()) sentences = List.of(logicalText);
         List<String> windows = new java.util.ArrayList<>();
         for (int start = 0; start < sentences.size(); start++) {
             StringBuilder window = new StringBuilder();
