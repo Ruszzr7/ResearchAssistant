@@ -1,5 +1,6 @@
 package com.research.assistant.service.pdf.formula.region;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperFormulaRegionRecord;
 import com.research.assistant.mapper.PaperFormulaRegionMapper;
@@ -60,7 +61,7 @@ class FormulaRegionServiceTest {
         }).when(regionMapper).insert(any(PaperFormulaRegionRecord.class));
         service = new FormulaRegionService(
                 artifactService, paperMapper, regionMapper, fileResolver, imageService,
-                visionRecognizer, confirmedService, telemetry);
+                visionRecognizer, confirmedService, telemetry, new ObjectMapper());
     }
 
     @Test
@@ -128,6 +129,22 @@ class FormulaRegionServiceTest {
         assertThat(result.status()).isEqualTo(FormulaRegionStatus.CANDIDATE);
         assertThat(result.confirmed()).isFalse();
         assertThat(result.anchor()).isNull();
+    }
+
+    @Test
+    void keepsEveryRecognizedFormulaInOneOrderedSelectionGroup() {
+        artifact = artifact(List.of());
+        when(artifactService.ensureArtifact(7L, false)).thenReturn(artifact);
+        when(visionRecognizer.recognize(any())).thenReturn(
+                new FormulaVisionRecognizer.FormulaCandidate(
+                        List.of("R_c=C(\\Gamma_c)", "R_{p,k}=C(\\Gamma_{p,k})"), 0.9));
+
+        FormulaRegionRecognition result = service.recognize(7L, 1, bbox);
+
+        assertThat(result.formulas()).containsExactly(
+                "R_c=C(\\Gamma_c)", "R_{p,k}=C(\\Gamma_{p,k})");
+        assertThat(result.latex()).contains("\\begin{gathered}", "R_c", "R_{p,k}");
+        verify(regionMapper).insert(any(PaperFormulaRegionRecord.class));
     }
 
     @Test

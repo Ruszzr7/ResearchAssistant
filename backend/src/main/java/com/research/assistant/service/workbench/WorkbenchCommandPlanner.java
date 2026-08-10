@@ -27,6 +27,9 @@ public class WorkbenchCommandPlanner {
     private static final Pattern HIGHLIGHT_FOUND = Pattern.compile(
             "(?is)^(?:请|麻烦|帮我|为我)?\\s*(?:将|把)?\\s*[“\"']?(.{1,160}?)[”\"']?"
                     + "\\s*(?:找出|找到|定位)\\s*(?:并|然后|后)?\\s*(?:高亮|标黄|突出显示)\\s*[。！？!?.]*$");
+    private static final Pattern DIRECT_HIGHLIGHT = Pattern.compile(
+            "(?is)^(?:请|麻烦|帮我|为我)?\\s*(?:将|把)?\\s*[“\"']?(.{1,160}?)[”\"']?"
+                    + "\\s*(?:高亮|标黄|突出显示)\\s*[。！？!?.]*$");
     private static final Pattern TERM = Pattern.compile(
             "[\\p{IsLatin}\\p{IsGreek}\\p{N}_+/-]{2,}|[\\p{IsHan}]{2,}");
 
@@ -62,7 +65,9 @@ public class WorkbenchCommandPlanner {
         Matcher first = FIND_AND_HIGHLIGHT.matcher(current);
         if (first.matches()) return cleanTarget(first.group(1));
         Matcher second = HIGHLIGHT_FOUND.matcher(current);
-        return second.matches() ? cleanTarget(second.group(1)) : "";
+        if (second.matches()) return cleanTarget(second.group(1));
+        Matcher direct = DIRECT_HIGHLIGHT.matcher(current);
+        return direct.matches() ? cleanTarget(direct.group(1)) : "";
     }
 
     private List<CitedEvidence> citedEvidence(WorkbenchModelOutput output,
@@ -139,7 +144,9 @@ public class WorkbenchCommandPlanner {
     private String cleanTarget(String value) {
         String result = value == null ? "" : value.trim();
         result = result.replaceFirst("^[：:，,\\s]+", "")
-                .replaceFirst("[：:，,\\s]+$", "");
+                .replaceFirst("[：:，,\\s]+$", "")
+                .replaceFirst("(?is)(?:所?对应的?|对应)?\\s*(?:原文|内容|区域)$", "")
+                .trim();
         return result.length() <= 160 ? result : "";
     }
 

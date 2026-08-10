@@ -59,7 +59,7 @@ class WorkbenchEvidenceGateTest {
     }
 
     @Test
-    void repairsACombinedClaimWhenItsQuoteOmitsAReferencedTechnicalFact() {
+    void acceptsExactSourceQuoteWithoutRequiringEveryNearbyAcronym() {
         LayoutEvidence source = new LayoutEvidence(
                 "lay_sinr", 7L, "p4-b0048", 4,
                 new NormalizedBoundingBox(0.08, 0.58, 0.41, 0.12),
@@ -78,9 +78,24 @@ class WorkbenchEvidenceGateTest {
                                 block.text(), List.of("lay_sinr"))), false, List.of(block)),
                 List.of(source), WorkbenchEvidenceGate.GatePolicy.strict(0));
 
-        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.REPAIR);
-        assertThat(result.issues()).contains(
-                "answer block 0 citation quotes omit source technical anchors: SIC");
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.PASS);
+    }
+
+    @Test
+    void acceptsStructuredInferenceBasisWithoutForcingASecondNaturalLanguageLabel() {
+        LayoutEvidence source = evidence("lay_location", 7L, false);
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "该区域是目标内容所在位置。", WorkbenchAnswerBlock.Basis.INFERENCE,
+                List.of(new WorkbenchAnswerBlock.Citation("lay_location", "evidence text")));
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                new WorkbenchEvidenceGate.AnswerDraft(block.text(),
+                        List.of(new WorkbenchEvidenceGate.GroundedClaim(
+                                block.text(), List.of("lay_location"))), false, List.of(block)),
+                List.of(source), WorkbenchEvidenceGate.GatePolicy.strict(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.PASS);
+        assertThat(result.issues()).isEmpty();
     }
 
     @Test

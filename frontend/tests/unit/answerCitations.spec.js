@@ -45,6 +45,17 @@ describe('answer citations', () => {
     expect(cited).not.toContain('legacy answer')
   })
 
+  it('keeps evidence-limit diagnostics internal instead of rendering them to the user', () => {
+    const cited = buildCitedAnswer('', [], [], [
+      { text: '公共流 SINR 位于公式 (4)。', basis: 'PAPER_FACT', citations: [] },
+      { text: '当前没有可信 LaTeX 转写，需要回原页核对。', basis: 'EVIDENCE_LIMIT', citations: [] },
+    ])
+
+    expect(cited).toContain('公共流 SINR 位于公式 (4)')
+    expect(cited).not.toContain('证据限制')
+    expect(cited).not.toContain('需要回原页核对')
+  })
+
   it('uses one shared index and merges formula text with its region locator', () => {
     const evidence = [
       {

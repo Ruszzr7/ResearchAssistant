@@ -164,6 +164,22 @@ class WorkbenchEvidenceRetrievalServiceTest {
     }
 
     @Test
+    void colloquialChineseSignalNoiseQueryRetrievesAnEnglishSinrDefinition() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                block("sinr-definition", DocumentBlockRole.BODY, 1, List.of("System Model"),
+                        "The signal-to-interference plus noise ratio (SINR) for the common stream is written as"),
+                block("unrelated", DocumentBlockRole.BODY, 2, List.of("Experiments"),
+                        "The experiment reports vehicle latency.")));
+
+        List<LayoutEvidence> result = service.retrievePaper(
+                artifact, "为我找出信噪比公式在哪？", 5, 8_000);
+
+        assertThat(result).isNotEmpty();
+        assertThat(result.get(0).blockId()).isEqualTo("sinr-definition");
+        assertThat(result).extracting(LayoutEvidence::blockId).doesNotContain("unrelated");
+    }
+
+    @Test
     void currentTechnicalQuestionRanksMatchingBodyBeforeAbstractAndHeadings() {
         PaperLayoutArtifact artifact = artifact(7L, List.of(
                 block("abstract", DocumentBlockRole.ABSTRACT, 1, List.of(), "Autonomous driving overview"),

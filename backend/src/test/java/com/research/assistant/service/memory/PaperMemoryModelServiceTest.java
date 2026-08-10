@@ -5,6 +5,7 @@ import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.service.LLMService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
@@ -89,6 +90,23 @@ class PaperMemoryModelServiceTest {
         assertThat(generated.summary().promptTokens()).isEqualTo(500);
         assertThat(generated.summary().completionTokens()).isEqualTo(180);
         verify(llmService).chatWithUsage(anyString(), anyString(), any());
+    }
+
+    @Test
+    void shouldUseLowReasoningForBoundedPaperExtraction() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any()))
+                .thenReturn(new LlmResponse("""
+                        {"synopsis":"A bounded summary.","claims":[],"concepts":[],
+                         "datasets":[],"models":[],"metrics":[]}
+                        """, 100, 30, 130, "STOP"));
+
+        service.summarize(chunk());
+
+        ArgumentCaptor<com.research.assistant.service.ai.LlmCallPolicy> policy =
+                ArgumentCaptor.forClass(com.research.assistant.service.ai.LlmCallPolicy.class);
+        verify(llmService).chatWithUsage(anyString(), anyString(), policy.capture());
+        assertThat(policy.getValue().reasoningEffort()).isEqualTo("low");
+        assertThat(policy.getValue().maxOutputTokens()).isEqualTo(900);
     }
 
     @Test

@@ -2,7 +2,10 @@ package com.research.assistant.controller;
 
 import com.research.assistant.common.Result;
 import com.research.assistant.dto.AiConnectionTestResult;
+import com.research.assistant.dto.AiModelListRequest;
+import com.research.assistant.dto.AiModelListResult;
 import com.research.assistant.entity.Settings;
+import com.research.assistant.service.AiModelCatalogService;
 import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.security.SettingsPolicy;
 import jakarta.validation.Valid;
@@ -26,9 +29,12 @@ public class SettingsController {
 
     private static final Logger log = LoggerFactory.getLogger(SettingsController.class);
     private final SettingsService settingsService;
+    private final AiModelCatalogService modelCatalogService;
 
-    public SettingsController(SettingsService settingsService) {
+    public SettingsController(SettingsService settingsService,
+                              AiModelCatalogService modelCatalogService) {
         this.settingsService = settingsService;
+        this.modelCatalogService = modelCatalogService;
     }
 
     @GetMapping
@@ -60,6 +66,24 @@ public class SettingsController {
             log.warn("LLM connection test failed type={}", e.getClass().getSimpleName());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Result.error(502, "上游模型服务暂时不可用，请检查配置后重试"));
+        }
+    }
+
+    @PostMapping("/models")
+    public ResponseEntity<Result<AiModelListResult>> listModels(
+            @Valid @RequestBody AiModelListRequest request) {
+        try {
+            return ResponseEntity.ok(Result.ok(modelCatalogService.list(request)));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Result.error(400, exception.getMessage()));
+        } catch (AiModelCatalogService.ModelCatalogException exception) {
+            log.warn("AI model catalog query failed upstreamStatus={} type={}",
+                    exception.upstreamStatus(), exception.getClass().getSimpleName());
+            String message = exception.upstreamStatus() == 401 || exception.upstreamStatus() == 403
+                    ? "查询失败，请检查 API Key 和模型权限"
+                    : "查询失败，请检查 Base URL、API Key 或稍后重试";
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Result.error(502, message));
         }
     }
 }

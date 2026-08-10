@@ -9,8 +9,10 @@ const mocks = vi.hoisted(() => ({
   getResearchSession: vi.fn(),
   listResearchSessions: vi.fn(),
   appendResearchMessages: vi.fn(),
+  attachResearchRun: vi.fn(),
   getPaperMemoryStatus: vi.fn(),
   startPaperUnderstanding: vi.fn(),
+  prepareChatAttachment: vi.fn(),
   state: {
     trace: { __v_isRef: true, value: null },
     running: { __v_isRef: true, value: false },
@@ -30,6 +32,11 @@ vi.mock('@/api/researchArchive.js', () => ({
   getResearchSession: mocks.getResearchSession,
   listResearchSessions: mocks.listResearchSessions,
   appendResearchMessages: mocks.appendResearchMessages,
+  attachResearchRun: mocks.attachResearchRun,
+}))
+vi.mock('@/utils/chatAttachments.js', () => ({
+  CHAT_ATTACHMENT_ACCEPT: '.pdf,.txt,.md,.tex',
+  prepareChatAttachment: mocks.prepareChatAttachment,
 }))
 vi.mock('@/composables/usePaperWorkbench.js', () => ({
   usePaperWorkbench: () => mocks.state,
@@ -66,12 +73,14 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     mocks.getResearchSession.mockReset().mockResolvedValue({ messages: [], runs: [] })
     mocks.listResearchSessions.mockReset().mockResolvedValue([])
     mocks.appendResearchMessages.mockReset().mockResolvedValue([])
+    mocks.attachResearchRun.mockReset().mockResolvedValue(undefined)
     mocks.getPaperMemoryStatus.mockReset().mockResolvedValue({
       paperId: 1, status: 'READY', stageText: '论文记忆已就绪', progress: 100,
       totalChunks: 4, completedChunks: 4, failedChunks: 0,
       canStart: false, canRetry: false, revision: 2,
     })
     mocks.startPaperUnderstanding.mockReset().mockResolvedValue({ taskId: 'memory-task-1' })
+    mocks.prepareChatAttachment.mockReset()
     mocks.state.trace.value = null
     mocks.state.running.value = false
     mocks.state.error.value = ''
@@ -86,17 +95,18 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(wrapper.find('.product-tabs').exists()).toBe(false)
     expect(wrapper.get('.assistant-context-header').text()).toContain('论文助手')
     expect(wrapper.get('.assistant-context-header').text()).toContain('连续科研对话')
-    await wrapper.get('.assistant-context-header button').trigger('click')
+    await wrapper.get('.comparison-paper-action').trigger('click')
     expect(wrapper.emitted('add-comparison-paper')).toHaveLength(1)
     expect(mocks.state.run).not.toHaveBeenCalled()
   })
 
   it('switches content and formula capture from the sliding selector', async () => {
     const wrapper = mountPanel({ captureMode: 'text' })
+    expect(wrapper.get('.assistant-context-header').find('.capture-switch').exists()).toBe(true)
+    expect(wrapper.find('.capture-section').exists()).toBe(false)
     const buttons = wrapper.findAll('.capture-switch button')
-    expect(buttons.map(button => button.text())).toEqual(['内容选取', '公式精确框选'])
+    expect(buttons.map(button => button.text())).toEqual(['内容选取', '公式框选'])
     expect(buttons[0].classes()).toContain('active')
-    expect(wrapper.get('.capture-hint').text()).toContain('选择文字或公式')
 
     await buttons[1].trigger('click')
     expect(wrapper.emitted('capture-mode-change')?.[0]).toEqual(['formula'])
@@ -104,9 +114,19 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.setProps({ captureMode: 'formula' })
     expect(wrapper.get('.capture-switch').classes()).toContain('is-formula')
     expect(wrapper.findAll('.capture-switch button')[1].classes()).toContain('active')
-    expect(wrapper.get('.capture-hint').text()).toContain('直接选取不完整')
-    expect(wrapper.get('.capture-hint').text()).toContain('固定内容')
-    expect(wrapper.get('.capture-hint').text()).toContain('可编辑 LaTeX')
+  })
+
+  it('collapses confirmed content while preserving a reopen control', async () => {
+    const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
+    await flushPromises()
+
+    await wrapper.findAll('.selection-tools button')
+      .find(button => button.text().includes('附加到下一条消息')).trigger('click')
+
+    expect(wrapper.find('.content-stage').exists()).toBe(false)
+    expect(wrapper.get('.content-stage-collapsed').text()).toContain('已固定第 2 页选取内容')
+    await wrapper.get('.content-stage-collapsed button').trigger('click')
+    expect(wrapper.get('.content-stage').text()).toContain('selected method')
   })
 
   it('shows blocking whole-paper understanding progress and retries partial memory', async () => {
@@ -151,6 +171,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
 
   it('uses a confirmed selection only as the next-message attachment', async () => {
     mocks.state.run.mockImplementation(async (_request, options) => {
+      await options?.onPlanned?.({ runId: 'selection-turn-1' })
       options?.onAccepted?.()
       return {
         runId: 'selection-turn-1',
@@ -176,10 +197,80 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
       question: '这段方法解决什么问题？',
       selectionAnchor: textAnchor,
       conversationId: expect.stringMatching(/^session-91-/),
-    }), expect.objectContaining({ onAccepted: expect.any(Function) }))
+    }), expect.objectContaining({
+      onPlanned: expect.any(Function),
+      onAccepted: expect.any(Function),
+    }))
+    expect(mocks.attachResearchRun).toHaveBeenCalledWith(91, 'selection-turn-1')
     expect(wrapper.emitted('clear-selection')).toHaveLength(1)
     expect(wrapper.text()).not.toContain('待发送')
     expect(wrapper.text()).toContain('该方法解决估计问题')
+  })
+
+  it('sends with Enter and reserves Shift+Enter for a line break', async () => {
+    mocks.state.run.mockResolvedValue({
+      runId: 'keyboard-turn-1',
+      result: { answer: '已发送。', claims: [], evidence: [] },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+    const composer = wrapper.get('.assistant-composer textarea')
+
+    expect(wrapper.get('.assistant-composer__footer span').text()).toBe('Shift+Enter 换行')
+    await composer.setValue('键盘发送测试')
+    await composer.trigger('keydown', { key: 'Enter', shiftKey: true })
+    expect(mocks.state.run).not.toHaveBeenCalled()
+
+    await composer.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(mocks.state.run).toHaveBeenCalledWith(expect.objectContaining({
+      question: '键盘发送测试',
+    }), expect.any(Object))
+  })
+
+  it('keeps LaTeX as editable formula chips and sends it with local attachments', async () => {
+    mocks.prepareChatAttachment.mockResolvedValue({
+      name: 'derivation.tex', mimeType: 'application/x-tex',
+      content: '\\gamma = a / b', truncated: false, size: 32,
+    })
+    mocks.state.run.mockResolvedValue({
+      runId: 'attachment-turn-1',
+      result: { answer: '已结合附件回答。', claims: [], evidence: [] },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="输入 LaTeX"]').trigger('click')
+    await wrapper.get('.assistant-composer__latex textarea').setValue('\\frac{a}{b}')
+    await wrapper.findAll('.assistant-composer__latex button')
+      .find(button => button.text().includes('添加公式')).trigger('click')
+    expect(wrapper.get('.assistant-composer__input').element.value).toBe('')
+    expect(wrapper.get('.assistant-composer__attachments').text()).toContain('公式1')
+
+    await wrapper.get('.assistant-composer__formula-name').trigger('click')
+    expect(wrapper.get('.assistant-composer__latex textarea').element.value).toBe('\\frac{a}{b}')
+    await wrapper.get('.assistant-composer__latex textarea').setValue('\\frac{a+b}{c}')
+    await wrapper.findAll('.assistant-composer__latex button')
+      .find(button => button.text().includes('保存修改')).trigger('click')
+
+    const input = wrapper.get('.assistant-composer__file-input')
+    const file = new File(['formula'], 'derivation.tex', { type: 'application/x-tex' })
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [file] })
+    await input.trigger('change')
+    await flushPromises()
+    expect(wrapper.get('.assistant-composer__attachments').text()).toContain('derivation.tex')
+
+    await sendButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(mocks.state.run).toHaveBeenCalledWith(expect.objectContaining({
+      question: '请分析所附附件。',
+      attachments: [
+        expect.objectContaining({ name: 'derivation.tex', content: '\\gamma = a / b' }),
+        expect.objectContaining({ name: '公式1', mimeType: 'application/x-latex', content: '\\frac{a+b}{c}' }),
+      ],
+    }), expect.any(Object))
+    expect(wrapper.text()).toContain('derivation.tex')
+    expect(wrapper.text()).toContain('公式1')
   })
 
   it('distinguishes a recoverable region fallback from a precise text anchor', async () => {
@@ -245,6 +336,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.get('.assistant-composer textarea').setValue('第一问')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
+    await wrapper.get('.content-stage-collapsed button').trigger('click')
     await wrapper.get('.selection-clear-action').trigger('click')
     await wrapper.setProps({ selection: null, selectionAnchor: null })
     await wrapper.get('.assistant-composer textarea').setValue('第二问')
@@ -266,7 +358,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
       })
       .mockResolvedValueOnce({
         runId: 'turn-after-clear',
-        result: { answer: '连续追问回答', claims: [], evidence: [] },
+        result: { answer: '连续追问回答', claims: [], evidence: [], contextInherited: true },
       })
       .mockResolvedValueOnce({
         runId: 'turn-new-conversation',
@@ -281,6 +373,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await flushPromises()
     const firstRequest = mocks.state.run.mock.calls[0][0]
 
+    await wrapper.get('.content-stage-collapsed button').trigger('click')
     await wrapper.get('.selection-clear-action').trigger('click')
     await wrapper.setProps({ selection: null, selectionAnchor: null })
     await wrapper.get('.assistant-composer textarea').setValue('没有新选区时继续追问')
@@ -407,6 +500,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await sendButton(wrapper).trigger('click')
     await flushPromises()
     const firstConversation = mocks.state.run.mock.calls[0][0].conversationId
+    await wrapper.get('.content-stage-collapsed button').trigger('click')
     await wrapper.get('.selection-clear-action').trigger('click')
     await wrapper.setProps({ selection: null, selectionAnchor: null })
 
@@ -464,7 +558,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(mocks.createResearchSession).not.toHaveBeenCalled()
   })
 
-  it('renders the editable formula card and accepts only a confirmed formula anchor', async () => {
+  it('collapses after both initial formula confirmation and later correction saves', async () => {
     const formulaAnchor = {
       paperId: 1,
       page: 3,
@@ -492,6 +586,9 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.get('.assistant-composer textarea').setValue('解释这个公式')
     expect(sendButton(wrapper).attributes()).not.toHaveProperty('disabled')
 
+    wrapper.findComponent(FormulaRegionCard).vm.$emit('confirm', ['\\sum_{k=1}^{K} r_k'])
+    expect(wrapper.emitted('confirm-formula')?.[0]).toEqual([['\\sum_{k=1}^{K} r_k']])
+    await wrapper.setProps({ formulaConfirming: true })
     await wrapper.setProps({
       formulaRecognition: {
         id: 9,
@@ -502,6 +599,17 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
         anchor: formulaAnchor,
       },
     })
+    await wrapper.setProps({ formulaConfirming: false })
+    await flushPromises()
+    expect(wrapper.get('.content-stage-collapsed').text()).toContain('已固定第 3 页公式内容')
+
+    await wrapper.get('.content-stage-collapsed button').trigger('click')
+    wrapper.findComponent(FormulaRegionCard).vm.$emit('confirm', ['\\sum_{k=1}^{K} r_k+1'])
+    expect(wrapper.emitted('confirm-formula')?.[1]).toEqual([['\\sum_{k=1}^{K} r_k+1']])
+    await wrapper.setProps({ formulaConfirming: true })
+    await wrapper.setProps({ formulaConfirming: false })
+    await flushPromises()
+    expect(wrapper.get('.content-stage-collapsed').text()).toContain('已固定第 3 页公式内容')
     await wrapper.get('.assistant-composer textarea').setValue('解释这个公式')
     expect(sendButton(wrapper).attributes()).not.toHaveProperty('disabled')
   })

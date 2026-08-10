@@ -1,11 +1,30 @@
 <template>
   <aside class="paper-workbench" aria-label="论文助手">
       <section class="assistant-context-header">
-        <div>
+        <div class="assistant-context-header__title">
           <b>论文助手</b>
           <small>以当前论文理解为基础的连续科研对话</small>
         </div>
-        <button type="button" @click="$emit('add-comparison-paper')">＋ 添加对比文献</button>
+        <div class="assistant-context-header__actions">
+          <div class="capture-switch capture-switch--compact" :class="{ 'is-formula': captureMode === 'formula' }" role="tablist" aria-label="论文内容选取方式">
+            <span class="capture-switch__indicator" aria-hidden="true" />
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="captureMode === 'text'"
+              :class="{ active: captureMode === 'text' }"
+              @click="selectCaptureMode('text')"
+            >内容选取</button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="captureMode === 'formula'"
+              :class="{ active: captureMode === 'formula' }"
+              @click="selectCaptureMode('formula')"
+            >公式框选</button>
+          </div>
+          <button type="button" class="comparison-paper-action" @click="$emit('add-comparison-paper')">＋ 添加对比文献</button>
+        </div>
       </section>
 
       <section
@@ -38,32 +57,21 @@
         >{{ memoryStarting ? '启动中…' : (memoryStatus?.canRetry ? '重试' : '开始理解') }}</button>
       </section>
 
-      <section class="capture-section">
-        <div class="capture-switch" :class="{ 'is-formula': captureMode === 'formula' }" role="tablist" aria-label="论文内容选取方式">
-          <span class="capture-switch__indicator" aria-hidden="true" />
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="captureMode === 'text'"
-            :class="{ active: captureMode === 'text' }"
-            @click="selectCaptureMode('text')"
-          >内容选取</button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="captureMode === 'formula'"
-            :class="{ active: captureMode === 'formula' }"
-            @click="selectCaptureMode('formula')"
-          >公式精确框选</button>
-        </div>
-        <p class="capture-hint">
-          {{ captureMode === 'formula'
-            ? '直接选取不完整时可精确框选公式；点击固定内容后，系统会自动生成可编辑 LaTeX。'
-            : '直接在 PDF 中拖动选择文字或公式，确认后作为下一条消息的附件。' }}
-        </p>
-      </section>
+      <div
+        v-if="confirmedContentPresent && !contentStageExpanded"
+        class="content-stage-collapsed"
+        aria-live="polite"
+      >
+        <span>{{ collapsedContentLabel }}</span>
+        <button type="button" @click="contentStageExpanded = true">重新展开</button>
+      </div>
 
-      <div class="content-stage" aria-live="polite">
+      <div
+        v-else
+        class="content-stage"
+        :class="{ 'is-formula': formulaRegion }"
+        aria-live="polite"
+      >
         <FormulaRegionCard
           v-if="formulaRegion"
           :region="formulaRegion"
@@ -74,7 +82,7 @@
           :error="formulaError"
           @clear="clearFormula"
           @retry="$emit('retry-formula')"
-          @confirm="$emit('confirm-formula', $event)"
+          @confirm="handleFormulaConfirm"
         />
 
         <section v-else-if="displayedSelection" class="selection-card">
@@ -191,7 +199,12 @@
               @citation-click="jumpCitation(message, $event)"
             />
             <template v-else>
-              <div class="chat-message__text">{{ message.content }}</div>
+              <ResearchMarkdown class="chat-message__text" :content="message.content" />
+              <div v-if="message.attachments?.length" class="chat-message__attachments">
+                <span v-for="attachment in message.attachments" :key="attachment.name">
+                  {{ attachment.mimeType === 'application/x-latex' ? 'x²' : '📎' }} {{ attachment.name }}
+                </span>
+              </div>
               <small v-if="message.selectionAnchor?.page" class="chat-message__context">
                 引用第 {{ message.selectionAnchor.page }} 页选区
               </small>
@@ -224,6 +237,32 @@
         </div>
 
         <div class="assistant-composer" :class="{ disabled: !memoryReady }">
+          <div v-if="pendingAttachments.length || pendingFormulas.length" class="assistant-composer__attachments">
+            <span v-for="(attachment, index) in pendingAttachments" :key="`${attachment.name}-${index}`">
+              <span class="assistant-composer__attachment-name">{{ attachment.name }}</span>
+              <small v-if="attachment.truncated">已截取</small>
+              <button type="button" :aria-label="`移除附件 ${attachment.name}`" @click="removeAttachment(index)">×</button>
+            </span>
+            <span v-for="(latex, index) in pendingFormulas" :key="`formula-${index}`" class="is-formula">
+              <button type="button" class="assistant-composer__formula-name" @click="editLatexFormula(index)">x²&nbsp; 公式{{ index + 1 }}</button>
+              <button type="button" :aria-label="`移除公式 ${index + 1}`" @click="removeLatexFormula(index)">×</button>
+            </span>
+          </div>
+          <div v-if="latexEditorVisible" class="assistant-composer__latex" role="dialog" aria-label="输入 LaTeX 公式">
+            <textarea
+              ref="latexInputRef"
+              v-model="latexDraft"
+              maxlength="2000"
+              rows="3"
+              placeholder="输入 LaTeX，例如：\frac{a}{b}"
+              @keydown.ctrl.enter.prevent="insertLatex"
+            />
+            <div>
+              <small>{{ editingFormulaIndex == null ? '将作为独立公式附件发送' : `正在编辑公式 ${editingFormulaIndex + 1}` }}</small>
+              <button type="button" @click="closeLatexEditor">取消</button>
+              <button type="button" class="is-primary" :disabled="!latexDraft.trim()" @click="insertLatex">{{ editingFormulaIndex == null ? '添加公式' : '保存修改' }}</button>
+            </div>
+          </div>
           <el-input
             v-model="question"
             class="assistant-composer__input"
@@ -239,17 +278,47 @@
                 : (canContinueSelectionConversation
                   ? '继续当前对话，或附加新选区后提问…'
                   : '可以询问论文，也可以像普通对话一样提问…'))"
-            @keydown.ctrl.enter.prevent="sendSelectionMessage"
+            @keydown.enter="handleComposerEnter"
           />
           <div class="assistant-composer__footer">
-            <span>Ctrl + Enter 发送</span>
-            <el-button
-              type="primary"
-              size="small"
-              :loading="running"
+            <div class="assistant-composer__tools">
+              <input
+                ref="attachmentInputRef"
+                class="assistant-composer__file-input"
+                type="file"
+                multiple
+                :accept="CHAT_ATTACHMENT_ACCEPT"
+                @change="handleAttachmentFiles"
+              />
+              <button
+                type="button"
+                title="添加附件"
+                aria-label="添加附件"
+                :disabled="!memoryReady || preparingAttachment || pendingContextCount >= 3"
+                @click="openAttachmentPicker"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 12.8 14.9 6.4a3.3 3.3 0 0 1 4.7 4.7l-8.1 8.1a5 5 0 0 1-7.1-7.1l8.3-8.3" /></svg>
+              </button>
+              <button
+                type="button"
+                title="输入 LaTeX"
+                aria-label="输入 LaTeX"
+                :disabled="!memoryReady || (pendingContextCount >= 3 && editingFormulaIndex == null)"
+                @click="toggleLatexEditor"
+              >x<sup>2</sup></button>
+              <span>Shift+Enter 换行</span>
+            </div>
+            <button
+              type="button"
+              class="assistant-composer__send"
               :disabled="selectionChatDisabled"
+              aria-label="发送"
+              title="发送"
               @click="sendSelectionMessage"
-            >发送</el-button>
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 5 16 7-16 7 3-7-3-7Zm3 7h13" /></svg>
+              <span class="visually-hidden">发送</span>
+            </button>
           </div>
         </div>
         <div v-if="selectionChatError || error" class="error-state">{{ selectionChatError || error }}</div>
@@ -264,6 +333,7 @@ import { getPaperMemoryStatus, startPaperUnderstanding } from '@/api/paperMemory
 import { translateTexts } from '@/api/workbench.js'
 import {
   appendResearchMessages,
+  attachResearchRun,
   createResearchSession,
   getResearchSession,
   listResearchSessions,
@@ -271,6 +341,7 @@ import {
 import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 import ResearchMarkdown from '@/components/ResearchMarkdown.vue'
 import { buildCitationSources, buildCitedAnswer } from '@/utils/answerCitations.js'
+import { CHAT_ATTACHMENT_ACCEPT, prepareChatAttachment } from '@/utils/chatAttachments.js'
 import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
 import {
   detectTextLanguage,
@@ -306,7 +377,17 @@ const emit = defineEmits([
 
 const { running, error, run, loadRecent } = usePaperWorkbench()
 const question = ref('')
+const pendingAttachments = ref([])
+const pendingFormulas = ref([])
+const preparingAttachment = ref(false)
+const attachmentInputRef = ref(null)
+const latexEditorVisible = ref(false)
+const latexDraft = ref('')
+const latexInputRef = ref(null)
+const editingFormulaIndex = ref(null)
 const fixedTextSelection = ref(null)
+const contentStageExpanded = ref(true)
+const collapseAfterFormulaConfirm = ref(false)
 const selectionTranslation = ref(null)
 const selectionTranslationLoading = ref(false)
 const selectionTranslationError = ref('')
@@ -358,17 +439,40 @@ const confirmedFormula = computed(() => (
 const activeSelectionAnchor = computed(() => (
   fixedTextSelection.value?.anchor || confirmedFormula.value?.anchor || null
 ))
+const confirmedContentPresent = computed(() => Boolean(
+  fixedTextSelection.value || confirmedFormula.value
+))
+const collapsedContentLabel = computed(() => {
+  const page = activeSelectionAnchor.value?.page
+  const contentType = confirmedFormula.value ? '公式内容' : '选取内容'
+  return page ? `已固定第 ${page} 页${contentType}` : `已固定${contentType}`
+})
 const canContinueSelectionConversation = computed(() => Boolean(
   selectionConversationId.value
   && selectionMessages.value.length
 ))
 const selectionChatDisabled = computed(() => (
-  running.value || !memoryReady.value || !question.value.trim()
+  running.value || !memoryReady.value
+    || (!question.value.trim() && !pendingAttachments.value.length && !pendingFormulas.value.length)
+))
+const pendingContextCount = computed(() => (
+  pendingAttachments.value.length + pendingFormulas.value.length
 ))
 
 watch(() => displayedSelection.value?.text, () => {
   selectionTranslation.value = null
   selectionTranslationError.value = ''
+})
+watch(() => props.selectionAnchor, value => {
+  if (value && !fixedTextSelection.value) contentStageExpanded.value = true
+})
+watch(() => props.formulaRegion, value => {
+  if (value && !props.formulaRecognition?.confirmed) contentStageExpanded.value = true
+})
+watch(() => props.formulaConfirming, (confirming, wasConfirming) => {
+  if (!wasConfirming || confirming || !collapseAfterFormulaConfirm.value) return
+  if (!props.formulaError && confirmedFormula.value) contentStageExpanded.value = false
+  collapseAfterFormulaConfirm.value = false
 })
 watch(() => props.researchSessionId, nextId => {
   const normalized = positiveSessionId(nextId)
@@ -382,6 +486,9 @@ watch(() => props.researchSessionId, nextId => {
 })
 watch(() => props.paper.id, () => {
   fixedTextSelection.value = null
+  contentStageExpanded.value = true
+  collapseAfterFormulaConfirm.value = false
+  clearComposerExtras()
   activeResearchSessionId.value = positiveSessionId(props.researchSessionId)
   selectionConversationId.value = ''
   selectionMessages.value = []
@@ -443,6 +550,7 @@ function selectCaptureMode(mode) {
 
 function clearTextSelection() {
   fixedTextSelection.value = null
+  contentStageExpanded.value = true
   emit('clear-selection')
 }
 
@@ -452,17 +560,141 @@ function confirmTextSelection() {
     selection: props.selection,
     anchor: props.selectionAnchor,
   }
+  contentStageExpanded.value = false
 }
 
 function clearFormula() {
+  contentStageExpanded.value = true
+  collapseAfterFormulaConfirm.value = false
   emit('clear-formula')
 }
 
+function handleFormulaConfirm(formulas) {
+  collapseAfterFormulaConfirm.value = true
+  emit('confirm-formula', formulas)
+}
+
+function handleComposerEnter(event) {
+  if (event?.isComposing || event?.shiftKey) return
+  event?.preventDefault()
+  void sendSelectionMessage()
+}
+
+function openAttachmentPicker() {
+  if (!memoryReady.value || preparingAttachment.value || pendingContextCount.value >= 3) return
+  attachmentInputRef.value?.click()
+}
+
+async function handleAttachmentFiles(event) {
+  const input = event?.target
+  const remaining = Math.max(0, 3 - pendingContextCount.value)
+  const files = Array.from(input?.files || []).slice(0, remaining)
+  if (!files.length) return
+  preparingAttachment.value = true
+  try {
+    for (const file of files) {
+      try {
+        const attachment = await prepareChatAttachment(file)
+        pendingAttachments.value.push(attachment)
+      } catch (reason) {
+        ElMessage.warning(requestErrorMessage(reason, `附件「${file.name}」读取失败`))
+      }
+    }
+    if (Number(input?.files?.length || 0) > remaining) ElMessage.info('每条消息最多添加 3 个附件')
+  } finally {
+    preparingAttachment.value = false
+    if (input) input.value = ''
+  }
+}
+
+function removeAttachment(index) {
+  pendingAttachments.value.splice(index, 1)
+}
+
+async function toggleLatexEditor() {
+  if (latexEditorVisible.value && editingFormulaIndex.value == null) {
+    closeLatexEditor()
+    return
+  }
+  if (pendingContextCount.value >= 3) return
+  editingFormulaIndex.value = null
+  latexDraft.value = ''
+  latexEditorVisible.value = true
+  await focusLatexEditor()
+}
+
+function insertLatex() {
+  const latex = latexDraft.value.trim()
+  if (!latex) return
+  const index = editingFormulaIndex.value
+  if (Number.isInteger(index) && index >= 0 && index < pendingFormulas.value.length) {
+    pendingFormulas.value[index] = latex
+  } else if (pendingContextCount.value < 3) {
+    pendingFormulas.value.push(latex)
+  } else {
+    ElMessage.info('每条消息最多添加 3 项附件或公式')
+    return
+  }
+  closeLatexEditor()
+}
+
+async function editLatexFormula(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= pendingFormulas.value.length) return
+  editingFormulaIndex.value = index
+  latexDraft.value = pendingFormulas.value[index]
+  latexEditorVisible.value = true
+  await focusLatexEditor()
+}
+
+function removeLatexFormula(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= pendingFormulas.value.length) return
+  pendingFormulas.value.splice(index, 1)
+  if (editingFormulaIndex.value === index) closeLatexEditor()
+  else if (editingFormulaIndex.value > index) editingFormulaIndex.value -= 1
+}
+
+function closeLatexEditor() {
+  latexDraft.value = ''
+  editingFormulaIndex.value = null
+  latexEditorVisible.value = false
+}
+
+async function focusLatexEditor() {
+  await nextTick()
+  latexInputRef.value?.focus()
+}
+
+function formulaAttachments(formulas) {
+  return (formulas || []).map((latex, index) => ({
+    name: `公式${index + 1}`,
+    mimeType: 'application/x-latex',
+    content: latex,
+    truncated: false,
+  }))
+}
+
+function attachmentViews(attachments) {
+  return (attachments || []).map(item => ({
+    name: item.name,
+    mimeType: item.mimeType,
+    truncated: Boolean(item.truncated),
+  }))
+}
+
+function clearComposerExtras() {
+  pendingAttachments.value = []
+  pendingFormulas.value = []
+  closeLatexEditor()
+}
+
 async function sendSelectionMessage() {
-  const content = question.value.trim()
+  const fileAttachments = pendingAttachments.value.map(item => ({ ...item }))
+  const formulas = [...pendingFormulas.value]
+  const attachments = [...fileAttachments, ...formulaAttachments(formulas)]
+  const content = question.value.trim() || (attachments.length ? '请分析所附附件。' : '')
   const anchor = activeSelectionAnchor.value
   if (!content || running.value || !memoryReady.value) return
-  const contextInherited = !anchor && selectionMessages.value.length > 0
+  let contextInherited = false
 
   let sessionId
   try { sessionId = await ensureResearchSession(content) }
@@ -480,10 +712,14 @@ async function sendSelectionMessage() {
     content,
     selectionAnchor: anchor,
     contextInherited,
+    attachments: attachmentViews(attachments),
   }
   selectionMessages.value.push(userMessage)
   selectionChatError.value = ''
   question.value = ''
+  pendingAttachments.value = []
+  pendingFormulas.value = []
+  closeLatexEditor()
   await scrollSelectionChat()
 
   try {
@@ -492,11 +728,15 @@ async function sendSelectionMessage() {
       question: content,
       selectionAnchor: anchor,
       conversationId,
+      attachments,
     })
     const completed = await run(request, {
+      onPlanned: trace => attachResearchRun(sessionId, trace.runId),
       onAccepted: () => detachSubmittedSelection(anchor),
     })
     if (selectionConversationId.value !== conversationId) return
+    contextInherited = Boolean(completed.result?.contextInherited)
+    userMessage.contextInherited = contextInherited
     selectionMessages.value.push({
       id: completed.runId || `assistant-${++selectionMessageSequence}`,
       role: 'assistant',
@@ -517,7 +757,7 @@ async function sendSelectionMessage() {
         {
           messageKey: `${completed.runId}:user`, role: 'USER', content,
           runId: completed.runId, selectionAnchor: anchor,
-          evidence: { contextInherited, conversationId },
+          evidence: { contextInherited, conversationId, attachments: attachmentViews(attachments) },
         },
         {
           messageKey: `${completed.runId}:assistant`, role: 'ASSISTANT',
@@ -540,6 +780,8 @@ async function sendSelectionMessage() {
       const index = selectionMessages.value.findIndex(item => item.id === userMessage.id)
       if (index >= 0) selectionMessages.value.splice(index, 1)
       question.value = content
+      pendingAttachments.value = fileAttachments
+      pendingFormulas.value = formulas
       selectionChatError.value = requestErrorMessage(reason, '选区对话失败')
     }
   }
@@ -628,6 +870,7 @@ async function restoreResearchMessages(sessionId) {
       actions: message.evidence?.actions || [],
       selectionAnchor: message.selectionAnchor || null,
       contextInherited: Boolean(message.evidence?.contextInherited),
+      attachments: message.evidence?.attachments || [],
     }))
     await scrollSelectionChat()
   } catch { /* A missing archive must not prevent PDF reading. */ }
@@ -664,6 +907,7 @@ async function switchConversation(session) {
   selectionMessages.value = []
   selectionChatError.value = ''
   question.value = ''
+  clearComposerExtras()
   conversationPickerVisible.value = false
   emit('research-session-change', sessionId)
   await restoreResearchMessages(sessionId)
@@ -676,6 +920,7 @@ function startNewConversation() {
   selectionMessages.value = []
   selectionChatError.value = ''
   question.value = ''
+  clearComposerExtras()
   conversationPickerVisible.value = false
   emit('research-session-change', null)
 }
@@ -773,10 +1018,11 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
   padding-block: 9px;
   background: var(--ra-panel-bg);
 }
-.assistant-context-header > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.assistant-context-header__title { display: flex; min-width: 54px; flex: 1 1 auto; overflow: hidden; flex-direction: column; gap: 2px; }
 .assistant-context-header b { font-size: 14px; letter-spacing:-.15px; }
 .assistant-context-header small { overflow: hidden; color: var(--ra-text-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.assistant-context-header button {
+.assistant-context-header__actions { display: flex; min-width: 0; flex: 0 0 auto; align-items: center; gap: 7px; }
+.assistant-context-header .comparison-paper-action {
   flex: 0 0 auto;
   padding: 4px 7px;
   border: 1px solid var(--ra-border);
@@ -784,7 +1030,8 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
   color: var(--ra-link);
   background: transparent;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 9px;
+  white-space: nowrap;
 }
 .memory-status { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; padding-block: 9px; background: color-mix(in srgb, var(--ra-link) 5%, var(--ra-panel-bg)); }
 .memory-orbit { position: relative; flex: 0 0 24px; width: 24px; height: 24px; border: 1px solid color-mix(in srgb, var(--ra-link) 28%, transparent); border-radius: 50%; animation: memory-orbit 1.4s linear infinite; }
@@ -805,7 +1052,6 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 @media (prefers-reduced-motion: reduce) {
   .memory-orbit, .memory-orbit span { animation: none; }
 }
-.capture-section { flex: 0 0 auto; padding-bottom: 10px; }
 .capture-switch {
   position: relative;
   display: grid;
@@ -839,9 +1085,15 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
   font-size: 11px;
 }
 .capture-switch button.active { color: var(--ra-link); font-weight: 600; }
-.capture-hint { margin: 8px 2px 0; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.45; }
+.capture-switch--compact { flex: 0 0 124px; width: 124px; padding: 2px; border-radius: 8px; }
+.capture-switch--compact .capture-switch__indicator { top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 5px; }
+.capture-switch--compact button { padding: 5px 2px; font-size: 9px; white-space: nowrap; }
 .content-stage { flex: 0 1 auto; max-height: min(46%, 430px); overflow-y: auto; border-bottom: 1px solid var(--ra-border); }
+.content-stage.is-formula { max-height: min(34%, 300px); }
 .content-stage :deep(.formula-region-card) { border-bottom: 0; }
+.content-stage-collapsed { display: flex; min-height: 40px; box-sizing: border-box; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 16px; border-bottom: 1px solid var(--ra-border); color: var(--ra-text-secondary); background: color-mix(in srgb, var(--ra-link) 4%, var(--ra-panel-bg)); font-size: 10px; }
+.content-stage-collapsed span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.content-stage-collapsed button { flex: 0 0 auto; padding: 3px 7px; border: 1px solid var(--ra-border); border-radius: 6px; color: var(--ra-link); background: var(--ra-panel-bg); cursor: pointer; font-size: 9px; }
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .section-heading > div { display: flex; flex-direction: column; gap: 2px; }
 .section-heading b { font-size: 12px; }
@@ -898,6 +1150,8 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .chat-message__role { margin-bottom: 4px; color: var(--ra-text-tertiary); font-size: 9px; }
 .chat-message__text { font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
 .chat-message__context { display: block; margin-top: 5px; color: var(--ra-text-tertiary); font-size: 9px; }
+.chat-message__attachments { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.chat-message__attachments span { max-width: 100%; overflow: hidden; padding: 3px 7px; border-radius: 6px; color: var(--ra-text-secondary); background: var(--ra-hover-bg); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .chat-message.is-pending { width: 82%; }
 .chat-claim-list { margin: 9px 0 0; font-size: 10px; }
 .chat-claim-list summary { color: var(--ra-link); cursor: pointer; }
@@ -908,8 +1162,35 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .assistant-composer { flex: 0 0 auto; padding: 9px; border: 1px solid var(--ra-border); border-radius: 12px; background: var(--ra-panel-bg); box-shadow: 0 5px 18px rgb(0 0 0 / 5%); }
 .assistant-composer.disabled { background: var(--ra-hover-bg); }
 .assistant-composer :deep(.el-textarea__inner) { padding: 4px; border: 0; background: transparent; box-shadow: none; }
+.assistant-composer__attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
+.assistant-composer__attachments > span { display: flex; min-width: 0; max-width: 100%; align-items: center; gap: 5px; padding: 4px 6px 4px 8px; border: 1px solid var(--ra-border-light); border-radius: 7px; color: var(--ra-text-secondary); background: var(--ra-hover-bg); font-size: 9px; }
+.assistant-composer__attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-composer__attachments > span.is-formula { border-color: color-mix(in srgb, var(--ra-link) 35%, var(--ra-border-light)); background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); }
+.assistant-composer__attachments small { flex: 0 0 auto; color: var(--ra-text-tertiary); }
+.assistant-composer__attachments button { flex: 0 0 auto; padding: 0 2px; border: 0; color: var(--ra-text-tertiary); background: transparent; cursor: pointer; }
+.assistant-composer__attachments .assistant-composer__formula-name { min-width: 0; overflow: hidden; padding: 0; color: var(--ra-link); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-composer__latex { margin-bottom: 7px; padding: 7px; border: 1px solid var(--ra-border); border-radius: 8px; background: var(--ra-surface-muted); }
+.assistant-composer__latex textarea { display: block; width: 100%; min-height: 62px; resize: vertical; box-sizing: border-box; padding: 7px 8px; border: 1px solid var(--ra-border-light); border-radius: 6px; outline: none; color: var(--ra-text); background: var(--ra-panel-bg); font: 11px/1.5 Consolas, monospace; }
+.assistant-composer__latex textarea:focus { border-color: var(--ra-link); }
+.assistant-composer__latex > div { display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 6px; }
+.assistant-composer__latex small { margin-right: auto; color: var(--ra-text-tertiary); font-size: 9px; }
+.assistant-composer__latex button { padding: 3px 7px; border: 1px solid var(--ra-border); border-radius: 5px; color: var(--ra-text-secondary); background: transparent; font-size: 9px; cursor: pointer; }
+.assistant-composer__latex button.is-primary { border-color: var(--ra-link); color: white; background: var(--ra-link); }
+.assistant-composer__latex button:disabled { opacity: .45; cursor: default; }
 .assistant-composer__footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; }
-.assistant-composer__footer span { color: var(--ra-text-tertiary); font-size: 9px; }
+.assistant-composer__tools { display: flex; min-width: 0; align-items: center; gap: 3px; }
+.assistant-composer__tools > span { margin-left: 4px; color: var(--ra-text-tertiary); font-size: 9px; white-space: nowrap; }
+.assistant-composer__tools > button { display: inline-flex; width: 28px; height: 28px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: 6px; color: var(--ra-text-secondary); background: transparent; font: 15px/1 Georgia, serif; cursor: pointer; }
+.assistant-composer__tools > button:hover:not(:disabled) { color: var(--ra-link); background: var(--ra-hover-bg); }
+.assistant-composer__tools > button:disabled { opacity: .4; cursor: default; }
+.assistant-composer__tools sup { margin-top: -7px; font-size: 8px; }
+.assistant-composer__tools svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.assistant-composer__file-input { display: none; }
+.assistant-composer__send { display: inline-flex; width: 34px; height: 34px; flex: 0 0 auto; align-items: center; justify-content: center; border: 0; border-radius: 8px; color: white; background: var(--ra-link); cursor: pointer; }
+.assistant-composer__send:hover:not(:disabled) { filter: brightness(1.06); }
+.assistant-composer__send:disabled { opacity: .42; cursor: default; }
+.assistant-composer__send svg { width: 21px; height: 21px; fill: currentColor; stroke: white; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .answer-progress { display: flex; align-items: center; gap: 7px; color: var(--ra-text-secondary); font-size: 10px; }
 .answer-progress > span { width: 8px; height: 8px; border-radius: 50%; background: var(--ra-link); animation: trace-pulse 1.2s ease-out infinite; }
 @keyframes trace-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ra-link) 30%, transparent); } 75%, 100% { box-shadow: 0 0 0 6px transparent; } }

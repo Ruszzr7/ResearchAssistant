@@ -18,8 +18,6 @@ public class WorkbenchEvidenceGate {
     private static final int MAX_ANSWER_CHARS = 60_000;
     private static final int MAX_CLAIMS = 100;
     private static final int MAX_CITATIONS_PER_CLAIM = 8;
-    private static final Pattern ACRONYM = Pattern.compile(
-            "(?<![A-Za-z0-9])[A-Z][A-Z0-9-]{1,11}(?![A-Za-z0-9])");
     private static final Pattern EQUATION_REFERENCE = Pattern.compile(
             "(?i)\\bequation\\s*\\(\\d{1,4}\\)");
     private static final Pattern GREEK_IDENTIFIER = Pattern.compile(
@@ -151,10 +149,6 @@ public class WorkbenchEvidenceGate {
             if (!block.requiresPaperEvidence() && !block.citations().isEmpty()) {
                 issues.add("answer block " + index + " attaches paper citations to non-paper knowledge");
             }
-            if (block.basis() == WorkbenchAnswerBlock.Basis.INFERENCE
-                    && !containsInferenceCue(block.text())) {
-                issues.add("answer block " + index + " does not label its inference");
-            }
             StringBuilder citedSource = new StringBuilder();
             StringBuilder citedQuotes = new StringBuilder();
             StringBuilder citedSectionMetadata = new StringBuilder();
@@ -270,7 +264,6 @@ public class WorkbenchEvidenceGate {
 
     private Set<String> technicalAnchors(String text) {
         Set<String> anchors = new LinkedHashSet<>();
-        collectMatches(ACRONYM, text, anchors);
         collectMatches(EQUATION_REFERENCE, text, anchors);
         collectMatches(GREEK_IDENTIFIER, text, anchors);
         return anchors;
@@ -279,12 +272,6 @@ public class WorkbenchEvidenceGate {
     private void collectMatches(Pattern pattern, String text, Set<String> target) {
         Matcher matcher = pattern.matcher(text == null ? "" : text);
         while (matcher.find()) target.add(matcher.group().trim());
-    }
-
-    private boolean containsInferenceCue(String text) {
-        String normalized = text == null ? "" : text.toLowerCase(java.util.Locale.ROOT);
-        return List.of("推断", "可能", "表明", "暗示", "suggest", "infer", "indicate", "likely")
-                .stream().anyMatch(normalized::contains);
     }
 
     private String normalizeQuote(String value) {

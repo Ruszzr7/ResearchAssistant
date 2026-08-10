@@ -124,6 +124,24 @@ class PaperUnderstandingServiceTest {
     }
 
     @Test
+    void shouldExposeOneFailedChunkWithoutRepeatingTheSameExpensiveRequest() {
+        PaperChunkSummary first = summary(chunkOne, 11, 5);
+        when(modelService.summarize(chunkOne)).thenReturn(first);
+        when(modelService.summarize(chunkTwo))
+                .thenThrow(new PaperMemoryGenerationException(
+                        "truncated", new IllegalArgumentException("bad json"),
+                        17, 8, "LENGTH"));
+
+        PaperUnderstandingResult result = service.understand(7L, false, ignored -> { });
+
+        assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_PARTIAL);
+        assertThat(result.promptTokens()).isEqualTo(28);
+        assertThat(result.completionTokens()).isEqualTo(13);
+        verify(modelService).summarize(chunkTwo);
+        verify(modelService, never()).profile(any(), any(), any(Integer.class), any(Integer.class));
+    }
+
+    @Test
     void shouldUseWholePaperGenerationAndOpenQuestionsOnlyAfterReady() {
         PaperChunkSummary summary = summary(chunkOne, 500, 180);
         PaperGlobalProfile profile = profile(1, 1, 0, true);

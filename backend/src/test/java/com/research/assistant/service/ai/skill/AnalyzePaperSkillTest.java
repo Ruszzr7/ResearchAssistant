@@ -103,6 +103,7 @@ class AnalyzePaperSkillTest {
     private PaperUnderstandingResult usableUnderstanding(Long paperId) {
         return new PaperUnderstandingResult(
                 10L, paperId, PaperUnderstandingService.STATUS_READY,
-                1, 1, 0, 12, 5, java.util.List.of(), null);
+                1, 1, 0, 12, 5, java.util.List.of(),
+                mock(com.research.assistant.service.memory.PaperGlobalProfile.class));
     }
 }

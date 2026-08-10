@@ -17,6 +17,7 @@ public record PaperContextSnapshot(String schemaVersion,
                                    String conversationId,
                                    String question,
                                    String selectedText,
+                                   String attachmentContext,
                                    List<String> selectedBlockIds,
                                    String selectionFingerprint,
                                    String profileContext,
@@ -27,7 +28,7 @@ public record PaperContextSnapshot(String schemaVersion,
                                    boolean truncated,
                                    Instant assembledAt) {
 
-    public static final String SCHEMA_VERSION = "paper-context-v3";
+    public static final String SCHEMA_VERSION = "paper-context-v5";
     public static final int MAX_RETRIEVAL_QUERY_CHARACTERS = 6_000;
 
     public PaperContextSnapshot {
@@ -37,6 +38,7 @@ public record PaperContextSnapshot(String schemaVersion,
         conversationId = safe(conversationId, "");
         question = safe(question, "");
         selectedText = safe(selectedText, "");
+        attachmentContext = safe(attachmentContext, "");
         selectedBlockIds = copy(selectedBlockIds);
         selectionFingerprint = safe(selectionFingerprint, "");
         profileContext = safe(profileContext, "");
@@ -70,6 +72,7 @@ public record PaperContextSnapshot(String schemaVersion,
         int safeMaximum = Math.max(0, maximumCharacters);
         if (safeMaximum == 0) return "";
         String rules = "上下文规则：仅当前 evidence 可支持论文事实，selected=true 的选区证据优先；"
+                + "用户附件是本轮辅助材料，不是左侧论文证据，不得为其生成论文引用；"
                 + "历史、论文画像和旧观察只帮助理解与检索。冲突时以当前 PDF 版本的本轮 evidence 为准。\n\n";
         String questionLabel = "\n当前问题：";
         if (rules.length() + questionLabel.length() >= safeMaximum) {
@@ -80,6 +83,9 @@ public record PaperContextSnapshot(String schemaVersion,
         String suffix = questionLabel + renderedQuestion;
         int auxiliaryLimit = Math.max(0, safeMaximum - rules.length() - suffix.length());
         StringBuilder auxiliary = new StringBuilder();
+        if (!attachmentContext.isBlank()) {
+            appendWithin(auxiliary, "本轮用户附件：\n" + attachmentContext + "\n\n", auxiliaryLimit);
+        }
         if (!conversationTurns.isEmpty()) {
             appendWithin(auxiliary, "同一论文与同一对话的服务端历史：\n", auxiliaryLimit);
             for (int index = conversationTurns.size() - 1; index >= 0; index--) {
@@ -124,7 +130,8 @@ public record PaperContextSnapshot(String schemaVersion,
         StringBuilder value = new StringBuilder();
         appendWithin(value, question, safeMaximum);
         if (!selectedText.isBlank()) appendWithin(value, "\n当前选区：" + selectedText, safeMaximum);
-        if (isReferentialFollowUp()) {
+        if (!attachmentContext.isBlank()) appendWithin(value, "\n本轮附件：" + attachmentContext, safeMaximum);
+        if (conversationInherited()) {
             for (ConversationItem item : conversationTurns.stream()
                     .skip(Math.max(0, conversationTurns.size() - 2L)).toList()) {
                 appendWithin(value, "\n历史追问：" + item.question(), safeMaximum);
@@ -135,8 +142,12 @@ public record PaperContextSnapshot(String schemaVersion,
 
     /** Recent grounded blocks are a weak follow-up hint, never a replacement for current-query relevance. */
     public List<String> preferredEvidenceBlockIds() {
-        if (conversationTurns.isEmpty() || !isReferentialFollowUp()) return List.of();
+        if (!conversationInherited()) return List.of();
         return conversationTurns.get(conversationTurns.size() - 1).evidenceBlockIds();
+    }
+
+    public boolean conversationInherited() {
+        return !conversationTurns.isEmpty();
     }
 
     /** Only explicit linguistic references inherit the previous turn's retrieval focus. */
@@ -246,6 +257,28 @@ public record PaperContextSnapshot(String schemaVersion,
         public int usedCharacters() {
             return selectedCharacters + conversationCharacters + observationCharacters + profileCharacters;
         }
+    }
+
+    /** Compatibility constructor for snapshots created before chat attachments were introduced. */
+    public PaperContextSnapshot(String schemaVersion,
+                                long paperId,
+                                String documentHash,
+                                String parserVersion,
+                                String conversationId,
+                                String question,
+                                String selectedText,
+                                List<String> selectedBlockIds,
+                                String selectionFingerprint,
+                                String profileContext,
+                                List<ConversationItem> conversationTurns,
+                                List<ObservationItem> relevantObservations,
+                                List<String> sourcePriority,
+                                Budget budget,
+                                boolean truncated,
+                                Instant assembledAt) {
+        this(schemaVersion, paperId, documentHash, parserVersion, conversationId, question,
+                selectedText, "", selectedBlockIds, selectionFingerprint, profileContext,
+                conversationTurns, relevantObservations, sourcePriority, budget, truncated, assembledAt);
     }
 
     private static String safe(String value, String fallback) {

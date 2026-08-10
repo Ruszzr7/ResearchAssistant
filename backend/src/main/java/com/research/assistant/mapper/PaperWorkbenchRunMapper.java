@@ -35,6 +35,7 @@ public interface PaperWorkbenchRunMapper extends BaseMapper<PaperWorkbenchRunRec
                                                              @Param("limit") int limit);
 
     @Select("SELECT " + COLUMNS + " FROM paper_workbench_run WHERE research_session_id IS NULL "
+            + "AND status = 'COMPLETED' AND result_json IS NOT NULL "
             + "ORDER BY created_at DESC, id DESC LIMIT #{limit}")
     List<PaperWorkbenchRunRecord> selectUnlinked(@Param("limit") int limit);
 

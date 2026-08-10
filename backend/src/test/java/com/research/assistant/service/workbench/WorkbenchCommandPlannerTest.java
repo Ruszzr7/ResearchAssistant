@@ -19,6 +19,10 @@ class WorkbenchCommandPlannerTest {
         assertThat(planner.highlightTarget("找出 SINR 公式并高亮")).isEqualTo("SINR 公式");
         assertThat(planner.highlightTarget("请定位“perfect SIC”然后突出显示"))
                 .isEqualTo("perfect SIC");
+        assertThat(planner.highlightTarget("将信噪比公式对应的区域高亮"))
+                .isEqualTo("信噪比公式");
+        assertThat(planner.highlightTarget("把 Equation (4) 区域标黄"))
+                .isEqualTo("Equation (4)");
         assertThat(planner.highlightTarget("请解释高亮为什么重要")).isBlank();
         assertThat(planner.highlightTarget("SINR 在哪里？")).isBlank();
     }

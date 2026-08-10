@@ -22,6 +22,7 @@ public class PaperFormulaRegionRecord {
     private Double boxWidth;
     private Double boxHeight;
     private String latex;
+    private String formulaItemsJson;
     private Double confidence;
     private String source;
     private String status;
@@ -50,6 +51,8 @@ public class PaperFormulaRegionRecord {
     public void setBoxHeight(Double boxHeight) { this.boxHeight = boxHeight; }
     public String getLatex() { return latex; }
     public void setLatex(String latex) { this.latex = latex; }
+    public String getFormulaItemsJson() { return formulaItemsJson; }
+    public void setFormulaItemsJson(String formulaItemsJson) { this.formulaItemsJson = formulaItemsJson; }
     public Double getConfidence() { return confidence; }
     public void setConfidence(Double confidence) { this.confidence = confidence; }
     public String getSource() { return source; }

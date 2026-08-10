@@ -10,6 +10,7 @@ import com.research.assistant.service.memory.PaperMemoryObservation;
 import com.research.assistant.service.memory.PaperMemoryObservationService;
 import com.research.assistant.service.memory.PaperStructure;
 import com.research.assistant.service.pdf.layout.SelectionAnchor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -26,11 +27,13 @@ public class PaperContextAssembler {
     static final int MAX_CONVERSATION_CHARACTERS = 2_800;
     static final int MAX_OBSERVATION_CHARACTERS = 2_000;
     static final int MAX_PROFILE_CHARACTERS = 1_600;
+    static final int MAX_ATTACHMENT_CHARACTERS = 2_400;
 
     private static final List<String> SOURCE_PRIORITY = List.of(
             "CURRENT_QUESTION",
             "CURRENT_SELECTION_EVIDENCE",
             "CURRENT_RETRIEVED_EVIDENCE",
+            "CURRENT_USER_ATTACHMENTS",
             "SERVER_CONVERSATION_HISTORY",
             "CURRENT_VERSION_PAPER_PROFILE",
             "CURRENT_VERSION_GROUNDED_OBSERVATIONS");
@@ -39,15 +42,27 @@ public class PaperContextAssembler {
     private final PaperMemoryObservationService observationService;
     private final WorkbenchRunTraceService traceService;
     private final ObjectMapper objectMapper;
+    private final WorkbenchRetrievalPlanner retrievalPlanner;
 
     public PaperContextAssembler(PaperMemoryMapper memoryMapper,
                                  PaperMemoryObservationService observationService,
                                  WorkbenchRunTraceService traceService,
                                  ObjectMapper objectMapper) {
+        this(memoryMapper, observationService, traceService, objectMapper,
+                new WorkbenchRetrievalPlanner());
+    }
+
+    @Autowired
+    public PaperContextAssembler(PaperMemoryMapper memoryMapper,
+                                 PaperMemoryObservationService observationService,
+                                 WorkbenchRunTraceService traceService,
+                                 ObjectMapper objectMapper,
+                                 WorkbenchRetrievalPlanner retrievalPlanner) {
         this.memoryMapper = memoryMapper;
         this.observationService = observationService;
         this.traceService = traceService;
         this.objectMapper = objectMapper;
+        this.retrievalPlanner = retrievalPlanner;
     }
 
     public PaperContextSnapshot assemble(WorkbenchRunTrace trace, SelectionAnchor anchor) {
@@ -60,16 +75,21 @@ public class PaperContextAssembler {
         long paperId = trace.invocation().paperIds().get(0);
         WorkbenchPlan.ArtifactVersion version = trace.artifactVersions().get(0);
         String selected = bounded(anchor == null ? "" : anchor.anchorText(), MAX_SELECTION_CHARACTERS);
+        BoundedText attachments = attachmentContext(trace.invocation().attachments());
         boolean truncated = anchor != null && anchor.anchorText() != null
                 && anchor.anchorText().trim().length() > selected.length();
+        truncated |= attachments.truncated();
 
         List<PaperConversationTurn> storedTurns = observationService.recentConversation(
                 paperId, trace.invocation().conversationId(), version.documentHash(),
                 version.parserVersion(), 8);
-        BudgetedTurns turns = conversationItems(storedTurns);
+        boolean inheritConversation = shouldInheritConversation(
+                trace.invocation().question(), storedTurns);
+        BudgetedTurns turns = conversationItems(
+                inheritConversation ? storedTurns : List.of());
         truncated |= turns.truncated();
 
-        String retrievalSeed = trace.invocation().question() + "\n" + selected;
+        String retrievalSeed = trace.invocation().question() + "\n" + selected + "\n" + attachments.value();
         List<PaperMemoryObservation> storedObservations = observationService.relevantObservations(
                 paperId, version.documentHash(), version.parserVersion(), retrievalSeed,
                 trace.invocation().conversationId(), 8);
@@ -81,16 +101,47 @@ public class PaperContextAssembler {
         PaperContextSnapshot snapshot = new PaperContextSnapshot(
                 PaperContextSnapshot.SCHEMA_VERSION, paperId, version.documentHash(),
                 version.parserVersion(), trace.invocation().conversationId(),
-                trace.invocation().question(), selected,
+                trace.invocation().question(), selected, attachments.value(),
                 anchor == null ? List.of() : anchor.blockIds(),
                 PaperContextSnapshot.selectionFingerprint(anchor), profile.value(),
                 turns.items(), observations.items(), SOURCE_PRIORITY,
                 new PaperContextSnapshot.Budget(
-                        MAX_CONTEXT_CHARACTERS, selected.length(), turns.characters(),
+                        MAX_CONTEXT_CHARACTERS, selected.length() + attachments.value().length(), turns.characters(),
                         observations.characters(), profile.value().length()),
                 truncated, Instant.now());
         traceService.saveContextSnapshot(trace.runId(), snapshot.schemaVersion(), snapshot);
         return snapshot;
+    }
+
+    private BoundedText attachmentContext(List<WorkbenchAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) return new BoundedText("", false);
+        StringBuilder value = new StringBuilder();
+        boolean truncated = false;
+        for (WorkbenchAttachment attachment : attachments) {
+            if (attachment == null || attachment.content().isBlank()) continue;
+            String header = "附件「" + attachment.name() + "」：\n";
+            int remaining = MAX_ATTACHMENT_CHARACTERS - value.length();
+            if (remaining <= header.length()) {
+                truncated = true;
+                break;
+            }
+            if (value.length() > 0) value.append("\n");
+            value.append(header);
+            remaining = MAX_ATTACHMENT_CHARACTERS - value.length();
+            String content = bounded(attachment.content(), remaining);
+            value.append(content);
+            truncated |= attachment.truncated() || content.length() < attachment.content().trim().length();
+        }
+        return new BoundedText(value.toString(), truncated);
+    }
+
+    private boolean shouldInheritConversation(String question,
+                                              List<PaperConversationTurn> turns) {
+        if (turns == null || turns.isEmpty()) return false;
+        if (retrievalPlanner.plan(question).referentialFollowUp()) return true;
+        return turns.stream().skip(Math.max(0, turns.size() - 3L)).anyMatch(turn ->
+                retrievalPlanner.semanticallyRelated(
+                        question, turn.question() + "\n" + turn.answer()));
     }
 
     private BudgetedTurns conversationItems(List<PaperConversationTurn> values) {

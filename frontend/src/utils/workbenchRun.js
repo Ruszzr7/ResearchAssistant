@@ -7,6 +7,7 @@ export function buildWorkbenchPlanRequest({
   question = '',
   selectionAnchor = null,
   conversationId = '',
+  attachments = [],
 }) {
   const currentPaperId = Number(paperId)
   if (!Number.isInteger(currentPaperId) || currentPaperId <= 0) throw new Error('当前论文无效')
@@ -19,12 +20,19 @@ export function buildWorkbenchPlanRequest({
     : selectionAnchor?.kind === 'REGION'
   const scope = !selectionAnchor ? 'PAPER' : regionOnly ? 'REGION' : 'SELECTION'
   const normalizedConversationId = String(conversationId || '').trim()
+  const normalizedAttachments = (attachments || []).slice(0, 3).map(item => ({
+    name: String(item?.name || '').slice(0, 160),
+    mimeType: String(item?.mimeType || 'application/octet-stream').slice(0, 120),
+    content: String(item?.content || '').slice(0, 12_000),
+    truncated: Boolean(item?.truncated),
+  })).filter(item => item.name && item.content)
   return {
     paperIds: [currentPaperId],
     question: normalizedQuestion,
     intent: 'ASK_SELECTION',
     scope,
     ...(selectionAnchor ? { selectionAnchor } : {}),
+    ...(normalizedAttachments.length ? { attachments: normalizedAttachments } : {}),
     ...(normalizedConversationId ? { conversationId: normalizedConversationId } : {}),
     maxSteps: 6,
   }

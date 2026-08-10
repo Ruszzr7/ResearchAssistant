@@ -89,7 +89,8 @@ public class PaperWorkbenchController {
             @PathVariable Long regionId,
             @Valid @RequestBody FormulaRegionConfirmRequest request) {
         requireFormulaService();
-        return Result.ok(formulaRegionService.confirm(paperId, regionId, request.latex()));
+        return Result.ok(formulaRegionService.confirm(
+                paperId, regionId, request.resolvedFormulas()));
     }
 
     private void requireFormulaService() {

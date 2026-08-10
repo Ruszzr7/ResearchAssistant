@@ -279,7 +279,7 @@ public class WorkbenchExecutionEngine {
         stage.accept("正在基于证据生成回答…");
         WorkbenchSelectionVisualEvidence visualEvidence = visualEvidenceService == null
                 || trace.invocation().selectionAnchor() == null
-                ? null : visualEvidenceService.create(trace.invocation().selectionAnchor());
+                ? null : visualEvidenceService.create(trace.invocation().selectionAnchor(), evidence);
         WorkbenchModelService.ModelCall call = modelStep(
                 trace, modelStepIndex, evidence, null, List.of(), firstCallBudget(trace),
                 modelQuestion, context, visualEvidence);
@@ -314,7 +314,8 @@ public class WorkbenchExecutionEngine {
         WorkbenchWorkflowResult result = new WorkbenchWorkflowResult(
                 trace.runId(), trace.plan().workflow(), trace.plan().scope(), trace.invocation().paperIds(),
                 answer, output.claims(), evidence, output.annotationSuggestion(), regionFallback,
-                passedTrace.metrics().repairCount(), output.answerBlocks(), actions);
+                passedTrace.metrics().repairCount(), output.answerBlocks(), actions,
+                context != null && context.conversationInherited());
         traceService.checkpointResult(trace.runId(), result);
         return result;
     }

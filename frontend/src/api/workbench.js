@@ -8,8 +8,8 @@ export function recognizeFormulaRegion(paperId, request) {
   return api.post(`/papers/${paperId}/workbench/formula-regions/recognize`, request).then(r => r.data)
 }
 
-export function confirmFormulaRegion(paperId, regionId, latex) {
-  return api.put(`/papers/${paperId}/workbench/formula-regions/${regionId}/confirm`, { latex })
+export function confirmFormulaRegion(paperId, regionId, formulas) {
+  return api.put(`/papers/${paperId}/workbench/formula-regions/${regionId}/confirm`, { formulas })
     .then(r => r.data)
 }
 

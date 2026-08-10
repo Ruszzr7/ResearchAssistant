@@ -89,10 +89,43 @@ describe('FormulaRegionCard', () => {
     expect(wrapper.get('.formula-region-card__rendered').text()).toContain('∫')
     await wrapper.findAll('.formula-region-card__actions button')[1].trigger('click')
 
-    expect(wrapper.emitted('confirm')?.[0]).toEqual(['\\int_0^1 x\\,dx'])
+    expect(wrapper.emitted('confirm')?.[0]).toEqual([['\\int_0^1 x\\,dx']])
   })
 
-  it('labels a confirmed formula as fixed content', () => {
+  it('renders and confirms every formula in one selected region in order', async () => {
+    const wrapper = mount(FormulaRegionCard, {
+      props: {
+        region: { page: 4, bbox: { x: 0.1, y: 0.2, width: 0.5, height: 0.2 } },
+        recognition: {
+          id: 14,
+          latex: '\\begin{gathered}R_c\\\\R_{p,k}\\end{gathered}',
+          formulas: ['R_c=C(\\Gamma_c)', 'R_{p,k}=C(\\Gamma_{p,k})'],
+          source: 'MULTIMODAL',
+          status: 'CANDIDATE',
+          confirmed: false,
+        },
+      },
+      global: {
+        stubs: {
+          'el-button': buttonStub,
+          'el-input': inputStub,
+          'el-tag': { template: '<span><slot /></span>' },
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.formula-region-card__rendered')).toHaveLength(2)
+    expect(wrapper.findAll('textarea')).toHaveLength(2)
+    expect(wrapper.get('.formula-region-card__meta .formula-region-card__actions--inline').exists())
+      .toBe(true)
+    await wrapper.findAll('.formula-region-card__actions button')[1].trigger('click')
+    expect(wrapper.emitted('confirm')?.[0]).toEqual([[
+      'R_c=C(\\Gamma_c)',
+      'R_{p,k}=C(\\Gamma_{p,k})',
+    ]])
+  })
+
+  it('labels a confirmed formula as fixed content and marks correction saves', async () => {
     const wrapper = mount(FormulaRegionCard, {
       props: {
         region: { page: 4, bbox: { x: 0.1, y: 0.2, width: 0.5, height: 0.1 } },
@@ -115,5 +148,7 @@ describe('FormulaRegionCard', () => {
 
     expect(wrapper.text()).toContain('已固定')
     expect(wrapper.text()).toContain('保存校正')
+    await wrapper.findAll('.formula-region-card__actions button')[1].trigger('click')
+    expect(wrapper.emitted('confirm')?.[0]).toEqual([['x+y']])
   })
 })

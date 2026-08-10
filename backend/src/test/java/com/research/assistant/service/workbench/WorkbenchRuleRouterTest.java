@@ -62,12 +62,25 @@ class WorkbenchRuleRouterTest {
 
         assertThat(plan.workflow()).isEqualTo(WorkbenchPlan.Workflow.SELECTION_QA);
         assertThat(plan.scope()).isEqualTo(WorkbenchPlan.Scope.PAPER);
-        assertThat(plan.evidenceRequired()).isFalse();
+        assertThat(plan.evidenceRequired()).isTrue();
         assertThat(plan.steps()).extracting(WorkbenchPlan.Step::skill).containsExactly(
                 WorkbenchPlan.Skill.ENSURE_LAYOUT_ARTIFACT,
                 WorkbenchPlan.Skill.RETRIEVE_PAPER_EVIDENCE,
                 WorkbenchPlan.Skill.SYNTHESIZE_EVIDENCE_ANSWER,
                 WorkbenchPlan.Skill.VALIDATE_EVIDENCE_ANSWER);
+    }
+
+    @Test
+    void requiresEvidenceForPaperLocationButNotForOrdinaryConversation() {
+        WorkbenchPlan location = router.route(new WorkbenchInvocation(
+                List.of(7L), "为我找出信噪比公式在哪", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 0, "", "selection-thread_3"));
+        WorkbenchPlan ordinary = router.route(new WorkbenchInvocation(
+                List.of(7L), "帮我写一句今日学习计划", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 0, "", "selection-thread_3"));
+
+        assertThat(location.evidenceRequired()).isTrue();
+        assertThat(ordinary.evidenceRequired()).isFalse();
     }
 
     @Test

@@ -60,8 +60,9 @@ export function buildCitationSources(claims = [], evidence = [], answerBlocks = 
 }
 
 function renderBoundBlocks(blocks, evidence) {
-  const context = boundCitationContext(blocks, evidence)
-  return blocks.map((block) => {
+  const visibleBlocks = (blocks || []).filter(block => block?.basis !== 'EVIDENCE_LIMIT')
+  const context = boundCitationContext(visibleBlocks, evidence)
+  return visibleBlocks.map((block) => {
     const seen = new Set()
     const markers = (block?.citations || [])
       .map(citation => context.sourceForCitation(citation, block))
@@ -72,9 +73,7 @@ function renderBoundBlocks(blocks, evidence) {
       ? '**据此推断：** '
       : block?.basis === 'GENERAL_KNOWLEDGE'
         ? '**通用知识：** '
-        : block?.basis === 'EVIDENCE_LIMIT'
-          ? '**证据限制：** '
-          : ''
+        : ''
     return `${prefix}${String(block?.text || '').trim()}${markers}`
   }).filter(Boolean).join('\n\n')
 }

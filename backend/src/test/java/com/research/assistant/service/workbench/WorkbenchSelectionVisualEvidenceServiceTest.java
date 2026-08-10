@@ -5,6 +5,9 @@ import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.pdf.formula.region.FormulaRegionImage;
 import com.research.assistant.service.pdf.formula.region.FormulaRegionImageService;
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
+import com.research.assistant.service.pdf.layout.DocumentBlockContentMode;
+import com.research.assistant.service.pdf.layout.DocumentBlockRole;
+import com.research.assistant.service.pdf.layout.LayoutEvidence;
 import com.research.assistant.service.pdf.layout.PaperPdfFileResolver;
 import com.research.assistant.service.pdf.layout.SelectionAnchor;
 import com.research.assistant.service.pdf.layout.SelectionAnchorKind;
@@ -82,6 +85,18 @@ class WorkbenchSelectionVisualEvidenceServiceTest {
                 SelectionEvidenceUse.CLAIM_EVIDENCE, List.of(), null);
 
         assertThat(service.create(plain)).isNull();
+        verify(paperMapper, never()).selectById(any());
+    }
+
+    @Test
+    void skipsImageWhenSelectedFormulaAlreadyHasConfirmedLatex() {
+        LayoutEvidence formula = new LayoutEvidence(
+                "frm-1", 7L, "formula-region-1", 3,
+                new NormalizedBoundingBox(0.52, 0.4, 0.4, 0.1),
+                DocumentBlockRole.FORMULA, 10, List.of("Method"), "", 1, true,
+                1, "hash", "parser", DocumentBlockContentMode.STRUCTURED, "x = y + z");
+
+        assertThat(service.create(mathAnchor(), List.of(formula))).isNull();
         verify(paperMapper, never()).selectById(any());
     }
 

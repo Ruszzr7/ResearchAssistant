@@ -5,6 +5,8 @@ import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.pdf.formula.region.FormulaRegionImage;
 import com.research.assistant.service.pdf.formula.region.FormulaRegionImageService;
 import com.research.assistant.service.pdf.layout.ClientContentSegmentType;
+import com.research.assistant.service.pdf.layout.DocumentBlockContentMode;
+import com.research.assistant.service.pdf.layout.LayoutEvidence;
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.pdf.layout.PaperPdfFileResolver;
 import com.research.assistant.service.pdf.layout.SelectionAnchor;
@@ -55,6 +57,19 @@ public class WorkbenchSelectionVisualEvidenceService {
                     anchor.paperId(), anchor.page(), error.getClass().getSimpleName());
             return unavailable(anchor, bbox, "选区图像暂不可用，数学内容需回原页核对");
         }
+    }
+
+    /**
+     * A confirmed formula already carries user-checked LaTeX. Sending its crop to the
+     * model again makes ordinary Q&A slower and less reliable without adding evidence.
+     */
+    public WorkbenchSelectionVisualEvidence create(SelectionAnchor anchor,
+                                                   java.util.List<LayoutEvidence> evidence) {
+        boolean hasConfirmedStructuredSelection = evidence != null && evidence.stream()
+                .anyMatch(item -> item != null && item.selected()
+                        && item.contentMode() == DocumentBlockContentMode.STRUCTURED
+                        && !item.structuredContent().isBlank());
+        return hasConfirmedStructuredSelection ? null : create(anchor);
     }
 
     private boolean requiresVisualEvidence(SelectionAnchor anchor) {

@@ -47,6 +47,9 @@ public class ResearchSessionHistoryService {
     public int backfillRecent() {
         int linked = 0;
         for (PaperWorkbenchRunRecord run : runMapper.selectUnlinked(200)) {
+            // History is user-visible conversation state. A planned/running/failed audit run has
+            // no assistant message to restore and must never create an empty conversation card.
+            if (!isCompletedResult(run)) continue;
             List<Long> paperIds = existingPaperIds(readPaperIds(run.getPaperIdsJson()));
             if (paperIds.isEmpty()) continue;
             String key = historyKey(paperIds);
@@ -57,6 +60,13 @@ public class ResearchSessionHistoryService {
             linked++;
         }
         return linked;
+    }
+
+    private boolean isCompletedResult(PaperWorkbenchRunRecord run) {
+        return run != null
+                && "COMPLETED".equals(run.getStatus())
+                && run.getResultJson() != null
+                && !run.getResultJson().isBlank();
     }
 
     private List<Long> existingPaperIds(List<Long> paperIds) {

@@ -27,13 +27,13 @@ public class PaperMemoryModelService {
     static final String PROFILE_PROMPT_VERSION = "paper-memory-profile-v2";
 
     private static final LlmCallPolicy WHOLE_POLICY = new LlmCallPolicy(
-            "paper-memory-whole", 100_000, 24_000, 1_600, 1, true);
+            "paper-memory-whole", 100_000, 24_000, 1_600, 1, true, "low");
     private static final LlmCallPolicy CHUNK_POLICY = new LlmCallPolicy(
-            "paper-memory-chunk", 48_000, 12_000, 900, 1, true);
+            "paper-memory-chunk", 48_000, 12_000, 900, 1, true, "low");
     private static final LlmCallPolicy PROFILE_POLICY = new LlmCallPolicy(
-            "paper-memory-profile", 36_000, 8_000, 1_600, 1, true);
+            "paper-memory-profile", 36_000, 8_000, 1_600, 1, true, "low");
     private static final LlmCallPolicy REPAIR_POLICY = new LlmCallPolicy(
-            "paper-memory-json-repair", 8_000, 2_048, 300, 1, true);
+            "paper-memory-json-repair", 8_000, 2_048, 300, 1, true, "low");
     private static final Set<String> CLAIM_CATEGORIES = Set.of(
             "CONTRIBUTION", "METHOD", "FINDING", "LIMITATION", "DEFINITION", "OTHER");
 
@@ -108,7 +108,6 @@ public class PaperMemoryModelService {
                 chunkId: %s
                 sectionPath: %s
                 pages: %d-%d
-                allowedBlockIds: %s
 
                 请按以下 schema 返回，严格遵守数量和长度限制：
                 %s
@@ -120,7 +119,6 @@ public class PaperMemoryModelService {
                 chunk.id(),
                 String.join(" > ", chunk.headingPath()),
                 chunk.pageStart(), chunk.pageEnd(),
-                String.join(",", chunk.blockIds()),
                 chunkSchema(),
                 chunk.text());
     }

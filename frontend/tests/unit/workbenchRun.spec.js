@@ -46,6 +46,23 @@ describe('PDF workbench request boundary', () => {
 
   })
 
+  it('keeps bounded user attachments separate from the question and paper evidence', () => {
+    const request = buildWorkbenchPlanRequest({
+      paperId: 7,
+      question: '比较附件中的定义',
+      attachments: [{
+        name: 'notes.tex', mimeType: 'application/x-tex',
+        content: '\\Gamma = a + b', truncated: false,
+      }],
+    })
+
+    expect(request.question).toBe('比较附件中的定义')
+    expect(request.attachments).toEqual([{
+      name: 'notes.tex', mimeType: 'application/x-tex',
+      content: '\\Gamma = a + b', truncated: false,
+    }])
+  })
+
   it('builds a paper-grounded conversation request when no selection is attached', () => {
     expect(buildWorkbenchPlanRequest({
       paperId: 7,

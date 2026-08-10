@@ -70,7 +70,7 @@ export function usePaperWorkbench() {
     }
   }
 
-  async function run(request, { onAccepted } = {}) {
+  async function run(request, { onPlanned, onAccepted } = {}) {
     stopWatching()
     trace.value = null
     stageText.value = '正在生成受限计划…'
@@ -79,6 +79,7 @@ export function usePaperWorkbench() {
     try {
       const planned = await planWorkbenchRun(request)
       trace.value = planned
+      if (typeof onPlanned === 'function') await onPlanned(planned)
       const submission = await executeWorkbenchRun(planned.runId)
       trace.value = { ...planned, taskId: submission.taskId, status: submission.status }
       if (typeof onAccepted === 'function') onAccepted(trace.value)

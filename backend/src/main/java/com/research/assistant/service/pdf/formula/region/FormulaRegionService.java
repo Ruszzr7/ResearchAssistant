@@ -1,5 +1,7 @@
 package com.research.assistant.service.pdf.formula.region;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperFormulaRegionRecord;
 import com.research.assistant.mapper.PaperFormulaRegionMapper;
@@ -31,6 +33,7 @@ public class FormulaRegionService {
     private static final Logger log = LoggerFactory.getLogger(FormulaRegionService.class);
     private static final double MIN_MULTIMODAL_CONFIDENCE = 0.55;
     private static final double CONFIRMED_REGION_REUSE_IOU = 0.82;
+    private static final TypeReference<List<String>> FORMULA_LIST = new TypeReference<>() { };
 
     private final PaperLayoutArtifactService artifactService;
     private final PaperMapper paperMapper;
@@ -40,6 +43,7 @@ public class FormulaRegionService {
     private final FormulaVisionRecognizer visionRecognizer;
     private final ConfirmedFormulaRegionService confirmedService;
     private final FormulaRecognitionTelemetry telemetry;
+    private final ObjectMapper objectMapper;
 
     public FormulaRegionService(PaperLayoutArtifactService artifactService,
                                 PaperMapper paperMapper,
@@ -48,7 +52,8 @@ public class FormulaRegionService {
                                 FormulaRegionImageService imageService,
                                 FormulaVisionRecognizer visionRecognizer,
                                 ConfirmedFormulaRegionService confirmedService,
-                                FormulaRecognitionTelemetry telemetry) {
+                                FormulaRecognitionTelemetry telemetry,
+                                ObjectMapper objectMapper) {
         this.artifactService = artifactService;
         this.paperMapper = paperMapper;
         this.regionMapper = regionMapper;
@@ -57,6 +62,7 @@ public class FormulaRegionService {
         this.visionRecognizer = visionRecognizer;
         this.confirmedService = confirmedService;
         this.telemetry = telemetry;
+        this.objectMapper = objectMapper;
     }
 
     public FormulaRegionRecognition recognize(Long paperId,
@@ -102,11 +108,13 @@ public class FormulaRegionService {
                     "已复用同页确认过的公式，无需再次识别"), "similar_confirmed_cache", totalStarted);
         }
 
-        Optional<DocumentBlock> structured = bestStructuredFormula(artifact, page, bbox);
-        if (structured.isPresent()) {
-            DocumentBlock block = structured.get();
+        List<DocumentBlock> structured = structuredFormulas(artifact, page, bbox);
+        if (!structured.isEmpty()) {
+            List<String> formulas = structured.stream().map(DocumentBlock::latex).toList();
+            double confidence = structured.stream()
+                    .mapToDouble(DocumentBlock::confidence).min().orElse(0);
             PaperFormulaRegionRecord record = save(existing, artifact, page, bbox, regionKey,
-                    block.latex(), block.confidence(), FormulaRegionSource.LAYOUT,
+                    formulas, confidence, FormulaRegionSource.LAYOUT,
                     FormulaRegionStatus.CONFIRMED);
             return completed(result(artifact, record, "", "已复用论文版面中的结构化公式"),
                     "structured_layout", totalStarted);
@@ -146,15 +154,15 @@ public class FormulaRegionService {
             log.info("event=formula_region_recognition_unavailable paperId={} page={} errorType={}",
                     paperId, page, e.getClass().getSimpleName());
             PaperFormulaRegionRecord record = save(existing, artifact, page, bbox, regionKey,
-                    "", 0, FormulaRegionSource.MULTIMODAL, FormulaRegionStatus.REGION);
+                    List.of(), 0, FormulaRegionSource.MULTIMODAL, FormulaRegionStatus.REGION);
             return result(artifact, record, image.dataUrl(), recognitionFailureMessage(e));
         }
 
-        FormulaRegionStatus status = candidate.latex().isBlank()
+        FormulaRegionStatus status = candidate.formulas().isEmpty()
                 || candidate.confidence() < MIN_MULTIMODAL_CONFIDENCE
                 ? FormulaRegionStatus.REGION : FormulaRegionStatus.CANDIDATE;
         PaperFormulaRegionRecord record = save(existing, artifact, page, bbox, regionKey,
-                candidate.latex(), candidate.confidence(), FormulaRegionSource.MULTIMODAL, status);
+                candidate.formulas(), candidate.confidence(), FormulaRegionSource.MULTIMODAL, status);
         String message = status == FormulaRegionStatus.CANDIDATE
                 ? "请核对 LaTeX，确认后才会用于论文问答"
                 : "识别置信度不足，请校正或手动填写 LaTeX 后确认";
@@ -182,8 +190,14 @@ public class FormulaRegionService {
 
     @Transactional
     public FormulaRegionRecognition confirm(Long paperId, Long regionId, String latex) {
-        String safeLatex = FormulaLatexSanitizer.sanitize(latex);
-        if (safeLatex.isBlank()) throw new IllegalArgumentException("LaTeX 不能为空");
+        return confirm(paperId, regionId,
+                latex == null || latex.isBlank() ? List.of() : List.of(latex));
+    }
+
+    @Transactional
+    public FormulaRegionRecognition confirm(Long paperId, Long regionId, List<String> formulas) {
+        List<String> safeFormulas = normalizeFormulas(formulas);
+        if (safeFormulas.isEmpty()) throw new IllegalArgumentException("LaTeX 不能为空");
         PaperFormulaRegionRecord record = regionMapper.selectById(regionId);
         if (record == null || !paperId.equals(record.getPaperId())) {
             throw new IllegalArgumentException("公式区域不存在");
@@ -193,7 +207,8 @@ public class FormulaRegionService {
                 || !artifact.parserVersion().equals(record.getParserVersion())) {
             throw new com.research.assistant.service.pdf.layout.StaleLayoutArtifactException();
         }
-        record.setLatex(safeLatex);
+        record.setLatex(combine(safeFormulas));
+        record.setFormulaItemsJson(writeFormulaItems(safeFormulas));
         record.setConfidence(1d);
         record.setSource(FormulaRegionSource.USER.name());
         record.setStatus(FormulaRegionStatus.CONFIRMED.name());
@@ -202,18 +217,18 @@ public class FormulaRegionService {
         return result(artifact, record, "", "公式已确认，可用于选区问答");
     }
 
-    private Optional<DocumentBlock> bestStructuredFormula(PaperLayoutArtifact artifact,
-                                                          int page,
-                                                          NormalizedBoundingBox bbox) {
+    private List<DocumentBlock> structuredFormulas(PaperLayoutArtifact artifact,
+                                                   int page,
+                                                   NormalizedBoundingBox bbox) {
         return artifact.blocks().stream()
                 .filter(block -> block.page() == page)
                 .filter(block -> block.role() == DocumentBlockRole.FORMULA)
                 .filter(block -> block.contentMode() == DocumentBlockContentMode.STRUCTURED)
                 .filter(block -> block.latex() != null && !block.latex().isBlank())
-                .map(block -> new BlockMatch(block, FormulaRegionGeometry.overlap(bbox, block.bbox())))
-                .filter(match -> match.overlap() >= 0.40)
-                .max(Comparator.comparingDouble(BlockMatch::overlap))
-                .map(BlockMatch::block);
+                .filter(block -> FormulaRegionGeometry.overlap(bbox, block.bbox()) >= 0.40)
+                .sorted(Comparator.comparingInt(DocumentBlock::readingOrder))
+                .limit(8)
+                .toList();
     }
 
     private Optional<PaperFormulaRegionRecord> bestConfirmedRegion(
@@ -239,7 +254,7 @@ public class FormulaRegionService {
                                           int page,
                                           NormalizedBoundingBox bbox,
                                           String regionKey,
-                                          String latex,
+                                          List<String> formulas,
                                           double confidence,
                                           FormulaRegionSource source,
                                           FormulaRegionStatus status) {
@@ -254,7 +269,9 @@ public class FormulaRegionService {
         record.setBoxY(bbox.y());
         record.setBoxWidth(bbox.width());
         record.setBoxHeight(bbox.height());
-        record.setLatex(latex == null ? "" : latex);
+        List<String> safeFormulas = normalizeFormulas(formulas);
+        record.setLatex(combine(safeFormulas));
+        record.setFormulaItemsJson(writeFormulaItems(safeFormulas));
         record.setConfidence(Math.max(0, Math.min(1, confidence)));
         record.setSource(source.name());
         record.setStatus(status.name());
@@ -284,11 +301,52 @@ public class FormulaRegionService {
         FormulaRegionStatus status = FormulaRegionStatus.valueOf(record.getStatus());
         SelectionAnchor anchor = status == FormulaRegionStatus.CONFIRMED
                 ? confirmedService.anchor(artifact, record) : null;
+        List<String> formulas = formulaItems(record);
         return new FormulaRegionRecognition(
                 record.getId(), record.getPaperId(), record.getPageNumber(), confirmedService.box(record),
-                record.getLatex(), record.getConfidence() == null ? 0 : record.getConfidence(),
+                record.getLatex(), formulas,
+                record.getConfidence() == null ? 0 : record.getConfidence(),
                 FormulaRegionSource.valueOf(record.getSource()), status, previewDataUrl, message,
                 anchor, status == FormulaRegionStatus.CONFIRMED);
+    }
+
+    private List<String> formulaItems(PaperFormulaRegionRecord record) {
+        String json = record.getFormulaItemsJson();
+        if (json != null && !json.isBlank()) {
+            try {
+                List<String> values = objectMapper.readValue(json, FORMULA_LIST);
+                List<String> normalized = normalizeFormulas(values);
+                if (!normalized.isEmpty()) return normalized;
+            } catch (Exception invalid) {
+                log.warn("event=formula_items_invalid regionId={}", record.getId());
+            }
+        }
+        String latex = FormulaLatexSanitizer.sanitize(record.getLatex());
+        return latex.isBlank() ? List.of() : List.of(latex);
+    }
+
+    private List<String> normalizeFormulas(List<String> formulas) {
+        if (formulas == null) return List.of();
+        List<String> result = formulas.stream()
+                .map(FormulaLatexSanitizer::sanitize)
+                .filter(value -> !value.isBlank())
+                .limit(8)
+                .toList();
+        int totalLength = result.stream().mapToInt(String::length).sum();
+        if (totalLength > 4_000) throw new IllegalArgumentException("LaTeX 总长度超过 4000 字符");
+        return result;
+    }
+
+    private String combine(List<String> formulas) {
+        return new FormulaVisionRecognizer.FormulaCandidate(formulas, 1).latex();
+    }
+
+    private String writeFormulaItems(List<String> formulas) {
+        try {
+            return objectMapper.writeValueAsString(formulas == null ? List.of() : formulas);
+        } catch (Exception error) {
+            throw new IllegalStateException("公式列表无法保存", error);
+        }
     }
 
     private Paper requirePaper(Long paperId) {
@@ -296,8 +354,6 @@ public class FormulaRegionService {
         if (paper == null) throw new IllegalArgumentException("论文不存在");
         return paper;
     }
-
-    private record BlockMatch(DocumentBlock block, double overlap) { }
 
     private record ConfirmedMatch(PaperFormulaRegionRecord record, double similarity) { }
 }

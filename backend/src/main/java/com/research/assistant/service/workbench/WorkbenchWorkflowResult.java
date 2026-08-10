@@ -16,7 +16,8 @@ public record WorkbenchWorkflowResult(String runId,
                                       boolean regionFallback,
                                       int repairCount,
                                       List<WorkbenchAnswerBlock> answerBlocks,
-                                      List<WorkbenchAction> actions) {
+                                      List<WorkbenchAction> actions,
+                                      boolean contextInherited) {
     public WorkbenchWorkflowResult {
         paperIds = paperIds == null ? List.of() : List.copyOf(paperIds);
         answer = answer == null ? "" : answer;
@@ -36,9 +37,25 @@ public record WorkbenchWorkflowResult(String runId,
                                    WorkbenchModelOutput.AnnotationSuggestion annotationSuggestion,
                                    boolean regionFallback,
                                    int repairCount,
+                                   List<WorkbenchAnswerBlock> answerBlocks,
+                                   List<WorkbenchAction> actions) {
+        this(runId, workflow, scope, paperIds, answer, claims, evidence, annotationSuggestion,
+                regionFallback, repairCount, answerBlocks, actions, false);
+    }
+
+    public WorkbenchWorkflowResult(String runId,
+                                   WorkbenchPlan.Workflow workflow,
+                                   WorkbenchPlan.Scope scope,
+                                   List<Long> paperIds,
+                                   String answer,
+                                   List<WorkbenchEvidenceGate.GroundedClaim> claims,
+                                   List<LayoutEvidence> evidence,
+                                   WorkbenchModelOutput.AnnotationSuggestion annotationSuggestion,
+                                   boolean regionFallback,
+                                   int repairCount,
                                    List<WorkbenchAnswerBlock> answerBlocks) {
         this(runId, workflow, scope, paperIds, answer, claims, evidence, annotationSuggestion,
-                regionFallback, repairCount, answerBlocks, List.of());
+                regionFallback, repairCount, answerBlocks, List.of(), false);
     }
 
     public WorkbenchWorkflowResult(String runId,
@@ -52,6 +69,6 @@ public record WorkbenchWorkflowResult(String runId,
                                    boolean regionFallback,
                                    int repairCount) {
         this(runId, workflow, scope, paperIds, answer, claims, evidence, annotationSuggestion,
-                regionFallback, repairCount, List.of(), List.of());
+                regionFallback, repairCount, List.of(), List.of(), false);
     }
 }

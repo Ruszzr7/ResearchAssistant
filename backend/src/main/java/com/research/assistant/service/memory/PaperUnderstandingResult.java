@@ -19,6 +19,6 @@ public record PaperUnderstandingResult(Long memoryId,
     }
 
     public boolean usable() {
-        return ("READY".equals(status) || "PARTIAL".equals(status)) && completedChunks > 0;
+        return "READY".equals(status) && completedChunks > 0 && profile != null;
     }
 }

@@ -119,38 +119,17 @@ public class LLMStreamService {
             AiProviderProfile profile = modelFactory.currentProfile();
             String url = LLMConfigUtil.chatCompletionsUrl(profile.baseUrl());
 
-            Map<String, Object> requestBody = new LinkedHashMap<>();
-            requestBody.put("model", model);
-            requestBody.put("messages", structuredMessages(
-                    systemPrompt, userMessage, imageBytes, mimeType));
-            requestBody.put(profile.tokenLimitParameter()
-                            == TokenLimitParameter.MAX_COMPLETION_TOKENS
-                            ? "max_completion_tokens" : "max_tokens",
-                    policy.maxOutputTokens());
-            if (profile.jsonResponseFormat()) {
-                requestBody.put("response_format", Map.of("type", "json_object"));
-            }
-            if (profile.temperature() != null) {
-                requestBody.put("temperature", profile.temperature());
-            }
-            if (profile.provider() == AiProvider.KIMI
-                    && policy.reasoningEffort() != null) {
+            Map<String, Object> requestBody = structuredRequestBody(
+                    profile, model, systemPrompt, userMessage, imageBytes, mimeType, policy);
+            HttpResponse<String> response = sendStructured(url, apiKey, requestBody);
+            if (response.statusCode() == 400 && requestBody.containsKey("thinking")) {
+                // Older OpenAI-compatible Kimi coding routes may not yet expose the native
+                // switch. Fall back once to their compatible effort parameter.
+                log.info("event=kimi_native_thinking_unsupported fallback=reasoning_effort");
+                requestBody.remove("thinking");
                 requestBody.put("reasoning_effort", policy.reasoningEffort());
+                response = sendStructured(url, apiKey, requestBody);
             }
-            if (profile.provider() == AiProvider.MINIMAX) {
-                requestBody.put("reasoning_split", true);
-            }
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .timeout(Duration.ofSeconds(90))
-                    .POST(HttpRequest.BodyPublishers.ofString(
-                            objectMapper.writeValueAsString(requestBody)))
-                    .build();
-            HttpResponse<String> response = httpClient.send(
-                    request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() != 200) {
                 log.warn("event=ai_structured_chat_failed status={}", response.statusCode());
                 throw new IllegalStateException(
@@ -180,6 +159,56 @@ public class LLMStreamService {
         } catch (Exception exception) {
             throw new IllegalStateException("结构化模型调用失败", exception);
         }
+    }
+
+    Map<String, Object> structuredRequestBody(AiProviderProfile profile,
+                                              String model,
+                                              String systemPrompt,
+                                              String userMessage,
+                                              byte[] imageBytes,
+                                              String mimeType,
+                                              LlmCallPolicy policy) {
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("model", model);
+        requestBody.put("messages", structuredMessages(
+                systemPrompt, userMessage, imageBytes, mimeType));
+        requestBody.put(profile.tokenLimitParameter()
+                        == TokenLimitParameter.MAX_COMPLETION_TOKENS
+                        ? "max_completion_tokens" : "max_tokens",
+                policy.maxOutputTokens());
+        if (profile.jsonResponseFormat()) {
+            requestBody.put("response_format", Map.of("type", "json_object"));
+        }
+        if (profile.temperature() != null) {
+            requestBody.put("temperature", profile.temperature());
+        }
+        if (profile.provider() == AiProvider.KIMI && policy.reasoningEffort() != null) {
+            if ("low".equals(policy.reasoningEffort())) {
+                requestBody.put("thinking", Map.of("type", "disabled"));
+            } else {
+                requestBody.put("reasoning_effort", policy.reasoningEffort());
+            }
+        }
+        if (profile.provider() == AiProvider.MINIMAX) {
+            requestBody.put("reasoning_split", true);
+        }
+        return requestBody;
+    }
+
+    private HttpResponse<String> sendStructured(String url,
+                                                String apiKey,
+                                                Map<String, Object> requestBody)
+            throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + apiKey)
+                .timeout(Duration.ofSeconds(90))
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        objectMapper.writeValueAsString(requestBody)))
+                .build();
+        return httpClient.send(
+                request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     }
 
     private List<Map<String, Object>> structuredMessages(String systemPrompt,

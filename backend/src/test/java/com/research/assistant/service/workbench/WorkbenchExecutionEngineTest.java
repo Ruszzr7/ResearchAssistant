@@ -150,7 +150,7 @@ class WorkbenchExecutionEngineTest {
         WorkbenchSelectionVisualEvidence visual = new WorkbenchSelectionVisualEvidence(
                 new byte[0], 1, new NormalizedBoundingBox(0.1, 0.2, 0.3, 0.05),
                 "selected math", "图像不可用");
-        when(visualEvidenceService.create(any())).thenReturn(visual);
+        when(visualEvidenceService.create(any(), anyList())).thenReturn(visual);
         WorkbenchModelService.ModelCall base = modelCall(WorkbenchPlan.Workflow.SELECTION_QA);
         when(modelService.generate(any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList(),
                 eq(visual))).thenReturn(new WorkbenchModelService.ModelCall(

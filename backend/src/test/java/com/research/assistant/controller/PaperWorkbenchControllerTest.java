@@ -204,7 +204,8 @@ class PaperWorkbenchControllerTest {
                 9L, 42L, 1, formulaAnchor.boxes().get(0), formulaAnchor.anchorText(), 1,
                 FormulaRegionSource.USER, FormulaRegionStatus.CONFIRMED, "", "已确认",
                 formulaAnchor, true);
-        when(formulaRegionService.confirm(42L, 9L, "\\prod_{i=1}^{n} p_i"))
+        when(formulaRegionService.confirm(
+                42L, 9L, List.of("\\prod_{i=1}^{n} p_i")))
                 .thenReturn(recognition);
 
         mvc.perform(put("/api/papers/42/workbench/formula-regions/9/confirm")

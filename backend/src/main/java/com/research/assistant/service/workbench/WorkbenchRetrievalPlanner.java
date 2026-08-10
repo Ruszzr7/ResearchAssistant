@@ -25,6 +25,9 @@ public class WorkbenchRetrievalPlanner {
             "哪里", "在哪", "位置", "什么", "如何", "怎么", "是否", "这个", "这一", "上述", "前面",
             "the", "and", "this", "that", "what", "where", "find", "locate", "show", "paper",
             "formula", "equation", "defined", "definition");
+    private static final Set<String> RELATEDNESS_STOP_TERMS = Set.of(
+            "method", "approach", "result", "results", "formula", "equation", "definition",
+            "paper", "问题", "回答", "方法", "结果", "公式", "方程", "定义");
     private static final Map<String, List<String>> SCIENTIFIC_ALIASES = aliases();
 
     public WorkbenchRetrievalPlan plan(String query) {
@@ -40,7 +43,7 @@ public class WorkbenchRetrievalPlanner {
                 "该公式", "this", "that", "above", "continue", "former", "latter");
 
         LinkedHashSet<String> terms = new LinkedHashSet<>();
-        Matcher matcher = TOKEN.matcher(normalized);
+        Matcher matcher = TOKEN.matcher(withoutPromptTerms(normalized));
         while (matcher.find()) {
             String term = matcher.group().trim();
             if (isUseful(term)) terms.add(term);
@@ -63,10 +66,37 @@ public class WorkbenchRetrievalPlanner {
                 formula || location, referential, broad, formula || definition ? 2 : 1);
     }
 
+    /** Cheap semantic continuity check used only to decide whether prior turns belong in this prompt. */
+    public boolean semanticallyRelated(String currentQuestion, String previousConversation) {
+        Set<String> current = semanticTerms(currentQuestion);
+        if (current.isEmpty()) return false;
+        Set<String> previous = semanticTerms(previousConversation);
+        return current.stream().anyMatch(previous::contains);
+    }
+
+    private Set<String> semanticTerms(String value) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        for (String raw : plan(value).terms()) {
+            String term = normalize(raw);
+            if (term.length() < 2 || term.length() > 48 || RELATEDNESS_STOP_TERMS.contains(term)) continue;
+            result.add(term);
+        }
+        return result;
+    }
+
     private boolean isUseful(String term) {
         if (STOP_TERMS.contains(term)) return false;
         if (term.matches("[a-z]")) return false;
         return term.length() >= 2 || term.matches("[A-Z0-9]+") || term.matches("[α-ωΑ-Ω]");
+    }
+
+    private String withoutPromptTerms(String value) {
+        String result = value;
+        for (String stopTerm : STOP_TERMS) {
+            if (!stopTerm.matches("[\\p{IsHan}]+")) continue;
+            result = result.replace(stopTerm, " ");
+        }
+        return result.replaceAll("\\s+", " ").trim();
     }
 
     private boolean containsAny(String value, String... needles) {
@@ -87,7 +117,11 @@ public class WorkbenchRetrievalPlanner {
         values.put("公共流", List.of("common stream", "common-stream"));
         values.put("私有流", List.of("private stream", "private-stream"));
         values.put("信干噪比", List.of("sinr", "signal-to-interference-plus-noise ratio"));
-        values.put("信噪比", List.of("snr", "signal-to-noise ratio"));
+        // Chinese users often use “信噪比” colloquially for both SNR and SINR.
+        // Keep both candidates and let the current PDF decide which one exists.
+        values.put("信噪比", List.of(
+                "sinr", "signal-to-interference plus noise ratio",
+                "snr", "signal-to-noise ratio"));
         values.put("时延", List.of("latency", "delay"));
         values.put("吞吐量", List.of("throughput"));
         values.put("信道", List.of("channel"));

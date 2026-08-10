@@ -576,7 +576,7 @@ import {
   workbenchWidthForContainer,
   writeWorkbenchRatio,
 } from '@/utils/pdfWorkspaceLayout.js'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { createPdfInteractionEngine } from '@/services/pdfiumInteractionEngine.js'
 import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
 import { normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
@@ -1491,7 +1491,7 @@ async function loadAnnotations() {
 async function beginTextSelection(event, pageNum) {
   if (currentTool.value !== 'select' || event.button !== 0) return
 
-  if (formulaRegion.value) clearFormulaRegion()
+  if (formulaRegion.value && !formulaRecognition.value?.confirmed) clearFormulaRegion()
   // A plain click—on text or page whitespace—clears only the transient blue
   // selection. A new selection is created only after an intentional drag.
   clearPendingTextSelection()
@@ -1548,6 +1548,14 @@ async function finishTextSelection(event, pageNum) {
   if (!drag.moved) return
   const selection = pendingTextSelection.value
   if (selection?.groups?.length) {
+    if (formulaRecognition.value?.confirmed) {
+      const replace = await confirmFormulaReplacement('新选取的文字')
+      if (!replace) {
+        clearPendingTextSelection()
+        return
+      }
+      clearFormulaRegion()
+    }
     workbenchPanelVisible.value = true
     void resolvePendingSelectionContext(selection)
   }
@@ -1922,6 +1930,46 @@ function clearFormulaAndContinueCapture() {
   if (currentTool.value !== 'formula') activateFormula()
 }
 
+function fixedFormulaSnapshot() {
+  if (!formulaRecognition.value?.confirmed || !formulaRegion.value) return null
+  return {
+    region: formulaRegion.value,
+    recognition: formulaRecognition.value,
+    previewDataUrl: formulaPreviewDataUrl.value,
+    error: formulaRecognitionError.value,
+  }
+}
+
+function restoreFormulaSnapshot(snapshot) {
+  if (!snapshot) {
+    clearFormulaRegion()
+    return
+  }
+  formulaRegion.value = snapshot.region
+  formulaRecognition.value = snapshot.recognition
+  formulaPreviewDataUrl.value = snapshot.previewDataUrl
+  formulaRecognitionError.value = snapshot.error
+  formulaRecognitionLoading.value = false
+  formulaConfirming.value = false
+}
+
+async function confirmFormulaReplacement(nextContentLabel) {
+  try {
+    await ElMessageBox.confirm(
+      `${nextContentLabel}将覆盖当前已固定公式，是否继续？`,
+      '替换已固定内容',
+      {
+        confirmButtonText: '覆盖',
+        cancelButtonText: '保留原内容',
+        type: 'warning',
+      },
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
 function beginFormulaRegionSelection(event, page) {
   if (currentTool.value !== 'formula' || event.button !== 0) return
   const overlay = event.currentTarget
@@ -1930,6 +1978,7 @@ function beginFormulaRegionSelection(event, page) {
   event.preventDefault()
   event.stopPropagation()
   clearPendingTextSelection()
+  const previousFormula = fixedFormulaSnapshot()
   formulaRecognition.value = null
   formulaRecognitionError.value = ''
   formulaRegionDrag = {
@@ -1938,6 +1987,7 @@ function beginFormulaRegionSelection(event, page) {
     overlay,
     pageRect: rect,
     start: { x: event.clientX, y: event.clientY },
+    previousFormula,
   }
   formulaRegion.value = { page: page.pageNum, bbox: null }
   overlay.setPointerCapture?.(event.pointerId)
@@ -1966,7 +2016,7 @@ async function finishFormulaRegionSelection(event, cancelled = false) {
   }
   formulaRegionDrag = null
   if (cancelled) {
-    clearFormulaRegion()
+    restoreFormulaSnapshot(drag.previousFormula)
     return true
   }
   const bbox = normalizedFormulaRegion(
@@ -1975,7 +2025,7 @@ async function finishFormulaRegionSelection(event, cancelled = false) {
     drag.pageRect,
   )
   if (!bbox) {
-    clearFormulaRegion()
+    restoreFormulaSnapshot(drag.previousFormula)
     ElMessage.warning('公式区域太小，请拖框圈定完整公式')
     return true
   }
@@ -1984,6 +2034,13 @@ async function finishFormulaRegionSelection(event, cancelled = false) {
     canvasRefs.value[drag.page], bbox,
   )?.dataUrl || ''
   currentTool.value = 'select'
+  if (drag.previousFormula) {
+    const replace = await confirmFormulaReplacement('新框选的公式')
+    if (!replace) {
+      restoreFormulaSnapshot(drag.previousFormula)
+      return true
+    }
+  }
   workbenchPanelVisible.value = true
   return true
 }
@@ -2016,13 +2073,13 @@ async function recognizeCurrentFormulaRegion() {
   }
 }
 
-async function confirmCurrentFormulaRegion(latex) {
+async function confirmCurrentFormulaRegion(formulas) {
   const recognition = formulaRecognition.value
   if (!recognition?.id || formulaConfirming.value) return
   formulaConfirming.value = true
   formulaRecognitionError.value = ''
   try {
-    const confirmed = await confirmFormulaRegion(props.paper.id, recognition.id, latex)
+    const confirmed = await confirmFormulaRegion(props.paper.id, recognition.id, formulas)
     if (formulaRecognition.value?.id !== recognition.id) return
     formulaRecognition.value = {
       ...confirmed,
@@ -2044,7 +2101,9 @@ function setTool(tool) {
   selectedAnnotation.value = null
   notePreview.value = null
   if (tool !== 'select') clearPendingTextSelection()
-  if (tool !== 'formula' && tool !== 'select') clearFormulaRegion()
+  if (tool !== 'formula' && tool !== 'select' && !formulaRecognition.value?.confirmed) {
+    clearFormulaRegion()
+  }
 }
 
 function activateFormula() {
@@ -2053,7 +2112,7 @@ function activateFormula() {
     return
   }
   clearPendingTextSelection()
-  clearFormulaRegion()
+  if (!formulaRecognition.value?.confirmed) clearFormulaRegion()
   currentTool.value = 'formula'
   selectedAnnotation.value = null
   notePreview.value = null
@@ -2067,7 +2126,7 @@ function selectWorkbenchCaptureMode(mode) {
     return
   }
   setTool('select')
-  clearFormulaRegion()
+  if (!formulaRecognition.value?.confirmed) clearFormulaRegion()
 }
 
 function openSelectionNote() {

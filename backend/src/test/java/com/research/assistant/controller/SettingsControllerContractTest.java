@@ -2,7 +2,9 @@ package com.research.assistant.controller;
 
 import com.research.assistant.common.GlobalExceptionHandler;
 import com.research.assistant.dto.AiConnectionTestResult;
+import com.research.assistant.dto.AiModelListResult;
 import com.research.assistant.entity.Settings;
+import com.research.assistant.service.AiModelCatalogService;
 import com.research.assistant.service.SettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,12 +34,14 @@ class SettingsControllerContractTest {
 
     @Mock
     private SettingsService settingsService;
+    @Mock
+    private AiModelCatalogService modelCatalogService;
 
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new SettingsController(settingsService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new SettingsController(settingsService, modelCatalogService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -95,5 +99,19 @@ class SettingsControllerContractTest {
                 .andExpect(jsonPath("$.data.provider").value("kimi"))
                 .andExpect(jsonPath("$.data.channel").value("coding"))
                 .andExpect(jsonPath("$.data.capabilities.chat").value("已验证"));
+    }
+
+    @Test
+    void modelCatalogReturnsOnlyModelIdentifiers() throws Exception {
+        when(modelCatalogService.list(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new AiModelListResult(List.of("kimi-k2.6", "kimi-k3")));
+
+        mockMvc.perform(post("/api/settings/models")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"baseUrl\":\"https://api.example.com/v1\",\"apiKey\":\"sk-test\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.models[0]").value("kimi-k2.6"))
+                .andExpect(jsonPath("$.data.models[1]").value("kimi-k3"))
+                .andExpect(jsonPath("$.data.count").value(2));
     }
 }

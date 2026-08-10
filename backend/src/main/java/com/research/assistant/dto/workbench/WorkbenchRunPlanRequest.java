@@ -3,6 +3,7 @@ package com.research.assistant.dto.workbench;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.research.assistant.service.pdf.layout.SelectionAnchor;
 import com.research.assistant.service.workbench.WorkbenchIntent;
+import com.research.assistant.service.workbench.WorkbenchAttachment;
 import com.research.assistant.service.workbench.WorkbenchInvocation;
 import com.research.assistant.service.workbench.WorkbenchPlan;
 import jakarta.validation.constraints.Max;
@@ -11,6 +12,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.Valid;
 
 import java.util.List;
 
@@ -21,6 +23,7 @@ public record WorkbenchRunPlanRequest(
         WorkbenchIntent intent,
         WorkbenchPlan.Scope scope,
         SelectionAnchor selectionAnchor,
+        @Size(max = 3) List<@NotNull @Valid WorkbenchAttachment> attachments,
         @Min(1) @Max(6) Integer maxSteps,
         @Min(256) @Max(60_000) Integer tokenBudget,
         @Size(max = 64) String sourceRunId,
@@ -33,9 +36,23 @@ public record WorkbenchRunPlanRequest(
                 intent,
                 scope,
                 selectionAnchor,
+                attachments,
                 maxSteps == null ? 6 : maxSteps,
                 tokenBudget == null ? 0 : tokenBudget,
                 sourceRunId,
                 conversationId);
+    }
+
+    public WorkbenchRunPlanRequest(List<Long> paperIds,
+                                   String question,
+                                   WorkbenchIntent intent,
+                                   WorkbenchPlan.Scope scope,
+                                   SelectionAnchor selectionAnchor,
+                                   Integer maxSteps,
+                                   Integer tokenBudget,
+                                   String sourceRunId,
+                                   String conversationId) {
+        this(paperIds, question, intent, scope, selectionAnchor, List.of(), maxSteps,
+                tokenBudget, sourceRunId, conversationId);
     }
 }

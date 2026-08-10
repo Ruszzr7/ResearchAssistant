@@ -215,13 +215,13 @@ public class PaperUnderstandingService {
     private PaperChunkSummary summarizeSafely(PaperMemoryChunk chunk) {
         try {
             return modelService.summarize(chunk);
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException failure) {
             log.warn("paper_chunk_summary_failed chunkId={} errorType={}",
-                    chunk.id(), exception.getClass().getSimpleName());
+                    chunk.id(), failure.getClass().getSimpleName());
             return PaperChunkSummary.failed(
                     chunk, "MODEL_SUMMARY_FAILED",
-                    usagePromptTokens(exception), usageCompletionTokens(exception),
-                    usageFinishReason(exception));
+                    usagePromptTokens(failure), usageCompletionTokens(failure),
+                    usageFinishReason(failure));
         }
     }
 

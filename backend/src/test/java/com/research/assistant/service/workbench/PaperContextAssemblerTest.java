@@ -209,10 +209,31 @@ class PaperContextAssemblerTest {
 
         PaperContextSnapshot snapshot = assembler.assemble(trace, null);
 
-        assertThat(snapshot.modelQuestion()).contains("论文的 SINR 在哪里？");
+        assertThat(snapshot.modelQuestion()).doesNotContain("论文的 SINR 在哪里？");
+        assertThat(snapshot.conversationTurns()).isEmpty();
+        assertThat(snapshot.conversationInherited()).isFalse();
         assertThat(snapshot.retrievalQuery()).isEqualTo("快速排序的复杂度是什么？");
         assertThat(snapshot.preferredEvidenceBlockIds()).isEmpty();
         assertThat(snapshot.isReferentialFollowUp()).isFalse();
+    }
+
+    @Test
+    void relatedQuestionInheritsPreviousTurnsAndEvidenceWithoutANewSelection() {
+        WorkbenchRunTrace trace = traceWithoutSelection(
+                "run-related-chat", "paper-thread-4", "为我找出信噪比公式在哪？");
+        when(traceService.readContextSnapshot(trace.runId(), PaperContextSnapshot.class)).thenReturn(null);
+        when(observationService.recentConversation(
+                7L, "paper-thread-4", HASH, PARSER, 8))
+                .thenReturn(List.of(turn(5, "解释这两条公式", "公共流与私有流使用 SINR。")));
+        when(observationService.relevantObservations(
+                eq(7L), eq(HASH), eq(PARSER), anyString(), eq("paper-thread-4"), eq(8)))
+                .thenReturn(List.of());
+
+        PaperContextSnapshot snapshot = assembler.assemble(trace, null);
+
+        assertThat(snapshot.conversationInherited()).isTrue();
+        assertThat(snapshot.modelQuestion()).contains("解释这两条公式", "公共流与私有流使用 SINR");
+        assertThat(snapshot.preferredEvidenceBlockIds()).containsExactly("p1-b0001");
     }
 
     private WorkbenchRunTrace trace(String runId) {

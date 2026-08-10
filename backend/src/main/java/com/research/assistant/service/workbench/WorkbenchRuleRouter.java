@@ -36,7 +36,9 @@ public class WorkbenchRuleRouter {
         // A current selection is an explicit paper-evidence attachment and therefore stays strict.
         // A paper conversation without a new attachment may instead be a follow-up, a paper-wide
         // question, or an ordinary LLM question; evidence is optional for that one workflow only.
-        boolean evidenceRequired = workflow != Workflow.SELECTION_QA || invocation.selectionAnchor() != null;
+        boolean evidenceRequired = workflow != Workflow.SELECTION_QA
+                || invocation.selectionAnchor() != null
+                || requiresCurrentPaperEvidence(invocation.question());
         return new WorkbenchPlan(workflow, scope, steps, allowed, invocation.maxSteps(), tokenBudget,
                 evidenceRequired, 1);
     }
@@ -49,6 +51,9 @@ public class WorkbenchRuleRouter {
         }
         if (invocation.question().length() > 4_000) {
             throw new IllegalArgumentException("question exceeds 4000 characters");
+        }
+        if (invocation.attachments().size() > 3) {
+            throw new IllegalArgumentException("attachments must contain at most 3 files");
         }
         if (invocation.conversationId().length() > 64
                 || !invocation.conversationId().isEmpty()
@@ -178,6 +183,31 @@ public class WorkbenchRuleRouter {
             case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> 14_000;
             case PAPER_COMPARISON, RESEARCH_GAP -> 20_000;
         };
+    }
+
+    private boolean requiresCurrentPaperEvidence(String question) {
+        String normalized = question == null ? "" : question.toLowerCase(java.util.Locale.ROOT);
+        boolean explicitPaper = containsAny(normalized,
+                "这篇论文", "该论文", "本论文", "论文中", "论文里", "论文的",
+                "这篇文章", "该文章", "本文", "文中", "文章中", "文章里", "作者在",
+                "current paper", "this paper", "in the paper");
+        boolean location = containsAny(normalized,
+                "在哪", "哪里", "何处", "位置", "第几页", "哪一页",
+                "where", "locate", "find");
+        boolean paperObject = containsAny(normalized,
+                "公式", "方程", "定义", "章节", "段落", "出处",
+                "equation", "formula", "figure", "table", "section", "citation");
+        boolean referentialPaperObject = paperObject && containsAny(normalized,
+                "这个", "这一", "上述", "前面", "该公式",
+                "this", "that", "above", "former", "latter");
+        return explicitPaper || location && paperObject || referentialPaperObject;
+    }
+
+    private boolean containsAny(String value, String... candidates) {
+        for (String candidate : candidates) {
+            if (value.contains(candidate)) return true;
+        }
+        return false;
     }
 
     private boolean isMultiPaperWorkflow(Workflow workflow) {

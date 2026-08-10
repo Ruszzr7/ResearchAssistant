@@ -37,12 +37,47 @@ class FormulaVisionRecognizerTest {
     }
 
     @Test
+    void returnsAllDistinctFormulasInVisualOrder() {
+        when(llmService.chatWithImageUsage(any(), any(), any(), any(), any()))
+                .thenReturn(LlmResponse.of("""
+                        {"formulas":[
+                          {"latex":"R_c=C(\\\\Gamma_c)","confidence":0.92},
+                          {"latex":"R_{p,k}=C(\\\\Gamma_{p,k})","confidence":0.95}
+                        ],"confidence":0.93}
+                        """));
+
+        FormulaVisionRecognizer.FormulaCandidate result = recognizer.recognize(new byte[]{2});
+
+        assertThat(result.formulas()).containsExactly(
+                "R_c=C(\\Gamma_c)", "R_{p,k}=C(\\Gamma_{p,k})");
+        assertThat(result.latex()).contains("\\begin{gathered}", "R_c", "R_{p,k}");
+        assertThat(result.confidence()).isEqualTo(0.93);
+    }
+
+    @Test
     void rejectsNonJsonOutputInsteadOfTreatingItAsEvidence() {
         when(llmService.chatWithImageUsage(any(), any(), any(), any(), any()))
                 .thenReturn(LlmResponse.of("probably x squared"));
 
         assertThatThrownBy(() -> recognizer.recognize(new byte[]{1}))
                 .isInstanceOf(IllegalArgumentException.class);
+        verify(llmService, times(2))
+                .chatWithImageUsage(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void retriesOneMalformedJsonResponseAndKeepsTheValidCandidate() {
+        when(llmService.chatWithImageUsage(any(), any(), any(), any(), any()))
+                .thenReturn(
+                        LlmResponse.of("{not-json}"),
+                        LlmResponse.of("{\"latex\":\"x+y\",\"confidence\":0.93}"));
+
+        FormulaVisionRecognizer.FormulaCandidate result = recognizer.recognize(new byte[]{4});
+
+        assertThat(result.latex()).isEqualTo("x+y");
+        assertThat(result.confidence()).isEqualTo(0.93);
+        verify(llmService, times(2))
+                .chatWithImageUsage(any(), any(), any(), any(), any());
     }
 
     @Test

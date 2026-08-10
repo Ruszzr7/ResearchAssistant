@@ -93,10 +93,31 @@
         <el-form-item label="API Key">
           <el-input v-model="apiKey" type="password" show-password placeholder="例如 sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" size="default" />
         </el-form-item>
-        <el-form-item label="模型">
-          <el-select v-model="model" filterable allow-create default-first-option :teleported="false" style="width:100%">
-            <el-option v-for="item in modelOptions" :key="item" :label="item" :value="item" />
-          </el-select>
+        <el-form-item label="模型" class="model-catalog-form-item">
+          <div class="model-catalog-control">
+            <el-select v-model="model" filterable allow-create default-first-option :teleported="false">
+              <el-option v-for="item in modelOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+            <el-button :loading="queryingModels" @click="queryAvailableModels">查询可用模型</el-button>
+          </div>
+          <section v-if="modelCatalogVisible" class="model-catalog-panel" aria-label="可用模型">
+            <div v-if="availableModels.length" class="model-catalog-list">
+              <button
+                v-for="item in availableModels"
+                :key="item"
+                type="button"
+                :class="{ 'is-selected': item === model }"
+                @click="model = item"
+              >
+                {{ item }}
+              </button>
+            </div>
+            <div v-else class="model-catalog-empty">{{ modelCatalogStatus }}</div>
+            <footer class="model-catalog-status" :class="{ 'is-error': modelCatalogError }">
+              <span class="model-catalog-status__dot" aria-hidden="true"></span>
+              <span>{{ modelCatalogStatus }}</span>
+            </footer>
+          </section>
         </el-form-item>
       </el-form>
       <div v-if="testResult !== null" class="test-result" :class="{ success: testResult.success, fail: !testResult.success }">
@@ -196,8 +217,16 @@ const baseUrl = ref('')
 const testing = ref(false)
 const saving = ref(false)
 const testResult = ref(null)
+const queryingModels = ref(false)
+const availableModels = ref([])
+const modelCatalogVisible = ref(false)
+const modelCatalogError = ref(false)
+const modelCatalogStatus = ref('')
 const channelOptions = computed(() => providerChannels(aiProvider.value))
-const modelOptions = computed(() => providerModels(aiProvider.value, aiChannel.value))
+const modelOptions = computed(() => [...new Set([
+  ...availableModels.value,
+  ...providerModels(aiProvider.value, aiChannel.value),
+])])
 
 async function loadSettings() {
   try {
@@ -219,6 +248,7 @@ async function loadSettings() {
     // 后端返回的是脱敏后的 Key，直接显示在密码框中，提示用户已保存
     apiKey.value = savedApiKey.value
     testResult.value = null
+    resetModelCatalog()
   } catch (e) { /* 首次使用 */ }
 }
 
@@ -252,6 +282,7 @@ function onProviderChange() {
   if (replaceUrl) baseUrl.value = channel.baseUrl
   model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
   testResult.value = null
+  resetModelCatalog()
 }
 
 function onChannelChange() {
@@ -260,6 +291,43 @@ function onChannelChange() {
   }
   model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
   testResult.value = null
+  resetModelCatalog()
+}
+
+function resetModelCatalog() {
+  availableModels.value = []
+  modelCatalogVisible.value = false
+  modelCatalogError.value = false
+  modelCatalogStatus.value = ''
+}
+
+async function queryAvailableModels() {
+  if (!baseUrl.value.trim()) {
+    ElMessage.warning('请先填写 Base URL')
+    return
+  }
+  if (!apiKey.value.trim() && !savedApiKey.value) {
+    ElMessage.warning('请先填写 API Key')
+    return
+  }
+  queryingModels.value = true
+  modelCatalogVisible.value = true
+  modelCatalogError.value = false
+  modelCatalogStatus.value = '正在查询可用模型…'
+  availableModels.value = []
+  try {
+    const res = await api.post('/settings/models', {
+      baseUrl: baseUrl.value.trim(),
+      apiKey: apiKey.value.trim(),
+    })
+    availableModels.value = Array.isArray(res.data?.models) ? res.data.models : []
+    modelCatalogStatus.value = `已查询到 ${availableModels.value.length} 个可用模型`
+  } catch (e) {
+    modelCatalogError.value = true
+    modelCatalogStatus.value = e.response?.data?.message || e.message || '查询可用模型失败'
+  } finally {
+    queryingModels.value = false
+  }
 }
 
 function capabilityLabel(key) {
@@ -545,6 +613,57 @@ html.dark .brand-mark img { filter:brightness(1.35) saturate(1.3); }
 }
 .test-result.success { background: #f0f9eb; color: #67c23a; }
 .test-result.fail { background: #fef0f0; color: #f56c6c; }
+.model-catalog-form-item .el-form-item__content { display: block; }
+.model-catalog-control { display: flex; width: 100%; gap: 10px; }
+.model-catalog-control .el-select { min-width: 0; flex: 1; }
+.model-catalog-control .el-button { flex: 0 0 auto; }
+.model-catalog-panel {
+  width: 100%;
+  margin-top: 8px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--ra-border);
+  border-radius: 8px;
+  background: var(--ra-panel-bg);
+}
+.model-catalog-list {
+  max-height: 190px;
+  overflow-y: auto;
+  padding: 5px;
+  scrollbar-gutter: stable;
+}
+.model-catalog-list button {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ra-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.model-catalog-list button:hover { background: var(--ra-hover-bg); color: var(--ra-text); }
+.model-catalog-list button.is-selected { background: var(--ra-active-bg); color: var(--ra-active-text); }
+.model-catalog-empty { padding: 18px 10px; color: var(--ra-text-tertiary); font-size: 12px; text-align: center; }
+.model-catalog-status {
+  display: flex;
+  min-height: 30px;
+  padding: 0 10px;
+  align-items: center;
+  gap: 7px;
+  border-top: 1px solid var(--ra-border-light);
+  color: var(--ra-text-tertiary);
+  font-size: 11px;
+}
+.model-catalog-status__dot { width: 6px; height: 6px; border-radius: 50%; background: #67c23a; }
+.model-catalog-status.is-error { color: #f56c6c; }
+.model-catalog-status.is-error .model-catalog-status__dot { background: #f56c6c; }
 .capability-list {
   display: flex;
   flex-wrap: wrap;

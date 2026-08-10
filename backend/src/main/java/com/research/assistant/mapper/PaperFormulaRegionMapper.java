@@ -12,7 +12,8 @@ import java.util.List;
 public interface PaperFormulaRegionMapper extends BaseMapper<PaperFormulaRegionRecord> {
 
     String COLUMNS = "id, paper_id, document_hash, parser_version, page_number, region_key, "
-            + "box_x, box_y, box_width, box_height, latex, confidence, source, status, "
+            + "box_x, box_y, box_width, box_height, latex, formula_items_json, "
+            + "confidence, source, status, "
             + "created_at, updated_at";
 
     @Select("SELECT " + COLUMNS + " FROM paper_formula_region "
