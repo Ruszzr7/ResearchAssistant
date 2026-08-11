@@ -89,7 +89,7 @@ public class PaperSourceIndexService {
         String text = block.text().replaceAll("\\s+", " ").trim();
         if (MENTION_AT_END.matcher(text).matches()) return false;
         String before = text.substring(0, Math.min(labelOffset, text.length()));
-        boolean operator = before.matches("(?s).*[=≈≃≤≥<>∑∏√].*")
+        boolean operator = before.matches("(?s).*[=≈≃≤≥<>∑∏√+−].*")
                 || before.toLowerCase(Locale.ROOT).matches("(?s).*\\b(max|min|argmax|argmin)\\b.*");
         return operator || block.role() == DocumentBlockRole.FORMULA
                 && text.split("\\s+").length <= 18;

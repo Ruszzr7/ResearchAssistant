@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 @Component
 public class PaperLayoutSemanticEnricher {
 
-    static final String VERSION = "semantic-v3";
+    static final String VERSION = "semantic-v4";
 
     private static final Pattern ABSTRACT_START = Pattern.compile(
             "(?i)^\\s*(?:abstract|summary)\\b[\\s.:-]*");
@@ -478,7 +478,7 @@ public class PaperLayoutSemanticEnricher {
         }
         String compact = text.replaceAll("\\s+", " ").trim();
         if (EQUATION_MENTION.matcher(compact).matches()) return false;
-        boolean operator = compact.matches("(?s).*[=≈≃≤≥<>∑∏√].*")
+        boolean operator = compact.matches("(?s).*[=≈≃≤≥<>∑∏√+−].*")
                 || compact.toLowerCase(Locale.ROOT).matches("(?s).*\\b(max|min|argmax|argmin)\\b.*");
         return operator;
     }

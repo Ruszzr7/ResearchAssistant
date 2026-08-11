@@ -56,7 +56,7 @@ class PaperSourceIndexServiceTest {
     }
 
     private PaperLayoutArtifact artifact(List<DocumentBlock> blocks) {
-        return new PaperLayoutArtifact(188L, "a".repeat(64), "parser+semantic-v3", 0.9,
+        return new PaperLayoutArtifact(188L, "a".repeat(64), "parser+semantic-v4", 0.9,
                 Instant.parse("2026-08-11T00:00:00Z"), 10, blocks);
     }
 
