@@ -1216,7 +1216,7 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .answer-text { overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; }
 .muted-state, .error-state { padding-top: 8px; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.45; }
 .error-state { color: var(--el-color-danger); }
-.warning-state { margin-top: 8px; padding: 7px 8px; border-radius: 5px; color: #8a5a00; background: #fff7e6; font-size: 10px; line-height: 1.45; }
-.math-rich-state { margin-top: 8px; padding: 7px 8px; border-radius: 5px; color: #245f73; background: #edf8fb; font-size: 10px; line-height: 1.45; }
+.warning-state { margin-top: 8px; padding: 7px 8px; border-radius: 5px; color: var(--el-color-warning); background: color-mix(in srgb, var(--el-color-warning) 12%, var(--ra-panel-bg)); font-size: 10px; line-height: 1.45; }
+.math-rich-state { margin-top: 8px; padding: 7px 8px; border-radius: 5px; color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 9%, var(--ra-panel-bg)); font-size: 10px; line-height: 1.45; }
 @media (max-width: 1180px) { .paper-workbench { min-width:240px; } }
 </style>

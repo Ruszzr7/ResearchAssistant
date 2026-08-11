@@ -385,7 +385,7 @@
         <el-button size="small" @click="startMoveIn" :disabled="!editFolderId">↪ 移入</el-button>
         <el-button size="small" type="danger" @click="editDelete" :disabled="!editFolderId">删除</el-button>
       </div>
-      <div v-if="moveInSource" style="margin-bottom:4px;padding:4px 8px;background:#ecf5ff;border-radius:3px;font-size:12px">
+      <div v-if="moveInSource" class="move-folder-hint">
         将「{{ moveInSource.name }}」移入到 → 点击目标文件夹 | <el-button size="small" text @click="moveInSource=null">取消</el-button>
       </div>
       <el-tree ref="editTreeRef" :data="editFolders" :props="treeProps" node-key="id"
@@ -1801,6 +1801,7 @@ onUnmounted(detachLibraryEvents)
 .stage-text { font-size:12px; color:var(--ra-link); margin-left:4px; }
 .error-text { font-size:12px; color:#f56c6c; margin-left:4px; }
 .recommend-dialog-tip { color:var(--ra-text-tertiary); font-size:12px; line-height:1.5; }
+.move-folder-hint { margin-bottom:4px; padding:4px 8px; border-radius:3px; color:var(--ra-link); background:color-mix(in srgb, var(--ra-link) 9%, var(--ra-panel-bg)); font-size:12px; }
 .recommend-tag-list { display:flex; flex-direction:column; gap:8px; }
 .folder-recommend-ok { color:var(--el-color-success); }
 .metadata-preview-grid { max-height:420px; overflow-y:auto; border-top:1px solid var(--ra-border-light); }

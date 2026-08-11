@@ -169,7 +169,7 @@ const sourceLabel = computed(() => ({
 .formula-region-card__heading b { font-size: 13px; }
 .formula-region-card__heading small { color: var(--ra-text-tertiary); font-size: 10px; }
 .formula-region-card__heading button { border: 0; color: var(--ra-text-secondary); background: transparent; cursor: pointer; font-size: 18px; }
-.formula-region-card__preview { display: block; width: auto; max-width: 100%; max-height: 50px; margin: 0 auto; box-sizing: border-box; object-fit: contain; border: 1px solid var(--ra-border); border-radius: 6px; background: #fff; }
+.formula-region-card__preview { display: block; width: auto; max-width: 100%; max-height: 50px; margin: 0 auto; box-sizing: border-box; object-fit: contain; border: 1px solid var(--ra-border); border-radius: 6px; background: var(--ra-panel-bg); }
 .formula-region-card__preview-placeholder { display: grid; min-height: 58px; place-items: center; border: 1px dashed var(--ra-border); border-radius: 6px; color: var(--ra-text-tertiary); font-size: 10px; }
 .formula-region-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 7px 0; color: var(--ra-text-tertiary); font-size: 10px; }
 .formula-region-card__meta-info { display: flex; min-width: 0; align-items: center; gap: 7px; }
