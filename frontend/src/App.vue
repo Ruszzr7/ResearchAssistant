@@ -4,7 +4,8 @@
     <aside class="app-sidebar" :class="{ 'is-expanded': isDashboard || navOverlayOpen }">
       <button class="app-brand" type="button" title="返回看板" @click="goTo('/')">
         <span class="brand-mark" aria-hidden="true">
-          <img :src="researchAssistantLogoUrl" alt="" />
+          <img class="brand-mark__light" :src="researchAssistantLogoLightUrl" alt="" />
+          <img class="brand-mark__dark" :src="researchAssistantLogoDarkUrl" alt="" />
         </span>
         <span class="brand-copy"><b>Research</b><small>Assistant</small></span>
       </button>
@@ -50,7 +51,13 @@
           </button>
         </div>
         <div class="sidebar-task-actions">
-          <button class="sidebar-nav-item" type="button" title="任务中心" @click="goTo('/tasks')">
+          <button
+            class="sidebar-nav-item"
+            :class="{ 'is-active': routeIsActive('/tasks') }"
+            type="button"
+            title="任务中心"
+            @click="toggleTaskCenter"
+          >
             <el-icon><Tickets /></el-icon><span>任务中心</span>
           </button>
         </div>
@@ -166,7 +173,9 @@ import { useTheme } from '@/stores/themeStore'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import CommandPalette from '@/components/CommandPalette.vue'
 import CachedRouterView from '@/components/navigation/CachedRouterView.vue'
-import researchAssistantLogoUrl from '@/assets/research-assistant-logo-v2.png'
+import { taskCenterNavigation } from '@/utils/taskCenterNavigation.js'
+import researchAssistantLogoLightUrl from '@/assets/research-assistant-logo-d3.png'
+import researchAssistantLogoDarkUrl from '@/assets/research-assistant-logo-d3-dark.png'
 import {
   AI_PROVIDERS,
   channelDefinition,
@@ -182,6 +191,7 @@ const route = useRoute()
 const { dark, toggle: toggleTheme } = useTheme()
 
 const navOverlayOpen = ref(false)
+const taskCenterReturnPath = ref('')
 const isDashboard = computed(() => route.path === '/')
 const globalMessageConfig = Object.freeze({ max: 2, duration: 1800, grouping: true })
 const navigationItems = [
@@ -201,6 +211,13 @@ function routeIsActive(target) {
 function goTo(target) {
   navOverlayOpen.value = false
   router.push(target)
+}
+
+function toggleTaskCenter() {
+  navOverlayOpen.value = false
+  const navigation = taskCenterNavigation(route.fullPath, taskCenterReturnPath.value)
+  taskCenterReturnPath.value = navigation.nextReturnPath
+  router.push(navigation.target)
 }
 
 watch(() => route.fullPath, () => { navOverlayOpen.value = false })
@@ -543,6 +560,7 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
   display: flex;
   width: calc(100% - 12px);
   min-height: 40px;
+  box-sizing: border-box;
   margin: 0 6px;
   padding: 0 11px;
   align-items: center;
@@ -558,14 +576,31 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
   cursor: pointer;
 }
 .app-brand { min-height: 58px; margin-top: 2px; color: var(--ra-text); }
-.app-sidebar:not(.is-expanded) .app-brand { padding-left:6px; }
+.app-sidebar:not(.is-expanded) .app-brand,
+.app-sidebar:not(.is-expanded) .nav-collapse-toggle,
+.app-sidebar:not(.is-expanded) .sidebar-nav-item {
+  justify-content: center;
+  gap: 0;
+  padding-right: 0;
+  padding-left: 0;
+}
+.app-sidebar:not(.is-expanded) .brand-copy,
+.app-sidebar:not(.is-expanded) .nav-collapse-toggle > span,
+.app-sidebar:not(.is-expanded) .sidebar-nav-item > span {
+  display: none;
+}
+.app-sidebar:not(.is-expanded) .brand-mark {
+  transform: translateX(1px);
+}
 .app-brand:focus { outline:none; }
 .app-brand:focus-visible { outline:none; box-shadow:none; }
+.nav-collapse-toggle:focus,
+.nav-collapse-toggle:focus-visible { outline:none; box-shadow:none; }
 .brand-mark {
   position: relative;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -574,13 +609,16 @@ html.dark .el-card { --el-card-bg-color: var(--ra-panel-bg); --el-card-border-co
   top:50%;
   left:50%;
   display:block;
-  width:44px;
-  height:44px;
+  width:30px;
+  height:30px;
   max-width:none;
   object-fit:contain;
   transform:translate(-50%, -50%);
+  transition:opacity .12s ease;
 }
-html.dark .brand-mark img { filter:brightness(1.35) saturate(1.3); }
+.brand-mark__dark { opacity:0; }
+html.dark .brand-mark__light { opacity:0; }
+html.dark .brand-mark__dark { opacity:1; }
 .brand-copy { display:flex; min-width:0; flex-direction:column; align-items:flex-start; gap:2px; line-height:1; opacity:0; transition:opacity .12s ease; }
 .brand-copy b { color:var(--ra-text); font-size:16px; font-weight:650; letter-spacing:-.3px; }
 .brand-copy small { color:var(--ra-text-tertiary); font-size:13px; font-weight:550; letter-spacing:-.1px; }
@@ -592,7 +630,7 @@ html.dark .brand-mark img { filter:brightness(1.35) saturate(1.3); }
 .sidebar-task-actions { display: flex; flex-direction: column; gap: 4px; }
 .sidebar-task-actions { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ra-border-light); }
 .sidebar-nav-item .el-icon,
-.nav-collapse-toggle .el-icon { width: 18px; height: 18px; flex: 0 0 18px; font-size: 18px; }
+.nav-collapse-toggle .el-icon { width: 20px; height: 20px; flex: 0 0 20px; font-size: 20px; }
 .sidebar-nav-item span,
 .nav-collapse-toggle span { opacity: 0; transition: opacity .12s ease; }
 .app-sidebar.is-expanded .sidebar-nav-item span,
@@ -681,7 +719,15 @@ html.dark .test-result.fail { background: #3b1e1e; color: #f89898; }
 @media (max-width: 760px) {
   .app-container.is-dashboard { grid-template-columns: 52px minmax(0, 1fr); }
   .app-container.is-dashboard .app-sidebar { width: 52px; }
+  .app-container.is-dashboard .app-brand,
+  .app-container.is-dashboard .sidebar-nav-item {
+    justify-content: center;
+    gap: 0;
+    padding-right: 0;
+    padding-left: 0;
+  }
   .app-container.is-dashboard .brand-copy,
-  .app-container.is-dashboard .sidebar-nav-item span { opacity: 0; }
+  .app-container.is-dashboard .sidebar-nav-item > span { display: none; }
+  .app-container.is-dashboard .brand-mark { transform: translateX(1px); }
 }
 </style>

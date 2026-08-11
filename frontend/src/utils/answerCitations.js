@@ -109,23 +109,31 @@ function boundCitationContext(blocks, evidence) {
       : null
   }
 
-  // Build logical source groups across the whole answer, not once per answer block. A single
-  // PDF sentence is often split into two layout blocks and the model may cite each half from a
-  // different answer block. Keeping one global grouping prevents duplicate source numbers.
-  const groups = []
+  // Model citation order follows answer rhetoric, not PDF reading order. Collect all citations
+  // first, then reconstruct wrapped source sentences in physical reading order. Numbering is
+  // still assigned by the source's first appearance in the answer.
+  const values = []
+  let appearance = 0
   for (const block of blocks || []) {
     for (const citation of block?.citations || []) {
       const value = descriptor(citation)
       if (!value) continue
-      const previousGroup = groups[groups.length - 1]
-      const previousValue = previousGroup?.[previousGroup.length - 1]
-      if (previousValue && canMergeCitationContinuation(previousValue, value)) {
-        previousGroup.push(value)
-      } else {
-        groups.push([value])
-      }
+      values.push({ ...value, appearance: appearance++ })
     }
   }
+  const textValues = values.filter(value => !value.formulaTarget)
+    .sort(comparePhysicalCitationOrder)
+  const textGroups = []
+  for (const value of textValues) {
+    const previousGroup = textGroups[textGroups.length - 1]
+    const previousValue = previousGroup?.[previousGroup.length - 1]
+    if (previousValue && canMergeCitationContinuation(previousValue, value)) previousGroup.push(value)
+    else textGroups.push([value])
+  }
+  const formulaGroups = values.filter(value => value.formulaTarget).map(value => [value])
+  const groups = [...textGroups, ...formulaGroups]
+    .sort((first, second) => Math.min(...first.map(value => value.appearance))
+      - Math.min(...second.map(value => value.appearance)))
 
   for (const group of groups) {
     const value = group.length > 1 ? mergedTextDescriptor(group) : singleDescriptor(group[0])
@@ -149,10 +157,9 @@ function boundCitationContext(blocks, evidence) {
 
 function singleDescriptor(value) {
   const targetItem = value.formulaTarget || value.item
-  // PDFium can often locate selectable formula glyphs more precisely than the fallback region.
-  // Keep the canonical quote as a first-choice target; PdfViewer still falls back to the formula
-  // region when that text cannot be mapped.
-  const targetText = usableSearchQuote(value.quote) ? value.quote : ''
+  // Supporting prose and the click target are different concerns. A formula citation can be
+  // supported by a theorem sentence, but clicking it must still use the canonical formula box.
+  const targetText = value.formulaTarget ? '' : (usableSearchQuote(value.quote) ? value.quote : '')
   const key = value.formulaKey || citationQuoteKey(value.item, value.quote)
   return {
     key,
@@ -213,10 +220,26 @@ function canMergeCitationContinuation(previous, current) {
   const previousOrder = Number(previous.item.readingOrder)
   const currentOrder = Number(current.item.readingOrder)
   if (Number.isFinite(previousOrder) && Number.isFinite(currentOrder)
-      && (currentOrder <= previousOrder || currentOrder - previousOrder > 2)) return false
+      && currentOrder - previousOrder !== 1) return false
   const first = previous.item.locator?.targetBbox || previous.item.bbox
   const second = current.item.locator?.targetBbox || current.item.bbox
   return boxesShareColumn(first, second) && boxesAreVerticallyContinuous(first, second)
+}
+
+function comparePhysicalCitationOrder(first, second) {
+  const paper = Number(first.item.paperId) - Number(second.item.paperId)
+  if (paper) return paper
+  const page = Number(first.item.page) - Number(second.item.page)
+  if (page) return page
+  const firstOrder = Number(first.item.readingOrder)
+  const secondOrder = Number(second.item.readingOrder)
+  if (Number.isFinite(firstOrder) && Number.isFinite(secondOrder) && firstOrder !== secondOrder) {
+    return firstOrder - secondOrder
+  }
+  const firstBox = first.item.locator?.targetBbox || first.item.bbox
+  const secondBox = second.item.locator?.targetBbox || second.item.bbox
+  const vertical = Number(firstBox?.y || 0) - Number(secondBox?.y || 0)
+  return vertical || first.appearance - second.appearance
 }
 
 function boxesShareColumn(first, second) {
@@ -265,7 +288,10 @@ function sourceExcerpt(quote, item) {
   const value = String(quote || '').trim()
   const placeholder = !value || /^\[(?:公式|表格|图形)区域/.test(value)
   const formulaLabel = [...(item?.sectionPath || [])].reverse().find(part => /Equation|公式/i.test(part))
-  const source = placeholder ? (formulaLabel || (isFormulaRegion(item) ? '公式区域' : item?.text || '')) : value
+  const source = placeholder
+    ? (formulaLabel || (isFormulaRegion(item) ? '公式区域' : item?.text || ''))
+    : (isFormulaRegion(item) && formulaLabel && !value.includes(formulaLabel)
+        ? `${formulaLabel} · ${value}` : value)
   return source.length <= 220 ? source : `${source.slice(0, 217).trim()}…`
 }
 

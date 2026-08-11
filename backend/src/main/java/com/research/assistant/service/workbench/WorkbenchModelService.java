@@ -50,7 +50,8 @@ public class WorkbenchModelService {
             PAPER_FACT 和 INFERENCE 必须引用本轮 evidence；quote 应是对应 evidence 中可直接找到的短原文。
             一个 PAPER_FACT/INFERENCE answerBlock 只表达一个可由其 citations 共同直接支撑的事实单元；
             若不同来源句分别支撑不同事实，必须拆成多个 answerBlocks，避免一个引用标记对应多项事实。
-            INFERENCE 必须在 text 中明确写成“据此推断/可能”；GENERAL_KNOWLEDGE 不得引用论文 evidence；
+            INFERENCE 由结构化 basis 字段标识，措辞应审慎但无需机械重复“据此推断/可能”；
+            GENERAL_KNOWLEDGE 不得引用论文 evidence；
             EVIDENCE_LIMIT 只说明证据不足。claims 可留空，服务端会从 answerBlocks 生成兼容 claims。
             输入含 answerRequirements 时，每个 required=true 的要求都必须由至少一个 answerBlock 的
             requirementIds 明确处理；有证据则回答并引用，没有证据则用 EVIDENCE_LIMIT 明确说明，不能遗漏。
@@ -59,7 +60,7 @@ public class WorkbenchModelService {
             你只负责修复一份科研回答，不输出思考过程。
             论文事实只能引用本轮 evidence 中的 evidenceId；不得虚构引用或扩大结论。
             返回完整 JSON：{"answer":"Markdown","answerBlocks":[{"text":"回答单元","basis":"PAPER_FACT|INFERENCE|GENERAL_KNOWLEDGE|EVIDENCE_LIMIT","citations":[{"evidenceId":"lay_...","quote":"evidence 中可直接找到的短原文"}],"requirementIds":["r1"]}],"claims":[],"annotationSuggestion":null}。
-            PAPER_FACT/INFERENCE 必须引用 evidence；INFERENCE 明确标注推断；其他类型不得附论文引用。
+            PAPER_FACT/INFERENCE 必须引用 evidence；INFERENCE 由 basis 字段标识并使用审慎措辞；其他类型不得附论文引用。
             每个论文事实块只保留由其 citations 共同直接支撑的一项事实；不同来源句支撑的事实要拆块。
             保留原回答中没有出现在 repairIssues 里的有效内容；修复引用覆盖时，应拆分事实块或补充精确原文，不得直接丢弃问题要求的其他已引用结果。
             answerRequirements 中 required=true 的每一项都必须由 requirementIds 覆盖；只补齐 repairIssues 指出的缺失项。

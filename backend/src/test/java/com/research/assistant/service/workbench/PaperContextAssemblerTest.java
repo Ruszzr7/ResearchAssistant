@@ -209,12 +209,56 @@ class PaperContextAssemblerTest {
 
         PaperContextSnapshot snapshot = assembler.assemble(trace, null);
 
-        assertThat(snapshot.modelQuestion()).doesNotContain("论文的 SINR 在哪里？");
-        assertThat(snapshot.conversationTurns()).isEmpty();
+        assertThat(snapshot.modelQuestion())
+                .contains("论文的 SINR 在哪里？", "当前问题独立");
+        assertThat(snapshot.conversationTurns()).hasSize(1);
         assertThat(snapshot.conversationInherited()).isFalse();
         assertThat(snapshot.retrievalQuery()).isEqualTo("快速排序的复杂度是什么？");
         assertThat(snapshot.preferredEvidenceBlockIds()).isEmpty();
         assertThat(snapshot.isReferentialFollowUp()).isFalse();
+    }
+
+    @Test
+    void ellipticalAlternativeFollowUpReusesHistoryAndPreviousEvidenceFocus() {
+        WorkbenchRunTrace trace = traceWithoutSelection(
+                "run-alternative-follow-up", "paper-thread-alt", "如果还要再选一条公式呢？");
+        when(traceService.readContextSnapshot(trace.runId(), PaperContextSnapshot.class)).thenReturn(null);
+        when(observationService.recentConversation(
+                7L, "paper-thread-alt", HASH, PARSER, 8))
+                .thenReturn(List.of(turn(8, "你认为该文章最重要的一条公式是什么？",
+                        "首选是定理 1 的公式 (22)。")));
+        when(observationService.relevantObservations(
+                eq(7L), eq(HASH), eq(PARSER), anyString(), eq("paper-thread-alt"), eq(8)))
+                .thenReturn(List.of());
+
+        PaperContextSnapshot snapshot = assembler.assemble(trace, null);
+
+        assertThat(snapshot.conversationRelation()).isEqualTo(WorkbenchConversationRelation.FOLLOW_UP);
+        assertThat(snapshot.modelQuestion()).contains("公式 (22)", "对前文的追问");
+        assertThat(snapshot.retrievalQuery())
+                .contains("如果还要再选一条公式呢？",
+                        "历史追问：你认为该文章最重要的一条公式是什么？");
+        assertThat(snapshot.previousTurnHasPaperEvidence()).isTrue();
+    }
+
+    @Test
+    void explicitNewTopicKeepsHistoryButDoesNotReuseItsEvidenceFocus() {
+        WorkbenchRunTrace trace = traceWithoutSelection(
+                "run-new-topic", "paper-thread-new", "换个话题，快速排序的复杂度是什么？");
+        when(traceService.readContextSnapshot(trace.runId(), PaperContextSnapshot.class)).thenReturn(null);
+        when(observationService.recentConversation(
+                7L, "paper-thread-new", HASH, PARSER, 8))
+                .thenReturn(List.of(turn(9, "最重要的公式是什么？", "公式 (22)。")));
+        when(observationService.relevantObservations(
+                eq(7L), eq(HASH), eq(PARSER), anyString(), eq("paper-thread-new"), eq(8)))
+                .thenReturn(List.of());
+
+        PaperContextSnapshot snapshot = assembler.assemble(trace, null);
+
+        assertThat(snapshot.historyAvailable()).isTrue();
+        assertThat(snapshot.conversationRelation()).isEqualTo(WorkbenchConversationRelation.INDEPENDENT);
+        assertThat(snapshot.retrievalQuery()).isEqualTo("换个话题，快速排序的复杂度是什么？");
+        assertThat(snapshot.preferredEvidenceBlockIds()).isEmpty();
     }
 
     @Test
@@ -233,6 +277,44 @@ class PaperContextAssemblerTest {
 
         assertThat(snapshot.conversationInherited()).isTrue();
         assertThat(snapshot.modelQuestion()).contains("解释这两条公式", "公共流与私有流使用 SINR");
+        assertThat(snapshot.preferredEvidenceBlockIds()).containsExactly("p1-b0001");
+    }
+
+    @Test
+    void explicitActionDoesNotInheritEvidenceFocusOnlyBecauseItsTopicMatches() {
+        WorkbenchRunTrace trace = traceWithoutSelection(
+                "run-explicit-action", "paper-thread-5", "将信噪比公式所在位置高亮");
+        when(traceService.readContextSnapshot(trace.runId(), PaperContextSnapshot.class)).thenReturn(null);
+        when(observationService.recentConversation(
+                7L, "paper-thread-5", HASH, PARSER, 8))
+                .thenReturn(List.of(turn(6, "为我找出信噪比公式在哪？", "位于系统模型部分。")));
+        when(observationService.relevantObservations(
+                eq(7L), eq(HASH), eq(PARSER), anyString(), eq("paper-thread-5"), eq(8)))
+                .thenReturn(List.of());
+
+        PaperContextSnapshot snapshot = assembler.assemble(trace, null);
+
+        assertThat(snapshot.conversationInherited()).isFalse();
+        assertThat(snapshot.retrievalQuery()).isEqualTo("将信噪比公式所在位置高亮");
+        assertThat(snapshot.preferredEvidenceBlockIds()).isEmpty();
+    }
+
+    @Test
+    void referentialActionInheritsThePreviousEvidenceTarget() {
+        WorkbenchRunTrace trace = traceWithoutSelection(
+                "run-referential-action", "paper-thread-6", "把它高亮");
+        when(traceService.readContextSnapshot(trace.runId(), PaperContextSnapshot.class)).thenReturn(null);
+        when(observationService.recentConversation(
+                7L, "paper-thread-6", HASH, PARSER, 8))
+                .thenReturn(List.of(turn(7, "公式 (5) 在哪里？", "位于第 4 页。")));
+        when(observationService.relevantObservations(
+                eq(7L), eq(HASH), eq(PARSER), anyString(), eq("paper-thread-6"), eq(8)))
+                .thenReturn(List.of());
+
+        PaperContextSnapshot snapshot = assembler.assemble(trace, null);
+
+        assertThat(snapshot.conversationInherited()).isTrue();
+        assertThat(snapshot.retrievalQuery()).contains("历史追问：公式 (5) 在哪里？");
         assertThat(snapshot.preferredEvidenceBlockIds()).containsExactly("p1-b0001");
     }
 

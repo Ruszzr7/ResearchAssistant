@@ -358,7 +358,10 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
       })
       .mockResolvedValueOnce({
         runId: 'turn-after-clear',
-        result: { answer: '连续追问回答', claims: [], evidence: [], contextInherited: true },
+        result: {
+          answer: '连续追问回答', claims: [], evidence: [],
+          contextInherited: true, contextMode: 'FOLLOW_UP',
+        },
       })
       .mockResolvedValueOnce({
         runId: 'turn-new-conversation',
@@ -390,7 +393,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(secondRequest.conversationId).toBe(firstRequest.conversationId)
     expect(secondRequest).not.toHaveProperty('selectionAnchor')
     expect(secondRequest.scope).toBe('PAPER')
-    expect(wrapper.findAll('.chat-message.is-user')[1].text()).toContain('沿用对话上下文')
+    expect(wrapper.findAll('.chat-message.is-user')[1].text()).toContain('继续上一问题')
 
     await wrapper.findAll('.selection-chat__actions button')
       .find(button => button.text() === '新对话').trigger('click')
@@ -405,6 +408,25 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(newConversationRequest.conversationId).not.toBe(firstRequest.conversationId)
     expect(newConversationRequest).not.toHaveProperty('selectionAnchor')
     expect(wrapper.findAll('.chat-message')).toHaveLength(2)
+  })
+
+  it('shows an explicit PDF operation instead of describing it as inherited context', async () => {
+    mocks.state.run.mockResolvedValue({
+      runId: 'highlight-command',
+      result: {
+        answer: '已找到 2 处匹配内容，正在执行高亮。',
+        claims: [], evidence: [], actions: [], contextMode: 'ACTION_EXPLICIT',
+      },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.assistant-composer textarea').setValue('将信噪比公式所在位置高亮')
+    await sendButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.chat-message.is-user').text()).toContain('执行论文操作')
+    expect(wrapper.get('.chat-message.is-user').text()).not.toContain('继续上一问题')
   })
 
   it('offers existing conversations for the paper and starts a new independent session', async () => {

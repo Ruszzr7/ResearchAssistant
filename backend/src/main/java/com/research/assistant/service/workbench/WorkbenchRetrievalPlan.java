@@ -10,6 +10,7 @@ public record WorkbenchRetrievalPlan(QueryType queryType,
                                      boolean formulaOrLocation,
                                      boolean referentialFollowUp,
                                      boolean broad,
+                                     boolean formulaOverview,
                                      int neighbourRadius) {
     public WorkbenchRetrievalPlan {
         queryType = queryType == null ? QueryType.EXPLANATION : queryType;

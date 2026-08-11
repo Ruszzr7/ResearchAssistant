@@ -43,6 +43,23 @@ class WorkbenchRetrievalPlannerTest {
     }
 
     @Test
+    void treatsPaperWideImportanceQuestionAsFormulaSynthesisInsteadOfLiteralSearch() {
+        WorkbenchRetrievalPlan plan = planner.plan("你认为该文章最重要的一条公式是什么？");
+
+        assertThat(plan.queryType()).isEqualTo(WorkbenchRetrievalPlan.QueryType.SUMMARY);
+        assertThat(plan.broad()).isTrue();
+        assertThat(plan.formulaOverview()).isTrue();
+        assertThat(plan.terms()).doesNotContain("你认为该最重要的一条是么", "最重要的一条");
+    }
+
+    @Test
+    void treatsOtherPaperWideEvaluationsAsBroadSynthesis() {
+        assertThat(planner.plan("本文最关键的方法是什么？").broad()).isTrue();
+        assertThat(planner.plan("哪项实验结果最有说服力？").broad()).isTrue();
+        assertThat(planner.plan("快速排序的复杂度是什么？").broad()).isFalse();
+    }
+
+    @Test
     void detectsTechnicalContinuityWithoutTreatingAnUnrelatedQuestionAsAFollowUp() {
         assertThat(planner.semanticallyRelated(
                 "为我找出信噪比公式在哪？",

@@ -85,9 +85,39 @@ describe('answer citations', () => {
     expect(cited).toContain('公式 (5)。[1](#evidence-source~1)')
     expect(cited.match(/#evidence-source~1/g)).toHaveLength(1)
     expect(sources).toHaveLength(1)
-    expect(sources[0]).toMatchObject({ number: 1, kind: '公式', page: 4, excerpt: 'Γp,k = ... (5)' })
+    expect(sources[0]).toMatchObject({
+      number: 1, kind: '公式', page: 4, excerpt: 'Equation (5) · Γp,k = ... (5)',
+    })
     expect(sources[0].target.locator).toMatchObject({
-      precision: 'FORMULA_REGION', targetText: 'Γp,k = ... (5)',
+      precision: 'FORMULA_REGION', targetText: '',
+    })
+  })
+
+  it('never replaces a formula jump target with its supporting theorem prose', () => {
+    const evidence = [{
+      evidenceId: 'lay-theorem-formula', paperId: 188,
+      blockId: 'equation-region:p6-b0024', page: 6,
+      role: 'FORMULA', contentMode: 'REGION', text: '[公式区域]',
+      sectionPath: ['Theorem 1', 'Equation (22)'],
+      bbox: { x: 0.12, y: 0.42, width: 0.75, height: 0.08 },
+      locator: {
+        precision: 'FORMULA_REGION',
+        targetBbox: { x: 0.12, y: 0.42, width: 0.75, height: 0.08 },
+      },
+    }]
+    const blocks = [{
+      text: '公共流遍历速率下界见式 (22)。', basis: 'PAPER_FACT', citations: [{
+        evidenceId: 'lay-theorem-formula',
+        quote: 'Theorem 1. The lower bound for the ergodic rate',
+      }],
+    }]
+
+    const [source] = buildCitationSources([], evidence, blocks)
+
+    expect(source.excerpt).toBe('Equation (22) · Theorem 1. The lower bound for the ergodic rate')
+    expect(source.target.locator).toMatchObject({
+      precision: 'FORMULA_REGION', targetText: '',
+      targetBbox: evidence[0].locator.targetBbox,
     })
   })
 
@@ -189,5 +219,58 @@ describe('answer citations', () => {
     expect(sources).toHaveLength(1)
     expect(cited.match(/#evidence-source~1/g)).toHaveLength(2)
     expect(sources[0].excerpt).toContain('remaining private streams as background noise')
+  })
+
+  it('merges PDF-adjacent fragments even when formula and earlier citations interleave them', () => {
+    const evidence = [
+      {
+        evidenceId: 'lay-order-139', paperId: 186, blockId: 'p4-b0035', page: 4,
+        readingOrder: 139, role: 'BODY', contentMode: 'TEXT',
+        text: 'Initially, each vehicle decodes the common stream sc,',
+        bbox: { x: 0.096, y: 0.492, width: 0.394, height: 0.009 },
+        locator: { precision: 'BLOCK' },
+      },
+      {
+        evidenceId: 'lay-order-141', paperId: 186, blockId: 'p4-b0037', page: 4,
+        readingOrder: 141, role: 'BODY', contentMode: 'TEXT',
+        text: 'signal-to-interference plus noise ratio (SINR) for the common',
+        bbox: { x: 0.08, y: 0.522, width: 0.41, height: 0.036 },
+        locator: { precision: 'BLOCK' },
+      },
+      {
+        evidenceId: 'lay-order-142', paperId: 186, blockId: 'p4-b0039', page: 4,
+        readingOrder: 142, role: 'BODY', contentMode: 'TEXT',
+        text: 'stream at vehicle-k can be written as',
+        bbox: { x: 0.08, y: 0.537, width: 0.30, height: 0.028 },
+        locator: { precision: 'BLOCK' },
+      },
+      {
+        evidenceId: 'lay-formula', paperId: 186, blockId: 'equation-region:p4-b0041', page: 4,
+        readingOrder: 143, role: 'FORMULA', contentMode: 'REGION', text: '[公式区域]',
+        sectionPath: ['II. SYSTEM MODEL', 'Equation (4)'],
+        bbox: { x: 0.15, y: 0.556, width: 0.34, height: 0.036 },
+        locator: { precision: 'FORMULA_REGION' },
+      },
+    ]
+    const blocks = [
+      { text: '公共流 SINR 定义如下。', basis: 'PAPER_FACT', citations: [
+        { evidenceId: 'lay-order-141', quote: 'signal-to-interference plus noise ratio (SINR) for the common' },
+      ] },
+      { text: '对应公式为公式 (4)。', basis: 'PAPER_FACT', citations: [
+        { evidenceId: 'lay-formula', quote: '[公式区域]' },
+        { evidenceId: 'lay-order-139', quote: 'Initially, each vehicle decodes the common stream sc,' },
+        { evidenceId: 'lay-order-142', quote: 'stream at vehicle-k can be written as' },
+      ] },
+    ]
+
+    const cited = buildCitedAnswer('', [], evidence, blocks)
+    const sources = buildCitationSources([], evidence, blocks)
+
+    expect(sources).toHaveLength(3)
+    expect(sources[0].evidenceIds).toEqual(['lay-order-141', 'lay-order-142'])
+    expect(sources[0].excerpt).toContain('common stream at vehicle-k can be written as')
+    expect(sources[1].kind).toBe('公式')
+    expect(sources[2].evidenceIds).toEqual(['lay-order-139'])
+    expect(cited).toContain('公共流 SINR 定义如下。[1](#evidence-source~1)')
   })
 })

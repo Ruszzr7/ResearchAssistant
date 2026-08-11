@@ -27,15 +27,8 @@ import java.util.regex.Pattern;
 @Service
 public class WorkbenchEvidenceRetrievalService {
 
-    private static final Pattern QUERY_RUN = Pattern.compile(
-            "[\\p{IsHan}]+|[\\p{IsLatin}\\p{N}_-]+|[\\p{IsGreek}\\p{N}]+");
     private static final Pattern EQUATION_LABEL = Pattern.compile("\\((\\d{1,4})\\)");
-    private static final Set<String> QUERY_INTENT_TERMS = Set.of(
-            "当前选区", "历史追问", "论文", "问题", "回答", "请问", "请", "为我",
-            "帮我", "告诉我", "找出", "找到", "在哪", "哪里", "位置", "公式",
-            "定义", "推导", "方程", "the", "and", "this", "that", "what",
-            "where", "find", "locate", "show", "paper", "formula", "equation",
-            "defined", "definition");
+    private static final Pattern EQUATION_LABEL_AT_END = Pattern.compile("\\((\\d{1,4})\\)\\s*[.,;:]?\\s*$");
 
     private final PaperLayoutEvidencePolicy evidencePolicy;
     private final PaperLayoutEvidenceService evidenceProjection;
@@ -81,6 +74,10 @@ public class WorkbenchEvidenceRetrievalService {
         Set<String> preferred = preferredBlockIds == null
                 ? Set.of() : new LinkedHashSet<>(preferredBlockIds);
         WorkbenchRetrievalPlan plan = retrievalPlanner.plan(query);
+        if (plan.formulaOverview()) {
+            return retrieveFormulaOverview(
+                    artifact, allAllowed, allowed, safeMax, safeCharacters);
+        }
         boolean broadQuery = plan.broad();
         Map<String, Candidate> candidateById = new LinkedHashMap<>();
         for (DocumentBlock block : allowed) {
@@ -139,6 +136,181 @@ public class WorkbenchEvidenceRetrievalService {
                 .map(item -> evidenceProjection.toEvidence(artifact, item.block(), item.score(), false)
                         .withRetrieval(item.score(), item.routes().keySet().stream().toList()))
                 .toList();
+    }
+
+    /**
+     * A paper-wide formula judgement cannot be retrieved through literal query overlap: the
+     * question is usually Chinese, while the equations and their prose are commonly English.
+     * Use the PDF's numbered-equation structure as anchors and attach nearby explanatory text.
+     */
+    private List<LayoutEvidence> retrieveFormulaOverview(PaperLayoutArtifact artifact,
+                                                         List<DocumentBlock> allAllowed,
+                                                         List<DocumentBlock> textBlocks,
+                                                         int maxEvidence,
+                                                         int maxCharacters) {
+        int formulaLimit = Math.max(2, Math.min(6, maxEvidence / 2));
+        List<Candidate> ranked = allAllowed.stream()
+                .filter(this::looksLikeNumberedEquation)
+                .map(block -> formulaOverviewCandidate(allAllowed, block))
+                .sorted(Comparator.comparingDouble(Candidate::score).reversed()
+                        .thenComparingInt(item -> item.block().readingOrder()))
+                .toList();
+        if (ranked.isEmpty()) {
+            ranked = allAllowed.stream()
+                    .filter(block -> block.role() == DocumentBlockRole.FORMULA)
+                    .filter(block -> block.contentMode() == DocumentBlockContentMode.STRUCTURED)
+                    .filter(block -> !safe(block.latex()).isBlank() || !safe(block.text()).isBlank())
+                    .map(this::structuredFormulaOverviewCandidate)
+                    .sorted(Comparator.comparingDouble(Candidate::score).reversed()
+                            .thenComparingInt(item -> item.block().readingOrder()))
+                    .toList();
+        }
+        if (ranked.isEmpty()) return List.of();
+
+        List<Candidate> formulas = selectFormulaSections(ranked, formulaLimit);
+        List<Candidate> chosen = new ArrayList<>(formulas);
+        Set<String> existing = formulas.stream().map(item -> item.block().id())
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        for (Candidate context : formulaContextEvidence(textBlocks, formulas)) {
+            if (chosen.size() >= maxEvidence || !existing.add(context.block().id())) continue;
+            chosen.add(context);
+        }
+        textBlocks.stream()
+                .filter(block -> block.role() == DocumentBlockRole.ABSTRACT)
+                .findFirst()
+                .ifPresent(block -> {
+                    if (chosen.size() < maxEvidence && existing.add(block.id())) {
+                        chosen.add(new Candidate(block, 0.42, true,
+                                Map.of("PAPER_OVERVIEW", 1.0)));
+                    }
+                });
+
+        chosen.sort(Comparator.comparingInt(item -> item.block().readingOrder()));
+        List<LayoutEvidence> result = new ArrayList<>();
+        int characters = 0;
+        for (Candidate item : chosen) {
+            if (result.size() >= maxEvidence) break;
+            int nextCharacters = characters + item.block().text().length();
+            if (!result.isEmpty() && nextCharacters > maxCharacters) continue;
+            result.add(evidenceProjection.toEvidence(
+                            artifact, item.block(), item.score(), false)
+                    .withRetrieval(item.score(), item.routes().keySet().stream().toList()));
+            characters = nextCharacters;
+        }
+        return List.copyOf(result);
+    }
+
+    private boolean looksLikeNumberedEquation(DocumentBlock block) {
+        if (equationLabelAtEnd(block.text()) == null) return false;
+        String content = safe(block.text()) + " " + safe(block.latex());
+        String normalized = content.toLowerCase(Locale.ROOT);
+        boolean mathematical = content.matches("(?s).*[=≈≃≤≥<>∑∏√_].*")
+                || normalized.matches("(?s).*\\b(max|min|argmax|argmin)\\b.*");
+        return mathematical && (block.role() == DocumentBlockRole.FORMULA
+                || block.role() == DocumentBlockRole.BODY
+                || block.contentMode() == DocumentBlockContentMode.STRUCTURED);
+    }
+
+    private Candidate formulaOverviewCandidate(List<DocumentBlock> allAllowed,
+                                               DocumentBlock labelBlock) {
+        DocumentBlock formula = equationCluster(
+                allAllowed, labelBlock, equationLabelAtEnd(labelBlock.text()));
+        String section = sectionKey(labelBlock).toLowerCase(Locale.ROOT);
+        double sectionWeight = containsAny(section,
+                "method", "model", "formulation", "optimization", "algorithm",
+                "theorem", "方法", "模型", "优化", "问题") ? 0.28 : 0.12;
+        if (containsAny(section, "proof", "appendix", "reference", "证明", "附录", "参考")) {
+            sectionWeight -= 0.24;
+        }
+        String label = equationLabelAtEnd(labelBlock.text());
+        long references = allAllowed.stream()
+                .filter(block -> !block.id().equals(labelBlock.id()))
+                .filter(block -> safe(block.text()).contains(label))
+                .limit(6)
+                .count();
+        double referenceWeight = Math.min(0.24, references * 0.04);
+        double structured = labelBlock.contentMode() == DocumentBlockContentMode.STRUCTURED ? 0.10 : 0;
+        double score = Math.max(0.12, Math.min(1,
+                0.30 + sectionWeight + referenceWeight + structured
+                        + 0.08 * labelBlock.confidence()));
+        Map<String, Double> routes = new LinkedHashMap<>();
+        routes.put("NUMBERED_FORMULA", 1.0);
+        routes.put("FORMULA_SECTION", Math.max(0.1, sectionWeight + 0.24));
+        if (references > 0) routes.put("EQUATION_REFERENCE", Math.min(1.0, references / 4.0));
+        return new Candidate(formula, score, true, routes);
+    }
+
+    private Candidate structuredFormulaOverviewCandidate(DocumentBlock block) {
+        String section = sectionKey(block).toLowerCase(Locale.ROOT);
+        double sectionWeight = containsAny(section,
+                "method", "model", "formulation", "optimization", "algorithm",
+                "theorem", "方法", "模型", "优化", "问题") ? 0.28 : 0.12;
+        if (containsAny(section, "proof", "appendix", "reference", "证明", "附录", "参考")) {
+            sectionWeight -= 0.24;
+        }
+        double score = Math.max(0.16, Math.min(1,
+                0.40 + sectionWeight + 0.10 * block.confidence()));
+        return new Candidate(block, score, true,
+                Map.of("STRUCTURED_FORMULA", 1.0, "FORMULA_SECTION",
+                        Math.max(0.1, sectionWeight + 0.24)));
+    }
+
+    private List<Candidate> selectFormulaSections(List<Candidate> ranked,
+                                                  int formulaLimit) {
+        List<Candidate> selected = new ArrayList<>();
+        Set<String> selectedIds = new LinkedHashSet<>();
+        Set<String> sections = new LinkedHashSet<>();
+        for (Candidate candidate : ranked) {
+            if (selected.size() >= formulaLimit) break;
+            if (!sections.add(formulaSectionKey(candidate.block()))) continue;
+            selected.add(candidate);
+            selectedIds.add(candidate.block().id());
+        }
+        Map<String, Integer> sectionCounts = new LinkedHashMap<>();
+        selected.forEach(item -> sectionCounts.merge(formulaSectionKey(item.block()), 1, Integer::sum));
+        for (Candidate candidate : ranked) {
+            if (selected.size() >= formulaLimit) break;
+            if (selectedIds.contains(candidate.block().id())) continue;
+            String section = formulaSectionKey(candidate.block());
+            if (sectionCounts.getOrDefault(section, 0) >= 2) continue;
+            selected.add(candidate);
+            selectedIds.add(candidate.block().id());
+            sectionCounts.merge(section, 1, Integer::sum);
+        }
+        return List.copyOf(selected);
+    }
+
+    private List<Candidate> formulaContextEvidence(List<DocumentBlock> textBlocks,
+                                                   List<Candidate> formulas) {
+        List<Candidate> result = new ArrayList<>();
+        Set<String> existing = new LinkedHashSet<>();
+        for (Candidate formula : formulas) {
+            List<DocumentBlock> nearby = textBlocks.stream()
+                    .filter(block -> block.role() == DocumentBlockRole.BODY
+                            || block.role() == DocumentBlockRole.CAPTION)
+                    .filter(block -> block.page() == formula.block().page())
+                    .filter(block -> block.sectionPath().equals(formula.block().sectionPath().stream()
+                            .filter(value -> !value.startsWith("Equation (")).toList()))
+                    .filter(block -> sameColumn(formula.block().bbox(), block.bbox()))
+                    .filter(block -> Math.abs(block.readingOrder() - formula.block().readingOrder()) <= 10)
+                    .filter(block -> safe(block.text()).trim().length() >= 24)
+                    .filter(block -> !looksLikeNumberedEquation(block))
+                    .sorted(Comparator.comparingInt(block ->
+                            Math.abs(block.readingOrder() - formula.block().readingOrder())))
+                    .limit(2)
+                    .toList();
+            for (DocumentBlock block : nearby) {
+                if (!existing.add(block.id())) continue;
+                result.add(new Candidate(block, Math.max(0.20, formula.score() - 0.14), true,
+                        Map.of("FORMULA_CONTEXT", 1.0)));
+            }
+        }
+        return result;
+    }
+
+    private boolean containsAny(String value, String... candidates) {
+        for (String candidate : candidates) if (value.contains(candidate)) return true;
+        return false;
     }
 
     public List<LayoutEvidence> retrieveComparison(List<PaperLayoutArtifact> artifacts,
@@ -249,55 +421,6 @@ public class WorkbenchEvidenceRetrievalService {
         return value == null ? "" : value;
     }
 
-    private double significantTermCoverage(String query, String candidate) {
-        if (query == null || query.isBlank() || candidate == null || candidate.isBlank()) return 0;
-        String normalizedCandidate = candidate.toLowerCase(Locale.ROOT);
-        List<String> terms = significantTerms(query);
-        if (terms.isEmpty()) return 0;
-        long matched = terms.stream().filter(normalizedCandidate::contains).count();
-        return (double) matched / terms.size();
-    }
-
-    private List<String> significantTerms(String query) {
-        String normalized = java.text.Normalizer.normalize(query,
-                java.text.Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
-        for (String intent : QUERY_INTENT_TERMS) {
-            normalized = normalized.replace(intent, " ");
-        }
-        List<String> latinOrNumeric = new ArrayList<>();
-        List<String> other = new ArrayList<>();
-        Matcher matcher = QUERY_RUN.matcher(normalized);
-        while (matcher.find()) {
-            String term = matcher.group().trim();
-            if (term.length() < 2 || QUERY_INTENT_TERMS.contains(term)) continue;
-            if (term.matches("[\\p{IsLatin}\\p{N}_-]+")) latinOrNumeric.add(term);
-            else other.add(term);
-        }
-        List<String> selected = latinOrNumeric.isEmpty() ? other : latinOrNumeric;
-        return selected.stream().distinct().toList();
-    }
-
-    private boolean isBroadQuery(String query) {
-        String normalized = query == null ? "" : query.toLowerCase(Locale.ROOT);
-        return List.of("总结", "概述", "全文", "创新", "贡献", "主要方法", "主要结论",
-                        "summary", "overview", "contribution", "whole paper")
-                .stream().anyMatch(normalized::contains);
-    }
-
-    private boolean isReferentialQuery(String query) {
-        String normalized = query == null ? "" : query.toLowerCase(Locale.ROOT);
-        return List.of("这个", "这一", "上述", "前面", "继续", "它", "该方法", "该公式",
-                        "this", "that", "it ", "above", "continue", "former", "latter")
-                .stream().anyMatch(normalized::contains);
-    }
-
-    private boolean isLocationOrFormulaQuery(String query) {
-        String normalized = query == null ? "" : query.toLowerCase(Locale.ROOT);
-        return List.of("在哪", "哪里", "位置", "公式", "定义", "推导", "方程",
-                        "equation", "formula", "where", "locate", "defined")
-                .stream().anyMatch(normalized::contains);
-    }
-
     private List<Candidate> adjacentRegionEvidence(List<DocumentBlock> allAllowed,
                                                    List<Candidate> chosen) {
         if (chosen.isEmpty()) return List.of();
@@ -380,7 +503,12 @@ public class WorkbenchEvidenceRetrievalService {
 
     private DocumentBlock equationCluster(List<DocumentBlock> blocks,
                                           DocumentBlock label) {
-        String equationLabel = equationLabel(label.text());
+        return equationCluster(blocks, label, equationLabel(label.text()));
+    }
+
+    private DocumentBlock equationCluster(List<DocumentBlock> blocks,
+                                          DocumentBlock label,
+                                          String equationLabel) {
         List<DocumentBlock> members = new ArrayList<>();
         blocks.stream()
                 .filter(block -> block.page() == label.page())
@@ -409,6 +537,12 @@ public class WorkbenchEvidenceRetrievalService {
     private String equationLabel(String text) {
         if (text == null || text.isBlank()) return null;
         Matcher matcher = EQUATION_LABEL.matcher(text);
+        return matcher.find() ? "(" + matcher.group(1) + ")" : null;
+    }
+
+    private String equationLabelAtEnd(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher matcher = EQUATION_LABEL_AT_END.matcher(text);
         return matcher.find() ? "(" + matcher.group(1) + ")" : null;
     }
 
@@ -444,6 +578,13 @@ public class WorkbenchEvidenceRetrievalService {
         return block.sectionPath().isEmpty()
                 ? "page:" + block.page()
                 : String.join(" / ", block.sectionPath());
+    }
+
+    private String formulaSectionKey(DocumentBlock block) {
+        List<String> section = block.sectionPath().stream()
+                .filter(value -> !value.startsWith("Equation ("))
+                .toList();
+        return section.isEmpty() ? "page:" + block.page() : String.join(" / ", section);
     }
 
     private record Candidate(DocumentBlock block,

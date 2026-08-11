@@ -93,6 +93,52 @@ class WorkbenchEvidenceRetrievalServiceTest {
     }
 
     @Test
+    void paperWideFormulaEvaluationUsesNumberedFormulaStructureWithoutLexicalOverlap() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                block("abstract", DocumentBlockRole.ABSTRACT, 1, List.of(),
+                        "This paper proposes a rate optimization framework."),
+                block("signal-context", DocumentBlockRole.BODY, 10, List.of("II. System Model"),
+                        "The transmitted composite signal is defined as follows."),
+                regionFormula("signal-equation", 11, List.of("II. System Model"),
+                        "x = sqrt(P) p s, (1)"),
+                block("objective-context", DocumentBlockRole.BODY, 30,
+                        List.of("IV. Problem Formulation"),
+                        "The central optimization problem maximizes the ergodic sum rate."),
+                regionFormula("objective-equation", 31, List.of("IV. Problem Formulation"),
+                        "maximize R_sum subject to reliability constraints, (21)"),
+                block("results", DocumentBlockRole.BODY, 50, List.of("V. Results"),
+                        "Simulation results verify the proposed optimization.")));
+
+        List<LayoutEvidence> result = service.retrievePaper(
+                artifact, "你认为该文章最重要的一条公式是什么？", 12, 8_000);
+
+        assertThat(result).isNotEmpty();
+        assertThat(result).extracting(LayoutEvidence::blockId)
+                .contains("signal-context", "objective-context",
+                        "equation-region:signal-equation",
+                        "equation-region:objective-equation");
+        assertThat(result.stream().filter(item -> item.role() == DocumentBlockRole.FORMULA))
+                .allMatch(item -> item.contentMode() == DocumentBlockContentMode.REGION);
+    }
+
+    @Test
+    void formulaOverviewFallsBackToTrustworthyUnnumberedStructuredMath() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                new DocumentBlock("unnumbered", 1,
+                        new NormalizedBoundingBox(0.1, 0.2, 0.4, 0.05),
+                        DocumentBlockRole.FORMULA, 1, List.of("Method"), "x = y + 1",
+                        "x = y + 1", null, 0.9, DocumentBlockContentMode.STRUCTURED),
+                block("context", DocumentBlockRole.BODY, 2, List.of("Method"),
+                        "The method uses an auxiliary identity.")));
+
+        List<LayoutEvidence> result = service.retrievePaper(
+                artifact, "该文章最重要的一条公式是什么？", 8, 8_000);
+
+        assertThat(result).extracting(LayoutEvidence::blockId)
+                .contains("unnumbered", "context");
+    }
+
+    @Test
     void locationQuestionAddsAdjacentFormulaRegionWithoutTreatingItAsFormulaText() {
         PaperLayoutArtifact artifact = artifact(7L, List.of(
                 block("intro", DocumentBlockRole.BODY, 1, List.of("System Model"),
@@ -231,9 +277,17 @@ class WorkbenchEvidenceRetrievalServiceTest {
     }
 
     private DocumentBlock block(String id, DocumentBlockRole role, int order,
-                                List<String> section, String text) {
+                                 List<String> section, String text) {
         return new DocumentBlock(id, 1, new NormalizedBoundingBox(0.1, 0.1, 0.4, 0.05),
                 role, order, section, text, null, null, 0.9);
+    }
+
+    private DocumentBlock regionFormula(String id, int order,
+                                        List<String> section, String text) {
+        return new DocumentBlock(id, 1,
+                new NormalizedBoundingBox(0.12, 0.1 + order * 0.005, 0.52, 0.05),
+                DocumentBlockRole.FORMULA, order, section, text,
+                null, null, 0.86, DocumentBlockContentMode.REGION);
     }
 
     private String hash(Long paperId) {

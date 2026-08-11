@@ -144,20 +144,22 @@ public class WorkbenchExecutionEngine {
         PaperContextSnapshot context = contextAssembler.assemble(trace, canonicalAnchor);
 
         stage.accept("正在检索局部证据…");
+        String retrievalQuery = commandPlanner.retrievalQuery(context);
         LocalEvidenceResult local = deterministicStep(
                 trace.runId(), 1,
                 Map.of("paperId", artifact.paperId(), "anchorKind", canonicalAnchor.kind().name()),
                 () -> localEvidenceService.retrieve(
-                        artifact, canonicalAnchor, context.retrievalQuery(), 8),
+                        artifact, canonicalAnchor, retrievalQuery, 8),
                 result -> Map.of("evidenceCount", result.evidence().size(),
                         "regionFallback", result.regionFallback()));
 
         stage.accept("正在检索整篇论文的相关证据…");
         List<LayoutEvidence> paperEvidence = wholePaperEvidenceService.retrievePaper(
-                artifact, context.retrievalQuery(), context.preferredEvidenceBlockIds(), 12, 8_000);
+                artifact, retrievalQuery, commandPlanner.preferredEvidenceBlockIds(context), 12, 8_000);
         List<LayoutEvidence> combinedEvidence = mergeSelectionEvidence(
                 local.evidence(), paperEvidence, 18, 14_000);
-        String boundedModelQuestion = context.modelQuestion(selectionModelContextBudget(trace));
+        String boundedModelQuestion = commandPlanner.modelQuestion(
+                context, selectionModelContextBudget(trace));
         return modelAndGate(trace, combinedEvidence, local.regionFallback(), stage, 2, 3,
                 boundedModelQuestion, context);
     }
@@ -177,13 +179,15 @@ public class WorkbenchExecutionEngine {
         PaperContextSnapshot context = contextAssembler.assemble(trace, null);
 
         stage.accept("正在检索整篇论文的相关证据…");
+        String retrievalQuery = commandPlanner.retrievalQuery(context);
         List<LayoutEvidence> evidence = deterministicStep(
                 trace.runId(), 1, Map.of("paperId", paperId, "maxEvidence", 18),
                 () -> evidencePackager.pack(wholePaperEvidenceService.retrievePaper(
-                        artifact, context.retrievalQuery(),
-                        context.preferredEvidenceBlockIds(), 18, 14_000), 18, 14_000),
+                        artifact, retrievalQuery,
+                        commandPlanner.preferredEvidenceBlockIds(context), 18, 14_000), 18, 14_000),
                 value -> Map.of("evidenceCount", value.size(), "sectionCount", sectionCount(value)));
-        String boundedModelQuestion = context.modelQuestion(selectionModelContextBudget(trace));
+        String boundedModelQuestion = commandPlanner.modelQuestion(
+                context, selectionModelContextBudget(trace));
         return modelAndGate(trace, evidence, false, stage, 2, 3,
                 boundedModelQuestion, context);
     }
@@ -265,7 +269,10 @@ public class WorkbenchExecutionEngine {
                                                   int gateStepIndex,
                                                   String modelQuestion,
                                                   PaperContextSnapshot context) {
-        if ((evidence == null || evidence.isEmpty()) && initialTrace.plan().evidenceRequired()) {
+        boolean effectiveEvidenceRequired = initialTrace.plan().evidenceRequired()
+                || context != null && context.conversationInherited()
+                && context.previousTurnHasPaperEvidence();
+        if ((evidence == null || evidence.isEmpty()) && effectiveEvidenceRequired) {
             throw new StepFailure("NO_EVIDENCE", "该范围没有可安全引用的论文证据", false);
         }
         evidence = evidence == null ? List.of() : evidence;
@@ -274,6 +281,33 @@ public class WorkbenchExecutionEngine {
         WorkbenchRunTrace trace = traceService.requireTrace(initialTrace.runId());
         if (stepStatus(trace, gateStepIndex) == WorkbenchStepStatus.COMPLETED && trace.result() != null) {
             return resultFromTrace(trace);
+        }
+
+        var parsedCommand = commandPlanner.parse(trace.invocation().question());
+        List<WorkbenchAction> directSelectionActions = commandPlanner.planCurrentSelection(trace, evidence);
+        if (parsedCommand.isPresent() && !directSelectionActions.isEmpty()) {
+            stage.accept("正在把当前选区绑定到高亮操作…");
+            WorkbenchModelOutput directOutput = commandPlanner.userFacingOutput(
+                    parsedCommand.get(), directSelectionActions, evidence);
+            deterministicStep(trace.runId(), modelStepIndex,
+                    Map.of("mode", "canonical-selection-command", "modelCalled", false),
+                    () -> directOutput,
+                    output -> Map.of("structured", true, "answerCharacters", output.answer().length(),
+                            "actionCount", directSelectionActions.size()));
+            deterministicStep(trace.runId(), gateStepIndex,
+                    Map.of("validation", "canonical-selection-binding"),
+                    () -> directSelectionActions,
+                    actions -> Map.of("decision", "PASS", "actionCount", actions.size(),
+                            "evidenceId", actions.get(0).evidenceId()));
+            WorkbenchRunTrace passedTrace = traceService.requireTrace(trace.runId());
+            WorkbenchWorkflowResult result = new WorkbenchWorkflowResult(
+                    trace.runId(), trace.plan().workflow(), trace.plan().scope(),
+                    trace.invocation().paperIds(), directOutput.answer(), directOutput.claims(), evidence,
+                    directOutput.annotationSuggestion(), regionFallback, passedTrace.metrics().repairCount(),
+                    directOutput.answerBlocks(), directSelectionActions, false,
+                    WorkbenchContextMode.ACTION_EXPLICIT);
+            traceService.checkpointResult(trace.runId(), result);
+            return result;
         }
 
         stage.accept("正在基于证据生成回答…");
@@ -286,7 +320,7 @@ public class WorkbenchExecutionEngine {
         call = call.withOutput(call.output().normalizeEvidenceQuotes(evidence));
         WorkbenchEvidenceGate.GateResult gateResult = gateStep(
                 traceService.requireTrace(trace.runId()), gateStepIndex,
-                call.output(), call.structured(), evidence, 0);
+                call.output(), call.structured(), evidence, 0, effectiveEvidenceRequired);
 
         if (gateResult.decision() == WorkbenchEvidenceGate.Decision.REPAIR) {
             stage.accept("证据门禁未通过，正在执行唯一一次修复…");
@@ -298,7 +332,7 @@ public class WorkbenchExecutionEngine {
             repaired = repaired.withOutput(repaired.output().normalizeEvidenceQuotes(evidence));
             gateResult = gateStep(
                     traceService.requireTrace(trace.runId()), gateStepIndex,
-                    repaired.output(), repaired.structured(), evidence, 1);
+                    repaired.output(), repaired.structured(), evidence, 1, effectiveEvidenceRequired);
             call = repaired;
         }
         if (gateResult.decision() != WorkbenchEvidenceGate.Decision.PASS) {
@@ -306,18 +340,42 @@ public class WorkbenchExecutionEngine {
         }
 
         WorkbenchModelOutput output = call.output().normalizedFor(trace.plan().workflow());
-        String answer = call.visualFallbackUsed()
-                ? output.answer() + "\n\n> 当前模型未接受选区图像，数学公式需回原页核对。"
-                : output.answer();
         WorkbenchRunTrace passedTrace = traceService.requireTrace(trace.runId());
         List<WorkbenchAction> actions = commandPlanner.plan(passedTrace, output, evidence);
+        var command = commandPlanner.parse(trace.invocation().question());
+        if (command.isPresent()) output = commandPlanner.userFacingOutput(
+                command.get(), actions, evidence);
+        String answer = call.visualFallbackUsed() && command.isEmpty()
+                ? output.answer() + "\n\n> 当前模型未接受选区图像，数学公式需回原页核对。"
+                : output.answer();
+        boolean contextInherited = context != null && context.conversationInherited()
+                && (command.isEmpty() || command.get().referenceMode()
+                == WorkbenchCommandSpec.ReferenceMode.PRIOR_REFERENT);
         WorkbenchWorkflowResult result = new WorkbenchWorkflowResult(
                 trace.runId(), trace.plan().workflow(), trace.plan().scope(), trace.invocation().paperIds(),
                 answer, output.claims(), evidence, output.annotationSuggestion(), regionFallback,
                 passedTrace.metrics().repairCount(), output.answerBlocks(), actions,
-                context != null && context.conversationInherited());
+                contextInherited, contextMode(trace, contextInherited, output, command.orElse(null)));
         traceService.checkpointResult(trace.runId(), result);
         return result;
+    }
+
+    private WorkbenchContextMode contextMode(WorkbenchRunTrace trace,
+                                              boolean contextInherited,
+                                              WorkbenchModelOutput output,
+                                              WorkbenchCommandSpec command) {
+        if (command != null) {
+            return command.referenceMode() == WorkbenchCommandSpec.ReferenceMode.PRIOR_REFERENT
+                    ? WorkbenchContextMode.ACTION_REFERENTIAL
+                    : WorkbenchContextMode.ACTION_EXPLICIT;
+        }
+        if (trace.invocation().selectionAnchor() != null) return WorkbenchContextMode.SELECTION;
+        if (contextInherited) return WorkbenchContextMode.FOLLOW_UP;
+        boolean generalKnowledgeOnly = !output.answerBlocks().isEmpty()
+                && output.answerBlocks().stream().allMatch(block ->
+                block.basis() == WorkbenchAnswerBlock.Basis.GENERAL_KNOWLEDGE);
+        return generalKnowledgeOnly ? WorkbenchContextMode.GENERAL_CHAT
+                : WorkbenchContextMode.PAPER_QUERY;
     }
 
     private WorkbenchModelService.ModelCall modelStep(WorkbenchRunTrace trace,
@@ -437,12 +495,14 @@ public class WorkbenchExecutionEngine {
                                                        WorkbenchModelOutput output,
                                                        boolean structured,
                                                        List<LayoutEvidence> evidence,
-                                                       int repairAttempt) {
+                                                       int repairAttempt,
+                                                       boolean effectiveEvidenceRequired) {
         traceService.startStep(trace.runId(), stepIndex,
                 Map.of("candidateEvidenceCount", evidence.size(), "repairAttempt", repairAttempt));
         long started = System.nanoTime();
         WorkbenchEvidenceGate.GateResult evidenceResult = evidenceGate.validate(
-                output.toGateDraft(trace.plan().workflow()), evidence, gatePolicy(trace, repairAttempt));
+                output.toGateDraft(trace.plan().workflow()), evidence,
+                gatePolicy(trace, repairAttempt, effectiveEvidenceRequired));
         List<String> issues = new ArrayList<>(evidenceResult.issues());
         issues.addAll(outputQualityGate.validate(
                 trace.plan().workflow(), output.normalizedFor(trace.plan().workflow()), structured,
@@ -472,10 +532,14 @@ public class WorkbenchExecutionEngine {
         return result;
     }
 
-    private WorkbenchEvidenceGate.GatePolicy gatePolicy(WorkbenchRunTrace trace, int repairAttempt) {
+    private WorkbenchEvidenceGate.GatePolicy gatePolicy(WorkbenchRunTrace trace,
+                                                        int repairAttempt,
+                                                        boolean effectiveEvidenceRequired) {
         return switch (trace.plan().workflow()) {
             case SELECTION_QA -> trace.invocation().selectionAnchor() == null
-                    ? WorkbenchEvidenceGate.GatePolicy.conversation(repairAttempt)
+                    ? effectiveEvidenceRequired
+                    ? WorkbenchEvidenceGate.GatePolicy.strict(repairAttempt)
+                    : WorkbenchEvidenceGate.GatePolicy.conversation(repairAttempt)
                     : WorkbenchEvidenceGate.GatePolicy.selection(repairAttempt);
             case ANNOTATION_SUGGESTION -> WorkbenchEvidenceGate.GatePolicy.selection(repairAttempt);
             case PAPER_COMPARISON, RESEARCH_GAP -> WorkbenchEvidenceGate.GatePolicy.comparison(

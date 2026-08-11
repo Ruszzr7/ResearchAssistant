@@ -22,13 +22,14 @@ public record PaperContextSnapshot(String schemaVersion,
                                    String selectionFingerprint,
                                    String profileContext,
                                    List<ConversationItem> conversationTurns,
+                                   WorkbenchConversationRelation conversationRelation,
                                    List<ObservationItem> relevantObservations,
                                    List<String> sourcePriority,
                                    Budget budget,
                                    boolean truncated,
                                    Instant assembledAt) {
 
-    public static final String SCHEMA_VERSION = "paper-context-v5";
+    public static final String SCHEMA_VERSION = "paper-context-v6";
     public static final int MAX_RETRIEVAL_QUERY_CHARACTERS = 6_000;
 
     public PaperContextSnapshot {
@@ -43,6 +44,8 @@ public record PaperContextSnapshot(String schemaVersion,
         selectionFingerprint = safe(selectionFingerprint, "");
         profileContext = safe(profileContext, "");
         conversationTurns = copy(conversationTurns);
+        conversationRelation = conversationRelation == null
+                ? WorkbenchConversationRelation.NONE : conversationRelation;
         relevantObservations = copy(relevantObservations);
         sourcePriority = copy(sourcePriority);
         budget = budget == null ? new Budget(0, 0, 0, 0, 0) : budget;
@@ -96,6 +99,10 @@ public record PaperContextSnapshot(String schemaVersion,
             }
             appendWithin(auxiliary, "\n", auxiliaryLimit);
         }
+        appendWithin(auxiliary, conversationRelation == WorkbenchConversationRelation.FOLLOW_UP
+                ? "对话关系：当前问题是对前文的追问；用历史解析省略或指代，但论文事实必须由本轮 evidence 重新支持。\n\n"
+                : "对话关系：当前问题独立；历史只用于保持交流连续，不得偏离当前问题。\n\n",
+                auxiliaryLimit);
         if (!profileContext.isBlank()) {
             appendWithin(auxiliary,
                     "当前 PDF 版本的论文画像（检索提示，非直接证据）：\n"
@@ -147,16 +154,21 @@ public record PaperContextSnapshot(String schemaVersion,
     }
 
     public boolean conversationInherited() {
+        return conversationRelation == WorkbenchConversationRelation.FOLLOW_UP;
+    }
+
+    public boolean historyAvailable() {
         return !conversationTurns.isEmpty();
     }
 
-    /** Only explicit linguistic references inherit the previous turn's retrieval focus. */
+    public boolean previousTurnHasPaperEvidence() {
+        return historyAvailable()
+                && !conversationTurns.get(conversationTurns.size() - 1).evidenceBlockIds().isEmpty();
+    }
+
+    /** Compatibility name: the unified classifier also recognizes elliptical follow-ups. */
     public boolean isReferentialFollowUp() {
-        String normalized = question.toLowerCase(java.util.Locale.ROOT);
-        return List.of("这个", "这一", "上述", "前面", "继续", "接着", "它", "其",
-                        "该方法", "该公式", "this", "that", "above", "continue",
-                        "former", "latter", "follow up", "further")
-                .stream().anyMatch(normalized::contains);
+        return conversationInherited();
     }
 
     /** Stable identity of the canonical, version-bound selection used to assemble this snapshot. */
@@ -278,7 +290,34 @@ public record PaperContextSnapshot(String schemaVersion,
                                 Instant assembledAt) {
         this(schemaVersion, paperId, documentHash, parserVersion, conversationId, question,
                 selectedText, "", selectedBlockIds, selectionFingerprint, profileContext,
-                conversationTurns, relevantObservations, sourcePriority, budget, truncated, assembledAt);
+                conversationTurns, conversationTurns == null || conversationTurns.isEmpty()
+                        ? WorkbenchConversationRelation.NONE : WorkbenchConversationRelation.FOLLOW_UP,
+                relevantObservations, sourcePriority, budget, truncated, assembledAt);
+    }
+
+    /** Compatibility constructor for callers that do not yet provide a conversation relation. */
+    public PaperContextSnapshot(String schemaVersion,
+                                long paperId,
+                                String documentHash,
+                                String parserVersion,
+                                String conversationId,
+                                String question,
+                                String selectedText,
+                                String attachmentContext,
+                                List<String> selectedBlockIds,
+                                String selectionFingerprint,
+                                String profileContext,
+                                List<ConversationItem> conversationTurns,
+                                List<ObservationItem> relevantObservations,
+                                List<String> sourcePriority,
+                                Budget budget,
+                                boolean truncated,
+                                Instant assembledAt) {
+        this(schemaVersion, paperId, documentHash, parserVersion, conversationId, question,
+                selectedText, attachmentContext, selectedBlockIds, selectionFingerprint, profileContext,
+                conversationTurns, conversationTurns == null || conversationTurns.isEmpty()
+                        ? WorkbenchConversationRelation.NONE : WorkbenchConversationRelation.FOLLOW_UP,
+                relevantObservations, sourcePriority, budget, truncated, assembledAt);
     }
 
     private static String safe(String value, String fallback) {

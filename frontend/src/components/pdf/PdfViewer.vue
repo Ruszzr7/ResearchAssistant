@@ -523,6 +523,7 @@
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
       @click.stop
     >
+      <div class="context-menu-item" @click="copyPendingSelectionFromMenu">复制</div>
       <div class="context-menu-item" @click="openSelectionNoteFromContext">📝 添加笔记</div>
       <div class="context-menu-item" @click="contextMenu.visible = false">取消</div>
     </div>
@@ -579,7 +580,7 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createPdfInteractionEngine } from '@/services/pdfiumInteractionEngine.js'
 import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
-import { normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
+import { copyPdfSelectionText, normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
 import { isTextSelectionDrag } from '@/utils/pdfTextSelection.js'
 import {
   invalidatePageRenderSurface,
@@ -770,6 +771,7 @@ function attachViewerEvents() {
   window.addEventListener('click', onWindowClick)
   window.addEventListener('pointerup', finishTextSelectionFromWindow, true)
   window.addEventListener('pointercancel', cancelTextSelection, true)
+  window.addEventListener('copy', copyPendingPdfSelection)
 }
 
 function detachViewerEvents() {
@@ -781,6 +783,7 @@ function detachViewerEvents() {
   window.removeEventListener('click', onWindowClick)
   window.removeEventListener('pointerup', finishTextSelectionFromWindow, true)
   window.removeEventListener('pointercancel', cancelTextSelection, true)
+  window.removeEventListener('copy', copyPendingPdfSelection)
   workbenchResizing.value = false
   formulaRegionDrag = null
 }
@@ -1654,7 +1657,7 @@ async function jumpToEvidence(item) {
   evidenceFocus.value = {
     page: item.page,
     boxes: focusBoxes,
-    precision: exactBoxes.length ? 'TEXT' : 'BLOCK',
+    precision: exactBoxes.length ? 'TEXT' : (item?.locator?.precision || 'BLOCK'),
   }
   await nextTick()
   scrollEvidenceIntoView(item.page, focusBoxes)
@@ -1749,7 +1752,9 @@ async function locateEvidenceText(item) {
   if (!pdfInteractionReady.value || !pdfInteractionEngine) return []
   const targetBox = item?.locator?.targetBbox || item?.bbox
   const targetText = item?.locator?.targetText || item?.text
-  if (item?.locator?.precision === 'FORMULA_REGION' && !String(targetText || '').trim()) return []
+  // Formula-region geometry is authoritative. Searching supporting prose and replacing the
+  // region with that prose was the cause of correct citations jumping to the wrong sentence.
+  if (item?.locator?.precision === 'FORMULA_REGION') return []
   const fragments = String(targetText || '').split(/\r?\n/)
     .map(value => value.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
@@ -2593,6 +2598,24 @@ function notePreviewStyle(annotation, page) {
 function onContextMenu(e) {
   if (!pendingTextSelection.value?.groups?.length) return
   contextMenu.value = { visible: true, x: e.clientX, y: e.clientY }
+}
+
+function copyPendingPdfSelection(event) {
+  const target = event?.target || document.activeElement
+  if (target?.closest?.('input, textarea, [contenteditable="true"]')) return
+  copyPdfSelectionText(event, pendingTextSelection.value?.text)
+}
+
+async function copyPendingSelectionFromMenu() {
+  contextMenu.value.visible = false
+  const text = String(pendingTextSelection.value?.text || '').trim()
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制选中文字')
+  } catch {
+    ElMessage.warning('复制失败，请使用 Ctrl+C 重试')
+  }
 }
 
 function openSelectionNoteFromContext() {

@@ -160,7 +160,7 @@
 
         <section v-if="conversationPickerVisible" class="conversation-picker" role="dialog" aria-label="切换对话">
           <div class="conversation-picker__heading">
-            <b>选择本篇论文的对话</b>
+            <b>选择对话</b>
             <button type="button" aria-label="关闭对话列表" @click="conversationPickerVisible = false">×</button>
           </div>
           <button
@@ -209,7 +209,7 @@
                 引用第 {{ message.selectionAnchor.page }} 页选区
               </small>
               <small v-else class="chat-message__context">
-                {{ message.contextInherited ? '沿用对话上下文' : '基于论文理解' }}
+                {{ contextModeLabel(message) }}
               </small>
             </template>
             <details v-if="messageCitationSources(message).length" class="chat-claim-list">
@@ -712,6 +712,7 @@ async function sendSelectionMessage() {
     content,
     selectionAnchor: anchor,
     contextInherited,
+    contextMode: anchor ? 'SELECTION' : '',
     attachments: attachmentViews(attachments),
   }
   selectionMessages.value.push(userMessage)
@@ -737,6 +738,7 @@ async function sendSelectionMessage() {
     if (selectionConversationId.value !== conversationId) return
     contextInherited = Boolean(completed.result?.contextInherited)
     userMessage.contextInherited = contextInherited
+    userMessage.contextMode = completed.result?.contextMode || ''
     selectionMessages.value.push({
       id: completed.runId || `assistant-${++selectionMessageSequence}`,
       role: 'assistant',
@@ -757,7 +759,12 @@ async function sendSelectionMessage() {
         {
           messageKey: `${completed.runId}:user`, role: 'USER', content,
           runId: completed.runId, selectionAnchor: anchor,
-          evidence: { contextInherited, conversationId, attachments: attachmentViews(attachments) },
+          evidence: {
+            contextInherited,
+            contextMode: completed.result?.contextMode || '',
+            conversationId,
+            attachments: attachmentViews(attachments),
+          },
         },
         {
           messageKey: `${completed.runId}:assistant`, role: 'ASSISTANT',
@@ -870,10 +877,22 @@ async function restoreResearchMessages(sessionId) {
       actions: message.evidence?.actions || [],
       selectionAnchor: message.selectionAnchor || null,
       contextInherited: Boolean(message.evidence?.contextInherited),
+      contextMode: message.evidence?.contextMode || '',
       attachments: message.evidence?.attachments || [],
     }))
     await scrollSelectionChat()
   } catch { /* A missing archive must not prevent PDF reading. */ }
+}
+
+function contextModeLabel(message) {
+  return {
+    SELECTION: '基于本轮选区',
+    FOLLOW_UP: '继续上一问题',
+    PAPER_QUERY: '基于论文全文',
+    GENERAL_CHAT: '普通对话',
+    ACTION_EXPLICIT: '执行论文操作',
+    ACTION_REFERENTIAL: '沿用上一目标执行',
+  }[message?.contextMode] || (message?.contextInherited ? '继续上一问题' : '基于论文理解')
 }
 
 async function loadConversationSessions(showWhenAvailable = false) {
@@ -1120,15 +1139,15 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .content-empty__icon { display: grid; width: 34px; height: 34px; margin-bottom: 8px; border-radius: 50%; place-items: center; color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 10%, transparent); font-size: 20px; }
 .content-empty b { color: var(--ra-text); font-size: 12px; }
 .content-empty p { max-width: 260px; margin: 5px 0 0; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.5; }
-.selection-chat { display: flex; min-height: 0; flex: 1 1 0; overflow: hidden; flex-direction: column; gap: 9px; border-bottom: 0; }
-.selection-chat__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.selection-chat { display: flex; min-height: 0; flex: 1 1 0; overflow: hidden; flex-direction: column; gap: 0; border-bottom: 0; }
+.selection-chat__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 0 2px 9px; border-bottom: 1px solid var(--ra-border-light); }
 .selection-chat__heading > div { display: flex; flex-direction: column; gap: 2px; }
 .selection-chat__heading b { font-size: 12px; }
 .selection-chat__heading small { color: var(--ra-text-tertiary); font-size: 9px; line-height: 1.4; }
 .selection-chat__actions { display: flex !important; flex-direction: row !important; gap: 2px !important; }
 .selection-chat__actions button { padding: 3px 5px; border: 0; color: var(--ra-link); background: transparent; cursor: pointer; font-size: 10px; white-space: nowrap; }
 .selection-chat__actions button:disabled { cursor: wait; opacity: .5; }
-.conversation-picker { display: flex; max-height: 240px; flex-direction: column; gap: 5px; overflow-y: auto; padding: 8px; border: 1px solid var(--ra-border); border-radius: 8px; background: color-mix(in srgb, var(--ra-link) 4%, var(--ra-panel-bg)); }
+.conversation-picker { display: flex; max-height: 240px; margin-top: 5px; flex-direction: column; gap: 5px; overflow-y: auto; padding: 5px 8px 8px; border: 1px solid var(--ra-border); border-radius: 8px; background: color-mix(in srgb, var(--ra-link) 4%, var(--ra-panel-bg)); }
 .conversation-picker__heading { display: flex; align-items: center; justify-content: space-between; padding: 2px 3px 5px; }
 .conversation-picker__heading b { font-size: 11px; }
 .conversation-picker__heading button { border: 0; color: var(--ra-text-tertiary); background: transparent; cursor: pointer; font-size: 15px; }
@@ -1139,7 +1158,7 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .conversation-picker__item small, .conversation-picker__empty { color: var(--ra-text-tertiary); font-size: 9px; }
 .conversation-picker__empty { padding: 12px 4px; text-align: center; }
 .conversation-picker__new { padding: 7px; border: 1px dashed color-mix(in srgb, var(--ra-link) 55%, var(--ra-border)); border-radius: 6px; color: var(--ra-link); background: transparent; cursor: pointer; font-size: 10px; }
-.selection-chat__messages { display: flex; min-height: 0; max-height: none; flex: 1 1 0; flex-direction: column; gap: 10px; overflow-y: auto; padding: 2px; }
+.selection-chat__messages { display: flex; min-height: 0; max-height: none; flex: 1 1 0; flex-direction: column; gap: 10px; overflow-y: auto; padding: 9px 2px 2px; }
 .selection-chat__empty { display: grid; min-height: 0; height: 100%; padding: 12px; box-sizing: border-box; border: 1px dashed var(--ra-border); border-radius: 9px; place-items: center; align-content: center; color: var(--ra-text-tertiary); text-align: center; }
 .selection-chat__empty > span { margin-bottom: 6px; color: var(--ra-link); font-size: 20px; }
 .selection-chat__empty b { color: var(--ra-text); font-size: 12px; }

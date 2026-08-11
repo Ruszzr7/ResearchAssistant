@@ -82,13 +82,31 @@ class PaperMemoryObservationServiceTest {
     }
 
     @Test
-    void rejectsClaimsWhoseCitationsAreOutsideTheCurrentEvidenceSet() {
+    void keepsTheValidatedConversationTurnButDoesNotPromoteInvalidClaims() {
         WorkbenchWorkflowResult invalid = result(
                 "run-invalid", "无依据回答", "无依据 claim", "lay_unknown");
 
         service.remember(trace("run-invalid", "问题"), invalid);
 
-        assertThat(turnMapper.selectBySourceRunId("run-invalid")).isNull();
+        assertThat(turnMapper.selectBySourceRunId("run-invalid")).isNotNull()
+                .satisfies(turn -> assertThat(turn.getEvidenceRefsJson()).isEqualTo("[]"));
+        assertThat(observationMapper.selectRecentVersion(paperId, HASH, PARSER, 10)).isEmpty();
+    }
+
+    @Test
+    void persistsAGeneralConversationTurnWithoutPaperClaims() {
+        WorkbenchWorkflowResult general = new WorkbenchWorkflowResult(
+                "run-general", WorkbenchPlan.Workflow.SELECTION_QA, WorkbenchPlan.Scope.PAPER,
+                List.of(paperId), "快速排序的平均复杂度是 O(n log n)。",
+                List.of(), List.of(), null, false, 0);
+
+        service.remember(trace("run-general", "快速排序的复杂度是什么？"), general);
+
+        assertThat(service.recentConversation(paperId, "session-91", HASH, PARSER, 8))
+                .singleElement().satisfies(turn -> {
+                    assertThat(turn.answer()).contains("O(n log n)");
+                    assertThat(turn.evidenceRefs()).isEmpty();
+                });
         assertThat(observationMapper.selectRecentVersion(paperId, HASH, PARSER, 10)).isEmpty();
     }
 

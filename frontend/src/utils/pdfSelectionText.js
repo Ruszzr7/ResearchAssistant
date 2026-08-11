@@ -31,3 +31,12 @@ export function normalizePdfSelectionText(value) {
     removedCharacterCount: invalidCharacters.length + unmappedCharacters.length,
   }
 }
+
+/** Copies the PDFium-owned selection through the browser's copy event. */
+export function copyPdfSelectionText(event, value) {
+  const text = normalizePdfSelectionText(value).readableText
+  if (!text || !event?.clipboardData?.setData) return false
+  event.clipboardData.setData('text/plain', text)
+  event.preventDefault?.()
+  return true
+}

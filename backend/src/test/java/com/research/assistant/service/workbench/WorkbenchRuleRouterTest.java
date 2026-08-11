@@ -78,8 +78,12 @@ class WorkbenchRuleRouterTest {
         WorkbenchPlan ordinary = router.route(new WorkbenchInvocation(
                 List.of(7L), "帮我写一句今日学习计划", WorkbenchIntent.ASK_SELECTION,
                 WorkbenchPlan.Scope.PAPER, null, 6, 0, "", "selection-thread_3"));
+        WorkbenchPlan paperEvaluation = router.route(new WorkbenchInvocation(
+                List.of(7L), "你认为该文章最重要的一条公式是什么？", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 0, "", "selection-thread_3"));
 
         assertThat(location.evidenceRequired()).isTrue();
+        assertThat(paperEvaluation.evidenceRequired()).isTrue();
         assertThat(ordinary.evidenceRequired()).isFalse();
     }
 

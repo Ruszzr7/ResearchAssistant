@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Persists validated turns and promotes only their grounded claims into per-paper memory. */
+/** Persists every validated chat turn and promotes only grounded claims into per-paper memory. */
 @Service
 public class PaperMemoryObservationService {
 
@@ -74,8 +74,6 @@ public class PaperMemoryObservationService {
                 .map(claim -> groundedClaim(claim, validEvidence))
                 .filter(claim -> !claim.evidenceIds().isEmpty())
                 .toList();
-        if (groundedClaims.isEmpty()) return;
-
         List<PaperMemoryEvidenceRef> allRefs = evidenceRefs(groundedClaims, validEvidence);
         String conversationId = trace.invocation().conversationId();
         if (!conversationId.isBlank()) {

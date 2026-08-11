@@ -7,7 +7,10 @@ import com.research.assistant.mapper.PaperWorkbenchRunMapper;
 import com.research.assistant.mapper.PaperWorkbenchStepMapper;
 import com.research.assistant.service.async.AsyncTaskExecutionException;
 import com.research.assistant.service.memory.PaperMemoryObservationService;
+import com.research.assistant.service.memory.PaperConversationTurn;
 import com.research.assistant.service.pdf.layout.DocumentBlockRole;
+import com.research.assistant.service.pdf.layout.DocumentBlockContentMode;
+import com.research.assistant.service.pdf.layout.EvidenceLocator;
 import com.research.assistant.service.pdf.layout.LayoutEvidence;
 import com.research.assistant.service.pdf.layout.LocalEvidenceResult;
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
@@ -237,6 +240,111 @@ class WorkbenchExecutionEngineTest {
                 .extracting(WorkbenchAnswerBlock::basis)
                 .isEqualTo(WorkbenchAnswerBlock.Basis.GENERAL_KNOWLEDGE);
         assertCompleted(planned.runId(), 4);
+    }
+
+    @Test
+    void explicitPaperQuestionNeverFallsThroughToAnUngroundedModelAnswer() {
+        when(wholeEvidenceService.retrievePaper(any(), anyString(), anyList(), anyInt(), anyInt()))
+                .thenReturn(List.of());
+        WorkbenchInvocation invocation = new WorkbenchInvocation(
+                List.of(7L), "你认为该文章最重要的一条公式是什么？", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 10_000, "", "paper-thread-evidence");
+        WorkbenchRunTrace planned = traceService.plan(invocation);
+
+        assertThatThrownBy(() -> engine.execute(
+                planned.runId(), "task-paper-evidence", null))
+                .isInstanceOf(AsyncTaskExecutionException.class);
+
+        WorkbenchRunTrace failed = traceService.requireTrace(planned.runId());
+        assertThat(failed.errorCode()).isEqualTo("NO_EVIDENCE");
+        verify(modelService, times(0)).generate(
+                any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList());
+    }
+
+    @Test
+    void groundedFollowUpWithoutRetrievedEvidenceFailsBeforeCallingTheModel() {
+        when(wholeEvidenceService.retrievePaper(any(), anyString(), anyList(), anyInt(), anyInt()))
+                .thenReturn(List.of());
+        WorkbenchInvocation invocation = new WorkbenchInvocation(
+                List.of(7L), "如果还要再选一条公式呢？", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 10_000, "", "paper-thread-follow-up");
+        WorkbenchRunTrace planned = traceService.plan(invocation);
+
+        assertThatThrownBy(() -> engine.execute(
+                planned.runId(), "task-grounded-follow-up", null))
+                .isInstanceOf(AsyncTaskExecutionException.class);
+
+        WorkbenchRunTrace failed = traceService.requireTrace(planned.runId());
+        assertThat(failed.errorCode()).isEqualTo("NO_EVIDENCE");
+        verify(modelService, times(0)).generate(
+                any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList());
+    }
+
+    @Test
+    void currentSelectionHighlightIsDeterministicAndDoesNotCallTheModel() {
+        WorkbenchRunTrace planned = traceService.plan(invocation(
+                WorkbenchIntent.ASK_SELECTION, List.of(7L), anchor(7L),
+                "将这段文字高亮", 6_000));
+
+        WorkbenchWorkflowResult result = engine.execute(
+                planned.runId(), "task-current-selection-highlight", null);
+
+        assertThat(result.actions()).singleElement().satisfies(action -> {
+            assertThat(action.status()).isEqualTo(WorkbenchAction.Status.READY);
+            assertThat(action.evidenceId()).isEqualTo("lay_p7");
+            assertThat(action.targetText()).isEqualTo("selected");
+        });
+        assertThat(result.contextMode()).isEqualTo(WorkbenchContextMode.ACTION_EXPLICIT);
+        assertThat(result.answer()).contains("正在 PDF 中执行高亮");
+        assertThat(traceService.requireTrace(planned.runId()).metrics().totalTokens()).isZero();
+        verify(modelService, times(0)).generate(
+                any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList());
+        assertCompleted(planned.runId(), 4);
+    }
+
+    @Test
+    void explicitHighlightCommandUsesItsOwnTargetAndReturnsExecutableFormulaActions() {
+        LayoutEvidence commonSinr = formulaEvidence(
+                "lay_formula_4", "equation-region:p4-b0041", 4, 143, "Equation (4)");
+        LayoutEvidence privateSinr = formulaEvidence(
+                "lay_formula_5", "equation-region:p4-b0062", 4, 153, "Equation (5)");
+        List<LayoutEvidence> formulaEvidence = List.of(commonSinr, privateSinr);
+        when(wholeEvidenceService.retrievePaper(any(), anyString(), anyList(), anyInt(), anyInt()))
+                .thenReturn(formulaEvidence);
+        WorkbenchAnswerBlock commandAnswer = new WorkbenchAnswerBlock(
+                "公共流和私有流的信干噪比公式位于公式 (4) 与公式 (5)。",
+                WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(
+                        new WorkbenchAnswerBlock.Citation(commonSinr.evidenceId(), commonSinr.text()),
+                        new WorkbenchAnswerBlock.Citation(privateSinr.evidenceId(), privateSinr.text())),
+                List.of("r1"));
+        WorkbenchModelOutput commandOutput = new WorkbenchModelOutput(
+                commandAnswer.text(), List.of(), null, List.of(commandAnswer), List.of());
+        doReturn(new WorkbenchModelService.ModelCall(commandOutput, true, 50, 20, 70))
+                .when(modelService).generate(eq(WorkbenchPlan.Workflow.SELECTION_QA), anyString(),
+                        anyMap(), anyList(), anyInt(), any(), anyList());
+        WorkbenchInvocation invocation = new WorkbenchInvocation(
+                List.of(7L), "将信噪比公式所在位置高亮", WorkbenchIntent.ASK_SELECTION,
+                WorkbenchPlan.Scope.PAPER, null, 6, 10_000, "", "command-thread");
+        WorkbenchRunTrace planned = traceService.plan(invocation);
+
+        WorkbenchWorkflowResult result = engine.execute(
+                planned.runId(), "task-explicit-highlight", null);
+
+        ArgumentCaptor<String> retrievalQuery = ArgumentCaptor.forClass(String.class);
+        verify(wholeEvidenceService).retrievePaper(
+                any(), retrievalQuery.capture(), eq(List.of()), eq(18), eq(14_000));
+        assertThat(retrievalQuery.getValue()).startsWith("信噪比公式").doesNotContain("这段方法");
+        assertThat(result.contextMode()).isEqualTo(WorkbenchContextMode.ACTION_EXPLICIT);
+        assertThat(result.contextInherited()).isFalse();
+        assertThat(result.answer()).isEqualTo("已找到 2 处与“信噪比公式”匹配的内容，正在 PDF 中执行高亮。");
+        assertThat(result.actions()).hasSize(2).allSatisfy(action -> {
+            assertThat(action.status()).isEqualTo(WorkbenchAction.Status.READY);
+            assertThat(action.targetText()).isBlank();
+            assertThat(action.page()).isEqualTo(4);
+        });
+        assertThat(result.actions()).extracting(WorkbenchAction::evidenceId)
+                .containsExactly("lay_formula_4", "lay_formula_5");
     }
 
     @Test
@@ -496,12 +604,19 @@ class WorkbenchExecutionEngineTest {
                 : List.of(new PaperContextSnapshot.ConversationItem(
                         1, "这段方法解决什么问题？", "它处理有限块长可靠性。",
                         List.of("p1-b0001")));
+        WorkbenchConversationRelation relation = new WorkbenchConversationClassifier(
+                new WorkbenchRetrievalPlanner(), new WorkbenchCommandPlanner()).classify(
+                trace.invocation().question(), turns.isEmpty() ? List.of() : List.of(
+                        new PaperConversationTurn(1, "prior-run", turns.get(0).question(),
+                                turns.get(0).answer(), turns.get(0).evidenceBlockIds(),
+                                List.of(), List.of(), Instant.now())));
         return new PaperContextSnapshot(
                 PaperContextSnapshot.SCHEMA_VERSION, version.paperId(), version.documentHash(),
                 version.parserVersion(), trace.invocation().conversationId(), trace.invocation().question(),
-                trace.invocation().selectionAnchor() == null ? "" : "selected",
+                trace.invocation().selectionAnchor() == null ? "" : "selected", "",
                 trace.invocation().selectionAnchor() == null ? List.of() : List.of("p1-b0001"),
-                PaperContextSnapshot.selectionFingerprint(trace.invocation().selectionAnchor()), "", turns, List.of(),
+                PaperContextSnapshot.selectionFingerprint(trace.invocation().selectionAnchor()), "", turns, relation,
+                List.of(),
                 List.of("CURRENT_QUESTION", "CURRENT_SELECTION_EVIDENCE"),
                 new PaperContextSnapshot.Budget(8_000, 8, 30, 0, 0), false, Instant.now());
     }
@@ -575,6 +690,23 @@ class WorkbenchExecutionEngineTest {
                 new NormalizedBoundingBox(0.1, 0.2, 0.3, 0.05), DocumentBlockRole.BODY,
                 1, List.of("Introduction"), "Evidence for paper " + paperId,
                 0.9, selected, 0.9, hash(paperId), "parser-v1");
+    }
+
+    private LayoutEvidence formulaEvidence(String evidenceId,
+                                            String blockId,
+                                            int page,
+                                            int readingOrder,
+                                            String equationLabel) {
+        NormalizedBoundingBox bbox = new NormalizedBoundingBox(
+                0.14, 0.55 + Math.max(0, readingOrder - 143) * 0.01, 0.35, 0.04);
+        return new LayoutEvidence(evidenceId, 7L, blockId, page, bbox,
+                DocumentBlockRole.FORMULA, readingOrder,
+                List.of("II. SYSTEM MODEL", equationLabel), "[公式区域]", 0.95,
+                false, 0.92, hash(7L), "parser-v1", DocumentBlockContentMode.REGION,
+                "", List.of(), List.of(),
+                com.research.assistant.service.pdf.layout.EvidenceOrigin.CURRENT_LAYOUT,
+                new EvidenceLocator(bbox, "", EvidenceLocator.Precision.FORMULA_REGION),
+                List.of("FORMULA"));
     }
 
     private PaperLayoutArtifact artifact(Long paperId) {

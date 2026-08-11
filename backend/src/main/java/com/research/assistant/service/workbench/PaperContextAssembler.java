@@ -42,14 +42,14 @@ public class PaperContextAssembler {
     private final PaperMemoryObservationService observationService;
     private final WorkbenchRunTraceService traceService;
     private final ObjectMapper objectMapper;
-    private final WorkbenchRetrievalPlanner retrievalPlanner;
+    private final WorkbenchConversationClassifier conversationClassifier;
 
     public PaperContextAssembler(PaperMemoryMapper memoryMapper,
                                  PaperMemoryObservationService observationService,
                                  WorkbenchRunTraceService traceService,
                                  ObjectMapper objectMapper) {
         this(memoryMapper, observationService, traceService, objectMapper,
-                new WorkbenchRetrievalPlanner());
+                new WorkbenchRetrievalPlanner(), new WorkbenchCommandPlanner(), null);
     }
 
     @Autowired
@@ -57,12 +57,16 @@ public class PaperContextAssembler {
                                  PaperMemoryObservationService observationService,
                                  WorkbenchRunTraceService traceService,
                                  ObjectMapper objectMapper,
-                                 WorkbenchRetrievalPlanner retrievalPlanner) {
+                                 WorkbenchRetrievalPlanner retrievalPlanner,
+                                 WorkbenchCommandPlanner commandPlanner,
+                                 WorkbenchConversationClassifier conversationClassifier) {
         this.memoryMapper = memoryMapper;
         this.observationService = observationService;
         this.traceService = traceService;
         this.objectMapper = objectMapper;
-        this.retrievalPlanner = retrievalPlanner;
+        this.conversationClassifier = conversationClassifier == null
+                ? new WorkbenchConversationClassifier(retrievalPlanner, commandPlanner)
+                : conversationClassifier;
     }
 
     public PaperContextSnapshot assemble(WorkbenchRunTrace trace, SelectionAnchor anchor) {
@@ -83,10 +87,11 @@ public class PaperContextAssembler {
         List<PaperConversationTurn> storedTurns = observationService.recentConversation(
                 paperId, trace.invocation().conversationId(), version.documentHash(),
                 version.parserVersion(), 8);
-        boolean inheritConversation = shouldInheritConversation(
+        WorkbenchConversationRelation conversationRelation = conversationClassifier.classify(
                 trace.invocation().question(), storedTurns);
-        BudgetedTurns turns = conversationItems(
-                inheritConversation ? storedTurns : List.of());
+        // A chat always keeps bounded same-version history. The relation only decides whether
+        // retrieval reuses the previous evidence focus.
+        BudgetedTurns turns = conversationItems(storedTurns);
         truncated |= turns.truncated();
 
         String retrievalSeed = trace.invocation().question() + "\n" + selected + "\n" + attachments.value();
@@ -104,7 +109,7 @@ public class PaperContextAssembler {
                 trace.invocation().question(), selected, attachments.value(),
                 anchor == null ? List.of() : anchor.blockIds(),
                 PaperContextSnapshot.selectionFingerprint(anchor), profile.value(),
-                turns.items(), observations.items(), SOURCE_PRIORITY,
+                turns.items(), conversationRelation, observations.items(), SOURCE_PRIORITY,
                 new PaperContextSnapshot.Budget(
                         MAX_CONTEXT_CHARACTERS, selected.length() + attachments.value().length(), turns.characters(),
                         observations.characters(), profile.value().length()),
@@ -133,15 +138,6 @@ public class PaperContextAssembler {
             truncated |= attachment.truncated() || content.length() < attachment.content().trim().length();
         }
         return new BoundedText(value.toString(), truncated);
-    }
-
-    private boolean shouldInheritConversation(String question,
-                                              List<PaperConversationTurn> turns) {
-        if (turns == null || turns.isEmpty()) return false;
-        if (retrievalPlanner.plan(question).referentialFollowUp()) return true;
-        return turns.stream().skip(Math.max(0, turns.size() - 3L)).anyMatch(turn ->
-                retrievalPlanner.semanticallyRelated(
-                        question, turn.question() + "\n" + turn.answer()));
     }
 
     private BudgetedTurns conversationItems(List<PaperConversationTurn> values) {
