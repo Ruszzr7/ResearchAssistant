@@ -351,6 +351,31 @@ class WorkbenchEvidenceGateTest {
         assertThat(result.issues()).contains("answer cites evidence with no query relevance");
     }
 
+    @Test
+    void rejectsUsingAProofStepAsTheResultOfTheSameTheorem() {
+        LayoutEvidence proofFormula = new LayoutEvidence(
+                "lay_eq34", 188L, "equation-entity:34:p7-b15", 7,
+                new NormalizedBoundingBox(0.08, 0.16, 0.41, 0.04),
+                DocumentBlockRole.FORMULA, 502,
+                List.of("III. Analysis", "Equation (34)", "Theorem 2 proof step"),
+                "[Equation (34)]", 0.9, false, 0.9, "a".repeat(64), "parser-v1",
+                com.research.assistant.service.pdf.layout.DocumentBlockContentMode.REGION, "");
+        WorkbenchAnswerBlock block = new WorkbenchAnswerBlock(
+                "定理 2 给出的核心下界是 Equation (34)。",
+                WorkbenchAnswerBlock.Basis.PAPER_FACT,
+                List.of(new WorkbenchAnswerBlock.Citation("lay_eq34", "[Equation (34)]")));
+
+        WorkbenchEvidenceGate.GateResult result = gate.validate(
+                new WorkbenchEvidenceGate.AnswerDraft(block.text(),
+                        List.of(new WorkbenchEvidenceGate.GroundedClaim(
+                                block.text(), List.of("lay_eq34"))), false, List.of(block)),
+                List.of(proofFormula), WorkbenchEvidenceGate.GatePolicy.strict(0));
+
+        assertThat(result.decision()).isEqualTo(WorkbenchEvidenceGate.Decision.REPAIR);
+        assertThat(result.issues()).contains(
+                "answer block 0 cites a proof step as the theorem result");
+    }
+
     private LayoutEvidence evidence(String id) {
         return evidence(id, 1L, true);
     }

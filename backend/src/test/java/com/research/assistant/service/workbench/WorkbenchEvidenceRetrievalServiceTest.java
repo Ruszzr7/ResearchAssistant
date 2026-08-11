@@ -115,10 +115,34 @@ class WorkbenchEvidenceRetrievalServiceTest {
         assertThat(result).isNotEmpty();
         assertThat(result).extracting(LayoutEvidence::blockId)
                 .contains("signal-context", "objective-context",
-                        "equation-region:signal-equation",
-                        "equation-region:objective-equation");
+                        "equation-entity:1:signal-equation",
+                        "equation-entity:21:objective-equation");
         assertThat(result.stream().filter(item -> item.role() == DocumentBlockRole.FORMULA))
                 .allMatch(item -> item.contentMode() == DocumentBlockContentMode.REGION);
+    }
+
+    @Test
+    void formulaOverviewRanksTheoremResultsAheadOfProofSteps() {
+        PaperLayoutArtifact artifact = artifact(7L, List.of(
+                block("theorem", DocumentBlockRole.HEADING, 10, List.of("Analysis"),
+                        "Theorem 2. The lower bound is stated below."),
+                regionFormula("result31", 11, List.of("Analysis"),
+                        "Rk = C(Gamma) - Q(beta). (31)"),
+                block("proof", DocumentBlockRole.BODY, 12, List.of("Analysis"),
+                        "Proof. Apply Lemmas 4, 5, and 6."),
+                regionFormula("step34", 13, List.of("Analysis"),
+                        "Rk approximately equals an expectation. (34)")));
+
+        List<LayoutEvidence> result = service.retrievePaper(
+                artifact, "你认为该文章最重要的一条公式是什么？", 8, 8_000);
+
+        LayoutEvidence theoremResult = result.stream()
+                .filter(item -> item.blockId().contains("result31")).findFirst().orElseThrow();
+        LayoutEvidence proofStep = result.stream()
+                .filter(item -> item.blockId().contains("step34")).findFirst().orElseThrow();
+        assertThat(theoremResult.score()).isGreaterThan(proofStep.score());
+        assertThat(theoremResult.sectionPath()).contains("Theorem 2 result");
+        assertThat(proofStep.sectionPath()).contains("Theorem 2 proof step");
     }
 
     @Test

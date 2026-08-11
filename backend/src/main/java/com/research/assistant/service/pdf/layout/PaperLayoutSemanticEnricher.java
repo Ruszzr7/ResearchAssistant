@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 @Component
 public class PaperLayoutSemanticEnricher {
 
-    static final String VERSION = "semantic-v2";
+    static final String VERSION = "semantic-v3";
 
     private static final Pattern ABSTRACT_START = Pattern.compile(
             "(?i)^\\s*(?:abstract|summary)\\b[\\s.:-]*");
@@ -40,6 +40,10 @@ public class PaperLayoutSemanticEnricher {
     private static final Pattern PROOF_HEADING = Pattern.compile(
             "(?i)^\\s*(?:proof\\s+of\\s+)?(?:lemma|theorem|proposition|corollary)\\s*\\d+.*");
     private static final Pattern EQUATION_NUMBER = Pattern.compile(".*\\(\\d+[a-z]?\\)\\s*$");
+    private static final Pattern EQUATION_NUMBER_ANYWHERE = Pattern.compile("\\(\\d{1,4}[a-z]?\\)");
+    private static final Pattern EQUATION_MENTION = Pattern.compile(
+            "(?i).*(?:in|from|using|by|see|shown\\s+in|calculated\\s+by|given\\s+in|"
+                    + "equation|eq\\.)\\s*\\(\\d{1,4}[a-z]?\\)\\s*[.,;:]?\\s*$");
     private static final Pattern FIRST_PAGE_FOOTNOTE = Pattern.compile(
             "(?i)^\\s*(?:manuscript\\s+received|this\\s+work\\s+was\\s+supported|"
                     + "corresponding\\s+author|the\\s+authors?\\s+(?:is|are)\\s+with)\\b.*");
@@ -343,6 +347,12 @@ public class PaperLayoutSemanticEnricher {
                 || lane(previous) != lane(current)) {
             return false;
         }
+        // A numbered equation is an addressable source object. Never absorb it into the
+        // theorem/proof prose above or below; doing so makes citations point at a large paragraph.
+        if (hasNumberedEquationDefinition(previous.text())
+                || hasNumberedEquationDefinition(current.text())) {
+            return false;
+        }
         double gap = current.bbox().y() - previous.bbox().bottom();
         double threshold = Math.min(0.018, Math.max(0.008, current.bbox().height() * 1.8));
         if (gap < -0.003 || gap > threshold) {
@@ -447,14 +457,30 @@ public class PaperLayoutSemanticEnricher {
         if (text == null || text.isBlank() || text.length() > 220) {
             return false;
         }
-        long letters = text.chars().filter(Character::isLetter).count();
+        String compact = text.replaceAll("\\s+", " ").trim();
+        long letters = compact.chars().filter(Character::isLetter).count();
         long digits = text.chars().filter(Character::isDigit).count();
         long math = text.chars().filter(ch -> "=<>±×÷∑∫√∞≈≤≥^_{}[]|".indexOf(ch) >= 0).count();
         long replacementLike = text.chars().filter(ch -> ch == '?' || ch == '�').count();
         double alphaRatio = letters / (double) Math.max(1, text.length());
-        return (math >= 2 && alphaRatio < 0.68)
-                || (EQUATION_NUMBER.matcher(text).matches() && math + digits >= 3)
+        if (EQUATION_MENTION.matcher(compact).matches()) {
+            return false;
+        }
+        return hasNumberedEquationDefinition(compact)
+                || (math >= 2 && alphaRatio < 0.68)
+                || (EQUATION_NUMBER.matcher(compact).matches() && math + digits >= 3)
                 || (replacementLike >= 2 && math + digits >= 2 && alphaRatio < 0.55);
+    }
+
+    private boolean hasNumberedEquationDefinition(String text) {
+        if (text == null || text.isBlank() || !EQUATION_NUMBER_ANYWHERE.matcher(text).find()) {
+            return false;
+        }
+        String compact = text.replaceAll("\\s+", " ").trim();
+        if (EQUATION_MENTION.matcher(compact).matches()) return false;
+        boolean operator = compact.matches("(?s).*[=≈≃≤≥<>∑∏√].*")
+                || compact.toLowerCase(Locale.ROOT).matches("(?s).*\\b(max|min|argmax|argmin)\\b.*");
+        return operator;
     }
 
     private boolean isNearPageEdge(DocumentBlock block) {

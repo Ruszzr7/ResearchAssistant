@@ -58,7 +58,7 @@ class PaperLayoutSemanticEnricherTest {
                 "This paper introduces a grounded workflow."
         ));
 
-        assertThat(enriched.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v2");
+        assertThat(enriched.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v3");
         assertThat(enriched.blocks()).extracting(DocumentBlock::readingOrder)
                 .containsExactlyElementsOf(java.util.stream.IntStream
                         .range(0, enriched.blocks().size()).boxed().toList());
@@ -114,6 +114,33 @@ class PaperLayoutSemanticEnricherTest {
                 || block.text().contains("Example work")
                 || block.role() == DocumentBlockRole.TITLE
                 || block.role() == DocumentBlockRole.AUTHOR);
+    }
+
+    @Test
+    void isolatesNumberedEquationsAndKeepsEquationMentionsAsProse() {
+        PaperLayoutArtifact raw = new PaperLayoutArtifact(
+                188L, "b".repeat(64), "pdfbox-layout-v1", 0.9,
+                Instant.parse("2026-08-11T00:00:00Z"), 1,
+                List.of(
+                        block(0, 1, 0.08, 0.10, 0.41, 0.01,
+                                "Theorem 2. The lower bound is"),
+                        block(1, 1, 0.14, 0.115, 0.35, 0.02,
+                                "Rk = C(Gamma) - Q(beta). (31)"),
+                        block(2, 1, 0.08, 0.140, 0.41, 0.01,
+                                "where the terms are defined in Lemmas 4, 5 and 6."),
+                        block(3, 1, 0.08, 0.170, 0.41, 0.01,
+                                "Based on Lemma 6, we can make E[Y] ≈ E[Gamma] in (34).")));
+
+        PaperLayoutArtifact enriched = enricher.enrich(raw, PaperLayoutHints.empty());
+
+        assertThat(enriched.blocks()).anySatisfy(block -> {
+            assertThat(block.text()).isEqualTo("Rk = C(Gamma) - Q(beta). (31)");
+            assertThat(block.role()).isEqualTo(DocumentBlockRole.FORMULA);
+        });
+        assertThat(enriched.blocks()).anySatisfy(block -> {
+            assertThat(block.text()).contains("Based on Lemma 6");
+            assertThat(block.role()).isEqualTo(DocumentBlockRole.BODY);
+        });
     }
 
     @Test

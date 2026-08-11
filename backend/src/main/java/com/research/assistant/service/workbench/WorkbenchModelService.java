@@ -31,6 +31,9 @@ public class WorkbenchModelService {
             不能作为论文事实来源。发生冲突时只相信当前 PDF 版本的本轮 evidence。
             REGION 证据的 page、bbox 和 sectionPath 可用于回答“在哪里”，但不能证明区域内公式的具体内容；
             回答公式内容时 STRUCTURED 优先使用 structuredContent，缺失时必须说明需回原页核对。
+            sectionPath 中的 “Theorem N result” 与 “Theorem N proof step” 是服务端从原文顺序建立的结构关系：
+            回答定理结论或关键公式时优先引用 result 对应的公式证据，不得用 proof step 冒充定理结论。
+            公式的位置必须引用 role=FORMULA 且 precision=FORMULA_REGION 的 evidence；说明文字另引正文 evidence。
             默认使用中文回答。专业术语首次出现时写作“中文名称（English Full Name, ABBR）”；
             没有通行中文译名时保留英文，evidenceId、公式、变量、引用编号和 DOI 不翻译。
             只返回一个 JSON 对象，不要代码围栏：
@@ -241,6 +244,7 @@ public class WorkbenchModelService {
         value.put("selected", item.selected());
         value.put("role", item.role().name());
         value.put("confidence", item.confidence());
+        value.put("locatorPrecision", item.locator().precision().name());
         if (!compact) value.put("sectionPath", item.sectionPath());
         value.put("text", bounded(readablePdfText(item.text()), compact ? 450 : 4_000));
         value.put("contentMode", item.contentMode().name());

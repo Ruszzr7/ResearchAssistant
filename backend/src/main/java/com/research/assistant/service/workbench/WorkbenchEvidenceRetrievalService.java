@@ -9,6 +9,9 @@ import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
 import com.research.assistant.service.pdf.layout.PaperLayoutEvidencePolicy;
 import com.research.assistant.service.pdf.layout.PaperLayoutEvidenceService;
+import com.research.assistant.service.pdf.layout.PaperSourceIndexService;
+import com.research.assistant.service.pdf.layout.PaperSourceIndex;
+import com.research.assistant.service.pdf.layout.EquationEntity;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -33,19 +36,23 @@ public class WorkbenchEvidenceRetrievalService {
     private final PaperLayoutEvidencePolicy evidencePolicy;
     private final PaperLayoutEvidenceService evidenceProjection;
     private final WorkbenchRetrievalPlanner retrievalPlanner;
+    private final PaperSourceIndexService sourceIndexService;
 
     public WorkbenchEvidenceRetrievalService(PaperLayoutEvidencePolicy evidencePolicy,
                                              PaperLayoutEvidenceService evidenceProjection) {
-        this(evidencePolicy, evidenceProjection, new WorkbenchRetrievalPlanner());
+        this(evidencePolicy, evidenceProjection, new WorkbenchRetrievalPlanner(),
+                new PaperSourceIndexService());
     }
 
     @Autowired
     public WorkbenchEvidenceRetrievalService(PaperLayoutEvidencePolicy evidencePolicy,
                                              PaperLayoutEvidenceService evidenceProjection,
-                                             WorkbenchRetrievalPlanner retrievalPlanner) {
+                                             WorkbenchRetrievalPlanner retrievalPlanner,
+                                             PaperSourceIndexService sourceIndexService) {
         this.evidencePolicy = evidencePolicy;
         this.evidenceProjection = evidenceProjection;
         this.retrievalPlanner = retrievalPlanner;
+        this.sourceIndexService = sourceIndexService;
     }
 
     public List<LayoutEvidence> retrievePaper(PaperLayoutArtifact artifact,
@@ -149,7 +156,13 @@ public class WorkbenchEvidenceRetrievalService {
                                                          int maxEvidence,
                                                          int maxCharacters) {
         int formulaLimit = Math.max(2, Math.min(6, maxEvidence / 2));
-        List<Candidate> ranked = allAllowed.stream()
+        PaperSourceIndex sourceIndex = sourceIndexService.build(artifact);
+        List<Candidate> ranked = sourceIndex.equations().stream()
+                .map(entity -> sourceEquationCandidate(entity, allAllowed))
+                .sorted(Comparator.comparingDouble(Candidate::score).reversed()
+                        .thenComparingInt(item -> item.block().readingOrder()))
+                .toList();
+        if (ranked.isEmpty()) ranked = allAllowed.stream()
                 .filter(this::looksLikeNumberedEquation)
                 .map(block -> formulaOverviewCandidate(allAllowed, block))
                 .sorted(Comparator.comparingDouble(Candidate::score).reversed()
@@ -198,6 +211,36 @@ public class WorkbenchEvidenceRetrievalService {
             characters = nextCharacters;
         }
         return List.copyOf(result);
+    }
+
+    private Candidate sourceEquationCandidate(EquationEntity entity,
+                                              List<DocumentBlock> blocks) {
+        DocumentBlock sourceBlock = blocks.stream()
+                .filter(block -> block.id().equals(entity.definition().blockId()))
+                .findFirst().orElse(null);
+        int readingOrder = sourceBlock == null ? 0 : sourceBlock.readingOrder();
+        List<String> section = new ArrayList<>(sourceBlock == null
+                ? List.of() : sourceBlock.sectionPath());
+        section.add("Equation (" + entity.number() + ")");
+        if (entity.relation() == EquationEntity.Relation.THEOREM_RESULT) {
+            section.add("Theorem " + entity.theoremNumber() + " result");
+        } else if (entity.relation() == EquationEntity.Relation.PROOF_STEP) {
+            section.add("Theorem " + entity.theoremNumber() + " proof step");
+        }
+        double score = switch (entity.relation()) {
+            case THEOREM_RESULT -> 0.96;
+            case OTHER -> 0.68;
+            case PROOF_STEP -> 0.52;
+        };
+        DocumentBlock block = new DocumentBlock(
+                "equation-entity:" + entity.number() + ":" + entity.definition().blockId(),
+                entity.definition().page(), entity.definition().bbox(), DocumentBlockRole.FORMULA,
+                readingOrder, section, "[Equation (" + entity.number() + ")]", null, null,
+                entity.definition().confidence(), DocumentBlockContentMode.REGION);
+        return new Candidate(block, score, true,
+                Map.of("SOURCE_EQUATION", 1.0,
+                        entity.relation() == EquationEntity.Relation.THEOREM_RESULT
+                                ? "THEOREM_RESULT" : "EQUATION_CONTEXT", 1.0));
     }
 
     private boolean looksLikeNumberedEquation(DocumentBlock block) {
@@ -583,6 +626,7 @@ public class WorkbenchEvidenceRetrievalService {
     private String formulaSectionKey(DocumentBlock block) {
         List<String> section = block.sectionPath().stream()
                 .filter(value -> !value.startsWith("Equation ("))
+                .filter(value -> !value.matches("(?i)(?:theorem|lemma|proposition|corollary) .* (?:result|proof step)"))
                 .toList();
         return section.isEmpty() ? "page:" + block.page() : String.join(" / ", section);
     }
