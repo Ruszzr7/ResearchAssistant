@@ -22,8 +22,8 @@ class WorkbenchActionRoutingExperimentTest {
     private final ExperimentalActionRouter experimentalRouter = new ExperimentalActionRouter();
 
     @Test
-    void shouldExposeWhyTheRealFailureFellThroughToSelectionQa() {
-        assertThat(legacyPlanner.parse("高亮选定内容")).isEmpty();
+    void productionParserNowRecognizesThePreviouslyFailingActionFirstPhrase() {
+        assertThat(legacyPlanner.parse("高亮选定内容")).isPresent();
     }
 
     @Test

@@ -1694,7 +1694,12 @@ async function executeAgentActions(actions) {
     const fallbackBox = target.locator?.targetBbox || target.bbox
     const formulaFallback = target.locator?.precision === 'FORMULA_REGION' && fallbackBox
       ? [fallbackBox] : []
-    const boxes = exactBoxes.length ? exactBoxes : formulaFallback
+    const trustedSelectionBoxes = (action.targetBoxes || []).filter(box => (
+      box && Number.isFinite(Number(box.x)) && Number.isFinite(Number(box.y))
+        && Number(box.width) > 0 && Number(box.height) > 0
+    ))
+    const boxes = trustedSelectionBoxes.length
+      ? trustedSelectionBoxes : exactBoxes.length ? exactBoxes : formulaFallback
     if (!boxes.length) {
       ElMessage.warning(`已找到“${action.query}”的来源，但无法建立精确字符位置，因此未高亮`)
       continue
@@ -1738,7 +1743,11 @@ async function executeAgentActions(actions) {
     try {
       await persistNewAgentAnnotation(annotation)
       selectedAnnotation.value = null
-      evidenceFocus.value = { page: target.page, boxes, precision: exactBoxes.length ? 'TEXT' : 'FORMULA_REGION' }
+      evidenceFocus.value = {
+        page: target.page,
+        boxes,
+        precision: trustedSelectionBoxes.length || exactBoxes.length ? 'TEXT' : 'FORMULA_REGION',
+      }
       await nextTick()
       scrollEvidenceIntoView(target.page, boxes)
       ElMessage.success(`已在原文中高亮“${action.query}”`)

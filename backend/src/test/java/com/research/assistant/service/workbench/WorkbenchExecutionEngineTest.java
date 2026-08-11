@@ -291,14 +291,23 @@ class WorkbenchExecutionEngineTest {
 
         assertThat(result.actions()).singleElement().satisfies(action -> {
             assertThat(action.status()).isEqualTo(WorkbenchAction.Status.READY);
-            assertThat(action.evidenceId()).isEqualTo("lay_p7");
+            assertThat(action.evidenceId()).startsWith("selection:");
             assertThat(action.targetText()).isEqualTo("selected");
+            assertThat(action.targetBoxes()).isEqualTo(anchor(7L).boxes());
+        });
+        assertThat(result.evidence()).singleElement().satisfies(evidence -> {
+            assertThat(evidence.selected()).isTrue();
+            assertThat(evidence.locator().precision())
+                    .isEqualTo(com.research.assistant.service.pdf.layout.EvidenceLocator.Precision.TEXT_RANGE);
         });
         assertThat(result.contextMode()).isEqualTo(WorkbenchContextMode.ACTION_EXPLICIT);
         assertThat(result.answer()).contains("正在 PDF 中执行高亮");
         assertThat(traceService.requireTrace(planned.runId()).metrics().totalTokens()).isZero();
         verify(modelService, times(0)).generate(
                 any(), anyString(), anyMap(), anyList(), anyInt(), any(), anyList());
+        verify(localEvidenceService, times(0)).retrieve(any(), any(), anyString(), anyInt());
+        verify(wholeEvidenceService, times(0)).retrievePaper(
+                any(), anyString(), anyList(), anyInt(), anyInt());
         assertCompleted(planned.runId(), 4);
     }
 

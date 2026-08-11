@@ -129,16 +129,30 @@ public class WorkbenchExecutionEngine {
         SelectionAnchor canonicalAnchor = deterministicStep(
                 trace.runId(), 0,
                 Map.of("paperId", artifact.paperId(), "page", trace.invocation().selectionAnchor().page()),
-                () -> anchorResolver.resolve(
-                        artifact,
-                        trace.invocation().selectionAnchor().page(),
-                        trace.invocation().selectionAnchor().boxes(),
-                        trace.invocation().selectionAnchor().anchorText(),
-                        trace.invocation().selectionAnchor().kind()),
+                () -> trace.invocation().selectionAnchor().clientTextAnchor() == null
+                        ? anchorResolver.resolve(
+                                artifact,
+                                trace.invocation().selectionAnchor().page(),
+                                trace.invocation().selectionAnchor().boxes(),
+                                trace.invocation().selectionAnchor().anchorText(),
+                                trace.invocation().selectionAnchor().kind())
+                        : anchorResolver.resolve(
+                                artifact,
+                                trace.invocation().selectionAnchor().page(),
+                                trace.invocation().selectionAnchor().boxes(),
+                                trace.invocation().selectionAnchor().anchorText(),
+                                trace.invocation().selectionAnchor().kind(),
+                                trace.invocation().selectionAnchor().clientTextAnchor()),
                 anchor -> Map.of("kind", anchor.kind().name(),
                         "mappingStatus", anchor.mappingStatus().name(),
                         "contentType", anchor.contentType().name(), "confidence", anchor.confidence(),
                         "blockCount", anchor.blockIds().size()));
+
+        var directSelectionCommand = commandPlanner.bindCurrentSelection(
+                trace, artifact, canonicalAnchor);
+        if (directSelectionCommand.isPresent()) {
+            return executeDirectSelectionCommand(trace, directSelectionCommand.get(), stage);
+        }
 
         stage.accept("正在组装本轮上下文…");
         PaperContextSnapshot context = contextAssembler.assemble(trace, canonicalAnchor);
@@ -162,6 +176,37 @@ public class WorkbenchExecutionEngine {
                 context, selectionModelContextBudget(trace));
         return modelAndGate(trace, combinedEvidence, local.regionFallback(), stage, 2, 3,
                 boundedModelQuestion, context);
+    }
+
+    private WorkbenchWorkflowResult executeDirectSelectionCommand(
+            WorkbenchRunTrace trace,
+            WorkbenchCommandPlanner.DirectSelectionCommand direct,
+            Consumer<String> stage) {
+        stage.accept("正在按当前选区执行高亮…");
+        List<LayoutEvidence> evidence = deterministicStep(
+                trace.runId(), 1,
+                Map.of("mode", "current-selection", "retrievalCalled", false),
+                () -> List.of(direct.evidence()),
+                value -> Map.of("evidenceCount", value.size(), "source", "canonical-selection"));
+        WorkbenchModelOutput output = commandPlanner.userFacingOutput(
+                direct.command(), List.of(direct.action()), evidence);
+        deterministicStep(trace.runId(), 2,
+                Map.of("mode", "deterministic-action", "modelCalled", false),
+                () -> output,
+                value -> Map.of("answerCharacters", value.answer().length(), "modelCalled", false));
+        deterministicStep(trace.runId(), 3,
+                Map.of("validation", "selection-source-anchor"),
+                () -> List.of(direct.action()),
+                value -> Map.of("decision", "PASS", "actionCount", value.size()));
+        WorkbenchRunTrace passed = traceService.requireTrace(trace.runId());
+        WorkbenchWorkflowResult result = new WorkbenchWorkflowResult(
+                trace.runId(), trace.plan().workflow(), trace.plan().scope(),
+                trace.invocation().paperIds(), output.answer(), output.claims(), evidence,
+                output.annotationSuggestion(), false, passed.metrics().repairCount(),
+                output.answerBlocks(), List.of(direct.action()), false,
+                WorkbenchContextMode.ACTION_EXPLICIT);
+        traceService.checkpointResult(trace.runId(), result);
+        return result;
     }
 
     private WorkbenchWorkflowResult executePaperConversation(WorkbenchRunTrace trace,
@@ -365,9 +410,10 @@ public class WorkbenchExecutionEngine {
                                               WorkbenchModelOutput output,
                                               WorkbenchCommandSpec command) {
         if (command != null) {
-            return command.referenceMode() == WorkbenchCommandSpec.ReferenceMode.PRIOR_REFERENT
-                    ? WorkbenchContextMode.ACTION_REFERENTIAL
-                    : WorkbenchContextMode.ACTION_EXPLICIT;
+            return switch (command.referenceMode()) {
+                case PRIOR_REFERENT -> WorkbenchContextMode.ACTION_REFERENTIAL;
+                case CURRENT_SELECTION, EXPLICIT -> WorkbenchContextMode.ACTION_EXPLICIT;
+            };
         }
         if (trace.invocation().selectionAnchor() != null) return WorkbenchContextMode.SELECTION;
         if (contextInherited) return WorkbenchContextMode.FOLLOW_UP;

@@ -20,6 +20,12 @@ class WorkbenchCommandPlannerTest {
 
     @Test
     void recognizesOnlyAnExplicitFindAndHighlightCommand() {
+        assertThat(planner.parse("高亮")).get().extracting(WorkbenchCommandSpec::referenceMode)
+                .isEqualTo(WorkbenchCommandSpec.ReferenceMode.CURRENT_SELECTION);
+        assertThat(planner.parse("高亮选定内容")).get().extracting(WorkbenchCommandSpec::referenceMode)
+                .isEqualTo(WorkbenchCommandSpec.ReferenceMode.CURRENT_SELECTION);
+        assertThat(planner.parse("高亮这段公式")).get().extracting(WorkbenchCommandSpec::referenceMode)
+                .isEqualTo(WorkbenchCommandSpec.ReferenceMode.CURRENT_SELECTION);
         assertThat(planner.highlightTarget("找出 SINR 公式并高亮")).isEqualTo("SINR 公式");
         assertThat(planner.highlightTarget("请定位“perfect SIC”然后突出显示"))
                 .isEqualTo("perfect SIC");
@@ -45,11 +51,12 @@ class WorkbenchCommandPlannerTest {
                 new PaperContextSnapshot.Budget(8_000, 20, 20, 0, 10), false, Instant.now());
 
         assertThat(planner.retrievalQuery(context))
-                .isEqualTo("信噪比公式\n当前选区：selected equation")
+                .isEqualTo("信噪比公式")
                 .doesNotContain("旧问题", "历史追问");
         assertThat(planner.preferredEvidenceBlockIds(context)).isEmpty();
         assertThat(planner.modelQuestion(context))
-                .contains("操作目标：信噪比公式", "当前选区：selected equation")
+                .contains("操作目标：信噪比公式")
+                .doesNotContain("当前选区：selected equation")
                 .doesNotContain("同一论文与同一对话", "旧回答");
     }
 

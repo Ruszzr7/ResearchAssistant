@@ -10,5 +10,5 @@ public record WorkbenchCommandSpec(Type type, String target, ReferenceMode refer
 
     public enum Type { HIGHLIGHT }
 
-    public enum ReferenceMode { EXPLICIT, PRIOR_REFERENT }
+    public enum ReferenceMode { CURRENT_SELECTION, EXPLICIT, PRIOR_REFERENT }
 }

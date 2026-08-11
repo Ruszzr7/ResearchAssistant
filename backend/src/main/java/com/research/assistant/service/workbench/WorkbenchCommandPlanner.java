@@ -1,6 +1,14 @@
 package com.research.assistant.service.workbench;
 
 import com.research.assistant.service.pdf.layout.LayoutEvidence;
+import com.research.assistant.service.pdf.layout.DocumentBlockContentMode;
+import com.research.assistant.service.pdf.layout.DocumentBlockRole;
+import com.research.assistant.service.pdf.layout.EvidenceLocator;
+import com.research.assistant.service.pdf.layout.EvidenceOrigin;
+import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
+import com.research.assistant.service.pdf.layout.SelectionAnchor;
+import com.research.assistant.service.pdf.layout.SelectionAnchorKind;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -40,14 +48,19 @@ public class WorkbenchCommandPlanner {
             "这个公式", "那个公式", "it", "this", "that", "above");
     private static final Set<String> CURRENT_SELECTION_TARGETS = Set.of(
             "这段", "这段文字", "这段内容", "当前选区", "选区", "选区内容",
-            "所选文字", "选中文字", "selected text", "current selection");
+            "选定内容", "选定区域", "所选内容", "所选文字", "选中文字",
+            "这段公式", "这个选区", "selected text", "current selection");
+    private static final List<String> HIGHLIGHT_VERBS = List.of("突出显示", "高亮", "标黄");
+    private static final List<String> SEARCH_VERBS = List.of("找出", "找到", "定位", "搜索");
     private static final int MAX_ACTION_TARGETS = 12;
 
     public Optional<WorkbenchCommandSpec> parse(String question) {
         String target = highlightTarget(question);
         if (target.isBlank()) return Optional.empty();
         String normalized = normalize(target);
-        WorkbenchCommandSpec.ReferenceMode mode = REFERENTIAL_TARGETS.stream()
+        WorkbenchCommandSpec.ReferenceMode mode = refersToCurrentSelection(target)
+                ? WorkbenchCommandSpec.ReferenceMode.CURRENT_SELECTION
+                : REFERENTIAL_TARGETS.stream()
                 .map(this::normalize).anyMatch(normalized::equals)
                 ? WorkbenchCommandSpec.ReferenceMode.PRIOR_REFERENT
                 : WorkbenchCommandSpec.ReferenceMode.EXPLICIT;
@@ -118,6 +131,41 @@ public class WorkbenchCommandPlanner {
                 target, targetText, "已绑定当前选区，等待在 PDF 中精确高亮"));
     }
 
+    /** Builds a trusted selection evidence/action pair without retrieval or a model call. */
+    public Optional<DirectSelectionCommand> bindCurrentSelection(WorkbenchRunTrace trace,
+                                                                  PaperLayoutArtifact artifact,
+                                                                  SelectionAnchor anchor) {
+        if (trace == null || artifact == null || anchor == null) return Optional.empty();
+        Optional<WorkbenchCommandSpec> parsed = parse(trace.invocation().question());
+        if (parsed.isEmpty()
+                || parsed.get().referenceMode() != WorkbenchCommandSpec.ReferenceMode.CURRENT_SELECTION
+                || anchor.boxes().isEmpty()) {
+            return Optional.empty();
+        }
+        String targetText = selectedAnchorText(anchor);
+        NormalizedBoundingBox bbox = union(anchor.boxes());
+        boolean formulaRegion = anchor.kind() == SelectionAnchorKind.REGION && targetText.isBlank();
+        String evidenceId = "selection:" + actionId(targetText, artifact.documentHash());
+        EvidenceLocator locator = new EvidenceLocator(bbox, formulaRegion ? "" : targetText,
+                formulaRegion ? EvidenceLocator.Precision.FORMULA_REGION
+                        : EvidenceLocator.Precision.TEXT_RANGE);
+        LayoutEvidence evidence = new LayoutEvidence(
+                evidenceId, artifact.paperId(), "selection:" + anchor.page(), anchor.page(), bbox,
+                formulaRegion ? DocumentBlockRole.FORMULA : DocumentBlockRole.BODY,
+                0, List.of("Current selection"),
+                formulaRegion ? "[当前公式选区]" : targetText,
+                1, true, anchor.confidence(), artifact.documentHash(), artifact.parserVersion(),
+                formulaRegion ? DocumentBlockContentMode.REGION : DocumentBlockContentMode.TEXT,
+                "", anchor.blockRanges(), List.of(), EvidenceOrigin.CURRENT_LAYOUT, locator,
+                List.of("CURRENT_SELECTION"));
+        WorkbenchAction action = new WorkbenchAction(actionId(targetText, evidenceId),
+                WorkbenchAction.Type.HIGHLIGHT, WorkbenchAction.Status.READY,
+                artifact.paperId(), evidenceId, anchor.page(), parsed.get().target(), targetText,
+                anchor.boxes(),
+                "已按当前选区的原始坐标执行高亮");
+        return Optional.of(new DirectSelectionCommand(parsed.get(), evidence, action));
+    }
+
     private boolean refersToCurrentSelection(String target) {
         String normalized = normalize(target);
         return CURRENT_SELECTION_TARGETS.stream().map(this::normalize).anyMatch(normalized::equals);
@@ -143,14 +191,7 @@ public class WorkbenchCommandPlanner {
                 || command.get().referenceMode() == WorkbenchCommandSpec.ReferenceMode.PRIOR_REFERENT) {
             return query;
         }
-        StringBuilder explicit = new StringBuilder(command.get().target());
-        if (!context.selectedText().isBlank()) {
-            explicit.append("\n当前选区：").append(context.selectedText());
-        }
-        if (!context.attachmentContext().isBlank()) {
-            explicit.append("\n本轮附件：").append(context.attachmentContext());
-        }
-        return explicit.toString();
+        return command.get().target();
     }
 
     public List<String> preferredEvidenceBlockIds(PaperContextSnapshot context) {
@@ -177,12 +218,6 @@ public class WorkbenchCommandPlanner {
         }
         StringBuilder explicit = new StringBuilder("操作目标：")
                 .append(command.get().target()).append('\n');
-        if (!context.selectedText().isBlank()) {
-            explicit.append("当前选区：").append(context.selectedText()).append('\n');
-        }
-        if (!context.attachmentContext().isBlank()) {
-            explicit.append("本轮附件：").append(context.attachmentContext()).append('\n');
-        }
         explicit.append("当前问题：").append(context.question());
         String value = explicit.toString();
         return instruction + (value.length() <= remaining ? value : value.substring(0, remaining));
@@ -218,6 +253,21 @@ public class WorkbenchCommandPlanner {
 
     String highlightTarget(String question) {
         String current = currentQuestion(question);
+        String normalized = normalize(current);
+        String verb = HIGHLIGHT_VERBS.stream().filter(normalized::contains).findFirst().orElse("");
+        if (verb.isBlank()) return "";
+        // Avoid treating explanatory questions about the concept of highlighting as commands.
+        if (containsAny(normalized, "为什么", "如何实现", "怎么实现", "解释")
+                && SEARCH_VERBS.stream().noneMatch(normalized::contains)) return "";
+        if (HIGHLIGHT_VERBS.stream().anyMatch(normalized::equals)) return "当前选区";
+        for (String actionVerb : HIGHLIGHT_VERBS) {
+            if (normalized.startsWith(actionVerb)) {
+                String rawTarget = current.substring(actionVerb.length()).trim();
+                if (refersToCurrentSelection(rawTarget)) return rawTarget;
+                String value = cleanTarget(rawTarget);
+                return value.isBlank() ? "当前选区" : value;
+            }
+        }
         Matcher first = FIND_AND_HIGHLIGHT.matcher(current);
         if (first.matches()) return cleanTarget(first.group(1));
         Matcher second = HIGHLIGHT_FOUND.matcher(current);
@@ -225,6 +275,23 @@ public class WorkbenchCommandPlanner {
         Matcher direct = DIRECT_HIGHLIGHT.matcher(current);
         return direct.matches() ? cleanTarget(direct.group(1)) : "";
     }
+
+    private boolean containsAny(String value, String... candidates) {
+        for (String candidate : candidates) if (value.contains(candidate)) return true;
+        return false;
+    }
+
+    private NormalizedBoundingBox union(List<NormalizedBoundingBox> boxes) {
+        double left = boxes.stream().mapToDouble(NormalizedBoundingBox::x).min().orElse(0);
+        double top = boxes.stream().mapToDouble(NormalizedBoundingBox::y).min().orElse(0);
+        double right = boxes.stream().mapToDouble(NormalizedBoundingBox::right).max().orElse(left);
+        double bottom = boxes.stream().mapToDouble(NormalizedBoundingBox::bottom).max().orElse(top);
+        return new NormalizedBoundingBox(left, top, right - left, bottom - top);
+    }
+
+    public record DirectSelectionCommand(WorkbenchCommandSpec command,
+                                         LayoutEvidence evidence,
+                                         WorkbenchAction action) { }
 
     private List<TargetEvidence> selectTargets(String target,
                                                List<CitedEvidence> cited,
