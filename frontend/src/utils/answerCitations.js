@@ -189,7 +189,7 @@ function mergedTextDescriptor(values) {
     key,
     item: first,
     quote,
-    evidenceIds: items.map(item => item.evidenceId),
+    evidenceIds: [...new Set(items.map(item => item.evidenceId))],
     target: {
       ...first,
       blockId: `citation-span:${items.map(item => item.blockId).join('|')}`,
@@ -213,10 +213,13 @@ function citationQuoteKey(item, quote) {
 
 function canMergeCitationContinuation(previous, current) {
   if (previous.formulaTarget || current.formulaTarget) return false
-  if (!previous.quote || !current.quote || previous.item.evidenceId === current.item.evidenceId) return false
+  if (!previous.quote || !current.quote) return false
   if (Number(previous.item.paperId) !== Number(current.item.paperId)
       || Number(previous.item.page) !== Number(current.item.page)) return false
   if (/[.!?。！？;；:]\s*$/.test(previous.quote)) return false
+  if (previous.item.evidenceId === current.item.evidenceId) {
+    return sameEvidenceContinuation(previous, current)
+  }
   const previousOrder = Number(previous.item.readingOrder)
   const currentOrder = Number(current.item.readingOrder)
   if (Number.isFinite(previousOrder) && Number.isFinite(currentOrder)
@@ -224,6 +227,16 @@ function canMergeCitationContinuation(previous, current) {
   const first = previous.item.locator?.targetBbox || previous.item.bbox
   const second = current.item.locator?.targetBbox || current.item.bbox
   return boxesShareColumn(first, second) && boxesAreVerticallyContinuous(first, second)
+}
+
+function sameEvidenceContinuation(previous, current) {
+  const source = String(previous.item?.text || '').replace(/\s+/g, ' ')
+  const first = String(previous.quote || '').replace(/\s+/g, ' ')
+  const second = String(current.quote || '').replace(/\s+/g, ' ')
+  const firstAt = source.indexOf(first)
+  const secondAt = source.indexOf(second)
+  if (firstAt < 0 || secondAt < 0 || secondAt < firstAt + first.length) return false
+  return secondAt - (firstAt + first.length) <= 8
 }
 
 function comparePhysicalCitationOrder(first, second) {

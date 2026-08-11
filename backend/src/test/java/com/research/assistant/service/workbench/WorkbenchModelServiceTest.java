@@ -314,7 +314,7 @@ class WorkbenchModelServiceTest {
     }
 
     @Test
-    void retriesNonBlankTruncatedJsonWithoutArtificiallyReservingTheFirstBudget() {
+    void retriesNonBlankTruncatedJsonWhileBoundingSelectionOutputBudget() {
         when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
                 .thenReturn(
                         new LlmResponse("{\"answer\":\"partial", 3_065, 535, 3_600, "LENGTH"),
@@ -339,7 +339,8 @@ class WorkbenchModelServiceTest {
         ArgumentCaptor<LlmCallPolicy> policies = ArgumentCaptor.forClass(LlmCallPolicy.class);
         verify(llmService, times(2)).chatWithUsage(anyString(), anyString(), policies.capture());
         LlmCallPolicy first = policies.getAllValues().get(0);
-        assertThat(first.maxInputTokens() + first.maxOutputTokens()).isEqualTo(6_500);
+        assertThat(first.maxOutputTokens()).isEqualTo(2_500);
+        assertThat(first.maxInputTokens() + first.maxOutputTokens()).isLessThanOrEqualTo(6_500);
         assertThat(first.reasoningEffort()).isEqualTo("low");
     }
 

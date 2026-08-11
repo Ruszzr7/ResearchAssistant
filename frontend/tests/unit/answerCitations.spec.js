@@ -152,6 +152,28 @@ describe('answer citations', () => {
     ])
   })
 
+  it('merges adjacent wrapped fragments quoted from the same evidence block', () => {
+    const evidence = [{
+      evidenceId: 'lay-wrapped', paperId: 175, blockId: 'p4-b0037', page: 4,
+      readingOrder: 141, role: 'BODY', contentMode: 'TEXT',
+      text: 'signal-to-interference plus noise ratio (SINR) for the common stream at vehicle-k can be written as',
+      bbox: { x: 0.08, y: 0.522, width: 0.41, height: 0.043 },
+      locator: { precision: 'BLOCK' },
+    }]
+    const blocks = [{
+      text: '公共流 SINR 定义如下。', basis: 'PAPER_FACT', citations: [
+        { evidenceId: 'lay-wrapped', quote: 'signal-to-interference plus noise ratio (SINR) for the common' },
+        { evidenceId: 'lay-wrapped', quote: 'stream at vehicle-k can be written as' },
+      ],
+    }]
+
+    const sources = buildCitationSources([], evidence, blocks)
+
+    expect(sources).toHaveLength(1)
+    expect(sources[0].evidenceIds).toEqual(['lay-wrapped'])
+    expect(sources[0].excerpt).toContain('common stream at vehicle-k')
+  })
+
   it('merges adjacent layout fragments when citations continue one wrapped sentence', () => {
     const evidence = [
       {

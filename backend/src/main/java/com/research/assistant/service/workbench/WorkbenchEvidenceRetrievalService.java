@@ -330,17 +330,17 @@ public class WorkbenchEvidenceRetrievalService {
         for (Candidate formula : formulas) {
             List<DocumentBlock> nearby = textBlocks.stream()
                     .filter(block -> block.role() == DocumentBlockRole.BODY
-                            || block.role() == DocumentBlockRole.CAPTION)
+                            || block.role() == DocumentBlockRole.CAPTION
+                            || block.role() == DocumentBlockRole.HEADING)
                     .filter(block -> block.page() == formula.block().page())
-                    .filter(block -> block.sectionPath().equals(formula.block().sectionPath().stream()
-                            .filter(value -> !value.startsWith("Equation (")).toList()))
+                    .filter(block -> block.sectionPath().equals(baseFormulaSection(formula.block())))
                     .filter(block -> sameColumn(formula.block().bbox(), block.bbox()))
                     .filter(block -> Math.abs(block.readingOrder() - formula.block().readingOrder()) <= 10)
                     .filter(block -> safe(block.text()).trim().length() >= 24)
                     .filter(block -> !looksLikeNumberedEquation(block))
                     .sorted(Comparator.comparingInt(block ->
                             Math.abs(block.readingOrder() - formula.block().readingOrder())))
-                    .limit(2)
+                    .limit(4)
                     .toList();
             for (DocumentBlock block : nearby) {
                 if (!existing.add(block.id())) continue;
@@ -624,11 +624,15 @@ public class WorkbenchEvidenceRetrievalService {
     }
 
     private String formulaSectionKey(DocumentBlock block) {
-        List<String> section = block.sectionPath().stream()
+        List<String> section = baseFormulaSection(block);
+        return section.isEmpty() ? "page:" + block.page() : String.join(" / ", section);
+    }
+
+    private List<String> baseFormulaSection(DocumentBlock block) {
+        return block.sectionPath().stream()
                 .filter(value -> !value.startsWith("Equation ("))
                 .filter(value -> !value.matches("(?i)(?:theorem|lemma|proposition|corollary) .* (?:result|proof step)"))
                 .toList();
-        return section.isEmpty() ? "page:" + block.page() : String.join(" / ", section);
     }
 
     private record Candidate(DocumentBlock block,

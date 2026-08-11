@@ -143,6 +143,7 @@ class WorkbenchEvidenceRetrievalServiceTest {
         assertThat(theoremResult.score()).isGreaterThan(proofStep.score());
         assertThat(theoremResult.sectionPath()).contains("Theorem 2 result");
         assertThat(proofStep.sectionPath()).contains("Theorem 2 proof step");
+        assertThat(result).extracting(LayoutEvidence::blockId).contains("theorem", "proof");
     }
 
     @Test
