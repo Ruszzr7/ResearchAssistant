@@ -42,7 +42,7 @@ public class PaperContextAssembler {
     private final PaperMemoryObservationService observationService;
     private final WorkbenchRunTraceService traceService;
     private final ObjectMapper objectMapper;
-    private final WorkbenchConversationClassifier conversationClassifier;
+    private final TurnRoutingManager turnRoutingManager;
 
     public PaperContextAssembler(PaperMemoryMapper memoryMapper,
                                  PaperMemoryObservationService observationService,
@@ -59,14 +59,14 @@ public class PaperContextAssembler {
                                  ObjectMapper objectMapper,
                                  WorkbenchRetrievalPlanner retrievalPlanner,
                                  WorkbenchCommandPlanner commandPlanner,
-                                 WorkbenchConversationClassifier conversationClassifier) {
+                                 TurnRoutingManager turnRoutingManager) {
         this.memoryMapper = memoryMapper;
         this.observationService = observationService;
         this.traceService = traceService;
         this.objectMapper = objectMapper;
-        this.conversationClassifier = conversationClassifier == null
-                ? new WorkbenchConversationClassifier(retrievalPlanner, commandPlanner)
-                : conversationClassifier;
+        this.turnRoutingManager = turnRoutingManager == null
+                ? new TurnRoutingManager(commandPlanner, retrievalPlanner)
+                : turnRoutingManager;
     }
 
     public PaperContextSnapshot assemble(WorkbenchRunTrace trace, SelectionAnchor anchor) {
@@ -84,11 +84,15 @@ public class PaperContextAssembler {
                 && anchor.anchorText().trim().length() > selected.length();
         truncated |= attachments.truncated();
 
+        BoundedText profile = profileContext(paperId, version);
+        truncated |= profile.truncated();
+
         List<PaperConversationTurn> storedTurns = observationService.recentConversation(
                 paperId, trace.invocation().conversationId(), version.documentHash(),
                 version.parserVersion(), 8);
-        WorkbenchConversationRelation conversationRelation = conversationClassifier.classify(
-                trace.invocation().question(), storedTurns);
+        WorkbenchTurnRoute turnRoute = turnRoutingManager.route(
+                trace.invocation(), storedTurns, profile.value());
+        WorkbenchConversationRelation conversationRelation = turnRoute.conversationRelation();
         // A chat always keeps bounded same-version history. The relation only decides whether
         // retrieval reuses the previous evidence focus.
         BudgetedTurns turns = conversationItems(storedTurns);
@@ -101,15 +105,13 @@ public class PaperContextAssembler {
         BudgetedObservations observations = observationItems(storedObservations);
         truncated |= observations.truncated();
 
-        BoundedText profile = profileContext(paperId, version);
-        truncated |= profile.truncated();
         PaperContextSnapshot snapshot = new PaperContextSnapshot(
                 PaperContextSnapshot.SCHEMA_VERSION, paperId, version.documentHash(),
                 version.parserVersion(), trace.invocation().conversationId(),
                 trace.invocation().question(), selected, attachments.value(),
                 anchor == null ? List.of() : anchor.blockIds(),
                 PaperContextSnapshot.selectionFingerprint(anchor), profile.value(),
-                turns.items(), conversationRelation, observations.items(), SOURCE_PRIORITY,
+                turns.items(), conversationRelation, turnRoute, observations.items(), SOURCE_PRIORITY,
                 new PaperContextSnapshot.Budget(
                         MAX_CONTEXT_CHARACTERS, selected.length() + attachments.value().length(), turns.characters(),
                         observations.characters(), profile.value().length()),

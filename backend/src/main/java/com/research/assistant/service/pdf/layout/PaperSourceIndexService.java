@@ -21,7 +21,7 @@ public class PaperSourceIndexService {
 
     private static final Pattern EQUATION = Pattern.compile("\\((\\d{1,4}[a-z]?)\\)");
     private static final Pattern THEOREM = Pattern.compile(
-            "(?i)\\b(?:theorem|lemma|proposition|corollary)\\s+(\\d+[a-z]?)\\b");
+            "(?i)\\b(theorem|lemma|proposition|corollary)\\s+(\\d+[a-z]?)\\b");
     private static final Pattern PROOF = Pattern.compile("(?i)\\bproof\\b");
     private static final Pattern MENTION_AT_END = Pattern.compile(
             "(?i).*(?:in|from|using|by|see|shown\\s+in|calculated\\s+by|given\\s+in|"
@@ -37,35 +37,23 @@ public class PaperSourceIndexService {
                 .toList();
 
         Map<String, MutableEquation> equations = new LinkedHashMap<>();
-        String theorem = "";
-        boolean inProof = false;
-        int theoremOrder = -1;
+        List<StatementOwner> statementOwners = statementOwners(ordered);
         for (DocumentBlock block : ordered) {
-            Matcher theoremMatcher = THEOREM.matcher(block.text());
-            if (theoremMatcher.find()) {
-                theorem = theoremMatcher.group(1);
-                theoremOrder = block.readingOrder();
-                inProof = PROOF.matcher(block.text()).find();
-            } else if (!theorem.isBlank() && PROOF.matcher(block.text()).find()) {
-                inProof = true;
-            } else if (!theorem.isBlank() && block.role() == DocumentBlockRole.HEADING
-                    && block.readingOrder() > theoremOrder) {
-                theorem = "";
-                inProof = false;
-            }
-
             Matcher matcher = EQUATION.matcher(block.text());
             while (matcher.find()) {
                 String number = matcher.group(1);
-                if (isDefinition(block, matcher.start())) {
+                if (isDefinition(ordered, block, matcher.start())) {
                     SourceAnchor definition = formulaAnchor(artifact, ordered, block, number);
-                    EquationEntity.Relation relation = theorem.isBlank()
+                    StatementOwner owner = nearestOwner(ordered, statementOwners, block);
+                    EquationEntity.Relation relation = owner == null
                             ? EquationEntity.Relation.OTHER
-                            : inProof ? EquationEntity.Relation.PROOF_STEP
+                            : proofBetween(ordered, owner.block(), block)
+                            ? EquationEntity.Relation.PROOF_STEP
                             : EquationEntity.Relation.THEOREM_RESULT;
-                    String relatedTheorem = theorem;
                     equations.compute(number, (ignored, current) -> chooseDefinition(
-                            current, number, definition, relation, relatedTheorem,
+                            current, number, definition, relation,
+                            owner == null ? "" : owner.kind(),
+                            owner == null ? "" : owner.number(),
                             nearbyContext(ordered, block)));
                 } else {
                     MutableEquation current = equations.computeIfAbsent(number,
@@ -85,9 +73,90 @@ public class PaperSourceIndexService {
                 artifact.documentHash(), artifact.parserVersion(), textAnchors, result);
     }
 
-    private boolean isDefinition(DocumentBlock block, int labelOffset) {
+    private List<StatementOwner> statementOwners(List<DocumentBlock> blocks) {
+        List<StatementOwner> result = new ArrayList<>();
+        for (DocumentBlock block : blocks) {
+            Matcher matcher = THEOREM.matcher(block.text());
+            if (matcher.find()) {
+                result.add(new StatementOwner(
+                        matcher.group(1).toUpperCase(Locale.ROOT), matcher.group(2), block));
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    /** Finds a structural owner before flattening independent page flows into one document order. */
+    private StatementOwner nearestOwner(List<DocumentBlock> blocks,
+                                        List<StatementOwner> owners,
+                                        DocumentBlock equation) {
+        return owners.stream()
+                .filter(owner -> precedes(owner.block(), equation))
+                .filter(owner -> sameFlow(owner.block(), equation))
+                .filter(owner -> !sectionBoundaryBetween(blocks, owner.block(), equation))
+                .max(Comparator.comparingInt((StatementOwner owner) -> owner.block().page())
+                        .thenComparingInt(owner -> owner.block().readingOrder())
+                        .thenComparingDouble(owner -> owner.block().bbox().y()))
+                .orElse(null);
+    }
+
+    private boolean precedes(DocumentBlock owner, DocumentBlock equation) {
+        if (owner.page() > equation.page() || equation.page() - owner.page() > 1) return false;
+        if (owner.page() < equation.page()) return true;
+        return owner.readingOrder() <= equation.readingOrder();
+    }
+
+    private boolean sameFlow(DocumentBlock owner, DocumentBlock equation) {
+        // Columns are a page-local ownership guard, not separate document contexts. At a page
+        // boundary the parser's reading order already connects the previous page to the next.
+        if (owner.page() != equation.page()) return true;
+        return owner.bbox().width() >= .72 || equation.bbox().width() >= .72
+                || sameColumn(owner.bbox(), equation.bbox());
+    }
+
+    private boolean sectionBoundaryBetween(List<DocumentBlock> blocks,
+                                           DocumentBlock owner,
+                                           DocumentBlock equation) {
+        return blocks.stream()
+                .filter(block -> block.role() == DocumentBlockRole.HEADING)
+                .filter(block -> !block.id().equals(owner.id()))
+                .filter(block -> sameFlow(block, equation))
+                .anyMatch(block -> positionBetween(owner, block, equation));
+    }
+
+    private boolean proofBetween(List<DocumentBlock> blocks,
+                                 DocumentBlock owner,
+                                 DocumentBlock equation) {
+        return blocks.stream()
+                .filter(block -> sameFlow(block, equation))
+                .filter(block -> positionBetween(owner, block, equation)
+                        || block.id().equals(owner.id()) || block.id().equals(equation.id()))
+                .anyMatch(block -> PROOF.matcher(block.text()).find());
+    }
+
+    private boolean positionBetween(DocumentBlock start,
+                                    DocumentBlock candidate,
+                                    DocumentBlock end) {
+        boolean afterStart = candidate.page() > start.page()
+                || candidate.page() == start.page()
+                && candidate.readingOrder() > start.readingOrder();
+        boolean beforeEnd = candidate.page() < end.page()
+                || candidate.page() == end.page()
+                && candidate.readingOrder() < end.readingOrder();
+        return afterStart && beforeEnd;
+    }
+
+    private boolean isDefinition(List<DocumentBlock> blocks, DocumentBlock block, int labelOffset) {
         String text = block.text().replaceAll("\\s+", " ").trim();
         if (MENTION_AT_END.matcher(text).matches()) return false;
+        if (text.matches("^\\(\\d{1,4}[a-z]?\\)$")) {
+            return blocks.stream()
+                    .filter(candidate -> candidate.page() == block.page())
+                    .filter(candidate -> candidate.readingOrder() < block.readingOrder())
+                    .filter(candidate -> block.readingOrder() - candidate.readingOrder() <= 12)
+                    .filter(this::formulaComponent)
+                    .filter(candidate -> sameColumn(block.bbox(), candidate.bbox()))
+                    .anyMatch(candidate -> verticalGap(block.bbox(), candidate.bbox()) <= .075);
+        }
         String before = text.substring(0, Math.min(labelOffset, text.length()));
         boolean operator = before.matches("(?s).*[=≈≃≤≥<>∑∏√+−].*")
                 || before.toLowerCase(Locale.ROOT).matches("(?s).*\\b(max|min|argmax|argmin)\\b.*");
@@ -99,25 +168,59 @@ public class PaperSourceIndexService {
                                        List<DocumentBlock> blocks,
                                        DocumentBlock label,
                                        String number) {
-        List<NormalizedBoundingBox> boxes = new ArrayList<>();
-        boxes.add(label.bbox());
+        NormalizedBoundingBox labelBox = formulaLabelBox(label);
+        List<DocumentBlock> components = new ArrayList<>();
+        components.add(label);
         blocks.stream()
                 .filter(block -> block.page() == label.page())
-                .filter(block -> block.role() == DocumentBlockRole.FORMULA)
                 .filter(block -> !block.id().equals(label.id()))
-                .filter(block -> Math.abs(block.readingOrder() - label.readingOrder()) <= 7)
-                .filter(block -> sameColumn(label.bbox(), block.bbox()))
-                .filter(block -> verticalGap(label.bbox(), block.bbox()) <= 0.035)
-                .map(DocumentBlock::bbox).forEach(boxes::add);
+                .filter(this::formulaComponent)
+                .filter(block -> Math.abs(block.readingOrder() - label.readingOrder()) <= 10)
+                .filter(block -> sameColumn(labelBox, block.bbox()))
+                .filter(block -> verticalGap(labelBox, block.bbox()) <= 0.060)
+                .forEach(components::add);
+        components.sort(Comparator.comparingInt(DocumentBlock::readingOrder));
+        List<NormalizedBoundingBox> boxes = components.stream()
+                .map(block -> block.id().equals(label.id()) ? labelBox : block.bbox())
+                .toList();
         NormalizedBoundingBox bbox = union(boxes);
+        String sourceText = components.stream().map(DocumentBlock::text)
+                .map(String::trim).filter(value -> !value.isBlank())
+                .distinct().reduce((first, second) -> first + " " + second).orElse("");
         return new SourceAnchor(sourceId(artifact, "equation:" + number), label.page(),
-                SourceAnchor.Kind.FORMULA_REGION, bbox, boxes, "", label.id(), label.confidence());
+                SourceAnchor.Kind.FORMULA_REGION, bbox, boxes, sourceText,
+                label.id(), label.confidence());
+    }
+
+    private boolean formulaComponent(DocumentBlock block) {
+        if (block.role() == DocumentBlockRole.FORMULA) return true;
+        if (block.role() != DocumentBlockRole.BODY || block.mathProfile().signalCount() == 0
+                || block.mathProfile().density() < .10) return false;
+        Matcher prose = Pattern.compile("[A-Za-z]{4,}").matcher(block.text());
+        int words = 0;
+        while (prose.find() && words < 3) words++;
+        return words < 3;
+    }
+
+    private NormalizedBoundingBox formulaLabelBox(DocumentBlock label) {
+        NormalizedBoundingBox box = label.bbox();
+        // A same-baseline PDFBox row can contain the tail of the left column and a numbered
+        // equation in the right column. When the equation label is at the row end, retain only
+        // the right-column half instead of publishing a page-wide action box.
+        if (box.width() >= .68 && EQUATION.matcher(label.text()).find()
+                && label.text().trim().matches("(?s).*\\(\\d{1,4}[a-z]?\\)\\s*$")) {
+            double left = Math.max(.505, box.x());
+            return new NormalizedBoundingBox(left, box.y(),
+                    Math.max(.01, box.right() - left), box.height());
+        }
+        return box;
     }
 
     private MutableEquation chooseDefinition(MutableEquation current,
                                              String number,
                                              SourceAnchor definition,
                                              EquationEntity.Relation relation,
+                                             String statementKind,
                                              String theorem,
                                              List<String> context) {
         if (current == null) current = new MutableEquation(number);
@@ -126,6 +229,7 @@ public class PaperSourceIndexService {
                 && current.relation != EquationEntity.Relation.THEOREM_RESULT) {
             current.definition = definition;
             current.relation = relation;
+            current.statementKind = statementKind;
             current.theorem = theorem;
             current.context = context;
         } else {
@@ -187,6 +291,7 @@ public class PaperSourceIndexService {
         private final String number;
         private SourceAnchor definition;
         private EquationEntity.Relation relation = EquationEntity.Relation.OTHER;
+        private String statementKind = "";
         private String theorem = "";
         private List<String> context = List.of();
         private final List<SourceAnchor> mentions = new ArrayList<>();
@@ -195,7 +300,9 @@ public class PaperSourceIndexService {
 
         private EquationEntity freeze() {
             return new EquationEntity("eq:" + number + ":" + definition.anchorId(), number,
-                    definition, relation, theorem, context, mentions);
+                    definition, relation, statementKind, theorem, context, mentions);
         }
     }
+
+    private record StatementOwner(String kind, String number, DocumentBlock block) { }
 }

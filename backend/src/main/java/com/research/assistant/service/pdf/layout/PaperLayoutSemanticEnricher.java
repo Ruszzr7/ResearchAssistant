@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 @Component
 public class PaperLayoutSemanticEnricher {
 
-    static final String VERSION = "semantic-v4";
+    static final String VERSION = "semantic-v5";
 
     private static final Pattern ABSTRACT_START = Pattern.compile(
             "(?i)^\\s*(?:abstract|summary)\\b[\\s.:-]*");

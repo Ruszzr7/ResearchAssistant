@@ -11,6 +11,7 @@ import com.research.assistant.entity.ResearchSession;
 import com.research.assistant.mapper.*;
 import com.research.assistant.service.workbench.WorkbenchRunTrace;
 import com.research.assistant.service.workbench.WorkbenchRunTraceService;
+import com.research.assistant.service.workbench.WorkbenchWorkflowResult;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -156,6 +157,46 @@ public class ResearchSessionService {
         touch(session);
         sessionMapper.updateById(session);
         return saved;
+    }
+
+    /**
+     * Archives a completed workbench turn on the server so leaving the PDF page cannot lose the
+     * answer. Message keys make this safe to replay when the browser also performs its legacy sync.
+     */
+    @Transactional
+    public void archiveWorkbenchCompletion(WorkbenchRunTrace trace, WorkbenchWorkflowResult result) {
+        if (trace == null || result == null) return;
+        PaperWorkbenchRunRecord run = runMapper.selectByRunId(trace.runId());
+        if (run == null || run.getResearchSessionId() == null) return;
+
+        var userEvidence = objectMapper.createObjectNode();
+        userEvidence.put("contextInherited", result.contextInherited());
+        userEvidence.put("contextMode", result.contextMode().name());
+        userEvidence.put("conversationId", trace.invocation().conversationId());
+        var attachmentViews = userEvidence.putArray("attachments");
+        trace.invocation().attachments().forEach(attachment -> {
+            var item = attachmentViews.addObject();
+            item.put("name", attachment.name());
+            item.put("mimeType", attachment.mimeType());
+            item.put("truncated", attachment.truncated());
+        });
+
+        var assistantEvidence = objectMapper.createObjectNode();
+        assistantEvidence.set("claims", objectMapper.valueToTree(result.claims()));
+        assistantEvidence.set("answerBlocks", objectMapper.valueToTree(result.answerBlocks()));
+        assistantEvidence.set("evidence", objectMapper.valueToTree(result.evidence()));
+        assistantEvidence.put("regionFallback", result.regionFallback());
+        assistantEvidence.set("actions", objectMapper.valueToTree(result.actions()));
+        assistantEvidence.put("conversationId", trace.invocation().conversationId());
+
+        appendMessages(run.getResearchSessionId(), new ResearchMessageAppendRequest(List.of(
+                new ResearchMessageInput(
+                        trace.runId() + ":user", "USER", trace.invocation().question(), trace.runId(),
+                        objectMapper.valueToTree(trace.invocation().selectionAnchor()), userEvidence),
+                new ResearchMessageInput(
+                        trace.runId() + ":assistant", "ASSISTANT", result.answer(), trace.runId(),
+                        null, assistantEvidence)
+        )));
     }
 
     @Transactional

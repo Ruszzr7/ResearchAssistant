@@ -134,7 +134,6 @@
         </section>
 
         <section v-else class="content-empty">
-          <div class="content-empty__icon" aria-hidden="true">⌁</div>
           <b>{{ captureMode === 'formula' ? '框选一个公式' : '选择一段论文内容' }}</b>
           <p>{{ captureMode === 'formula' ? '框选预览和固定过程中生成的 LaTeX 会显示在这里。' : '原文会显示在这里，确认后附加到下一条消息。' }}</p>
         </section>
@@ -179,7 +178,12 @@
           <button type="button" class="conversation-picker__new" :disabled="running" @click="startNewConversation">＋ 开始新对话</button>
         </section>
 
-        <div ref="selectionChatMessages" class="selection-chat__messages" aria-live="polite">
+        <div
+          ref="selectionChatMessages"
+          class="selection-chat__messages"
+          aria-live="polite"
+          @scroll="updateChatScrollState"
+        >
           <div v-if="!selectionMessages.length && !running" class="selection-chat__empty">
             <span aria-hidden="true">✦</span>
             <b>围绕论文内容继续追问</b>
@@ -234,6 +238,19 @@
               正在基于论文证据生成回答…
             </div>
           </div>
+        </div>
+
+        <div class="scroll-to-latest-anchor">
+          <button
+            v-if="showScrollToLatest"
+            type="button"
+            class="scroll-to-latest"
+            title="跳转到最新消息"
+            aria-label="跳转到最新消息"
+            @click="scrollSelectionChat"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
         </div>
 
         <div class="assistant-composer" :class="{ disabled: !memoryReady }">
@@ -395,6 +412,8 @@ const selectionMessages = ref([])
 const selectionConversationId = ref('')
 const selectionChatError = ref('')
 const selectionChatMessages = ref(null)
+const selectionChatAtBottom = ref(true)
+const selectionChatScrollable = ref(false)
 const activeResearchSessionId = ref(positiveSessionId(props.researchSessionId))
 const conversationSessions = ref([])
 const conversationPickerVisible = ref(false)
@@ -402,6 +421,7 @@ let sessionCreatePromise = null
 let selectionMessageSequence = 0
 let selectionConversationSequence = 0
 let memoryPollTimer = null
+let foregroundSubmission = false
 
 const memoryStatus = ref(null)
 const memoryStarting = ref(false)
@@ -458,6 +478,9 @@ const selectionChatDisabled = computed(() => (
 const pendingContextCount = computed(() => (
   pendingAttachments.value.length + pendingFormulas.value.length
 ))
+const showScrollToLatest = computed(() => (
+  selectionChatScrollable.value && !selectionChatAtBottom.value
+))
 
 watch(() => displayedSelection.value?.text, () => {
   selectionTranslation.value = null
@@ -483,6 +506,10 @@ watch(() => props.researchSessionId, nextId => {
     selectionConversationId.value = ''
     selectionMessages.value = []
   }
+})
+watch(running, (isRunning, wasRunning) => {
+  if (!wasRunning || isRunning || foregroundSubmission || !activeResearchSessionId.value) return
+  void restoreResearchMessages(activeResearchSessionId.value)
 })
 watch(() => props.paper.id, () => {
   fixedTextSelection.value = null
@@ -724,6 +751,7 @@ async function sendSelectionMessage() {
   await scrollSelectionChat()
 
   try {
+    foregroundSubmission = true
     const request = buildWorkbenchPlanRequest({
       paperId: props.paper.id,
       question: content,
@@ -791,6 +819,8 @@ async function sendSelectionMessage() {
       pendingFormulas.value = formulas
       selectionChatError.value = requestErrorMessage(reason, '选区对话失败')
     }
+  } finally {
+    foregroundSubmission = false
   }
 }
 
@@ -994,7 +1024,18 @@ function jump(item) {
 async function scrollSelectionChat() {
   await nextTick()
   const container = selectionChatMessages.value
-  if (container) container.scrollTop = container.scrollHeight
+  if (!container) return
+  container.scrollTop = container.scrollHeight
+  updateChatScrollState()
+}
+
+function updateChatScrollState() {
+  const container = selectionChatMessages.value
+  if (!container) return
+  selectionChatScrollable.value = container.scrollHeight > container.clientHeight + 2
+  selectionChatAtBottom.value = (
+    container.scrollHeight - container.scrollTop - container.clientHeight <= 24
+  )
 }
 
 function positiveSessionId(value) {
@@ -1135,10 +1176,9 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .selection-translation { margin-top: 9px; padding: 9px; border-radius: 6px; background: color-mix(in srgb, var(--ra-link) 7%, var(--ra-panel-bg)); font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
 .selection-translation small { display: block; margin-bottom: 3px; color: var(--ra-text-tertiary); font-size: 9px; }
 .content-confirm-hint { margin-top: 8px; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.4; }
-.content-empty { display: grid; min-height: 132px; border-bottom: 0; place-items: center; align-content: center; text-align: center; }
-.content-empty__icon { display: grid; width: 34px; height: 34px; margin-bottom: 8px; border-radius: 50%; place-items: center; color: var(--ra-link); background: color-mix(in srgb, var(--ra-link) 10%, transparent); font-size: 20px; }
+.content-empty { display: flex; min-height: 58px; box-sizing: border-box; border-bottom: 0; flex-direction: column; justify-content: center; gap: 3px; text-align: left; }
 .content-empty b { color: var(--ra-text); font-size: 12px; }
-.content-empty p { max-width: 260px; margin: 5px 0 0; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.5; }
+.content-empty p { max-width: none; margin: 0; color: var(--ra-text-tertiary); font-size: 10px; line-height: 1.4; }
 .selection-chat { display: flex; min-height: 0; flex: 1 1 0; overflow: hidden; flex-direction: column; gap: 0; border-bottom: 0; }
 .selection-chat__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 0 2px 9px; border-bottom: 1px solid var(--ra-border-light); }
 .selection-chat__heading > div { display: flex; flex-direction: column; gap: 2px; }
@@ -1159,6 +1199,10 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .conversation-picker__empty { padding: 12px 4px; text-align: center; }
 .conversation-picker__new { padding: 7px; border: 1px dashed color-mix(in srgb, var(--ra-link) 55%, var(--ra-border)); border-radius: 6px; color: var(--ra-link); background: transparent; cursor: pointer; font-size: 10px; }
 .selection-chat__messages { display: flex; min-height: 0; max-height: none; flex: 1 1 0; flex-direction: column; gap: 10px; overflow-y: auto; padding: 9px 2px 2px; }
+.scroll-to-latest-anchor { position: relative; z-index: 3; height: 0; flex: 0 0 0; }
+.scroll-to-latest { position: absolute; bottom: 7px; left: 50%; display: grid; width: 28px; height: 28px; padding: 0; border: 1px solid var(--ra-border); border-radius: 50%; place-items: center; color: var(--ra-text-secondary); background: var(--ra-panel-bg); box-shadow: 0 4px 12px rgb(0 0 0 / 13%); cursor: pointer; transform: translateX(-50%); }
+.scroll-to-latest:hover { color: var(--ra-link); border-color: color-mix(in srgb, var(--ra-link) 45%, var(--ra-border)); }
+.scroll-to-latest svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .selection-chat__empty { display: grid; min-height: 0; height: 100%; padding: 12px; box-sizing: border-box; border: 1px dashed var(--ra-border); border-radius: 9px; place-items: center; align-content: center; color: var(--ra-text-tertiary); text-align: center; }
 .selection-chat__empty > span { margin-bottom: 6px; color: var(--ra-link); font-size: 20px; }
 .selection-chat__empty b { color: var(--ra-text); font-size: 12px; }

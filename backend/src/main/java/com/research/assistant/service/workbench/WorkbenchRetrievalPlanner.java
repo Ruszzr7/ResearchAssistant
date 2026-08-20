@@ -43,7 +43,9 @@ public class WorkbenchRetrievalPlanner {
         boolean broad = evaluative || containsAny(normalized, "总结", "概述", "全文", "主要贡献", "创新点",
                 "summary", "overview", "whole paper", "contribution");
         boolean comparison = containsAny(normalized, "比较", "对比", "区别", "comparison", "compare", "versus");
-        boolean formula = containsAny(normalized, "公式", "方程", "推导", "equation", "formula");
+        boolean formula = containsAny(normalized,
+                "公式", "方程", "推导", "表达式", "闭式", "解析式",
+                "equation", "formula", "expression", "closed-form", "closed form");
         boolean referential = containsAny(normalized, "这个", "这一", "上述", "前面", "继续", "它", "该方法",
                 "该公式", "this", "that", "above", "continue", "former", "latter");
 
@@ -122,6 +124,9 @@ public class WorkbenchRetrievalPlanner {
         values.put("分配", List.of("allocation", "division", "distribution"));
         values.put("公共流", List.of("common stream", "common-stream"));
         values.put("私有流", List.of("private stream", "private-stream"));
+        values.put("速率", List.of("rate", "ergodic rate", "achievable rate"));
+        values.put("闭式", List.of("closed-form", "closed form", "expression"));
+        values.put("表达式", List.of("expression", "formula", "equation"));
         values.put("信干噪比", List.of("sinr", "signal-to-interference-plus-noise ratio"));
         // Chinese users often use “信噪比” colloquially for both SNR and SINR.
         // Keep both candidates and let the current PDF decide which one exists.

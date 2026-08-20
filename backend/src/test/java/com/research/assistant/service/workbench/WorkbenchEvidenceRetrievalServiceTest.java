@@ -118,7 +118,9 @@ class WorkbenchEvidenceRetrievalServiceTest {
                         "equation-entity:1:signal-equation",
                         "equation-entity:21:objective-equation");
         assertThat(result.stream().filter(item -> item.role() == DocumentBlockRole.FORMULA))
-                .allMatch(item -> item.contentMode() == DocumentBlockContentMode.REGION);
+                .allMatch(item -> item.contentMode() == DocumentBlockContentMode.TEXT
+                        && item.locator().precision()
+                        == com.research.assistant.service.pdf.layout.EvidenceLocator.Precision.FORMULA_REGION);
     }
 
     @Test

@@ -181,7 +181,10 @@ function usableSearchQuote(value) {
 function mergedTextDescriptor(values) {
   const items = values.map(value => value.item)
   const quotes = values.map(value => value.quote).filter(Boolean)
-  const targetBbox = unionBoundingBoxes(items.map(item => item.locator?.targetBbox || item.bbox))
+  const targetBoxes = items.flatMap(item => item.locator?.targetBoxes?.length
+    ? item.locator.targetBoxes
+    : [item.locator?.targetBbox || item.bbox]).filter(Boolean)
+  const targetBbox = unionBoundingBoxes(targetBoxes)
   const quote = quotes.join(' ').replace(/\s+/g, ' ').trim()
   const first = items[0]
   const key = `span:${first.paperId || ''}:${first.page || ''}:${items.map(item => item.blockId).join('|')}:${normalize(quote)}`
@@ -198,6 +201,7 @@ function mergedTextDescriptor(values) {
       locator: {
         ...(first.locator || {}),
         targetBbox,
+        targetBoxes,
         // Keep physical line fragments separate for PDFium search while displaying one sentence.
         targetText: quotes.join('\n'),
         precision: 'TEXT_SPAN',

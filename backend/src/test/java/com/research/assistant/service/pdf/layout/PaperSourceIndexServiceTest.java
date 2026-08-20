@@ -55,6 +55,87 @@ class PaperSourceIndexServiceTest {
         assertThat(anchor.bbox().right()).isLessThan(0.60);
     }
 
+    @Test
+    void formulaAnchorIncludesMathDenseBodyFragmentsButExcludesFollowingProse() {
+        MathContentProfile math = new MathContentProfile(
+                MathContentLevel.LIGHT, .35, 2, List.of(), "test");
+        PaperLayoutArtifact artifact = artifact(List.of(
+                new DocumentBlock("formula-main", 6, new NormalizedBoundingBox(.54, .60, .34, .02),
+                        DocumentBlockRole.BODY, 10, List.of("Theorem 2"),
+                        "Rk(t) = log(1+x) - log(1+y)", null, null, .9,
+                        DocumentBlockContentMode.TEXT, math),
+                new DocumentBlock("formula-tail", 6, new NormalizedBoundingBox(.60, .64, .28, .02),
+                        DocumentBlockRole.FORMULA, 11, List.of("Theorem 2"),
+                        "- Q(beta). (31)", null, null, .9, DocumentBlockContentMode.REGION),
+                new DocumentBlock("prose", 6, new NormalizedBoundingBox(.52, .67, .38, .03),
+                        DocumentBlockRole.BODY, 12, List.of("Theorem 2"),
+                        "where the terms are defined in Lemmas 4, 5 and 6", null, null, .9)));
+
+        SourceAnchor anchor = service.build(artifact).equations().get(0).definition();
+
+        assertThat(anchor.boxes()).hasSize(2);
+        assertThat(anchor.targetText()).contains("Rk(t) = log(1+x)", "- Q(beta). (31)")
+                .doesNotContain("where the terms");
+    }
+
+    @Test
+    void assignsEquationsWithinTheirOwnColumnBeforeBuildingUnifiedDocumentOrder() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                new DocumentBlock("lemma3", 5, new NormalizedBoundingBox(.52, .60, .40, .03),
+                        DocumentBlockRole.BODY, 10, List.of("III. Analysis"),
+                        "Lemma 3. The CDF is equivalent to", null, null, .9),
+                new DocumentBlock("eq12", 5, new NormalizedBoundingBox(.10, .64, .35, .04),
+                        DocumentBlockRole.FORMULA, 11, List.of("III. Analysis"),
+                        "F(x) = 1 - exp(-x). (12)", null, null, .9, DocumentBlockContentMode.REGION),
+                new DocumentBlock("eq18", 5, new NormalizedBoundingBox(.59, .65, .32, .04),
+                        DocumentBlockRole.FORMULA, 12, List.of("III. Analysis"),
+                        "C1 = integral f(x). (18)", null, null, .9, DocumentBlockContentMode.REGION)));
+
+        PaperSourceIndex index = service.build(artifact);
+
+        EquationEntity left = index.equations().stream().filter(item -> item.number().equals("12")).findFirst().orElseThrow();
+        EquationEntity right = index.equations().stream().filter(item -> item.number().equals("18")).findFirst().orElseThrow();
+        assertThat(left.relation()).isEqualTo(EquationEntity.Relation.OTHER);
+        assertThat(right.statementKind()).isEqualTo("LEMMA");
+        assertThat(right.theoremNumber()).isEqualTo("3");
+    }
+
+    @Test
+    void doesNotCarryAStatementOwnerAcrossANewSectionOnTheNextPage() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                block("theorem", 6, 10, DocumentBlockRole.BODY,
+                        "Theorem 2. The lower bound is"),
+                block("section", 7, 11, DocumentBlockRole.HEADING,
+                        "IV. Problem Formulation and Solution"),
+                block("eq35", 7, 12, DocumentBlockRole.FORMULA,
+                        "P0 = max sum rate. (35)")));
+
+        EquationEntity equation = service.build(artifact).equations().get(0);
+
+        assertThat(equation.number()).isEqualTo("35");
+        assertThat(equation.relation()).isEqualTo(EquationEntity.Relation.OTHER);
+        assertThat(equation.statementKind()).isBlank();
+    }
+
+    @Test
+    void continuesLogicalReadingOrderAcrossPageColumnBoundaries() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                new DocumentBlock("theorem-right", 6,
+                        new NormalizedBoundingBox(.55, .75, .38, .03),
+                        DocumentBlockRole.BODY, 20, List.of("III. Analysis"),
+                        "Theorem 2. The private-stream lower bound is", null, null, .9),
+                new DocumentBlock("eq31-left", 7,
+                        new NormalizedBoundingBox(.08, .08, .40, .04),
+                        DocumentBlockRole.FORMULA, 21, List.of("III. Analysis"),
+                        "Rk = C(Gamma) - Q(beta). (31)", null, null, .9,
+                        DocumentBlockContentMode.REGION)));
+
+        EquationEntity equation = service.build(artifact).equations().get(0);
+
+        assertThat(equation.statementLabel()).isEqualTo("Theorem 2");
+        assertThat(equation.relation()).isEqualTo(EquationEntity.Relation.THEOREM_RESULT);
+    }
+
     private PaperLayoutArtifact artifact(List<DocumentBlock> blocks) {
         return new PaperLayoutArtifact(188L, "a".repeat(64), "parser+semantic-v4", 0.9,
                 Instant.parse("2026-08-11T00:00:00Z"), 10, blocks);

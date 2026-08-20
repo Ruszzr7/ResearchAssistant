@@ -155,10 +155,15 @@ public class WorkbenchEvidenceRetrievalService {
                                                          List<DocumentBlock> textBlocks,
                                                          int maxEvidence,
                                                          int maxCharacters) {
-        int formulaLimit = Math.max(2, Math.min(6, maxEvidence / 2));
+        int formulaLimit = Math.max(2, Math.min(4, maxEvidence / 2));
         PaperSourceIndex sourceIndex = sourceIndexService.build(artifact);
+        Map<String, EquationEntity> equationByCandidateId = new LinkedHashMap<>();
         List<Candidate> ranked = sourceIndex.equations().stream()
-                .map(entity -> sourceEquationCandidate(entity, allAllowed))
+                .map(entity -> {
+                    Candidate candidate = sourceEquationCandidate(entity, allAllowed);
+                    equationByCandidateId.put(candidate.block().id(), entity);
+                    return candidate;
+                })
                 .sorted(Comparator.comparingDouble(Candidate::score).reversed()
                         .thenComparingInt(item -> item.block().readingOrder()))
                 .toList();
@@ -205,9 +210,15 @@ public class WorkbenchEvidenceRetrievalService {
             if (result.size() >= maxEvidence) break;
             int nextCharacters = characters + item.block().text().length();
             if (!result.isEmpty() && nextCharacters > maxCharacters) continue;
-            result.add(evidenceProjection.toEvidence(
+            LayoutEvidence projected = evidenceProjection.toEvidence(
                             artifact, item.block(), item.score(), false)
-                    .withRetrieval(item.score(), item.routes().keySet().stream().toList()));
+                    .withRetrieval(item.score(), item.routes().keySet().stream().toList());
+            EquationEntity entity = equationByCandidateId.get(item.block().id());
+            if (entity != null) {
+                projected = projected.withLocator(entity.definition().bbox(),
+                        entity.definition().boxes(), "", com.research.assistant.service.pdf.layout.EvidenceLocator.Precision.FORMULA_REGION);
+            }
+            result.add(projected);
             characters = nextCharacters;
         }
         return List.copyOf(result);
@@ -223,20 +234,27 @@ public class WorkbenchEvidenceRetrievalService {
                 ? List.of() : sourceBlock.sectionPath());
         section.add("Equation (" + entity.number() + ")");
         if (entity.relation() == EquationEntity.Relation.THEOREM_RESULT) {
-            section.add("Theorem " + entity.theoremNumber() + " result");
+            section.add(entity.statementLabel() + " result");
         } else if (entity.relation() == EquationEntity.Relation.PROOF_STEP) {
-            section.add("Theorem " + entity.theoremNumber() + " proof step");
+            section.add(entity.statementLabel() + " proof step");
         }
         double score = switch (entity.relation()) {
-            case THEOREM_RESULT -> 0.96;
+            case THEOREM_RESULT -> switch (entity.statementKind()) {
+                case "THEOREM", "PROPOSITION" -> 0.99;
+                case "COROLLARY" -> 0.91;
+                case "LEMMA" -> 0.78;
+                default -> 0.82;
+            };
             case OTHER -> 0.68;
             case PROOF_STEP -> 0.52;
         };
+        String sourceText = safe(entity.definition().targetText());
+        if (sourceText.isBlank()) sourceText = "[Equation (" + entity.number() + ")]";
         DocumentBlock block = new DocumentBlock(
                 "equation-entity:" + entity.number() + ":" + entity.definition().blockId(),
                 entity.definition().page(), entity.definition().bbox(), DocumentBlockRole.FORMULA,
-                readingOrder, section, "[Equation (" + entity.number() + ")]", null, null,
-                entity.definition().confidence(), DocumentBlockContentMode.REGION);
+                readingOrder, section, sourceText, null, null,
+                entity.definition().confidence(), DocumentBlockContentMode.TEXT);
         return new Candidate(block, score, true,
                 Map.of("SOURCE_EQUATION", 1.0,
                         entity.relation() == EquationEntity.Relation.THEOREM_RESULT

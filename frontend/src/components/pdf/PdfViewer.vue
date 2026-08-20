@@ -1653,15 +1653,16 @@ async function jumpToEvidence(item) {
   }
   await goToPage(item.page)
   const exactBoxes = await locateEvidenceText(item)
-  const focusBoxes = exactBoxes.length ? exactBoxes : [targetBox]
+  const locatorBoxes = validEvidenceBoxes(item?.locator?.targetBoxes)
+  const focusBoxes = exactBoxes.length ? exactBoxes : locatorBoxes.length ? locatorBoxes : [targetBox]
   evidenceFocus.value = {
     page: item.page,
     boxes: focusBoxes,
-    precision: exactBoxes.length ? 'TEXT' : (item?.locator?.precision || 'BLOCK'),
+    precision: exactBoxes.length || locatorBoxes.length ? 'TEXT' : (item?.locator?.precision || 'BLOCK'),
   }
   await nextTick()
   scrollEvidenceIntoView(item.page, focusBoxes)
-  if (!exactBoxes.length && item?.locator?.precision !== 'FORMULA_REGION') {
+  if (!exactBoxes.length && !locatorBoxes.length && item?.locator?.precision !== 'FORMULA_REGION') {
     ElMessage.info('已定位到来源段落；PDF 字符映射不足，无法进一步精确到句子')
   }
   if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
@@ -1673,13 +1674,25 @@ async function jumpToEvidence(item) {
 
 async function executeAgentActions(actions) {
   for (const action of actions || []) {
-    if (action?.type !== 'HIGHLIGHT') continue
-    if (action.status !== 'READY' || !action.evidence) {
-      ElMessage.warning(action.message || '没有找到可精确高亮的论文原文')
+    if (!['HIGHLIGHT', 'UNDERLINE', 'ADD_NOTE', 'ADD_COMMENT', 'NAVIGATE'].includes(action?.type)) continue
+    const actionLabel = {
+      HIGHLIGHT: '高亮', UNDERLINE: '下划线', ADD_NOTE: '笔记', ADD_COMMENT: '批注', NAVIGATE: '跳转',
+    }[action.type] || '操作'
+    if (action.status !== 'READY') {
+      ElMessage.warning(action.message || `没有找到可精确执行${actionLabel}的论文原文`)
       continue
     }
     if (Number(action.paperId) !== Number(props.paper.id)) {
-      ElMessage.warning('高亮目标不在当前论文中，未执行')
+      ElMessage.warning(`${actionLabel}目标不在当前论文中，未执行`)
+      continue
+    }
+    if (action.type === 'NAVIGATE' && !action.evidence) {
+      await goToPage(action.page)
+      ElMessage.success(`已跳转到第 ${action.page} 页`)
+      continue
+    }
+    if (!action.evidence) {
+      ElMessage.warning(action.message || `没有找到可精确执行${actionLabel}的论文原文`)
       continue
     }
     const target = {
@@ -1694,14 +1707,24 @@ async function executeAgentActions(actions) {
     const fallbackBox = target.locator?.targetBbox || target.bbox
     const formulaFallback = target.locator?.precision === 'FORMULA_REGION' && fallbackBox
       ? [fallbackBox] : []
-    const trustedSelectionBoxes = (action.targetBoxes || []).filter(box => (
-      box && Number.isFinite(Number(box.x)) && Number.isFinite(Number(box.y))
-        && Number(box.width) > 0 && Number(box.height) > 0
-    ))
+    const trustedSelectionBoxes = validEvidenceBoxes(
+      action.targetBoxes?.length ? action.targetBoxes : target.locator?.targetBoxes,
+    )
     const boxes = trustedSelectionBoxes.length
       ? trustedSelectionBoxes : exactBoxes.length ? exactBoxes : formulaFallback
     if (!boxes.length) {
-      ElMessage.warning(`已找到“${action.query}”的来源，但无法建立精确字符位置，因此未高亮`)
+      ElMessage.warning(`已找到“${action.query}”的来源，但无法建立精确字符位置，因此未执行${actionLabel}`)
+      continue
+    }
+    if (action.type === 'NAVIGATE') {
+      evidenceFocus.value = {
+        page: target.page,
+        boxes,
+        precision: trustedSelectionBoxes.length || exactBoxes.length ? 'TEXT' : 'FORMULA_REGION',
+      }
+      await nextTick()
+      scrollEvidenceIntoView(target.page, boxes)
+      ElMessage.success(`已跳转到“${action.query}”`)
       continue
     }
     if (annotations.value.some(annotation => (
@@ -1709,22 +1732,26 @@ async function executeAgentActions(actions) {
       && annotation.coordinates?.agentActionId === action.actionId
     ))) {
       await jumpToEvidence(target)
-      ElMessage.info('该内容已经高亮')
+      ElMessage.info(`该内容已经执行${actionLabel}`)
       continue
     }
     const page = renderedPages.value[Number(target.page) - 1]
     const quads = boxes.map(boundingBoxToViewportQuad).filter(Boolean)
     if (!page?.viewport || !quads.length) {
-      ElMessage.warning('PDF 页面尚未准备完成，未执行高亮')
+      ElMessage.warning(`PDF 页面尚未准备完成，未执行${actionLabel}`)
       continue
     }
+    const markerAction = action.type === 'ADD_NOTE' || action.type === 'ADD_COMMENT'
+    const notePosition = markerAction ? notePositionNearAnchor(quads) : null
     const annotation = {
       localId: nextLocalId++,
       paperId: props.paper.id,
-      type: 'HIGHLIGHT',
+      type: action.type === 'UNDERLINE' ? 'UNDERLINE'
+        : action.type === 'ADD_NOTE' ? 'NOTE'
+          : action.type === 'ADD_COMMENT' ? 'COMMENT' : 'HIGHLIGHT',
       page: target.page,
       color: currentColor.value,
-      note: '',
+      note: String(action.content || '').trim(),
       completed: false,
       aiGenerated: true,
       coordinates: {
@@ -1734,11 +1761,25 @@ async function executeAgentActions(actions) {
         rotation: page.viewport.rotation,
         scale: page.viewport.scale,
         quads,
+        ...(markerAction ? {
+          anchorQuads: quads.map(quad => ({ ...quad })),
+          notePosition,
+        } : {}),
         anchorKind: 'AGENT_EVIDENCE',
         anchorText: String(action.targetText || action.query || '').slice(0, 500),
         evidenceId: action.evidenceId,
         agentActionId: action.actionId,
       },
+    }
+    if (markerAction && !annotation.note) {
+      noteEditTarget.value = annotation
+      noteEditText.value = ''
+      noteDialogVisible.value = true
+      evidenceFocus.value = { page: target.page, boxes, precision: 'TEXT' }
+      await nextTick()
+      scrollEvidenceIntoView(target.page, boxes)
+      ElMessage.info(`已定位目标，请填写${actionLabel}内容`)
+      continue
     }
     try {
       await persistNewAgentAnnotation(annotation)
@@ -1750,9 +1791,9 @@ async function executeAgentActions(actions) {
       }
       await nextTick()
       scrollEvidenceIntoView(target.page, boxes)
-      ElMessage.success(`已在原文中高亮“${action.query}”`)
+      ElMessage.success(`已在原文中执行${actionLabel}“${action.query}”`)
     } catch (error) {
-      ElMessage.error(`自动高亮保存失败：${requestErrorMessage(error)}`)
+      ElMessage.error(`自动${actionLabel}保存失败：${requestErrorMessage(error)}`)
     }
   }
 }
@@ -1774,6 +1815,13 @@ async function locateEvidenceText(item) {
     located.push(...boxes)
   }
   return dedupeEvidenceBoxes(located)
+}
+
+function validEvidenceBoxes(boxes) {
+  return (boxes || []).filter(box => (
+    box && Number.isFinite(Number(box.x)) && Number.isFinite(Number(box.y))
+      && Number(box.width) > 0 && Number(box.height) > 0
+  ))
 }
 
 async function locateEvidenceFragment(page, text, targetBox) {
@@ -2234,7 +2282,8 @@ async function confirmNote() {
   target.note = content
   noteSaving.value = true
   try {
-    await persistNewAnnotation(target)
+    if (target.aiGenerated) await persistNewAgentAnnotation(target)
+    else await persistNewAnnotation(target)
     selectedAnnotation.value = null
     notePreview.value = null
     currentTool.value = 'select'

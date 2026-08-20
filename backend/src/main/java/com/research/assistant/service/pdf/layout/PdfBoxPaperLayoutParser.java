@@ -15,6 +15,8 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * PDFBox-backed first-stage layout parser.
@@ -27,7 +29,7 @@ import java.util.Set;
 @Component
 public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
 
-    static final String VERSION = "pdfbox-layout-v1";
+    static final String VERSION = "pdfbox-layout-v3";
     private static final double EPSILON = 0.0001;
 
     @Override
@@ -256,6 +258,28 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
             );
         }
 
+        // Superscripts and tall math glyphs can disturb adjacency order even though the two
+        // physical columns still have a clear gutter. Partition by the stable gutter as a
+        // bounded fallback; never split a genuinely full-width line whose glyphs cross it.
+        List<Glyph> leftGlyphs = glyphs.stream()
+                .filter(glyph -> glyph.left() + glyph.width() / 2 < gutter.x()).toList();
+        List<Glyph> rightGlyphs = glyphs.stream()
+                .filter(glyph -> glyph.left() + glyph.width() / 2 >= gutter.x()).toList();
+        if (leftGlyphs.size() >= 2 && rightGlyphs.size() >= 2) {
+            double leftRight = leftGlyphs.stream().mapToDouble(Glyph::right).max().orElse(gutter.x());
+            double rightLeft = rightGlyphs.stream().mapToDouble(Glyph::left).min().orElse(gutter.x());
+            VisualLine leftLine = createLine(leftGlyphs, Lane.LEFT);
+            VisualLine rightLine = createLine(rightGlyphs, Lane.RIGHT);
+            boolean proseBesideNumberedFormula = numberedFormulaBesideProse(leftLine.text(), rightLine.text())
+                    || numberedFormulaBesideProse(rightLine.text(), leftLine.text());
+            boolean pairedNumberedFormulas = containsNumberedFormula(leftLine.text())
+                    && containsNumberedFormula(rightLine.text());
+            if (rightLeft - leftRight >= gutter.minimumGap()
+                    || proseBesideNumberedFormula || pairedNumberedFormulas) {
+                return List.of(leftLine, rightLine);
+            }
+        }
+
         VisualLine line = createLine(glyphs, Lane.FULL);
         double tolerance = Math.max(2, pageWidth * 0.004);
         if (line.right() <= gutter.x() + tolerance) {
@@ -265,6 +289,19 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
             return List.of(line.withLane(Lane.RIGHT));
         }
         return List.of(line);
+    }
+
+    private boolean numberedFormulaBesideProse(String prose, String formula) {
+        if (prose == null || formula == null
+                || !formula.matches("(?s).*\\(\\d{1,4}[a-z]?\\)\\s*[.,;:]?\\s*$")) return false;
+        Matcher words = Pattern.compile("[A-Za-z]{2,}").matcher(prose);
+        int count = 0;
+        while (words.find() && count < 4) count++;
+        return count >= 4;
+    }
+
+    private boolean containsNumberedFormula(String value) {
+        return value != null && value.matches("(?s).*\\(\\d{1,4}[a-z]?\\).*" );
     }
 
     private List<VisualLine> clusterVerticalGlyphs(List<Glyph> glyphs) {

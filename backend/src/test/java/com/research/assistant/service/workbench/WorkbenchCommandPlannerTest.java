@@ -171,6 +171,26 @@ class WorkbenchCommandPlannerTest {
                 .extracting(WorkbenchAction::evidenceId).isEqualTo("lay-formula-5");
     }
 
+    @Test
+    void parsesNoteCommentContentAndPageNavigationDeterministically() {
+        WorkbenchCommandSpec note = planner.parse("给这段添加笔记，内容写为核对边界条件").orElseThrow();
+        WorkbenchCommandSpec comment = planner.parse("给这段添加注释：这里是关键假设").orElseThrow();
+        WorkbenchCommandSpec navigation = planner.parse("将页面跳转到第三页").orElseThrow();
+
+        assertThat(note.target()).isEqualTo("这段");
+        assertThat(note.content()).isEqualTo("核对边界条件");
+        assertThat(comment.type()).isEqualTo(WorkbenchCommandSpec.Type.ADD_COMMENT);
+        assertThat(comment.content()).isEqualTo("这里是关键假设");
+        assertThat(navigation.pageNumber()).isEqualTo(3);
+        assertThat(planner.planFromEvidence(trace("将页面跳转到第三页"), List.of()))
+                .singleElement().satisfies(action -> {
+                    assertThat(action.type()).isEqualTo(WorkbenchAction.Type.NAVIGATE);
+                    assertThat(action.status()).isEqualTo(WorkbenchAction.Status.READY);
+                    assertThat(action.page()).isEqualTo(3);
+                    assertThat(action.evidenceId()).isBlank();
+                });
+    }
+
     private WorkbenchRunTrace trace(String question) {
         return trace(question, null);
     }

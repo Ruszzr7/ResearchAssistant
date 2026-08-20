@@ -33,14 +33,22 @@ public class WorkbenchRuleRouter {
             throw new IllegalArgumentException("tokenBudget must be between 256 and 60000");
         }
         Set<Skill> allowed = steps.stream().map(Step::skill).collect(java.util.stream.Collectors.toUnmodifiableSet());
-        // A current selection is an explicit paper-evidence attachment and therefore stays strict.
-        // A paper conversation without a new attachment may instead be a follow-up, a paper-wide
-        // question, or an ordinary LLM question; evidence is optional for that one workflow only.
+        // The authoritative turn router decides the concrete per-turn evidence policy after
+        // server-owned history is loaded. Planning must therefore not pre-classify free-form text.
         boolean evidenceRequired = workflow != Workflow.SELECTION_QA
                 || invocation.selectionAnchor() != null
-                || requiresCurrentPaperEvidence(invocation.question());
+                || initialPaperEvidenceHint(invocation.question());
         return new WorkbenchPlan(workflow, scope, steps, allowed, invocation.maxSteps(), tokenBudget,
                 evidenceRequired, 1);
+    }
+
+    /** Planning hint only; TurnRoutingManager makes the authoritative decision after history loads. */
+    private boolean initialPaperEvidenceHint(String question) {
+        WorkbenchRetrievalPlan plan = new WorkbenchRetrievalPlanner().plan(question);
+        String value = question == null ? "" : question.toLowerCase(java.util.Locale.ROOT);
+        return plan.formulaOrLocation() || plan.broad()
+                || List.of("论文", "文章", "本文", "文中", "作者",
+                        "paper", "article", "the authors").stream().anyMatch(value::contains);
     }
 
     private void validateBase(WorkbenchInvocation invocation) {
@@ -183,31 +191,6 @@ public class WorkbenchRuleRouter {
             case PAPER_ANALYSIS, PAPER_IMPROVEMENT -> 14_000;
             case PAPER_COMPARISON, RESEARCH_GAP -> 20_000;
         };
-    }
-
-    private boolean requiresCurrentPaperEvidence(String question) {
-        String normalized = question == null ? "" : question.toLowerCase(java.util.Locale.ROOT);
-        boolean explicitPaper = containsAny(normalized,
-                "这篇论文", "该论文", "本论文", "论文中", "论文里", "论文的",
-                "这篇文章", "该文章", "本文", "文中", "文章中", "文章里", "作者在",
-                "current paper", "this paper", "in the paper");
-        boolean location = containsAny(normalized,
-                "在哪", "哪里", "何处", "位置", "第几页", "哪一页",
-                "where", "locate", "find");
-        boolean paperObject = containsAny(normalized,
-                "公式", "方程", "定义", "章节", "段落", "出处",
-                "equation", "formula", "figure", "table", "section", "citation");
-        boolean referentialPaperObject = paperObject && containsAny(normalized,
-                "这个", "这一", "上述", "前面", "该公式",
-                "this", "that", "above", "former", "latter");
-        return explicitPaper || location && paperObject || referentialPaperObject;
-    }
-
-    private boolean containsAny(String value, String... candidates) {
-        for (String candidate : candidates) {
-            if (value.contains(candidate)) return true;
-        }
-        return false;
     }
 
     private boolean isMultiPaperWorkflow(Workflow workflow) {

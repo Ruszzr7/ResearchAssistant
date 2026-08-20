@@ -116,6 +116,35 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(wrapper.findAll('.capture-switch button')[1].classes()).toContain('active')
   })
 
+  it('keeps the initial capture prompt compact without a decorative icon', async () => {
+    const wrapper = mountPanel({ captureMode: 'formula' })
+    await flushPromises()
+
+    expect(wrapper.find('.content-empty__icon').exists()).toBe(false)
+    expect(wrapper.get('.content-empty').text()).toContain('框选一个公式')
+    expect(wrapper.get('.content-empty').text())
+      .toContain('框选预览和固定过程中生成的 LaTeX 会显示在这里。')
+  })
+
+  it('offers a scroll-to-latest control when the conversation is away from the bottom', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    const messages = wrapper.get('.selection-chat__messages')
+    Object.defineProperties(messages.element, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, writable: true, value: 100 },
+    })
+
+    await messages.trigger('scroll')
+    expect(wrapper.get('.scroll-to-latest').isVisible()).toBe(true)
+    await wrapper.get('.scroll-to-latest').trigger('click')
+    await flushPromises()
+
+    expect(messages.element.scrollTop).toBe(1000)
+    expect(wrapper.find('.scroll-to-latest').exists()).toBe(false)
+  })
+
   it('collapses confirmed content while preserving a reopen control', async () => {
     const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
     await flushPromises()

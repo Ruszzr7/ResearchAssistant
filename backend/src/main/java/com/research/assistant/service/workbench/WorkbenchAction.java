@@ -14,6 +14,7 @@ public record WorkbenchAction(String actionId,
                               String query,
                               String targetText,
                               List<NormalizedBoundingBox> targetBoxes,
+                              String content,
                               String message) {
 
     public WorkbenchAction {
@@ -24,11 +25,18 @@ public record WorkbenchAction(String actionId,
         query = safe(query);
         targetText = safe(targetText);
         targetBoxes = targetBoxes == null ? List.of() : List.copyOf(targetBoxes);
+        content = safe(content);
         message = safe(message);
         page = Math.max(0, page);
     }
 
-    public enum Type { HIGHLIGHT }
+    public enum Type {
+        HIGHLIGHT,
+        UNDERLINE,
+        ADD_NOTE,
+        ADD_COMMENT,
+        NAVIGATE
+    }
 
     public enum Status { READY, UNRESOLVED }
 
@@ -42,7 +50,21 @@ public record WorkbenchAction(String actionId,
                            String targetText,
                            String message) {
         this(actionId, type, status, paperId, evidenceId, page, query, targetText,
-                List.of(), message);
+                List.of(), "", message);
+    }
+
+    public WorkbenchAction(String actionId,
+                           Type type,
+                           Status status,
+                           Long paperId,
+                           String evidenceId,
+                           int page,
+                           String query,
+                           String targetText,
+                           List<NormalizedBoundingBox> targetBoxes,
+                           String message) {
+        this(actionId, type, status, paperId, evidenceId, page, query, targetText,
+                targetBoxes, "", message);
     }
 
     private static String safe(String value) {

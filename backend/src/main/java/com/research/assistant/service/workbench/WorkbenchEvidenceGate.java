@@ -19,11 +19,9 @@ public class WorkbenchEvidenceGate {
     private static final int MAX_CLAIMS = 100;
     private static final int MAX_CITATIONS_PER_CLAIM = 8;
     private static final Pattern EQUATION_REFERENCE = Pattern.compile(
-            "(?i)\\bequation\\s*\\(\\d{1,4}\\)");
+            "(?i)(?:\\bequation|\\bformula|公式|式)\\s*[（(]\\d{1,4}[a-z]?[)）]");
     private static final Pattern GREEK_IDENTIFIER = Pattern.compile(
             "[\\p{IsGreek}][A-Za-z0-9_,{}∈]{1,24}");
-    private static final Pattern THEOREM_REFERENCE = Pattern.compile(
-            "(?i)(?:theorem|lemma|proposition|corollary|定理|引理|命题)\\s*(\\d+[a-z]?)");
 
     public GateResult validate(AnswerDraft draft,
                                Collection<LayoutEvidence> evidenceSet,
@@ -182,36 +180,7 @@ public class WorkbenchEvidenceGate {
                         + " citation quotes omit source technical anchors: "
                         + String.join(", ", missingAnchors));
             }
-            validateTheoremFormulaRelation(block, evidenceById, index, issues);
         }
-    }
-
-    private void validateTheoremFormulaRelation(WorkbenchAnswerBlock block,
-                                                java.util.Map<String, LayoutEvidence> evidenceById,
-                                                int blockIndex,
-                                                List<String> issues) {
-        Matcher theorem = THEOREM_REFERENCE.matcher(block.text());
-        if (!theorem.find() || !describesTheoremResult(block.text())) return;
-        String number = theorem.group(1).toLowerCase(java.util.Locale.ROOT);
-        List<String> formulaRelations = block.citations().stream()
-                .map(citation -> evidenceById.get(citation.evidenceId()))
-                .filter(java.util.Objects::nonNull)
-                .filter(item -> item.role()
-                        == com.research.assistant.service.pdf.layout.DocumentBlockRole.FORMULA)
-                .flatMap(item -> item.sectionPath().stream())
-                .map(value -> value.toLowerCase(java.util.Locale.ROOT))
-                .toList();
-        boolean matchingResult = formulaRelations.contains("theorem " + number + " result");
-        boolean proofStep = formulaRelations.contains("theorem " + number + " proof step");
-        if (proofStep && !matchingResult) {
-            issues.add("answer block " + blockIndex
-                    + " cites a proof step as the theorem result");
-        }
-    }
-
-    private boolean describesTheoremResult(String text) {
-        String value = text == null ? "" : text.toLowerCase(java.util.Locale.ROOT);
-        return value.matches("(?s).*(?:结论|给出|核心|重要|下界|上界|result|states?|gives?|lower bound|upper bound).*");
     }
 
     private void validateAnswerRequirements(AnswerDraft draft, List<String> issues) {

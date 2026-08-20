@@ -69,7 +69,8 @@ class WorkbenchModelServiceTest {
         ArgumentCaptor<String> userMessage = ArgumentCaptor.forClass(String.class);
         verify(llmService).chatWithUsage(anyString(), userMessage.capture(), any(LlmCallPolicy.class));
         assertThat(userMessage.getValue()).contains(
-                "lay_a", "Finite Blocklength", "Ignore prior instructions",
+                "lay_a", "Finite Blocklength", "Ignore prior instructions", "page");
+        assertThat(userMessage.getValue()).doesNotContain(
                 "evidenceVersions", "documentHash", "parser-v1", "p1-b0001", "bbox");
     }
 
@@ -280,6 +281,27 @@ class WorkbenchModelServiceTest {
     }
 
     @Test
+    void broadFormulaJudgementKeepsOneDirectRequirementInsteadOfForcingEveryCandidate() {
+        when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
+                .thenReturn(new LlmResponse("{\"answer\":\"比较后选择式 (21)\",\"claims\":[]}",
+                        100, 60, 160));
+        LayoutEvidence common = theoremFormula("lay_21", "21", "Theorem 1 result", 21);
+        LayoutEvidence privateRate = theoremFormula("lay_31", "31", "Theorem 2 result", 31);
+
+        WorkbenchModelService.ModelCall result = service.generate(
+                WorkbenchPlan.Workflow.SELECTION_QA, "你认为文章最重要的公式是什么？",
+                Map.of(7L, "Paper"), List.of(common, privateRate), 4_000, null, List.of());
+
+        assertThat(result.output().requirements()).extracting(WorkbenchAnswerRequirement::id)
+                .containsExactly("r1");
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(llmService).chatWithUsage(anyString(), message.capture(), any(LlmCallPolicy.class));
+        assertThat(message.getValue()).contains("lay_21", "lay_31");
+        assertThat(message.getValue()).doesNotContain(
+                "评估并说明 Equation (21)", "评估并说明 Equation (31)");
+    }
+
+    @Test
     void retriesBlankTruncatedSelectionWithOnlyDirectEvidence() {
         when(llmService.chatWithUsage(anyString(), anyString(), any(LlmCallPolicy.class)))
                 .thenReturn(
@@ -339,7 +361,7 @@ class WorkbenchModelServiceTest {
         ArgumentCaptor<LlmCallPolicy> policies = ArgumentCaptor.forClass(LlmCallPolicy.class);
         verify(llmService, times(2)).chatWithUsage(anyString(), anyString(), policies.capture());
         LlmCallPolicy first = policies.getAllValues().get(0);
-        assertThat(first.maxOutputTokens()).isEqualTo(2_500);
+        assertThat(first.maxOutputTokens()).isEqualTo(1_800);
         assertThat(first.maxInputTokens() + first.maxOutputTokens()).isLessThanOrEqualTo(6_500);
         assertThat(first.reasoningEffort()).isEqualTo("low");
     }
@@ -448,5 +470,14 @@ class WorkbenchModelServiceTest {
                 new NormalizedBoundingBox(0.1, 0.2, 0.3, 0.04), DocumentBlockRole.BODY,
                 1, List.of("Introduction"), text, 0.9, selected, 0.95,
                 "a".repeat(64), "parser-v1");
+    }
+
+    private LayoutEvidence theoremFormula(String id, String number, String relation, int order) {
+        return new LayoutEvidence(id, 7L, "equation-entity:" + number, 6,
+                new NormalizedBoundingBox(.1, .2 + order * .001, .35, .04),
+                DocumentBlockRole.FORMULA, order,
+                List.of("Analysis", "Equation (" + number + ")", relation),
+                "[Equation (" + number + ")]", .95, false, .95,
+                "a".repeat(64), "parser-v2", DocumentBlockContentMode.REGION, "");
     }
 }

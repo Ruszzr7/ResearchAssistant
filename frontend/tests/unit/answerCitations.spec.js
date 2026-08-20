@@ -211,6 +211,9 @@ describe('answer citations', () => {
       targetText: 'signal-to-interference plus noise ratio (SINR) for the common\nstream at vehicle-k can be written as',
       targetBbox: { x: 0.08, y: 0.522, width: 0.41, height: 0.04300000000000004 },
     })
+    expect(sources[0].target.locator.targetBoxes).toEqual([
+      evidence[0].bbox, evidence[1].bbox,
+    ])
   })
 
   it('merges one wrapped source sentence even when its citations occur in separate answer blocks', () => {

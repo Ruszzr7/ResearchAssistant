@@ -9,7 +9,7 @@ public record PaperSourceIndex(int schemaVersion,
                                String parserVersion,
                                List<SourceAnchor> textAnchors,
                                List<EquationEntity> equations) {
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 3;
 
     public PaperSourceIndex {
         documentHash = documentHash == null ? "" : documentHash;

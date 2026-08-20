@@ -126,4 +126,16 @@ public record LayoutEvidence(String evidenceId,
                 sectionPath, text, retrievalScore, selected, confidence, documentHash, parserVersion,
                 contentMode, structuredContent, selectedRanges, mathTranscriptions, origin, locator, routes);
     }
+
+    public LayoutEvidence withLocator(NormalizedBoundingBox targetBbox,
+                                      List<NormalizedBoundingBox> targetBoxes,
+                                      String targetText,
+                                      EvidenceLocator.Precision precision) {
+        return new LayoutEvidence(evidenceId, paperId, blockId, page,
+                targetBbox == null ? bbox : targetBbox, role, readingOrder, sectionPath, text,
+                score, selected, confidence, documentHash, parserVersion, contentMode,
+                structuredContent, selectedRanges, mathTranscriptions, origin,
+                new EvidenceLocator(targetBbox == null ? bbox : targetBbox,
+                        targetBoxes, targetText, precision), retrievalRoutes);
+    }
 }

@@ -32,7 +32,7 @@ class PdfBoxPaperLayoutParserTest {
 
         assertThat(artifact.paperId()).isEqualTo(42L);
         assertThat(artifact.documentHash()).matches("[0-9a-f]{64}");
-        assertThat(artifact.parserVersion()).isEqualTo("pdfbox-layout-v1");
+        assertThat(artifact.parserVersion()).isEqualTo("pdfbox-layout-v3");
         assertThat(artifact.pageCount()).isEqualTo(1);
         assertThat(artifact.layoutConfidence()).isGreaterThanOrEqualTo(0.85);
         assertThat(artifact.blocks()).isNotEmpty();
@@ -102,6 +102,38 @@ class PdfBoxPaperLayoutParserTest {
                 .extracting(DocumentBlock::readingOrder)
                 .containsExactlyElementsOf(java.util.stream.IntStream
                         .range(0, artifact.blocks().size()).boxed().toList());
+        List<DocumentBlock> equation16 = artifact.blocks().stream()
+                .filter(block -> block.text().contains("(16)"))
+                .toList();
+        assertThat(equation16).isNotEmpty();
+        assertThat(equation16).allSatisfy(block ->
+                assertThat(block.bbox().width()).isLessThan(0.60));
+        assertThat(artifact.blocks().stream()
+                .filter(block -> block.text().contains("(11)") && block.text().contains("(17)"))
+                .toList()).isEmpty();
+        PaperLayoutArtifact semantic = new PaperLayoutSemanticEnricher()
+                .enrich(artifact, PaperLayoutHints.empty());
+        PaperSourceIndex sourceIndex = new PaperSourceIndexService().build(semantic);
+        assertThat(sourceIndex.equations()).isNotEmpty();
+        assertThat(sourceIndex.equations().stream()
+                .filter(item -> item.relation() == EquationEntity.Relation.THEOREM_RESULT)
+                .toList()).hasSizeGreaterThanOrEqualTo(2);
+        EquationEntity lemma3 = sourceIndex.equations().stream()
+                .filter(item -> item.statementLabel().equals("Lemma 3"))
+                .findFirst().orElseThrow();
+        assertThat(lemma3.number()).isEqualTo("18");
+        EquationEntity commonRate = sourceIndex.equations().stream()
+                .filter(item -> item.number().equals("21")).findFirst().orElseThrow();
+        EquationEntity privateRate = sourceIndex.equations().stream()
+                .filter(item -> item.number().equals("31")).findFirst().orElseThrow();
+        assertThat(commonRate.statementLabel()).isEqualTo("Theorem 1");
+        assertThat(privateRate.statementLabel()).isEqualTo("Theorem 2");
+        assertThat(commonRate.definition().boxes()).allSatisfy(box ->
+                assertThat(box.right()).isLessThan(0.51));
+        assertThat(privateRate.definition().boxes()).allSatisfy(box ->
+                assertThat(box.x()).isGreaterThan(0.50));
+        assertThat(commonRate.definition().targetText()).contains("(21)");
+        assertThat(privateRate.definition().targetText()).contains("(31)");
         System.out.printf("LAYOUT_SAMPLE pages=%d blocks=%d confidence=%.3f parser=%s%n",
                 artifact.pageCount(), artifact.blocks().size(), artifact.layoutConfidence(),
                 artifact.parserVersion());

@@ -20,6 +20,7 @@ import com.research.assistant.service.pdf.layout.PaperLayoutEvidenceService;
 import com.research.assistant.service.pdf.layout.SelectionAnchor;
 import com.research.assistant.service.pdf.layout.SelectionAnchorKind;
 import com.research.assistant.service.pdf.layout.SelectionAnchorResolver;
+import com.research.assistant.service.research.ResearchSessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -69,6 +70,7 @@ class WorkbenchExecutionEngineTest {
     private PaperMemoryObservationService observationService;
     private PaperMapper paperMapper;
     private WorkbenchSelectionVisualEvidenceService visualEvidenceService;
+    private ResearchSessionService researchSessionService;
     private WorkbenchRunTraceService traceService;
     private WorkbenchExecutionEngine engine;
 
@@ -84,6 +86,7 @@ class WorkbenchExecutionEngineTest {
         observationService = mock(PaperMemoryObservationService.class);
         paperMapper = mock(PaperMapper.class);
         visualEvidenceService = mock(WorkbenchSelectionVisualEvidenceService.class);
+        researchSessionService = mock(ResearchSessionService.class);
 
         when(artifactService.ensureArtifact(anyLong(), eq(false)))
                 .thenAnswer(invocation -> artifact(invocation.getArgument(0)));
@@ -110,7 +113,7 @@ class WorkbenchExecutionEngineTest {
                 traceService, artifactService, anchorResolver, localEvidenceService, wholeEvidenceService,
                 modelService, new WorkbenchEvidenceGate(), new WorkbenchOutputQualityGate(), reportService,
                 contextAssembler, observationService, paperMapper, objectMapper, visualEvidenceService,
-                new WorkbenchEvidencePackager(), new WorkbenchCommandPlanner());
+                new WorkbenchEvidencePackager(), new WorkbenchCommandPlanner(), researchSessionService);
     }
 
     @Test
@@ -122,6 +125,7 @@ class WorkbenchExecutionEngineTest {
         assertThat(selectionResult.workflow()).isEqualTo(WorkbenchPlan.Workflow.SELECTION_QA);
         assertThat(selectionResult.evidence()).singleElement().satisfies(item -> assertThat(item.selected()).isTrue());
         verify(observationService).remember(any(), eq(selectionResult));
+        verify(researchSessionService).archiveWorkbenchCompletion(any(), eq(selectionResult));
         assertCompleted(selection.runId(), 4);
 
         WorkbenchRunTrace annotation = traceService.plan(invocation(
@@ -209,7 +213,7 @@ class WorkbenchExecutionEngineTest {
         verify(anchorResolver, times(0)).resolve(any(), anyInt(), anyList(), anyString(), any());
         verify(localEvidenceService, times(0)).retrieve(any(), any(), anyString(), anyInt());
         verify(wholeEvidenceService).retrievePaper(
-                any(), anyString(), eq(List.of("p1-b0001")), eq(18), eq(14_000));
+                any(), anyString(), eq(List.of("p1-b0001")), eq(12), eq(10_000));
         verify(contextAssembler).assemble(any(), org.mockito.ArgumentMatchers.isNull());
         assertCompleted(planned.runId(), 4);
     }
@@ -342,7 +346,7 @@ class WorkbenchExecutionEngineTest {
 
         ArgumentCaptor<String> retrievalQuery = ArgumentCaptor.forClass(String.class);
         verify(wholeEvidenceService).retrievePaper(
-                any(), retrievalQuery.capture(), eq(List.of()), eq(18), eq(14_000));
+                any(), retrievalQuery.capture(), eq(List.of()), eq(12), eq(10_000));
         assertThat(retrievalQuery.getValue()).startsWith("信噪比公式").doesNotContain("这段方法");
         assertThat(result.contextMode()).isEqualTo(WorkbenchContextMode.ACTION_EXPLICIT);
         assertThat(result.contextInherited()).isFalse();
