@@ -1,13 +1,10 @@
 package com.research.assistant.controller;
 
 import com.research.assistant.common.Result;
-import com.research.assistant.dto.research.ResearchMessageAppendRequest;
-import com.research.assistant.dto.research.ResearchMessageView;
 import com.research.assistant.dto.research.ResearchSessionCreateRequest;
 import com.research.assistant.dto.research.ResearchSessionDetail;
 import com.research.assistant.dto.research.ResearchSessionSummary;
 import com.research.assistant.dto.research.ResearchSessionUpdateRequest;
-import com.research.assistant.service.research.ResearchSessionHistoryService;
 import com.research.assistant.service.research.ResearchSessionService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -28,12 +25,9 @@ import java.util.List;
 public class ResearchSessionController {
 
     private final ResearchSessionService sessionService;
-    private final ResearchSessionHistoryService historyService;
 
-    public ResearchSessionController(ResearchSessionService sessionService,
-                                     ResearchSessionHistoryService historyService) {
+    public ResearchSessionController(ResearchSessionService sessionService) {
         this.sessionService = sessionService;
-        this.historyService = historyService;
     }
 
     @GetMapping
@@ -41,7 +35,6 @@ public class ResearchSessionController {
             @RequestParam(defaultValue = "false") boolean archived,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "100") int limit) {
-        historyService.backfillRecent();
         return Result.ok(sessionService.list(archived, keyword, limit));
     }
 
@@ -69,16 +62,4 @@ public class ResearchSessionController {
         return Result.ok();
     }
 
-    @PostMapping("/{sessionId}/messages")
-    public Result<List<ResearchMessageView>> appendMessages(
-            @PathVariable long sessionId,
-            @RequestBody @Valid ResearchMessageAppendRequest request) {
-        return Result.ok(sessionService.appendMessages(sessionId, request));
-    }
-
-    @PostMapping("/{sessionId}/runs/{runId}")
-    public Result<Void> attachRun(@PathVariable long sessionId, @PathVariable String runId) {
-        sessionService.attachRun(sessionId, runId);
-        return Result.ok();
-    }
 }

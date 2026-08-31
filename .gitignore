@@ -15,6 +15,7 @@ data/
 backups/
 *.log
 *.pid
+scripts/local-config.cmd
 
 # Claude session artifacts
 .claude/tmp/

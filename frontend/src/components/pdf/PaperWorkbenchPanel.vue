@@ -34,27 +34,18 @@
         aria-live="polite"
       >
         <div v-if="memoryActive" class="memory-orbit" aria-hidden="true"><span /></div>
-        <div v-else class="memory-status__mark" aria-hidden="true">{{ memoryStatus?.status === 'PARTIAL' ? '!' : '✦' }}</div>
+        <div v-else class="memory-status__mark" aria-hidden="true">{{ memoryStatus?.status === 'RETRY_REQUIRED' ? '!' : '✦' }}</div>
         <div class="memory-status__body">
-          <b>{{ memoryStatus?.stageText || '正在准备论文记忆…' }}</b>
-          <small v-if="memoryStatus?.totalChunks">
-            <template v-if="memoryStatus.totalChunks === 1">全文理解</template>
-            <template v-else>已处理 {{ memoryProcessedChunks }}/{{ memoryStatus.totalChunks }} 个分块</template>
-            <template v-if="memoryStatus.failedChunks"> · {{ memoryStatus.failedChunks }} 个待重试</template>
-          </small>
-          <small v-else>理解完成后即可开始提问。</small>
-          <small v-if="memoryTotalTokens">已消耗 {{ memoryTotalTokens.toLocaleString() }} Token</small>
-          <div v-if="memoryActive && memoryStatus?.totalChunks" class="memory-progress" aria-hidden="true">
-            <span :style="{ width: `${memoryStatus.progress || 0}%` }" />
-          </div>
+          <b>{{ memoryStatus?.statusText || '正在准备论文…' }}</b>
+          <small v-if="!memoryReady">理解完成后即可开始提问。</small>
         </div>
         <button
-          v-if="memoryStatus?.canStart"
+          v-if="memoryCanStart"
           type="button"
           class="memory-status__action"
           :disabled="memoryStarting"
           @click="startMemoryUnderstanding"
-        >{{ memoryStarting ? '启动中…' : (memoryStatus?.canRetry ? '重试' : '开始理解') }}</button>
+        >{{ memoryStarting ? '启动中…' : (memoryStatus?.status === 'RETRY_REQUIRED' ? '重试' : '开始理解') }}</button>
       </section>
 
       <div
@@ -147,9 +138,9 @@
               下一条消息已附加：第 {{ activeSelectionAnchor.page }} 页内容
             </small>
             <small v-else-if="canContinueSelectionConversation">
-              当前未附加新选区；将沿用本对话历史与论文理解
+              当前未附加新内容；Agent 会结合本对话历史判断是否需要查阅论文
             </small>
-            <small v-else>基于论文理解开始对话；也可附加一段内容后提问</small>
+            <small v-else>可直接提问，也可附加论文选区、公式或文件</small>
           </div>
           <div class="selection-chat__actions">
             <button type="button" :disabled="running" @click="openConversationPicker">切换对话</button>
@@ -212,7 +203,7 @@
               <small v-if="message.selectionAnchor?.page" class="chat-message__context">
                 引用第 {{ message.selectionAnchor.page }} 页选区
               </small>
-              <small v-else class="chat-message__context">
+              <small v-else-if="contextModeLabel(message)" class="chat-message__context">
                 {{ contextModeLabel(message) }}
               </small>
             </template>
@@ -235,7 +226,7 @@
             <div class="chat-message__role">论文助手</div>
             <div class="answer-progress" role="status">
               <span aria-hidden="true" />
-              正在基于论文证据生成回答…
+              Agent 正在处理…
             </div>
           </div>
         </div>
@@ -309,7 +300,7 @@
               />
               <button
                 type="button"
-                title="添加附件"
+                title="添加附件（PDF、Word、JPG、PNG）"
                 aria-label="添加附件"
                 :disabled="!memoryReady || preparingAttachment || pendingContextCount >= 3"
                 @click="openAttachmentPicker"
@@ -338,7 +329,7 @@
             </button>
           </div>
         </div>
-        <div v-if="selectionChatError || error" class="error-state">{{ selectionChatError || error }}</div>
+        <div v-if="selectionChatError" class="error-state">{{ selectionChatError }}</div>
       </section>
   </aside>
 </template>
@@ -349,8 +340,6 @@ import { ElMessage } from 'element-plus'
 import { getPaperMemoryStatus, startPaperUnderstanding } from '@/api/paperMemory.js'
 import { translateTexts } from '@/api/workbench.js'
 import {
-  appendResearchMessages,
-  attachResearchRun,
   createResearchSession,
   getResearchSession,
   listResearchSessions,
@@ -359,16 +348,16 @@ import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 import ResearchMarkdown from '@/components/ResearchMarkdown.vue'
 import { buildCitationSources, buildCitedAnswer } from '@/utils/answerCitations.js'
 import { CHAT_ATTACHMENT_ACCEPT, prepareChatAttachment } from '@/utils/chatAttachments.js'
-import { usePaperWorkbench } from '@/composables/usePaperWorkbench.js'
+import { usePaperAgent } from '@/composables/usePaperAgent.js'
 import {
   detectTextLanguage,
   languageLabel,
   oppositeLanguage,
 } from '@/utils/translation.js'
 import {
-  buildWorkbenchPlanRequest,
-  WORKBENCH_MODES,
-} from '@/utils/workbenchRun.js'
+  buildAgentTurnRequest,
+  PAPER_AGENT_MODE,
+} from '@/utils/agentTurn.js'
 
 const props = defineProps({
   paper: { type: Object, required: true },
@@ -392,7 +381,7 @@ const emit = defineEmits([
   'add-comparison-paper', 'execute-actions',
 ])
 
-const { running, error, run, loadRecent } = usePaperWorkbench()
+const { running, run, watchRun } = usePaperAgent()
 const question = ref('')
 const pendingAttachments = ref([])
 const pendingFormulas = ref([])
@@ -421,23 +410,20 @@ let sessionCreatePromise = null
 let selectionMessageSequence = 0
 let selectionConversationSequence = 0
 let memoryPollTimer = null
-let foregroundSubmission = false
+const waitingRunId = ref(null)
+const recoveredRunIds = new Set()
+const conversationErrors = new Map()
 
-const memoryStatus = ref(null)
+const memoryStatus = ref({
+  status: 'LOADING',
+  statusText: '正在读取论文理解状态',
+  conversationReady: false,
+})
 const memoryStarting = ref(false)
 const memoryActive = computed(() => memoryStatus.value?.status === 'UNDERSTANDING')
-const memoryReady = computed(() => (
-  memoryStatus.value?.status === 'READY' && Boolean(memoryStatus.value?.profileReady ?? true)
-))
-const memoryTotalTokens = computed(() => (
-  Number(memoryStatus.value?.promptTokens || 0) + Number(memoryStatus.value?.completionTokens || 0)
-))
-const memoryProcessedChunks = computed(() => (
-  Number(memoryStatus.value?.completedChunks || 0) + Number(memoryStatus.value?.failedChunks || 0)
-))
-const showMemoryStatus = computed(() => Boolean(
-  memoryStatus.value && memoryStatus.value.status !== 'READY',
-))
+const memoryReady = computed(() => Boolean(memoryStatus.value?.conversationReady))
+const memoryCanStart = computed(() => ['NOT_STARTED', 'SOURCE_READY', 'RETRY_REQUIRED', 'UNAVAILABLE'].includes(memoryStatus.value?.status))
+const showMemoryStatus = computed(() => true)
 
 const displayedSelection = computed(() => fixedTextSelection.value?.selection || props.selection)
 const displayedSelectionAnchor = computed(() => fixedTextSelection.value?.anchor || props.selectionAnchor)
@@ -501,15 +487,12 @@ watch(() => props.researchSessionId, nextId => {
   const normalized = positiveSessionId(nextId)
   if (normalized === activeResearchSessionId.value) return
   activeResearchSessionId.value = normalized
+  selectionChatError.value = normalized ? (conversationErrors.get(normalized) || '') : ''
   if (normalized) void restoreResearchMessages(normalized)
   else {
     selectionConversationId.value = ''
     selectionMessages.value = []
   }
-})
-watch(running, (isRunning, wasRunning) => {
-  if (!wasRunning || isRunning || foregroundSubmission || !activeResearchSessionId.value) return
-  void restoreResearchMessages(activeResearchSessionId.value)
 })
 watch(() => props.paper.id, () => {
   fixedTextSelection.value = null
@@ -520,16 +503,16 @@ watch(() => props.paper.id, () => {
   selectionConversationId.value = ''
   selectionMessages.value = []
   conversationSessions.value = []
+  conversationErrors.clear()
+  selectionChatError.value = ''
   conversationPickerVisible.value = false
   void loadMemoryStatus()
-  void loadConversationSessions(!activeResearchSessionId.value)
+  void initializeConversation()
 })
 
 onMounted(async () => {
   await loadMemoryStatus()
-  try { await loadRecent(props.paper.id) } catch { /* History is optional. */ }
-  await loadConversationSessions(!activeResearchSessionId.value)
-  if (activeResearchSessionId.value) await restoreResearchMessages(activeResearchSessionId.value)
+  await initializeConversation()
 })
 onBeforeUnmount(() => clearTimeout(memoryPollTimer))
 
@@ -544,23 +527,28 @@ async function loadMemoryStatus() {
     if (status?.status === 'UNDERSTANDING') {
       memoryPollTimer = setTimeout(() => { void loadMemoryStatus() }, 1800)
     }
-  } catch { /* Memory readiness must not block PDF reading. */ }
+  } catch {
+    if (Number(props.paper.id) !== paperId) return
+    memoryStatus.value = {
+      status: 'UNAVAILABLE',
+      statusText: '论文理解尚未启动',
+      conversationReady: false,
+    }
+  }
 }
 
 async function startMemoryUnderstanding() {
-  if (memoryStarting.value || !memoryStatus.value?.canStart) return
+  if (memoryStarting.value || !memoryCanStart.value) return
   memoryStarting.value = true
   try {
-    const revision = Number(memoryStatus.value?.revision || 0)
     await startPaperUnderstanding(
       props.paper.id,
-      `paper-memory-ui:${props.paper.id}:${revision}`,
+      `paper-memory-ui:${props.paper.id}:${Date.now()}`,
     )
     memoryStatus.value = {
       ...memoryStatus.value,
       status: 'UNDERSTANDING',
-      stageText: '论文理解任务已提交…',
-      canStart: false,
+      statusText: '论文理解任务已提交',
     }
     memoryPollTimer = setTimeout(() => { void loadMemoryStatus() }, 800)
   } catch (reason) {
@@ -744,6 +732,7 @@ async function sendSelectionMessage() {
   }
   selectionMessages.value.push(userMessage)
   selectionChatError.value = ''
+  conversationErrors.delete(sessionId)
   question.value = ''
   pendingAttachments.value = []
   pendingFormulas.value = []
@@ -751,24 +740,28 @@ async function sendSelectionMessage() {
   await scrollSelectionChat()
 
   try {
-    foregroundSubmission = true
-    const request = buildWorkbenchPlanRequest({
+    const request = buildAgentTurnRequest({
       paperId: props.paper.id,
-      question: content,
+      userMessage: content,
       selectionAnchor: anchor,
-      conversationId,
       attachments,
     })
+    request.researchSessionId = sessionId
+    if (waitingRunId.value) request.resumeRunId = waitingRunId.value
     const completed = await run(request, {
-      onPlanned: trace => attachResearchRun(sessionId, trace.runId),
-      onAccepted: () => detachSubmittedSelection(anchor),
+      onAccepted: accepted => {
+        userMessage.runId = accepted?.runId || null
+        detachSubmittedSelection(anchor)
+      },
     })
     if (selectionConversationId.value !== conversationId) return
     contextInherited = Boolean(completed.result?.contextInherited)
+    waitingRunId.value = completed.status === 'WAITING_USER' ? completed.runId : null
     userMessage.contextInherited = contextInherited
     userMessage.contextMode = completed.result?.contextMode || ''
     selectionMessages.value.push({
       id: completed.runId || `assistant-${++selectionMessageSequence}`,
+      runId: completed.runId || null,
       role: 'assistant',
       content: completed.result?.answer || '',
       claims: completed.result?.claims || [],
@@ -782,45 +775,16 @@ async function sendSelectionMessage() {
       evidence: (completed.result?.evidence || [])
         .find(item => item.evidenceId === action.evidenceId) || null,
     })))
-    try {
-      await appendResearchMessages(sessionId, [
-        {
-          messageKey: `${completed.runId}:user`, role: 'USER', content,
-          runId: completed.runId, selectionAnchor: anchor,
-          evidence: {
-            contextInherited,
-            contextMode: completed.result?.contextMode || '',
-            conversationId,
-            attachments: attachmentViews(attachments),
-          },
-        },
-        {
-          messageKey: `${completed.runId}:assistant`, role: 'ASSISTANT',
-          content: completed.result?.answer || '', runId: completed.runId,
-          evidence: {
-            claims: completed.result?.claims || [],
-            answerBlocks: completed.result?.answerBlocks || [],
-            evidence: completed.result?.evidence || [],
-            regionFallback: Boolean(completed.result?.regionFallback),
-            actions: completed.result?.actions || [],
-            conversationId,
-          },
-        },
-      ])
-    } catch { ElMessage.warning('回答已完成，研究档案将在后台补全') }
     await scrollSelectionChat()
-    try { await loadRecent(props.paper.id) } catch { /* History is optional. */ }
   } catch (reason) {
-    if (selectionConversationId.value === conversationId) {
+    if (reason?.message !== 'aborted' && selectionConversationId.value === conversationId) {
       const index = selectionMessages.value.findIndex(item => item.id === userMessage.id)
       if (index >= 0) selectionMessages.value.splice(index, 1)
       question.value = content
       pendingAttachments.value = fileAttachments
       pendingFormulas.value = formulas
-      selectionChatError.value = requestErrorMessage(reason, '选区对话失败')
+      setConversationError(sessionId, requestErrorMessage(reason, '选区对话失败'))
     }
-  } finally {
-    foregroundSubmission = false
   }
 }
 
@@ -860,14 +824,14 @@ async function ensureResearchSession(firstQuestion = '') {
     paperIds: [Number(props.paper.id)],
     primaryPaperId: Number(props.paper.id),
     title: firstQuestion.slice(0, 120) || props.paper.title || '论文对话',
-    mode: WORKBENCH_MODES.SELECTION_QA,
+    mode: PAPER_AGENT_MODE,
     lastPage: 1,
     outputLanguage: 'ZH',
   }).then(session => {
     activeResearchSessionId.value = Number(session.id)
     selectionConversationId.value = freshSelectionConversationId(session.id)
     emit('research-session-change', Number(session.id))
-    void loadConversationSessions(false)
+    void loadConversationSessions()
     return Number(session.id)
   }).finally(() => { sessionCreatePromise = null })
   return sessionCreatePromise
@@ -882,27 +846,27 @@ async function restoreResearchMessages(sessionId) {
       conversationPickerVisible.value = conversationSessions.value.length > 0
       return
     }
-    const latestSelectionRun = (detail?.runs || []).find(item => (
-      item?.plan?.workflow === WORKBENCH_MODES.SELECTION_QA
-      && item?.invocation?.conversationId
-    ))
-    selectionConversationId.value = latestSelectionRun?.invocation?.conversationId
-      || freshSelectionConversationId(sessionId)
-    const conversationByRunId = new Map((detail?.runs || [])
-      .filter(item => item?.runId && item?.invocation?.conversationId)
-      .map(item => [item.runId, item.invocation.conversationId]))
+    selectionConversationId.value = freshSelectionConversationId(sessionId)
     selectionMessages.value = (detail?.messages || [])
-      .filter(message => (
-        (message.evidence?.conversationId || conversationByRunId.get(message.runId))
-          === selectionConversationId.value
-      ))
       .map(message => ({
       id: message.messageKey || String(message.id),
+      runId: message.runId || null,
       role: message.role === 'USER' ? 'user' : 'assistant',
       content: message.content || '',
-      claims: message.evidence?.claims || [],
+      claims: message.evidence?.claims || (message.evidence?.citations || []).map(item => ({
+        text: message.content?.slice(item.answerStart, item.answerEnd) || '', evidenceIds: [item.sourceObjectId],
+      })),
       answerBlocks: message.evidence?.answerBlocks || [],
-      evidence: message.evidence?.evidence || [],
+      evidence: (message.evidence?.evidence || []).map(item => item.evidenceId ? item : ({
+        evidenceId: item.sourceObjectId, sourceObjectId: item.sourceObjectId,
+        page: item.locators?.[0]?.pageNumber, text: item.quote,
+        formulaNumber: item.formulaNumber || '',
+        formulaNumbers: Array.isArray(item.formulaNumbers) ? item.formulaNumbers : [],
+        locator: { targetText: item.quote, targetBoxes: item.locators?.[0]?.rects || [],
+          targetBbox: item.locators?.[0]?.rects?.[0] || null, precision: item.locators?.[0]?.precision,
+          formulaNumber: item.formulaNumber || '',
+          formulaNumbers: Array.isArray(item.formulaNumbers) ? item.formulaNumbers : [] },
+      })),
       regionFallback: Boolean(message.evidence?.regionFallback),
       actions: message.evidence?.actions || [],
       selectionAnchor: message.selectionAnchor || null,
@@ -911,7 +875,47 @@ async function restoreResearchMessages(sessionId) {
       attachments: message.evidence?.attachments || [],
     }))
     await scrollSelectionChat()
+    const unfinishedRunId = findUnfinishedRunId(selectionMessages.value)
+    if (unfinishedRunId) void resumePersistedRun(unfinishedRunId, sessionId)
   } catch { /* A missing archive must not prevent PDF reading. */ }
+}
+
+function findUnfinishedRunId(messages) {
+  const latest = messages.at(-1)
+  return latest?.role === 'user' && latest.runId ? latest.runId : null
+}
+
+async function resumePersistedRun(runId, sessionId) {
+  if (running.value || activeResearchSessionId.value !== sessionId || recoveredRunIds.has(runId)) return
+  recoveredRunIds.add(runId)
+  try {
+    const completed = await watchRun(runId)
+    if (activeResearchSessionId.value !== sessionId
+        || selectionMessages.value.some(message => message.role === 'assistant' && message.runId === runId)) return
+    waitingRunId.value = completed.status === 'WAITING_USER' ? completed.runId : null
+    selectionMessages.value.push({
+      id: completed.runId,
+      runId: completed.runId,
+      role: 'assistant',
+      content: completed.result?.answer || '',
+      claims: completed.result?.claims || [],
+      answerBlocks: completed.result?.answerBlocks || [],
+      evidence: completed.result?.evidence || [],
+      regionFallback: Boolean(completed.result?.regionFallback),
+      actions: completed.result?.actions || [],
+    })
+    emit('execute-actions', (completed.result?.actions || []).map(action => ({
+      ...action,
+      evidence: (completed.result?.evidence || [])
+        .find(item => item.evidenceId === action.evidenceId) || null,
+    })))
+    await scrollSelectionChat()
+  } catch (reason) {
+    if (reason?.message === 'aborted' || !reason?.agentTerminal) recoveredRunIds.delete(runId)
+    if (reason?.message !== 'aborted' && activeResearchSessionId.value === sessionId) {
+      setConversationError(sessionId, requestErrorMessage(reason, '后台回答失败'))
+    }
+  }
 }
 
 function contextModeLabel(message) {
@@ -922,15 +926,39 @@ function contextModeLabel(message) {
     GENERAL_CHAT: '普通对话',
     ACTION_EXPLICIT: '执行论文操作',
     ACTION_REFERENTIAL: '沿用上一目标执行',
-  }[message?.contextMode] || (message?.contextInherited ? '继续上一问题' : '基于论文理解')
+  }[message?.contextMode] || (message?.contextInherited ? '继续上一问题' : '')
 }
 
-async function loadConversationSessions(showWhenAvailable = false) {
+async function loadConversationSessions() {
   try {
     const sessions = await listResearchSessions({ archived: false, limit: 200 })
     conversationSessions.value = (sessions || []).filter(sessionBelongsToCurrentPaper)
-    if (showWhenAvailable && conversationSessions.value.length) conversationPickerVisible.value = true
+      .sort((left, right) => sessionActivity(right) - sessionActivity(left) || Number(right.id) - Number(left.id))
   } catch { /* Conversation switching is optional while PDF reading remains available. */ }
+}
+
+async function initializeConversation() {
+  await loadConversationSessions()
+  if (positiveSessionId(activeResearchSessionId.value)) {
+    conversationPickerVisible.value = false
+    await restoreResearchMessages(activeResearchSessionId.value)
+    return
+  }
+  const latest = conversationSessions.value[0]
+  if (latest) {
+    const sessionId = positiveSessionId(latest.id)
+    activeResearchSessionId.value = sessionId
+    conversationPickerVisible.value = false
+    emit('research-session-change', sessionId)
+    await restoreResearchMessages(sessionId)
+    return
+  }
+  startNewConversation()
+}
+
+function sessionActivity(session) {
+  const value = Date.parse(session?.lastActivityAt || session?.updatedAt || session?.createdAt || '')
+  return Number.isFinite(value) ? value : 0
 }
 
 function sessionBelongsToCurrentPaper(session) {
@@ -941,7 +969,7 @@ function sessionBelongsToCurrentPaper(session) {
 
 function openConversationPicker() {
   conversationPickerVisible.value = true
-  void loadConversationSessions(false)
+  void loadConversationSessions()
 }
 
 async function switchConversation(session) {
@@ -954,7 +982,8 @@ async function switchConversation(session) {
   activeResearchSessionId.value = sessionId
   selectionConversationId.value = ''
   selectionMessages.value = []
-  selectionChatError.value = ''
+  selectionChatError.value = conversationErrors.get(sessionId) || ''
+  waitingRunId.value = null
   question.value = ''
   clearComposerExtras()
   conversationPickerVisible.value = false
@@ -968,10 +997,18 @@ function startNewConversation() {
   selectionConversationId.value = ''
   selectionMessages.value = []
   selectionChatError.value = ''
+  waitingRunId.value = null
   question.value = ''
   clearComposerExtras()
   conversationPickerVisible.value = false
   emit('research-session-change', null)
+}
+
+function setConversationError(sessionId, message) {
+  const id = positiveSessionId(sessionId)
+  if (!id) return
+  conversationErrors.set(id, message)
+  if (activeResearchSessionId.value === id) selectionChatError.value = message
 }
 
 function formatConversationTime(value) {

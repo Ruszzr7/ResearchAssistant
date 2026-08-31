@@ -65,11 +65,15 @@ public class PaperAnalysisProjectionService {
                 ? claims(summaries, "FINDING") : profile.keyFindings();
         List<PaperMemoryClaim> limitations = profile == null
                 ? claims(summaries, "LIMITATION") : profile.limitations();
-        String domain = profile == null ? "" : profile.domain();
         String methodType = profile == null ? "OTHER" : profile.methodType();
 
         analysis.setCoreContribution(joinStatements(contributions));
-        analysis.setMethodType(domain.isBlank() ? methodType : domain + "|" + methodType);
+        // `method_type` is a categorical legacy field.  Do not concatenate the
+        // free-form profile domain here: that made perfectly valid whole-paper
+        // profiles overflow the VARCHAR column (and also corrupted the meaning
+        // of the field).  The domain remains available in the paper-memory
+        // profile used by the agent.
+        analysis.setMethodType(methodType);
         analysis.setMethodSummary(profile == null
                 ? joinStatements(claims(summaries, "METHOD")) : profile.methodSummary());
         analysis.setSectionsJson(write(profile == null || profile.sectionDigests().isEmpty()

@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/agent/workflow")
+@RequestMapping("/api/research-automation/workflow")
 public class WorkflowController {
 
     private final WorkflowService workflowService;

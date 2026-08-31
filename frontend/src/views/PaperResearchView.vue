@@ -8,6 +8,7 @@
       :initial-page="initialPage"
       :initial-evidence="pendingEvidence"
       :research-session-id="activeResearchSessionId"
+      :assistant-entry-key="assistantEntryKey"
       @page-change="onPageChange"
       @close="returnToLibrary"
       @open-paper-evidence="openPaperEvidence"
@@ -63,6 +64,7 @@ const error = ref('')
 const initialPage = ref(1)
 const currentPage = ref(1)
 const pendingEvidence = ref(null)
+const assistantEntryKey = ref(0)
 let loadSequence = 0
 let routePageTimer = null
 let progressTimer = null
@@ -73,7 +75,11 @@ const isResearchRoute = computed(() => route.name === 'research')
 const routePaperId = computed(() => positivePaperId(route.params.paperId))
 const activeResearchSessionId = ref(null)
 
-watch([isResearchRoute, routePaperId], ([active, id]) => {
+watch([isResearchRoute, routePaperId], ([active, id], previous = []) => {
+  if (active && !previous[0]) {
+    activeResearchSessionId.value = positivePaperId(route.query.session)
+    assistantEntryKey.value += 1
+  }
   if (active) void loadRoutePaper(id)
 }, { immediate: true })
 watch(() => route.query.page, page => {

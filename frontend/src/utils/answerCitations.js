@@ -1,5 +1,6 @@
 export function buildCitedAnswer(answer, claims = [], evidence = [], answerBlocks = []) {
-  const source = String(answer || '')
+  const raw = String(answer || '')
+  const source = claims?.length && evidence?.length ? stripModelCitationMarkers(raw) : raw
   if (answerBlocks?.length) return renderBoundBlocks(answerBlocks, evidence)
   if (!source || !claims?.length || !evidence?.length) return source
 
@@ -34,6 +35,74 @@ export function buildCitedAnswer(answer, claims = [], evidence = [], answerBlock
   return fallbackMarkers.length
     ? `${result}\n\n来源：${[...new Set(fallbackMarkers)].join('')}`
     : result
+}
+
+// Citation numbers in model prose are untrusted and can conflict with the application's
+// grounded, clickable numbering. Keep numeric Markdown links intact for defensive reuse.
+export function stripModelCitationMarkers(value) {
+  const source = String(value || '')
+  if (!source) return ''
+  let result = ''
+  let fencedCode = false
+  let inlineCode = false
+  let displayMath = false
+  let inlineMath = false
+  for (let index = 0; index < source.length;) {
+    if (source.startsWith('```', index)) {
+      fencedCode = !fencedCode
+      result += '```'
+      index += 3
+      continue
+    }
+    const current = source[index]
+    if (!fencedCode && current === '`') {
+      inlineCode = !inlineCode
+      result += current
+      index += 1
+      continue
+    }
+    if (!fencedCode && !inlineCode && current === '$') {
+      const doubleDollar = source[index + 1] === '$'
+      if (doubleDollar) displayMath = !displayMath
+      else if (!displayMath) inlineMath = !inlineMath
+      result += doubleDollar ? '$$' : '$'
+      index += doubleDollar ? 2 : 1
+      continue
+    }
+    if (!fencedCode && !inlineCode && !displayMath && !inlineMath
+        && current === '\\' && ['(', '['].includes(source[index + 1])) {
+      const close = source[index + 1] === '(' ? '\\)' : '\\]'
+      const end = source.indexOf(close, index + 2)
+      if (end >= 0) {
+        result += source.slice(index, end + close.length)
+        index = end + close.length
+        continue
+      }
+    }
+    if (!fencedCode && !inlineCode && !displayMath && !inlineMath && current === '[') {
+      const close = source.indexOf(']', index + 1)
+      if (close > index + 1
+          && isStandaloneCitationMarker(source.slice(index + 1, close), source, index, close)) {
+        result = result.replace(/\s+$/, '')
+        index = close + 1
+        continue
+      }
+    }
+    result += current
+    index += 1
+  }
+  return result
+}
+
+function isStandaloneCitationMarker(marker, source, start, end) {
+  const normalized = marker.replace(/[，、]/g, ',').replace(/[－–—]/g, '-').trim()
+  if (!/^[1-9]\d*(?:\s*[,\-]\s*[1-9]\d*)*$/.test(normalized)) return false
+  let previous = start - 1
+  while (previous >= 0 && /\s/.test(source[previous])) previous -= 1
+  if (previous >= 0 && '=∈∉≤≥<>+-*/^_([{'.includes(source[previous])) return false
+  let next = end + 1
+  while (next < source.length && /\s/.test(source[next])) next += 1
+  return next >= source.length || '，。！？.!?;；:：)）]】'.includes(source[next])
 }
 
 /**
@@ -114,11 +183,11 @@ function boundCitationContext(blocks, evidence) {
   // still assigned by the source's first appearance in the answer.
   const values = []
   let appearance = 0
-  for (const block of blocks || []) {
+  for (const [blockIndex, block] of (blocks || []).entries()) {
     for (const citation of block?.citations || []) {
       const value = descriptor(citation)
       if (!value) continue
-      values.push({ ...value, appearance: appearance++ })
+      values.push({ ...value, blockIndex, appearance: appearance++ })
     }
   }
   const textValues = values.filter(value => !value.formulaTarget)
@@ -130,13 +199,16 @@ function boundCitationContext(blocks, evidence) {
     if (previousValue && canMergeCitationContinuation(previousValue, value)) previousGroup.push(value)
     else textGroups.push([value])
   }
-  const formulaGroups = values.filter(value => value.formulaTarget).map(value => [value])
+  const formulaGroups = groupFormulaCitations(values.filter(value => value.formulaTarget))
   const groups = [...textGroups, ...formulaGroups]
     .sort((first, second) => Math.min(...first.map(value => value.appearance))
       - Math.min(...second.map(value => value.appearance)))
 
   for (const group of groups) {
-    const value = group.length > 1 ? mergedTextDescriptor(group) : singleDescriptor(group[0])
+    const isFormulaGroup = group[0]?.formulaTarget
+    const value = group.length > 1
+      ? (isFormulaGroup ? mergedFormulaDescriptor(group) : mergedTextDescriptor(group))
+      : singleDescriptor(group[0])
     group.forEach(entry => sourceKeyByCitation.set(entry.citation, value.key))
     const existing = sourceByKey.get(value.key)
     if (existing) {
@@ -155,6 +227,32 @@ function boundCitationContext(blocks, evidence) {
   return { sources, sourceForCitation }
 }
 
+function groupFormulaCitations(values) {
+  const groups = []
+  const byFamily = new Map()
+  for (const value of values) {
+    const family = formulaFamily(value.item)
+    const key = family
+      ? `${value.blockIndex}|${value.item?.paperId || ''}|${value.item?.page || ''}|${family}`
+      : `single|${value.appearance}`
+    if (!byFamily.has(key)) {
+      const group = []
+      byFamily.set(key, group)
+      groups.push(group)
+    }
+    byFamily.get(key).push(value)
+  }
+  return groups
+}
+
+function formulaFamily(item) {
+  const labels = [
+    ...(Array.isArray(item?.formulaNumbers) ? item.formulaNumbers : []),
+    item?.formulaNumber,
+  ].map(value => String(value || '').match(/^\s*(\d{1,4})[a-z]?\s*$/i)?.[1] || '')
+  return labels.find(Boolean) || ''
+}
+
 function singleDescriptor(value) {
   const targetItem = value.formulaTarget || value.item
   // Supporting prose and the click target are different concerns. A formula citation can be
@@ -171,6 +269,52 @@ function singleDescriptor(value) {
       locator: { ...(targetItem.locator || {}), targetText },
     },
   }
+}
+
+function mergedFormulaDescriptor(values) {
+  const first = values[0]
+  const labels = [...new Set(values.flatMap(value => formulaLabels(value.item)))]
+  const target = first.formulaTarget || first.item
+  const formulaNumber = formatFormulaRange(labels)
+  const key = `formula-family:${first.item?.paperId || ''}:${first.item?.page || ''}:${formulaNumber}:${first.blockIndex}`
+  return {
+    key,
+    item: first.item,
+    quote: '',
+    evidenceIds: [...new Set(values.map(value => value.item.evidenceId))],
+    target: {
+      ...target,
+      formulaNumber,
+      formulaNumbers: labels,
+      locator: {
+        ...(target.locator || {}),
+        formulaNumber,
+        formulaNumbers: labels,
+        targetText: '',
+      },
+    },
+  }
+}
+
+function formulaLabels(item) {
+  return [
+    ...(Array.isArray(item?.formulaNumbers) ? item.formulaNumbers : []),
+    item?.formulaNumber,
+  ].map(value => String(value || '').match(/^\s*\d{1,4}[a-z]?\s*$/i)?.[0].trim().toLowerCase() || '')
+    .filter(Boolean)
+}
+
+function formatFormulaRange(labels) {
+  const sorted = [...new Set(labels)].sort((first, second) => {
+    const a = /^(\d+)([a-z]?)$/i.exec(first)
+    const b = /^(\d+)([a-z]?)$/i.exec(second)
+    return Number(a?.[1] || 0) - Number(b?.[1] || 0)
+      || (a?.[2] || '').localeCompare(b?.[2] || '')
+  })
+  if (sorted.length <= 1) return sorted[0] || ''
+  const first = sorted[0]
+  const last = sorted[sorted.length - 1]
+  return `${first}–${last}`
 }
 
 function usableSearchQuote(value) {
@@ -293,6 +437,8 @@ function sourceView(number, key, item, target, quote) {
     key,
     evidenceId: item?.evidenceId || '',
     page: target?.page || item?.page,
+    formulaNumber: target?.formulaNumber || item?.formulaNumber || '',
+    formulaNumbers: target?.formulaNumbers || item?.formulaNumbers || [],
     quote: String(quote || '').trim(),
     excerpt: sourceExcerpt(quote, target || item),
     title: String(quote || target?.text || item?.text || '').trim(),
@@ -304,7 +450,9 @@ function sourceView(number, key, item, target, quote) {
 function sourceExcerpt(quote, item) {
   const value = String(quote || '').trim()
   const placeholder = !value || /^\[(?:公式|表格|图形)区域/.test(value)
-  const formulaLabel = [...(item?.sectionPath || [])].reverse().find(part => /Equation|公式/i.test(part))
+  const formulaLabel = item?.formulaNumber
+    ? `式 (${item.formulaNumber})`
+    : [...(item?.sectionPath || [])].reverse().find(part => /Equation|公式/i.test(part))
   const source = placeholder
     ? (formulaLabel || (isFormulaRegion(item) ? '公式区域' : item?.text || ''))
     : (isFormulaRegion(item) && formulaLabel && !value.includes(formulaLabel)

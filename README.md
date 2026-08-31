@@ -4,11 +4,40 @@
 
 ## 本地启动
 
-需要 JDK 17、Node.js 和 MySQL 8。Windows 可直接运行：
+当前提供 Windows 原生启动脚本，不要求 Docker。首次运行前请安装：
+
+- 完整的 JDK 17（必须包含 `javac`，仅安装 JRE 不够）；
+- Node.js 18 或更高版本（包含 npm）；
+- MySQL 8，并将其注册为 Windows 服务；
+- Git（仅克隆项目时需要）。
+
+克隆仓库后，在项目根目录执行：
 
 ```text
 scripts\start-all.cmd
 ```
+
+脚本会自动完成以下工作：
+
+1. 从 `JAVA17_HOME`、`JAVA_HOME`、注册表、`PATH` 和常见安装目录中寻找 JDK 17，仅在本次后端进程内使用它；
+2. 识别并按需启动本机 MySQL Windows 服务；
+3. 验证数据库账号，缺少 `research_assistant` 数据库时尝试自动创建；表结构由 Flyway 自动初始化或升级；
+4. 通过 Maven Wrapper 下载后端依赖；前端首次运行时根据 `package-lock.json` 执行 `npm ci`；
+5. 等待数据库、后端健康检查和前端全部就绪后再报告成功。
+
+脚本和项目目录的位置没有写死，仓库放在任意目录均可运行。脚本不会安装软件，也不会永久修改系统级 `PATH`、`JAVA_HOME` 或其他项目的配置。
+
+### 本机配置
+
+如果 MySQL 不是默认的 `root` 空密码、软件安装在无法自动识别的位置，或需要加密保存模型 API Key，请先创建本机配置：
+
+```text
+copy scripts\local-config.example.cmd scripts\local-config.cmd
+```
+
+然后只修改 `scripts\local-config.cmd`。该文件已被 Git 忽略，可配置数据库账号、`JAVA17_HOME`、`MYSQL_HOME`、MySQL 服务名和 `RA_MASTER_KEY`，不要提交真实密码或密钥。`RA_MASTER_KEY` 应生成一次后保持稳定；更换它会使此前用旧密钥加密的 API Key 无法解密。
+
+若 MySQL 用户没有建库权限，请先由管理员创建 UTF-8 数据库 `research_assistant`，再给配置的用户授予该库权限。应用启动后 Flyway 会自行建表，不需要手工执行第二套 SQL。
 
 也可以分别启动或终止：
 
@@ -19,7 +48,7 @@ scripts\start-frontend.cmd
 scripts\stop-all.cmd
 ```
 
-`start-backend.cmd` 在后端未运行时启动后端，在后端已运行时重启后端。脚本会等待端口和健康检查就绪；若目标端口被项目外的未知进程占用，则拒绝误杀并提示人工处理。
+`start-backend.cmd` 在后端未运行时启动后端，在后端已运行时重启后端。默认使用 MySQL `3306`、后端 `8080`、前端 `5173`。脚本会等待端口和健康检查就绪；若端口被其他项目占用，会拒绝启动且不会结束不属于本项目的进程。因此不同项目不同时占用这些端口即可互不影响。
 
 前端地址为 `http://127.0.0.1:5173`，后端健康检查为 `http://127.0.0.1:8080/actuator/health`。模型供应商、通道、Base URL、模型和 API Key 在设置页配置。
 

@@ -2,6 +2,8 @@ package com.research.assistant.common;
 
 import com.research.assistant.service.async.AsyncTaskCapacityException;
 import com.research.assistant.service.async.AsyncTaskIdempotencyConflictException;
+import com.research.assistant.service.agent.runtime.AgentRuntimeConflictException;
+import com.research.assistant.service.agent.source.PaperUnderstandingNotReadyException;
 import com.research.assistant.service.pdf.layout.StaleLayoutArtifactException;
 import com.research.assistant.service.translation.TranslationException;
 import jakarta.validation.ConstraintViolationException;
@@ -43,6 +45,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Void>> handleIdempotencyConflict(AsyncTaskIdempotencyConflictException e) {
         log.warn("async_idempotency_conflict type={}", typeOf(e));
         return response(HttpStatus.CONFLICT, "幂等键与请求参数不匹配");
+    }
+
+    @ExceptionHandler(AgentRuntimeConflictException.class)
+    public ResponseEntity<Result<Void>> handleAgentConflict(AgentRuntimeConflictException e) {
+        log.warn("agent_runtime_conflict type={}", typeOf(e));
+        return response(HttpStatus.CONFLICT, "当前对话已有任务正在处理，请等待完成后再发送");
+    }
+
+    @ExceptionHandler(PaperUnderstandingNotReadyException.class)
+    public ResponseEntity<Result<Void>> handlePaperUnderstandingNotReady(PaperUnderstandingNotReadyException e) {
+        log.warn("paper_understanding_not_ready");
+        return response(HttpStatus.CONFLICT, "请先完成论文理解，再开始对话");
     }
 
     @ExceptionHandler(StaleLayoutArtifactException.class)

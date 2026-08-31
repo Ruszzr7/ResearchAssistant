@@ -168,7 +168,7 @@ class DynamicRequestContractTest {
     void workflowConfirmKeepsSelectedAndFolderId() throws Exception {
         when(workflowService.confirm(eq("task-1"), any())).thenReturn("task-2");
 
-        workflowMvc.perform(post("/api/agent/workflow/task-1/confirm")
+        workflowMvc.perform(post("/api/research-automation/workflow/task-1/confirm")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"selected\":[{\"title\":\"candidate\"}],\"folderId\":12,\"ignored\":true}"))
                 .andExpect(status().isOk())

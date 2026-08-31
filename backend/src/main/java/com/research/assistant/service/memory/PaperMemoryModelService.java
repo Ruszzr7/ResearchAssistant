@@ -6,6 +6,8 @@ import com.research.assistant.common.JsonUtils;
 import com.research.assistant.dto.LlmResponse;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.ai.LlmCallPolicy;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
+import dev.langchain4j.data.message.Content;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -18,16 +20,18 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 
-/** Bounded JSON-only model calls for chunk summaries and the global paper profile. */
+/** Model calls for paper understanding. The active path sends the complete
+ * paper in one multimodal request; legacy chunk methods remain temporarily so
+ * existing callers/tests can be removed independently. */
 @Service
 public class PaperMemoryModelService {
 
-    static final String WHOLE_PROMPT_VERSION = "paper-memory-whole-v2";
+    static final String WHOLE_PROMPT_VERSION = "paper-memory-whole-v9-noncitable-captions";
     static final String CHUNK_PROMPT_VERSION = "paper-memory-chunk-v2";
-    static final String PROFILE_PROMPT_VERSION = "paper-memory-profile-v2";
+    static final String PROFILE_PROMPT_VERSION = "paper-memory-profile-v3";
 
     private static final LlmCallPolicy WHOLE_POLICY = new LlmCallPolicy(
-            "paper-memory-whole", 100_000, 24_000, 1_600, 1, true, "low");
+            "paper-memory-whole", 400_000, 120_000, 24_000, 1, true, "low");
     private static final LlmCallPolicy CHUNK_POLICY = new LlmCallPolicy(
             "paper-memory-chunk", 48_000, 12_000, 900, 1, true, "low");
     private static final LlmCallPolicy PROFILE_POLICY = new LlmCallPolicy(
@@ -48,17 +52,48 @@ public class PaperMemoryModelService {
     private static final String PROFILE_SYSTEM_PROMPT = """
             你是严谨的论文全局理解器。只在输入证据边界内生成紧凑论文画像，不得引入外部知识，
             不得把推测写成事实。事实必须引用输入中真实存在的 block ID。不确定的信息留空。
+            优先提取能回答“研究什么、如何做、有何贡献、得到什么结论、有何局限”的信息。
+            coreContributions、keyFindings 和 limitations 中的每条陈述都必须有能直接支持它的 block ID；
+            不得只因为某个 block 与主题相关就将其作为证据。
             只返回 JSON，不要 Markdown、解释或推理过程。researchProblem 和 methodSummary 各不超过
             250 个汉字；贡献、发现各最多 5 条，局限最多 3 条；每条不超过 80 个汉字且最多引用 3 个 block ID；
             datasets、models、metrics、openQuestions 各最多 5 项；sectionDigests 最多 8 项。
             """;
 
-    private final LLMService llmService;
+    private static final String WHOLE_SYSTEM_PROMPT = """
+            你是严谨的论文全局理解器。输入由完整论文的段落级 span 和全部页面图像组成。
+            只根据输入生成紧凑论文画像，不得引入外部知识，不得把推测写成事实。
+            事实必须引用输入中真实出现、且能直接支持陈述的 span ID；不要引用 block ID。
+            对性能趋势、比较、数值、原因或鲁棒性等 finding，至少引用一个明确陈述该结论的
+            PARAGRAPH 或 ABSTRACT span。AUXILIARY_CAPTION 只帮助理解图表且没有可引用 ID，不得为它编造 ID。
+            优先回答“研究什么、如何做、有何贡献、得到什么结论、有何局限”。
+            不确定的信息留空。只返回 JSON，不要 Markdown、解释或推理过程。
+            """;
+
+    private final PaperMemoryModelClient modelClient;
     private final ObjectMapper objectMapper;
+    private final PaperWholeDocumentInputBuilder inputBuilder;
+    private final PaperMemoryChunker chunker;
 
     public PaperMemoryModelService(LLMService llmService, ObjectMapper objectMapper) {
-        this.llmService = llmService;
+        this((system, user, policy) -> llmService.chatWithUsage(system, user, policy),
+                objectMapper, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PaperMemoryModelService(PaperMemoryModelClient modelClient,
+                                   ObjectMapper objectMapper,
+                                   PaperWholeDocumentInputBuilder inputBuilder,
+                                   PaperMemoryChunker chunker) {
+        this.modelClient = modelClient;
         this.objectMapper = objectMapper;
+        this.inputBuilder = inputBuilder;
+        this.chunker = chunker;
+    }
+
+    /** Compatibility constructor for focused unit tests using a text client. */
+    public PaperMemoryModelService(PaperMemoryModelClient modelClient, ObjectMapper objectMapper) {
+        this(modelClient, objectMapper, null, null);
     }
 
     public PaperChunkSummary summarize(PaperMemoryChunk chunk) {
@@ -93,11 +128,41 @@ public class PaperMemoryModelService {
         PaperChunkSummary source = sourceSummary(chunk);
         Generated<PaperGlobalProfile> generated = generate(
                 PROFILE_SYSTEM_PROMPT,
-                wholePaperRequest(structure, chunk),
+                wholePaperRequest(structure, chunk, true),
                 WHOLE_POLICY,
                 response -> parseProfile(
                         structure, List.of(source), 1, 0, false, response),
                 profileSchema());
+        PaperChunkSummary summary = summaryFromProfile(chunk, generated.value(), generated);
+        return new WholePaperGeneration(generated.value(), summary);
+    }
+
+    /**
+     * Understands the complete paper in one model-controlled request. The
+     * input builder chooses the already verified native-PDF capability or the
+     * text plus all page-images representation.
+     */
+    public WholePaperGeneration understandWhole(PaperStructure structure,
+                                                PaperLayoutArtifact artifact) {
+        if (inputBuilder == null) {
+            throw new IllegalStateException("整篇论文输入构建器不可用");
+        }
+        PaperMemoryChunk chunk = (chunker == null
+                ? new PaperMemoryChunker(36_000, 36_000, 400_000)
+                : chunker).wholePaper(structure, artifact);
+        // The builder appends the ordered source text and page images as later
+        // parts of this same user message. Keep the instruction prompt small;
+        // putting chunk.text() here as well would send the complete paper twice.
+        String prompt = wholePaperRequest(structure, chunk, false);
+        PaperWholeDocumentInputBuilder.PaperWholeDocumentInput input =
+                inputBuilder.build(structure, artifact, prompt);
+        Generated<PaperGlobalProfile> generated = generateOnce(
+                WHOLE_SYSTEM_PROMPT,
+                input.contents(),
+                WHOLE_POLICY,
+                response -> parseProfile(
+                        structure, List.of(sourceSummary(chunk)), 1, 0, false,
+                        response, input.spanBlockIds()));
         PaperChunkSummary summary = summaryFromProfile(chunk, generated.value(), generated);
         return new WholePaperGeneration(generated.value(), summary);
     }
@@ -123,25 +188,36 @@ public class PaperMemoryModelService {
                 chunk.text());
     }
 
-    private String wholePaperRequest(PaperStructure structure, PaperMemoryChunk chunk) {
+    private String wholePaperRequest(PaperStructure structure,
+                                     PaperMemoryChunk chunk,
+                                     boolean includeSourceText) {
+        String sourceInstruction = includeSourceText
+                ? "论文原文：\n" + chunk.text()
+                : "论文原文将作为同一用户消息中的按页结构化文本和页面视觉内容提供；请结合这些内容理解全文。";
+        String sourceIds = includeSourceText
+                ? "allowedBlockIds: " + String.join(",", chunk.blockIds())
+                : "allowedSourceIds: use only span IDs shown in the structured paper text";
         String prompt = """
                 promptVersion: %s
                 paperId: %d
                 title: %s
-                allowedBlockIds: %s
+                %s
 
                 请阅读全文后按以下 schema 生成论文画像。所有章节均已包含，不要逐段复述：
                 %s
 
-                论文原文：
+                提交前逐条检查 keyFindings：凡陈述性能趋势、方案比较、具体数值、原因或鲁棒性，
+                evidenceSpanIds 中至少有一个标记为 PARAGRAPH 或 ABSTRACT、且原文明确陈述该结论的 span。
+                AUXILIARY_CAPTION 没有可引用 ID；找不到直接正文证据就删除该 finding。
+
                 %s
                 """.formatted(
                 WHOLE_PROMPT_VERSION,
                 structure.paperId(),
                 limit(structure.metadata().title(), 500),
-                String.join(",", chunk.blockIds()),
-                profileSchema(),
-                chunk.text());
+                sourceIds,
+                profileSchema(!includeSourceText),
+                sourceInstruction);
         if (WHOLE_POLICY.exceedsInputBudget(PROFILE_SYSTEM_PROMPT, prompt)) {
             throw new IllegalArgumentException("论文正文超过单次理解 Token 预算");
         }
@@ -162,25 +238,43 @@ public class PaperMemoryModelService {
     }
 
     private String profileSchema() {
+        return profileSchema(false);
+    }
+
+    private String profileSchema(boolean spanEvidence) {
+        String evidenceField = spanEvidence ? "evidenceSpanIds" : "evidenceBlockIds";
+        String evidenceLabel = spanEvidence ? "span-id" : "block-id";
         return """
                 {
                   "domain":"",
                   "researchProblem":"不超过250个汉字",
                   "coreContributions":[
                     {"category":"CONTRIBUTION","statement":"不超过80个汉字",
-                     "evidenceBlockIds":["最多3个block-id"],"confidence":0.0}
+                     "%s":["最多3个%s"],"confidence":0.0}
                   ],
                   "methodType":"THEORETICAL|EXPERIMENTAL|SYSTEM|SURVEY|OTHER",
                   "methodSummary":"不超过250个汉字",
                   "datasets":[],"models":[],"metrics":[],
-                  "keyFindings":[],
-                  "limitations":[],
+                  "keyFindings":[
+                    {"category":"FINDING","statement":"不超过80个汉字",
+                     "%s":["最多3个%s"],"confidence":0.0}
+                  ],
+                  "limitations":[
+                    {"category":"LIMITATION","statement":"不超过80个汉字",
+                     "%s":["最多3个%s"],"confidence":0.0}
+                  ],
                   "experimentSetup":{"taskDefinition":"","baselines":""},
-                  "benchmarkResults":[],
-                  "sectionDigests":[],
+                  "benchmarkResults":[
+                    {"metric":"","value":"","baseline":"","dataset":"",
+                     "%s":["最多3个%s"]}
+                  ],
                   "openQuestions":[]
                 }
-                贡献和发现各最多5条，局限最多3条；其余数组各最多5项，sectionDigests最多8项。""";
+                贡献和发现各最多5条，局限最多3条；其余数组各最多5项。"""
+                .formatted(evidenceField, evidenceLabel,
+                        evidenceField, evidenceLabel,
+                        evidenceField, evidenceLabel,
+                        evidenceField, evidenceLabel);
     }
 
     private PaperChunkSummary parseChunkSummary(PaperMemoryChunk chunk, LlmResponse response) {
@@ -276,6 +370,17 @@ public class PaperMemoryModelService {
                                             int failedChunks,
                                             boolean inputTruncated,
                                             LlmResponse response) {
+        return parseProfile(structure, summaries, totalChunks, failedChunks,
+                inputTruncated, response, Map.of());
+    }
+
+    private PaperGlobalProfile parseProfile(PaperStructure structure,
+                                            List<PaperChunkSummary> summaries,
+                                            int totalChunks,
+                                            int failedChunks,
+                                            boolean inputTruncated,
+                                            LlmResponse response,
+                                            Map<String, List<String>> spanBlockIds) {
         if ("LENGTH".equalsIgnoreCase(response == null ? null : response.getFinishReason())) {
             throw new IllegalArgumentException("全局画像输出被截断");
         }
@@ -290,9 +395,11 @@ public class PaperMemoryModelService {
         LinkedHashSet<String> issues = new LinkedHashSet<>();
         if (inputTruncated) issues.add("PROFILE_INPUT_TRUNCATED");
         List<PaperMemoryClaim> contributions = claims(
-                root.path("coreContributions"), allowedBlocks, issues);
-        List<PaperMemoryClaim> findings = claims(root.path("keyFindings"), allowedBlocks, issues);
-        List<PaperMemoryClaim> limitations = claims(root.path("limitations"), allowedBlocks, issues);
+                root.path("coreContributions"), allowedBlocks, spanBlockIds, issues);
+        List<PaperMemoryClaim> findings = claims(
+                root.path("keyFindings"), allowedBlocks, spanBlockIds, issues);
+        List<PaperMemoryClaim> limitations = claims(
+                root.path("limitations"), allowedBlocks, spanBlockIds, issues);
         String researchProblem = text(root, "researchProblem", 800);
         String methodSummary = text(root, "methodSummary", 800);
         if (researchProblem.isBlank() && contributions.isEmpty() && methodSummary.isBlank()) {
@@ -311,8 +418,10 @@ public class PaperMemoryModelService {
                 strings(root.path("metrics"), 5, 200),
                 findings, limitations,
                 stringMap(root.path("experimentSetup"), 4, 500),
-                benchmarks(root.path("benchmarkResults"), allowedBlocks, issues),
-                sectionDigests(root.path("sectionDigests"), allowedChunks, issues),
+                benchmarks(root.path("benchmarkResults"), allowedBlocks, spanBlockIds, issues),
+                spanBlockIds.isEmpty()
+                        ? sectionDigests(root.path("sectionDigests"), allowedChunks, issues)
+                        : List.of(),
                 strings(root.path("openQuestions"), 5, 300),
                 new PaperGlobalProfile.Coverage(totalChunks, readyCount, failedChunks, complete),
                 List.copyOf(issues), Instant.now());
@@ -321,13 +430,20 @@ public class PaperMemoryModelService {
     private List<PaperMemoryClaim> claims(JsonNode node,
                                           Set<String> allowedBlocks,
                                           Set<String> issues) {
+        return claims(node, allowedBlocks, Map.of(), issues);
+    }
+
+    private List<PaperMemoryClaim> claims(JsonNode node,
+                                          Set<String> allowedBlocks,
+                                          Map<String, List<String>> spanBlockIds,
+                                          Set<String> issues) {
         if (!node.isArray()) return List.of();
         List<PaperMemoryClaim> result = new ArrayList<>();
         for (JsonNode item : node) {
             if (!item.isObject() || result.size() >= 5) break;
             String statement = text(item, "statement", 320);
             if (statement.isBlank()) continue;
-            List<String> evidence = allowedStrings(item.path("evidenceBlockIds"), allowedBlocks, 3);
+            List<String> evidence = evidenceBlocks(item, allowedBlocks, spanBlockIds);
             if (evidence.isEmpty()) {
                 issues.add("UNGROUNDED_CLAIM_DROPPED");
                 continue;
@@ -342,11 +458,17 @@ public class PaperMemoryModelService {
 
     private List<PaperGlobalProfile.BenchmarkResult> benchmarks(
             JsonNode node, Set<String> allowedBlocks, Set<String> issues) {
+        return benchmarks(node, allowedBlocks, Map.of(), issues);
+    }
+
+    private List<PaperGlobalProfile.BenchmarkResult> benchmarks(
+            JsonNode node, Set<String> allowedBlocks,
+            Map<String, List<String>> spanBlockIds, Set<String> issues) {
         if (!node.isArray()) return List.of();
         List<PaperGlobalProfile.BenchmarkResult> result = new ArrayList<>();
         for (JsonNode item : node) {
             if (!item.isObject() || result.size() >= 5) break;
-            List<String> evidence = allowedStrings(item.path("evidenceBlockIds"), allowedBlocks, 3);
+            List<String> evidence = evidenceBlocks(item, allowedBlocks, spanBlockIds);
             if (evidence.isEmpty()) {
                 issues.add("UNGROUNDED_BENCHMARK_DROPPED");
                 continue;
@@ -356,6 +478,23 @@ public class PaperMemoryModelService {
                     text(item, "baseline", 300), text(item, "dataset", 200), evidence));
         }
         return List.copyOf(result);
+    }
+
+    private List<String> evidenceBlocks(JsonNode item,
+                                        Set<String> allowedBlocks,
+                                        Map<String, List<String>> spanBlockIds) {
+        if (!spanBlockIds.isEmpty()) {
+            List<String> spanIds = allowedStrings(
+                    item.path("evidenceSpanIds"), spanBlockIds.keySet(), 3);
+            if (!spanIds.isEmpty()) {
+                return spanIds.stream()
+                        .flatMap(id -> spanBlockIds.getOrDefault(id, List.of()).stream())
+                        .filter(allowedBlocks::contains)
+                        .distinct()
+                        .toList();
+            }
+        }
+        return allowedStrings(item.path("evidenceBlockIds"), allowedBlocks, 3);
     }
 
     private List<PaperGlobalProfile.SectionDigest> sectionDigests(
@@ -385,7 +524,7 @@ public class PaperMemoryModelService {
                                       String schema) {
         LlmResponse primary;
         try {
-            primary = llmService.chatWithUsage(systemPrompt, userMessage, policy);
+            primary = modelClient.chat(systemPrompt, userMessage, policy);
         } catch (RuntimeException exception) {
             throw new PaperMemoryGenerationException(
                     "论文理解模型调用失败", exception, 0, 0, "");
@@ -413,7 +552,7 @@ public class PaperMemoryModelService {
                     """.formatted(schema, limit(primary.getContent(), 6_000));
             LlmResponse repaired;
             try {
-                repaired = llmService.chatWithUsage(
+                repaired = modelClient.chat(
                         "你是 JSON 修复器。不要解释，不要推理，不得添加输入中不存在的信息。",
                         REPAIR_POLICY.limitInput(repairPrompt),
                         REPAIR_POLICY);
@@ -433,6 +572,33 @@ public class PaperMemoryModelService {
                         "论文理解输出无法修复", repairParseFailure,
                         promptTokens, completionTokens, repaired.getFinishReason());
             }
+        }
+    }
+
+    /** One-shot parser for the active whole-paper path. No repair request is
+     * issued: a malformed response is recorded as a real model failure so the
+     * measured call count remains truthful. */
+    private <T> Generated<T> generateOnce(String systemPrompt,
+                                           List<Content> userContents,
+                                           LlmCallPolicy policy,
+                                           Function<LlmResponse, T> parser) {
+        LlmResponse primary;
+        try {
+            primary = modelClient.chat(systemPrompt, userContents, policy);
+        } catch (RuntimeException exception) {
+            throw new PaperMemoryGenerationException(
+                    "论文整篇理解模型调用失败", exception, 0, 0, "");
+        }
+        int promptTokens = count(primary == null ? null : primary.getPromptTokens());
+        int completionTokens = count(primary == null ? null : primary.getCompletionTokens());
+        try {
+            return new Generated<>(parser.apply(primary), promptTokens, completionTokens,
+                    primary == null ? "" : primary.getFinishReason());
+        } catch (RuntimeException parseFailure) {
+            throw new PaperMemoryGenerationException(
+                    "论文整篇理解输出无法解析", parseFailure,
+                    promptTokens, completionTokens,
+                    primary == null ? "" : primary.getFinishReason());
         }
     }
 

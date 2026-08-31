@@ -7,8 +7,6 @@ import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.Tag;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.TagMapper;
-import com.research.assistant.service.AgentOrchestrator;
-import com.research.assistant.service.AsyncTaskService;
 import com.research.assistant.service.PaperService;
 import com.research.assistant.service.PaperAssetLifecycleService;
 import com.research.assistant.service.PdfExtractor;
@@ -45,21 +43,16 @@ public class PaperServiceImpl implements PaperService {
     private final PaperMapper paperMapper;
     private final TagMapper tagMapper;
     private final PdfExtractor pdfExtractor;
-    private final AgentOrchestrator agentOrchestrator;
-    private final AsyncTaskService asyncTaskService;
     private final PaperAssetLifecycleService paperAssetLifecycleService;
 
     @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
     public PaperServiceImpl(PaperMapper paperMapper, TagMapper tagMapper, PdfExtractor pdfExtractor,
-                            AgentOrchestrator agentOrchestrator, AsyncTaskService asyncTaskService,
                             PaperAssetLifecycleService paperAssetLifecycleService) {
         this.paperMapper = paperMapper;
         this.tagMapper = tagMapper;
         this.pdfExtractor = pdfExtractor;
-        this.agentOrchestrator = agentOrchestrator;
-        this.asyncTaskService = asyncTaskService;
         this.paperAssetLifecycleService = paperAssetLifecycleService;
     }
 
@@ -109,10 +102,6 @@ public class PaperServiceImpl implements PaperService {
     public Paper create(Paper paper) {
         normalizeAuthors(paper);
         paperMapper.insert(paper);
-        // 入库后自动触发结构解析与论文记忆构建（异步）
-        if (paper.getPdfPath() != null && !paper.getPdfPath().isBlank()) {
-            triggerAsyncProcessing(paper.getId());
-        }
         return getById(paper.getId());   // 回查以填充 tags
     }
 
@@ -215,16 +204,11 @@ public class PaperServiceImpl implements PaperService {
             replaced.setId(duplicate.getId());
             replaced.setPdfPath(oldPdfPath);
             paperAssetLifecycleService.deleteAfterCommit(List.of(replaced));
-            triggerAsyncProcessing(duplicate.getId());
             return getById(duplicate.getId());
         }
         paperMapper.insert(paper);
         if (file != null && !file.isEmpty()) {
             uploadPdf(paper.getId(), file);
-        }
-        // 仅上传了 PDF 才自动触发论文记忆，避免无 PDF 时异步任务直接失败
-        if (paper.getPdfPath() != null && !paper.getPdfPath().isBlank()) {
-            triggerAsyncProcessing(paper.getId());
         }
         return getById(paper.getId());
     }
@@ -298,11 +282,6 @@ public class PaperServiceImpl implements PaperService {
                 new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<Paper>()
                         .in("id", ids)
                         .set("folder_id", folderId));
-    }
-
-    /** 异步触发结构解析、分块理解和全局画像，不阻塞入库响应。 */
-    private void triggerAsyncProcessing(Long paperId) {
-        asyncTaskService.processPaperAsync(paperId);
     }
 
     /** 将 authors 字段统一规范化为 JSON 数组字符串，保证数据库格式一致 */

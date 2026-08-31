@@ -72,6 +72,7 @@ app:
   storage:
     pdf-dir: ${APP_STORAGE_PDF_DIR:../data/papers}
     figures-dir: ${APP_STORAGE_FIGURES_DIR:../data/figures}
+    agent-attachments-dir: ${APP_STORAGE_AGENT_ATTACHMENTS_DIR:../data/agent-attachments}
   encryption:
     # 敏感设置（如 api_key）加密主密钥；优先读取环境变量 RA_MASTER_KEY。
     # 未配置时 API Key 会明文保存，仅适合本地临时开发。

@@ -1,18 +1,11 @@
 package com.research.assistant.service.research;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.research.assistant.dto.research.*;
 import com.research.assistant.entity.Paper;
-import com.research.assistant.entity.PaperWorkbenchRunRecord;
 import com.research.assistant.entity.ResearchMessage;
 import com.research.assistant.entity.ResearchSession;
 import com.research.assistant.mapper.*;
-import com.research.assistant.service.workbench.WorkbenchRunTrace;
-import com.research.assistant.service.workbench.WorkbenchRunTraceService;
-import com.research.assistant.service.workbench.WorkbenchWorkflowResult;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,24 +23,18 @@ public class ResearchSessionService {
     private final ResearchSessionPaperMapper sessionPaperMapper;
     private final ResearchMessageMapper messageMapper;
     private final PaperMapper paperMapper;
-    private final PaperWorkbenchRunMapper runMapper;
-    private final WorkbenchRunTraceService traceService;
-    private final ObjectMapper objectMapper;
+    private final AgentTurnMapper agentTurnMapper;
 
     public ResearchSessionService(ResearchSessionMapper sessionMapper,
                                   ResearchSessionPaperMapper sessionPaperMapper,
                                   ResearchMessageMapper messageMapper,
                                   PaperMapper paperMapper,
-                                  PaperWorkbenchRunMapper runMapper,
-                                  WorkbenchRunTraceService traceService,
-                                  ObjectMapper objectMapper) {
+                                  AgentTurnMapper agentTurnMapper) {
         this.sessionMapper = sessionMapper;
         this.sessionPaperMapper = sessionPaperMapper;
         this.messageMapper = messageMapper;
         this.paperMapper = paperMapper;
-        this.runMapper = runMapper;
-        this.traceService = traceService;
-        this.objectMapper = objectMapper;
+        this.agentTurnMapper = agentTurnMapper;
     }
 
     public List<ResearchSessionSummary> list(boolean archived, String keyword, int limit) {
@@ -63,11 +50,7 @@ public class ResearchSessionService {
         List<ResearchMessageView> messages = messageMapper.selectBySessionId(sessionId).stream()
                 .map(this::toMessageView)
                 .toList();
-        List<WorkbenchRunTrace> runs = runMapper.selectByResearchSessionId(sessionId, 100).stream()
-                .map(record -> traceService.findTrace(record.getRunId()))
-                .filter(trace -> trace != null)
-                .toList();
-        return new ResearchSessionDetail(toSummary(session), messages, runs);
+        return new ResearchSessionDetail(toSummary(session), messages);
     }
 
     @Transactional
@@ -124,109 +107,9 @@ public class ResearchSessionService {
     }
 
     @Transactional
-    public List<ResearchMessageView> appendMessages(long sessionId, ResearchMessageAppendRequest request) {
-        ResearchSession session = requireSession(sessionId);
-        List<ResearchMessageView> saved = new ArrayList<>();
-        for (ResearchMessageInput input : request.messages()) {
-            String role = input.role().trim().toUpperCase(Locale.ROOT);
-            if (!role.equals("USER") && !role.equals("ASSISTANT")) {
-                throw new IllegalArgumentException("研究消息角色仅支持 USER 或 ASSISTANT");
-            }
-            ResearchMessage existing = messageMapper.selectByMessageKey(sessionId, input.messageKey());
-            if (existing != null) {
-                saved.add(toMessageView(existing));
-                continue;
-            }
-            ResearchMessage message = new ResearchMessage();
-            message.setSessionId(sessionId);
-            message.setMessageKey(input.messageKey().trim());
-            message.setRole(role);
-            message.setContent(input.content().trim());
-            message.setRunId(blankToNull(input.runId()));
-            message.setSelectionAnchorJson(writeNullable(input.selectionAnchor()));
-            message.setEvidenceJson(writeNullable(input.evidence()));
-            message.setCreatedAt(LocalDateTime.now());
-            try {
-                messageMapper.insert(message);
-            } catch (DuplicateKeyException duplicate) {
-                message = messageMapper.selectByMessageKey(sessionId, input.messageKey());
-            }
-            if (message != null) saved.add(toMessageView(message));
-            if (input.runId() != null && !input.runId().isBlank()) attachRunInternal(sessionId, input.runId());
-        }
-        touch(session);
-        sessionMapper.updateById(session);
-        return saved;
-    }
-
-    /**
-     * Archives a completed workbench turn on the server so leaving the PDF page cannot lose the
-     * answer. Message keys make this safe to replay when the browser also performs its legacy sync.
-     */
-    @Transactional
-    public void archiveWorkbenchCompletion(WorkbenchRunTrace trace, WorkbenchWorkflowResult result) {
-        if (trace == null || result == null) return;
-        PaperWorkbenchRunRecord run = runMapper.selectByRunId(trace.runId());
-        if (run == null || run.getResearchSessionId() == null) return;
-
-        var userEvidence = objectMapper.createObjectNode();
-        userEvidence.put("contextInherited", result.contextInherited());
-        userEvidence.put("contextMode", result.contextMode().name());
-        userEvidence.put("conversationId", trace.invocation().conversationId());
-        var attachmentViews = userEvidence.putArray("attachments");
-        trace.invocation().attachments().forEach(attachment -> {
-            var item = attachmentViews.addObject();
-            item.put("name", attachment.name());
-            item.put("mimeType", attachment.mimeType());
-            item.put("truncated", attachment.truncated());
-        });
-
-        var assistantEvidence = objectMapper.createObjectNode();
-        assistantEvidence.set("claims", objectMapper.valueToTree(result.claims()));
-        assistantEvidence.set("answerBlocks", objectMapper.valueToTree(result.answerBlocks()));
-        assistantEvidence.set("evidence", objectMapper.valueToTree(result.evidence()));
-        assistantEvidence.put("regionFallback", result.regionFallback());
-        assistantEvidence.set("actions", objectMapper.valueToTree(result.actions()));
-        assistantEvidence.put("conversationId", trace.invocation().conversationId());
-
-        appendMessages(run.getResearchSessionId(), new ResearchMessageAppendRequest(List.of(
-                new ResearchMessageInput(
-                        trace.runId() + ":user", "USER", trace.invocation().question(), trace.runId(),
-                        objectMapper.valueToTree(trace.invocation().selectionAnchor()), userEvidence),
-                new ResearchMessageInput(
-                        trace.runId() + ":assistant", "ASSISTANT", result.answer(), trace.runId(),
-                        null, assistantEvidence)
-        )));
-    }
-
-    @Transactional
-    public void attachRun(long sessionId, String runId) {
-        ResearchSession session = requireSession(sessionId);
-        attachRunInternal(sessionId, runId);
-        touch(session);
-        sessionMapper.updateById(session);
-    }
-
-    @Transactional
     public void delete(long sessionId) {
         requireSession(sessionId);
-        // Delete the owned workbench history before the FK would detach it. Otherwise the
-        // legacy backfill would recreate an archive the user explicitly removed.
-        runMapper.delete(new LambdaQueryWrapper<PaperWorkbenchRunRecord>()
-                .eq(PaperWorkbenchRunRecord::getResearchSessionId, sessionId));
         sessionMapper.deleteById(sessionId);
-    }
-
-    private void attachRunInternal(long sessionId, String runId) {
-        PaperWorkbenchRunRecord run = runMapper.selectByRunId(runId);
-        if (run == null) throw new IllegalArgumentException("论文助手运行不存在");
-        if (run.getResearchSessionId() != null && run.getResearchSessionId() != sessionId) {
-            throw new IllegalArgumentException("论文助手运行已属于其他研究档案");
-        }
-        if (run.getResearchSessionId() == null) {
-            run.setResearchSessionId(sessionId);
-            runMapper.updateById(run);
-        }
     }
 
     private void replacePapers(long sessionId, List<Long> paperIds) {
@@ -247,7 +130,7 @@ public class ResearchSessionService {
         summary.setOutputLanguage(session.getOutputLanguage());
         summary.setArchived(session.getArchived());
         summary.setMessageCount(messageMapper.countBySessionId(session.getId()));
-        summary.setRunCount(runMapper.countByResearchSessionId(session.getId()));
+        summary.setRunCount(agentTurnMapper.countBySessionId(session.getId()));
         summary.setPapers(sessionPaperMapper.selectPapers(session.getId()));
         summary.setLastActivityAt(session.getLastActivityAt());
         summary.setCreatedAt(session.getCreatedAt());
@@ -314,19 +197,14 @@ public class ResearchSessionService {
         session.setUpdatedAt(now);
     }
 
-    private String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    private String writeNullable(JsonNode node) {
-        if (node == null || node.isNull()) return null;
-        try { return objectMapper.writeValueAsString(node); }
-        catch (Exception error) { throw new IllegalArgumentException("研究消息 JSON 无效", error); }
-    }
-
     private JsonNode readNullable(String json) {
         if (json == null || json.isBlank()) return null;
-        try { return objectMapper.readTree(json); }
+        try { return JsonSupport.MAPPER.readTree(json); }
         catch (Exception ignored) { return null; }
+    }
+
+    private static final class JsonSupport {
+        private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
+                new com.fasterxml.jackson.databind.ObjectMapper();
     }
 }

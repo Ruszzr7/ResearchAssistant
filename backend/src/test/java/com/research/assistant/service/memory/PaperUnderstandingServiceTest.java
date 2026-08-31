@@ -5,14 +5,12 @@ import com.research.assistant.entity.PaperMemoryRecord;
 import com.research.assistant.mapper.PaperMemoryMapper;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifactService;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -31,11 +29,10 @@ class PaperUnderstandingServiceTest {
     private PaperMemoryChunker chunker;
     private PaperMemoryModelService modelService;
     private ObjectMapper objectMapper;
-    private ThreadPoolTaskExecutor executor;
     private PaperUnderstandingService service;
     private PaperMemoryRecord record;
-    private PaperMemoryChunk chunkOne;
-    private PaperMemoryChunk chunkTwo;
+    private PaperMemoryChunk wholePaper;
+    private PaperLayoutArtifact artifact;
 
     @BeforeEach
     void setUp() {
@@ -45,11 +42,7 @@ class PaperUnderstandingServiceTest {
         chunker = mock(PaperMemoryChunker.class);
         modelService = mock(PaperMemoryModelService.class);
         objectMapper = new ObjectMapper().findAndRegisterModules();
-        executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(2);
-        executor.setQueueCapacity(10);
-        executor.initialize();
+        ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
         service = new PaperUnderstandingService(
                 memoryService, memoryMapper, artifactService, chunker,
                 modelService, objectMapper, executor);
@@ -60,109 +53,59 @@ class PaperUnderstandingServiceTest {
                 PaperMemoryService.STATUS_STRUCTURED, 1, structure, "",
                 Instant.now(), Instant.now());
         record = record();
-        PaperLayoutArtifact artifact = new PaperLayoutArtifact(
+        artifact = new PaperLayoutArtifact(
                 7L, "a".repeat(64), "parser", 0.9, Instant.now(), 2, List.of());
-        chunkOne = chunk("pmc-1", 1, "b-1");
-        chunkTwo = chunk("pmc-2", 2, "b-2");
+        wholePaper = new PaperMemoryChunk(
+                "pmc-whole", "f".repeat(64), 1, "whole-paper", List.of(),
+                1, 2, List.of("b-1", "b-2"), "[b-1] paper text\n[b-2] more paper text");
 
         when(memoryService.ensureStructure(7L, false)).thenReturn(state);
         when(memoryMapper.selectVersion(
                 7L, "a".repeat(64), "parser", PaperStructure.SCHEMA_VERSION)).thenReturn(record);
         when(artifactService.ensureArtifact(7L, false)).thenReturn(artifact);
-        when(chunker.chunk(structure, artifact)).thenReturn(List.of(chunkOne, chunkTwo));
+        when(chunker.wholePaper(structure, artifact)).thenReturn(wholePaper);
         when(memoryMapper.updateById(any(PaperMemoryRecord.class))).thenReturn(1);
     }
 
-    @AfterEach
-    void tearDown() {
-        executor.shutdown();
-    }
-
     @Test
-    void shouldSummarizeChunksInParallelCheckpointAndBuildReadyProfile() {
-        PaperChunkSummary first = summary(chunkOne, 11, 5);
-        PaperChunkSummary second = summary(chunkTwo, 13, 6);
-        PaperGlobalProfile profile = profile(2, 2, 0, true);
-        when(modelService.summarize(chunkOne)).thenReturn(first);
-        when(modelService.summarize(chunkTwo)).thenReturn(second);
-        when(modelService.profile(any(), any(), any(Integer.class), any(Integer.class)))
-                .thenReturn(new PaperMemoryModelService.ProfileGeneration(profile, 20, 9));
-        List<String> stages = new ArrayList<>();
-
-        PaperUnderstandingResult result = service.understand(7L, false, stages::add);
-
-        assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_READY);
-        assertThat(result.completedChunks()).isEqualTo(2);
-        assertThat(result.failedChunks()).isZero();
-        assertThat(result.promptTokens()).isEqualTo(44);
-        assertThat(result.completionTokens()).isEqualTo(20);
-        assertThat(result.profile()).isEqualTo(profile);
-        assertThat(record.getChunkSummariesJson()).contains("pmc-1", "pmc-2");
-        assertThat(record.getProfileJson()).contains("paper-profile-v1");
-        assertThat(record.getUnderstandingCompletedAt()).isNotNull();
-        assertThat(stages).anyMatch(stage -> stage.contains("全局画像"))
-                .endsWith("论文记忆已就绪");
-    }
-
-    @Test
-    void shouldResumeReadyChunksAndRetryOnlyMissingChunk() throws Exception {
-        PaperChunkSummary first = summary(chunkOne, 11, 5);
-        PaperChunkSummary second = summary(chunkTwo, 13, 6);
-        record.setStatus(PaperUnderstandingService.STATUS_PARTIAL);
-        record.setUnderstandingVersion(PaperUnderstandingService.PIPELINE_VERSION);
-        record.setChunkSummariesJson(objectMapper.writeValueAsString(List.of(first)));
-        when(modelService.summarize(chunkTwo)).thenReturn(second);
-        when(modelService.profile(any(), any(), any(Integer.class), any(Integer.class)))
-                .thenReturn(new PaperMemoryModelService.ProfileGeneration(
-                        profile(2, 2, 0, true), 10, 4));
-
-        PaperUnderstandingResult result = service.understand(7L, false, ignored -> { });
-
-        assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_READY);
-        verify(modelService, never()).summarize(chunkOne);
-        verify(modelService).summarize(chunkTwo);
-    }
-
-    @Test
-    void shouldExposeOneFailedChunkWithoutRepeatingTheSameExpensiveRequest() {
-        PaperChunkSummary first = summary(chunkOne, 11, 5);
-        when(modelService.summarize(chunkOne)).thenReturn(first);
-        when(modelService.summarize(chunkTwo))
-                .thenThrow(new PaperMemoryGenerationException(
-                        "truncated", new IllegalArgumentException("bad json"),
-                        17, 8, "LENGTH"));
-
-        PaperUnderstandingResult result = service.understand(7L, false, ignored -> { });
-
-        assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_PARTIAL);
-        assertThat(result.promptTokens()).isEqualTo(28);
-        assertThat(result.completionTokens()).isEqualTo(13);
-        verify(modelService).summarize(chunkTwo);
-        verify(modelService, never()).profile(any(), any(), any(Integer.class), any(Integer.class));
-    }
-
-    @Test
-    void shouldUseWholePaperGenerationAndOpenQuestionsOnlyAfterReady() {
-        PaperChunkSummary summary = summary(chunkOne, 500, 180);
-        PaperGlobalProfile profile = profile(1, 1, 0, true);
-        when(chunker.chunk(any(), any())).thenReturn(List.of(chunkOne));
-        when(modelService.understandWhole(any(), any()))
+    void shouldMakeExactlyOneWholePaperModelCall() {
+        PaperGlobalProfile profile = profile();
+        PaperChunkSummary summary = summary(500, 180);
+        when(modelService.understandWhole(any(PaperStructure.class), any(PaperLayoutArtifact.class)))
                 .thenReturn(new PaperMemoryModelService.WholePaperGeneration(profile, summary));
 
         PaperUnderstandingResult result = service.understand(7L, false, ignored -> { });
 
         assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_READY);
+        assertThat(result.totalChunks()).isEqualTo(1);
+        assertThat(result.completedChunks()).isEqualTo(1);
         assertThat(result.promptTokens()).isEqualTo(500);
         assertThat(result.completionTokens()).isEqualTo(180);
-        verify(modelService).understandWhole(any(), any());
+        assertThat(result.profile()).isEqualTo(profile);
+        verify(modelService).understandWhole(any(PaperStructure.class), any(PaperLayoutArtifact.class));
         verify(modelService, never()).summarize(any());
         verify(modelService, never()).profile(any(), any(), any(Integer.class), any(Integer.class));
     }
 
     @Test
-    void shouldPersistFailedWholePaperUsage() {
-        when(chunker.chunk(any(), any())).thenReturn(List.of(chunkOne));
-        when(modelService.understandWhole(any(), any()))
+    void shouldReuseOnlyCurrentWholePaperVersion() throws Exception {
+        PaperGlobalProfile profile = profile();
+        record.setStatus(PaperUnderstandingService.STATUS_READY);
+        record.setUnderstandingVersion(PaperUnderstandingService.PIPELINE_VERSION);
+        record.setProfileJson(objectMapper.writeValueAsString(profile));
+        record.setProfileQualityJson("{\"ready\":true}");
+
+        PaperUnderstandingResult result = service.understand(7L, false, ignored -> { });
+
+        assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_READY);
+        assertThat(result.profile()).isEqualTo(profile);
+        verify(modelService, never()).understandWhole(any(PaperStructure.class), any(PaperLayoutArtifact.class));
+        verify(chunker, never()).wholePaper(any(), any());
+    }
+
+    @Test
+    void shouldPersistTheSingleFailedCallWithoutARepairOrChunkRetry() {
+        when(modelService.understandWhole(any(PaperStructure.class), any(PaperLayoutArtifact.class)))
                 .thenThrow(new PaperMemoryGenerationException(
                         "invalid", new IllegalArgumentException("bad json"),
                         700, 300, "LENGTH"));
@@ -170,12 +113,16 @@ class PaperUnderstandingServiceTest {
         PaperUnderstandingResult result = service.understand(7L, false, ignored -> { });
 
         assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_FAILED);
+        assertThat(result.totalChunks()).isEqualTo(1);
         assertThat(result.promptTokens()).isEqualTo(700);
         assertThat(result.completionTokens()).isEqualTo(300);
         assertThat(result.summaries()).singleElement().satisfies(summary -> {
             assertThat(summary.ready()).isFalse();
             assertThat(summary.finishReason()).isEqualTo("LENGTH");
         });
+        verify(modelService).understandWhole(any(PaperStructure.class), any(PaperLayoutArtifact.class));
+        verify(modelService, never()).summarize(any());
+        verify(modelService, never()).profile(any(), any(), any(Integer.class), any(Integer.class));
     }
 
     private PaperMemoryRecord record() {
@@ -194,29 +141,24 @@ class PaperUnderstandingServiceTest {
         return value;
     }
 
-    private PaperMemoryChunk chunk(String id, int ordinal, String blockId) {
-        return new PaperMemoryChunk(
-                id, ("f" + ordinal).repeat(32), ordinal, "section-1", List.of("Method"),
-                ordinal, ordinal, List.of(blockId), "[" + blockId + "] text");
-    }
-
-    private PaperChunkSummary summary(PaperMemoryChunk chunk, int promptTokens, int completionTokens) {
+    private PaperChunkSummary summary(int promptTokens, int completionTokens) {
         return new PaperChunkSummary(
-                chunk.id(), chunk.sourceFingerprint(), chunk.ordinal(), chunk.sectionId(),
-                chunk.headingPath(), chunk.pageStart(), chunk.pageEnd(), chunk.blockIds(),
-                "Summary " + chunk.ordinal(),
-                List.of(new PaperMemoryClaim("METHOD", "Method claim", chunk.blockIds(), 0.9)),
+                wholePaper.id(), wholePaper.sourceFingerprint(), 1, wholePaper.sectionId(),
+                wholePaper.headingPath(), wholePaper.pageStart(), wholePaper.pageEnd(), wholePaper.blockIds(),
+                "Whole paper summary",
+                List.of(new PaperMemoryClaim("CONTRIBUTION", "Contribution", List.of("b-1"), 0.9)),
                 List.of(), List.of(), List.of(), List.of(), PaperChunkSummary.READY,
                 List.of(), promptTokens, completionTokens, "STOP", Instant.now());
     }
 
-    private PaperGlobalProfile profile(int total, int ready, int failed, boolean complete) {
+    private PaperGlobalProfile profile() {
         return new PaperGlobalProfile(
                 PaperGlobalProfile.SCHEMA_VERSION, 7L, "Paper", "AI", "Problem",
                 List.of(new PaperMemoryClaim("CONTRIBUTION", "Contribution", List.of("b-1"), 0.9)),
                 "EXPERIMENTAL", "Method", List.of(), List.of(), List.of(),
-                List.of(), List.of(), Map.of(), List.of(), List.of(), List.of(),
-                new PaperGlobalProfile.Coverage(total, ready, failed, complete),
+                List.of(new PaperMemoryClaim("FINDING", "Finding", List.of("b-2"), 0.8)),
+                List.of(), Map.of(), List.of(), List.of(), List.of(),
+                new PaperGlobalProfile.Coverage(1, 1, 0, true),
                 List.of(), Instant.now());
     }
 

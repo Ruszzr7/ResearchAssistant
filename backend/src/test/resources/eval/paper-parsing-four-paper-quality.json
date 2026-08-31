@@ -1,0 +1,109 @@
+{
+  "pipelineVersion": "paper-understanding-v5-semantic-spans",
+  "papers": [
+    {
+      "paperId": 184,
+      "roleCases": [
+        { "blockId": "p4-b0040", "expectedRole": "BODY" },
+        { "blockId": "p4-b0048", "expectedRole": "CAPTION" }
+      ],
+      "spanGroups": [],
+      "facts": [
+        {
+          "name": "small-blocklength-operability",
+          "profileFields": ["keyFindings"],
+          "claimTermGroups": [["NOMA"], ["SDMA"], ["块长", "blocklength"]],
+          "evidenceTermGroups": [["below a certain value"], ["unworkable"], ["small blocklength"]],
+          "expectedPage": 4
+        },
+        {
+          "name": "high-mobility-robustness",
+          "profileFields": ["keyFindings"],
+          "claimTermGroups": [["RSMA"], ["SDMA"], ["车速", "移动性", "mobility"]],
+          "evidenceTermGroups": [["SDMA drops sharply"], ["RSMA limits the performance degradation"]],
+          "expectedPage": 4
+        }
+      ]
+    },
+    {
+      "paperId": 185,
+      "roleCases": [
+        { "blockId": "p5-b0058", "expectedRole": "BODY" },
+        { "blockId": "p5-b0061", "expectedRole": "BODY" }
+      ],
+      "spanGroups": [
+        { "name": "aspa-pso-result-paragraph", "blockIds": ["p5-b0058", "p5-b0059", "p5-b0061", "p5-b0062"] }
+      ],
+      "facts": [
+        {
+          "name": "aspa-pso-beats-fixed-allocation",
+          "profileFields": ["keyFindings"],
+          "claimTermGroups": [["PSO"], ["固定", "fixed"]],
+          "evidenceTermGroups": [["Monte Carlo simulation"], ["results agree well"], ["much lower AAoI"], ["fixed parameters"]],
+          "expectedPage": 5
+        },
+        {
+          "name": "td3-lowest-aoi-below-14db",
+          "profileFields": ["keyFindings"],
+          "claimTermGroups": [["TD3"], ["14dB", "14 dB"]],
+          "evidenceTermGroups": [["lowest AAoI"], ["lower than 14 dB"], ["significant improvement"]],
+          "expectedPage": 5
+        }
+      ]
+    },
+    {
+      "paperId": 190,
+      "roleCases": [
+        { "blockId": "p12-b0114", "expectedRole": "BODY" }
+      ],
+      "spanGroups": [],
+      "facts": [
+        {
+          "name": "shorter-blocklength-and-lower-error-rate",
+          "profileFields": ["keyFindings"],
+          "claimTermGroups": [["更短块长", "shorter blocklength"], ["BLER", "误码率", "错误率"]],
+          "evidenceTermGroups": [["shorter blocklengths"], ["lower bit error rates"], ["without compromising the transmission rate"]],
+          "expectedPage": 12
+        },
+        {
+          "name": "joint-optimization-improves-fairness",
+          "profileFields": ["coreContributions", "keyFindings"],
+          "claimTermGroups": [["公平", "fairness"], ["最差", "poorest", "QoS"]],
+          "evidenceTermGroups": [["poorest channel conditions"], ["enhancing fairness"]],
+          "expectedPage": 12
+        }
+      ]
+    },
+    {
+      "paperId": 191,
+      "roleCases": [
+        { "blockId": "p9-b0111", "expectedRole": "BODY" },
+        { "blockId": "p9-b0115", "expectedRole": "BODY" },
+        { "blockId": "p9-b0120", "expectedRole": "BODY" }
+      ],
+      "spanGroups": [
+        {
+          "name": "rsma-91.48-result-paragraph",
+          "blockIds": ["p9-b0111", "p9-b0112", "p9-b0115", "p9-b0116", "p9-b0120", "p9-b0121"]
+        }
+      ],
+      "facts": [
+        {
+          "name": "rsma-91.48-percent-over-noma",
+          "profileFields": ["keyFindings"],
+          "claimTermGroups": [["91.48%"], ["K=4", "K = 4"], ["NOMA"]],
+          "evidenceTermGroups": [["91.48% higher"], ["K = 4"], ["ε = 10"], ["−5", "-5"]],
+          "requiredEvidenceBlockIds": ["p9-b0112", "p9-b0115", "p9-b0116", "p9-b0120"],
+          "expectedPage": 9
+        },
+        {
+          "name": "multi-antenna-gain",
+          "profileFields": ["keyFindings"],
+          "claimTermGroups": [["72.56%"], ["14.53%"], ["MC-RSMA"]],
+          "evidenceTermGroups": [["72.56%"], ["14.53%"], ["multi-antenna gain"]],
+          "expectedPage": 12
+        }
+      ]
+    }
+  ]
+}

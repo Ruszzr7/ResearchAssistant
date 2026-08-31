@@ -95,7 +95,7 @@ export function poll({
  */
 export function waitForTask(apiGet, taskId, signal, onStage) {
   return poll({
-    fetch: () => apiGet(`/agent/task/${taskId}`, { signal }).then(r => r.data),
+    fetch: () => apiGet(`/research-automation/task/${taskId}`, { signal }).then(r => r.data),
     isCompleted: data => data?.status === 'COMPLETED',
     isFailed: data => ['FAILED', 'CANCELLED', 'EXPIRED', 'DEAD_LETTER'].includes(data?.status),
     getError: data =>

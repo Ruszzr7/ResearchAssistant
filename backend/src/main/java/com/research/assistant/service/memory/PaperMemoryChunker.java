@@ -17,11 +17,14 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
-/** Builds one bounded whole-paper input when possible, otherwise a few large resumable chunks. */
+/** Builds stable paper text with provenance markers. The active understanding
+ * path uses {@link #wholePaper(PaperStructure, PaperLayoutArtifact)}; the
+ * legacy bounded chunk method remains only for source compatibility while the
+ * old map-reduce callers are removed. */
 @Component
 public class PaperMemoryChunker {
 
-    public static final String VERSION = "adaptive-chunker-v2";
+    public static final String VERSION = "whole-paper-input-v1";
 
     private final int targetCharacters;
     private final int maxCharacters;
@@ -39,6 +42,38 @@ public class PaperMemoryChunker {
 
     PaperMemoryChunker(int targetCharacters, int maxCharacters) {
         this(targetCharacters, maxCharacters, maxCharacters);
+    }
+
+    /**
+     * Creates exactly one ordered representation of the complete scientific
+     * content. This intentionally ignores the old character budgets: those
+     * budgets were the source of the multi-call map-reduce behaviour.
+     */
+    public PaperMemoryChunk wholePaper(PaperStructure structure,
+                                       PaperLayoutArtifact artifact) {
+        if (structure == null || artifact == null) {
+            throw new IllegalArgumentException("论文结构与版面制品不能为空");
+        }
+        Map<String, DocumentBlock> blocks = new LinkedHashMap<>();
+        artifact.blocks().stream()
+                .sorted(Comparator.comparingInt(DocumentBlock::readingOrder))
+                .forEach(block -> blocks.put(block.id(), block));
+
+        ChunkDraft draft = new ChunkDraft("whole-paper", List.of());
+        for (String blockId : structure.readingOrder()) {
+            DocumentBlock block = blocks.get(blockId);
+            if (block == null || skip(block)) continue;
+            for (String segment : renderSegments(block)) {
+                draft.add(block, segment);
+            }
+        }
+        String text = draft.text.toString().strip();
+        String fingerprint = fingerprint(structure, draft, text);
+        return new PaperMemoryChunk(
+                "pmc-whole-" + fingerprint.substring(0, 16), fingerprint, 1,
+                "whole-paper", List.of(),
+                draft.pageStart == Integer.MAX_VALUE ? 0 : draft.pageStart,
+                draft.pageEnd, List.copyOf(draft.blockIds), text);
     }
 
     public List<PaperMemoryChunk> chunk(PaperStructure structure, PaperLayoutArtifact artifact) {

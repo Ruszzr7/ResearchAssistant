@@ -49,7 +49,7 @@ public class AiModelCatalogService {
 
     public AiModelListResult list(AiModelListRequest request) {
         URI endpoint = modelsEndpoint(request.baseUrl());
-        String apiKey = resolveApiKey(request.apiKey());
+        String apiKey = resolveApiKey(request.apiKey(), request.role());
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalArgumentException("请先填写 API Key");
         }
@@ -57,6 +57,7 @@ public class AiModelCatalogService {
                 .timeout(Duration.ofSeconds(20))
                 .header("Accept", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
+                .header("x-goog-api-key", apiKey)
                 .GET()
                 .build();
         try {
@@ -104,10 +105,10 @@ public class AiModelCatalogService {
         return endpoint;
     }
 
-    private String resolveApiKey(String value) {
+    private String resolveApiKey(String value, String role) {
         String supplied = value == null ? "" : value.trim();
         if (supplied.isBlank() || SettingsPolicy.isMaskedValue(supplied)) {
-            return settingsService.getValue("api_key");
+            return settingsService.getValue("DOCUMENT".equals(role) ? "document_api_key" : "api_key");
         }
         return supplied;
     }
@@ -122,6 +123,7 @@ public class AiModelCatalogService {
             String id = item.isTextual() ? item.asText() : item.path("id").asText("");
             if (id.isBlank() && item.isObject()) id = item.path("name").asText("");
             id = id.trim();
+            if (id.startsWith("models/")) id = id.substring("models/".length());
             if (id.isBlank() || id.length() > MAX_MODEL_ID_LENGTH) continue;
             unique.add(id);
             if (unique.size() >= MAX_MODELS) break;

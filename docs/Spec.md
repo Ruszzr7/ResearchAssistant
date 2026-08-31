@@ -2,7 +2,7 @@
 
 ## 产品定位
 
-Research Assistant 是本地运行的科研助手，目标是把论文管理、PDF 阅读、论文理解、连续问答、研究档案和写作辅助连接成可恢复、可追溯的工作流，而不是替代 Zotero 或训练模型。
+Research Assistant 是本地运行的科研助手，目标是把论文管理、PDF 阅读、论文理解、Agent 连续对话、研究档案和写作辅助连接成可恢复、可追溯的系统，而不是替代 Zotero 或训练模型。
 
 ## 当前架构
 
@@ -11,9 +11,9 @@ Vue 3 / Vite
       │ REST / SSE
 Spring Boot / LangChain4j
       ├─ 文库、标注、研究档案、写作
-      ├─ 论文结构、记忆、对话与 Evidence Gate
-      ├─ 固定 Workflow、异步任务与模型适配
-      └─ 版面混合检索及本地文本兼容索引
+      ├─ Agent Turn/Run/ToolCall、自然语言澄清与 ActionTicket
+      ├─ 论文结构、画像、稳定来源、严格 cite 与页面定位
+      └─ 异步任务及对话/文档双角色模型适配
       │
 MySQL / 本地 PDF
 ```
@@ -23,9 +23,9 @@ MySQL / 本地 PDF
 | 前端 | Vue 3、Vite、Element Plus、vxe-table、PDF.js canvas、PDFium/WASM 交互层 |
 | 后端 | Java 17、Spring Boot 3.2.6、Maven、MyBatis Plus |
 | 数据 | MySQL 8、Flyway、本地 PDF 文件 |
-| AI | LangChain4j 1.15.1，多供应商 OpenAI-compatible Chat API |
+| AI | LangChain4j 1.15.1，OpenAI-compatible 与 Gemini Native，对话/文档双角色配置 |
 | PDF | PDFBox 版面事实；PDFium 负责浏览器字符命中、选择和搜索 |
-| 检索 | 工作台使用版面多路召回、融合排序和精确回链；旧 Skill 使用 MySQL 本地文本索引 |
+| 检索 | 版本化本地来源的关键词、编号、章节、类型与版面结构搜索；不使用 Embedding、向量数据库或独立 RAG |
 
 项目当前不依赖 Redis，也不使用 Pinia。异步任务由 Spring 线程池执行，状态和结果持久化到 MySQL。
 
@@ -41,17 +41,17 @@ MySQL / 本地 PDF
 ### 论文理解与对话
 
 - PDFBox 版面制品和版本化论文结构是服务端论文事实层。
-- 全文理解生成可恢复的论文画像；只有画像就绪后开放论文对话。
-- 论文助手是单一连续对话，不再拆分精读、缺陷分析和论文对比页面。
-- 选区是可选附加锚点；无选区时正常检索全文，指代追问可以弱引用上一轮主题。
-- 每轮问答是独立 workbench run，并绑定 conversation、PDF hash、解析版本、证据、Token 和耗时。
-- 当前 evidence 是论文事实和引用的唯一来源；历史、画像和长期观察只帮助理解及检索。
+- 导入不自动理解；用户打开论文后手动启动。优先生成 `PROFILE_READY` 画像，连续三次真实失败且本地来源可读时才开放明确受限兜底。
+- 一篇论文可以创建多个上下文完全隔离的对话；选区、文件和公式都是只服务当前轮次的可选附件。
+- 每轮使用持久化 Agent Turn/Run/ToolCall；刷新、澄清和客户端操作等待都从数据库恢复。
+- 论文事实必须先读取当前 PDF 版本的稳定来源，并把回答块绑定到本轮已读 `sourceObjectId`；服务端校验版本并生成 cite 预览。历史和画像只帮助理解，不能替代原文。
 - 对比文献只保留添加接口，尚未进入当前实现范围。
 
 ### Agent、任务与写作
 
-- Skill Registry 提供原子能力；Planner/Workflow 负责编排、校验、重试和人机确认。
-- 论文问答使用固定 Workflow，不允许模型绕过 Evidence Gate。
+- LangChain4j AI Services 负责自由文本的原生 Tool Calling 循环；通用 Agent 使用受限论文搜索/读取工具和服务端引用协议。轻量 Skill 注册表只按需描述重复能力并贡献原子工具，不编排固定流程；页面操作 Skill 仅在用户明确提出操作时开放，并继续走可信 ActionTicket，不向模型开放坐标；不新增专用 Research 工作流 Skill。
+- 只有可信 `sourceObjectId` 等结构化 UI 事件可走极窄直接路径；自然语言歧义在同一输入框追问。
+- 页面修改必须由服务端解析可信目标、签发 ActionTicket，并在前端真实回执后完成；不实现一键撤销。
 - 异步任务支持持久化状态、取消、重试、超时、容量限制和重启恢复。
 - 写作项目支持论文关联、论点—证据关系、大纲、Related Work 和引用检查。
 
@@ -60,9 +60,9 @@ MySQL / 本地 PDF
 | 数据 | 真源与用途 |
 |---|---|
 | PDF | 本地文件，原始事实载体 |
-| 版面、结构、画像、会话、观察、任务、写作数据 | MySQL + Flyway |
+| 版面、结构、画像、研究消息、Agent 运行、任务、标注和写作数据 | MySQL + Flyway |
 | 浏览器字符范围与矩形 | PDFium 交互事实，用于选择、搜索和精确回链 |
-| 本地文本分片 | 兼容旧 Skill 的关键词召回，不作为工作台点击证据真源 |
+| 本地来源与文本分片 | 确定性查找和回读；只有当前版本 `SourceObject/SourceLocator` 可形成 cite 与页面目标 |
 
 所有派生产物绑定 PDF SHA-256 和解析版本；PDF 变化后旧锚点、结构、记忆和索引不得继续用于当前回答。
 
@@ -76,8 +76,8 @@ MySQL / 本地 PDF
 
 ## 当前重点
 
-1. 通过真实论文验收版面混合检索、回答块引用和正文/公式回链。
-2. 根据失败样本扩充查询别名和黄金集，不为单例堆叠特殊判断。
-3. 继续控制论文理解、公式识别和问答的 Token 与延迟。
+1. 使用真实对话与文档解析供应商完成能力探测和端到端对话验收。
+2. 使用陌生单/双栏论文、公式/图表问题和提示注入样本验证 cite、定位与隔离。
+3. 验证五类页面操作、重复回执、刷新恢复和同论文多对话完全隔离。
 
 详细状态见 [progress.md](progress.md)，稳定约束见 [knowledge.md](knowledge.md)。

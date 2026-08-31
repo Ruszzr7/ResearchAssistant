@@ -14,6 +14,7 @@ import com.research.assistant.service.async.AsyncTaskHandlerRegistry;
 import com.research.assistant.service.rag.RagIndexingException;
 import com.research.assistant.service.rag.RagIndexingResult;
 import com.research.assistant.service.rag.RagIndexingService;
+import com.research.assistant.service.memory.PaperUnderstandingTaskService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.AsyncTaskExecutor;
@@ -66,7 +67,8 @@ class AsyncTaskServiceTest {
         AsyncTaskHandlerRegistry registry = new AsyncTaskHandlerRegistry();
         manager = new AsyncTaskManager(executor, taskMapper, stepMapper, new ObjectMapper(), registry);
         service = new AsyncTaskService(
-                mock(AgentOrchestrator.class), mock(ArxivFetcher.class), mock(PaperMapper.class), manager,
+                mock(ResearchAutomationService.class), mock(PaperUnderstandingTaskService.class),
+                mock(ArxivFetcher.class), mock(PaperMapper.class), manager,
                 mock(Planner.class), mock(PlanExecutor.class), ragIndexingService, registry);
     }
 

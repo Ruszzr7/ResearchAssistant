@@ -2,7 +2,6 @@ package com.research.assistant.controller;
 
 import com.research.assistant.common.GlobalExceptionHandler;
 import com.research.assistant.dto.research.ResearchSessionSummary;
-import com.research.assistant.service.research.ResearchSessionHistoryService;
 import com.research.assistant.service.research.ResearchSessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,19 +26,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ResearchSessionControllerTest {
 
     @Mock private ResearchSessionService sessionService;
-    @Mock private ResearchSessionHistoryService historyService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(
-                        new ResearchSessionController(sessionService, historyService))
+                        new ResearchSessionController(sessionService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
 
     @Test
-    void listsArchivedRunsAfterBackfill() throws Exception {
+    void listsArchivedAgentConversations() throws Exception {
         ResearchSessionSummary summary = new ResearchSessionSummary();
         summary.setId(8L);
         summary.setTitle("RSMA 精读");
@@ -53,7 +51,6 @@ class ResearchSessionControllerTest {
                 .andExpect(jsonPath("$.data[0].id").value(8))
                 .andExpect(jsonPath("$.data[0].title").value("RSMA 精读"));
 
-        verify(historyService).backfillRecent();
     }
 
     @Test

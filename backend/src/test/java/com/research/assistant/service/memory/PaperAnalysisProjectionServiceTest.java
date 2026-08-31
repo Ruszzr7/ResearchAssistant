@@ -51,7 +51,7 @@ class PaperAnalysisProjectionServiceTest {
         PaperAnalysis projected = service.project(7L, understanding);
 
         assertThat(projected.getCoreContribution()).isEqualTo("Contribution");
-        assertThat(projected.getMethodType()).isEqualTo("AI|EXPERIMENTAL");
+        assertThat(projected.getMethodType()).isEqualTo("EXPERIMENTAL");
         assertThat(projected.getDatasetsJson()).contains("Dataset D");
         assertThat(projected.getRawText()).contains("Source body text");
         assertThat(projected.getTokenUsed()).isEqualTo(40);

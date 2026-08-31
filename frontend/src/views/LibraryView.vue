@@ -1306,7 +1306,7 @@ async function triggerAiAnalysis() {
 
   await runAi(async ({ signal, setStage }) => {
     setStage('已提交，等待分析完成…')
-    await api.post(`/agent/process/${paperId}`, {}, { signal })
+    await api.post(`/research-automation/process/${paperId}`, {}, { signal })
 
     await waitForAnalysis(api.get.bind(api), paperId, signal, data => {
       paperAnalysis.value = data
@@ -1323,7 +1323,7 @@ function cancelAiWithHint() {
 
 async function loadAnalysis(paperId) {
   paperAnalysis.value = null
-  try { const r = await api.get(`/agent/analysis/${paperId}`); if (r.data) paperAnalysis.value = r.data } catch (e) {}
+  try { const r = await api.get(`/research-automation/analysis/${paperId}`); if (r.data) paperAnalysis.value = r.data } catch (e) {}
 }
 
 async function savePaper(p) {
@@ -1390,7 +1390,7 @@ async function recommendDetailTags() {
   rec.error = null
   rec.status = '正在推荐标签'
   try {
-    const response = await api.post('/agent/tag-suggestions', { paperId: paper.id })
+    const response = await api.post('/research-automation/tag-suggestions', { paperId: paper.id })
     rec.result = { ...(rec.result || {}), tags: response.data || [] }
     rec.status = '已完成'
   } catch (e) {
@@ -1408,7 +1408,7 @@ async function recommendDetailFolder() {
   rec.error = null
   rec.status = '正在推荐文件夹'
   try {
-    const response = await api.post('/agent/folder-suggest', { paperId: paper.id })
+    const response = await api.post('/research-automation/folder-suggest', { paperId: paper.id })
     rec.result = { ...(rec.result || {}), folder: response.data }
     rec.status = '已完成'
   } catch (e) {
@@ -1628,7 +1628,7 @@ async function recommendFolder() {
   if (!form.value.title) return
   recommending.value = true
   try {
-    const res = await api.post('/agent/folder-suggest', {
+    const res = await api.post('/research-automation/folder-suggest', {
       title: form.value.title,
       abstractText: form.value.abstractText || '',
       keywords: form.value.keywords || ''

@@ -1,49 +1,52 @@
 <template>
   <div class="settings-page">
-    <div class="settings-card">
+    <div class="settings-card api-settings-card">
       <h2>API 设置</h2>
-      <p class="settings-desc">
-        选择供应商后，系统会应用对应的端点、参数、推理内容和流式响应规则。
-      </p>
-
-      <el-form label-width="120px" label-position="left" class="settings-form">
-        <el-form-item label="供应商">
-          <el-select v-model="aiProvider" style="width:100%" @change="onProviderChange">
-            <el-option v-for="item in AI_PROVIDERS" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="接入通道">
-          <el-select v-model="aiChannel" style="width:100%" @change="onChannelChange">
-            <el-option v-for="item in channelOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="Base URL">
-          <el-input v-model="baseUrl" placeholder="供应商默认地址" size="large" />
-        </el-form-item>
-        <el-form-item label="API Key">
-          <el-input v-model="apiKey" type="password" show-password placeholder="例如 sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" size="large" />
-        </el-form-item>
-        <el-form-item label="模型">
-          <el-select v-model="model" filterable allow-create default-first-option style="width:100%" size="large">
-            <el-option v-for="item in modelOptions" :key="item" :label="item" :value="item" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-
-      <div class="settings-actions">
-        <el-button type="primary" @click="testConnection" :loading="testing" size="large">
-          测试连接
-        </el-button>
-        <el-button @click="saveSettings" :loading="saving" size="large">
-          保存设置
-        </el-button>
+      <div class="api-role-switch" :class="{ 'is-document': activeApiRole === 'DOCUMENT' }">
+        <span aria-hidden="true" />
+        <button type="button" @click="activeApiRole = 'CHAT'">对话 API</button>
+        <button type="button" @click="activeApiRole = 'DOCUMENT'">解析 API</button>
       </div>
-
-      <div v-if="testResult !== null" class="test-result" :class="{ success: testResult.success, fail: !testResult.success }">
-        <div>{{ testResult.success ? '✅ ' : '❌ ' }}{{ testResult.message }}</div>
-        <div v-if="testResult.capabilities" class="capability-list">
-          <span v-for="(value, key) in testResult.capabilities" :key="key">{{ capabilityLabel(key) }}：{{ value }}</span>
-        </div>
+      <p class="settings-desc">{{ activeApiRole === 'CHAT'
+        ? '用于日常对话和 Agent 工具调用。接口需要支持连续 Tool Calling。'
+        : '用于图片、PDF 和 Word 附件理解。图片能力必须通过，原生 PDF 自动检测。' }}</p>
+      <el-form label-position="top" class="settings-form">
+        <el-form-item label="接口地址（URL）"><el-input v-model="activeBaseUrl" size="large" /></el-form-item>
+        <el-form-item label="模型" class="model-catalog-form-item">
+          <div class="model-query-row">
+            <el-input v-model="activeModel" size="large" placeholder="输入模型名称" />
+            <el-button :loading="queryingModels" @click="queryAvailableModels">查询可用模型</el-button>
+          </div>
+          <section v-if="modelCatalogVisible" class="model-catalog-panel" aria-label="可用模型">
+            <div v-if="activeAvailableModels.length" class="model-catalog-list">
+              <button
+                v-for="item in activeAvailableModels"
+                :key="item"
+                type="button"
+                :class="{ 'is-selected': item === activeModel }"
+                @click="activeModel = item"
+              >
+                {{ item }}
+              </button>
+            </div>
+            <div v-else class="model-catalog-empty">{{ modelCatalogStatus }}</div>
+            <footer class="model-catalog-status" :class="{ 'is-error': modelCatalogError }">
+              <span class="model-catalog-status__dot" aria-hidden="true" />
+              <span>{{ modelCatalogStatus }}</span>
+            </footer>
+          </section>
+        </el-form-item>
+        <el-form-item label="接口密钥（API Key）"><el-input v-model="activeApiKey" type="password" show-password size="large" /></el-form-item>
+      </el-form>
+      <p class="field-hint">调用协议：{{ activeProtocolHint }}</p>
+      <div class="settings-actions">
+        <el-button type="primary" @click="activeApiRole === 'CHAT' ? testConnection() : testDocumentConnection()" :loading="testing || testingDocument" size="large">
+          {{ activeApiRole === 'CHAT' ? '测试对话能力' : '测试解析能力' }}
+        </el-button>
+        <el-button @click="saveSettings" :loading="saving" size="large">保存设置</el-button>
+      </div>
+      <div v-if="activeTestResult" class="test-result" :class="{ success: activeTestResult.success, fail: !activeTestResult.success }">
+        <div>{{ activeTestResult.message }}</div>
       </div>
     </div>
 
@@ -219,30 +222,57 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
-import {
-  AI_PROVIDERS,
-  channelDefinition,
-  inferChannel,
-  inferProvider,
-  providerChannels,
-  providerModels,
-  shouldReplaceBaseUrl,
-} from '@/config/aiProviders'
-
+const activeApiRole = ref('CHAT')
 const apiKey = ref('')
 const savedApiKey = ref('')
-const aiProvider = ref('kimi')
-const aiChannel = ref('coding')
 const model = ref('')
 const baseUrl = ref('')
 const testing = ref(false)
 const saving = ref(false)
 const testResult = ref(null)
-const channelOptions = computed(() => providerChannels(aiProvider.value))
-const modelOptions = computed(() => providerModels(aiProvider.value, aiChannel.value))
+const documentBaseUrl = ref('')
+const documentModel = ref('')
+const documentApiKey = ref('')
+const savedDocumentApiKey = ref('')
+const testingDocument = ref(false)
+const documentTestResult = ref(null)
+const queryingModels = ref(false)
+const modelCatalogVisible = ref(false)
+const modelCatalogError = ref(false)
+const modelCatalogStatus = ref('')
+const chatAvailableModels = ref([])
+const documentAvailableModels = ref([])
+const activeBaseUrl = computed({
+  get: () => activeApiRole.value === 'CHAT' ? baseUrl.value : documentBaseUrl.value,
+  set: value => { if (activeApiRole.value === 'CHAT') baseUrl.value = value; else documentBaseUrl.value = value },
+})
+const activeApiKey = computed({
+  get: () => activeApiRole.value === 'CHAT' ? apiKey.value : documentApiKey.value,
+  set: value => { if (activeApiRole.value === 'CHAT') apiKey.value = value; else documentApiKey.value = value },
+})
+const activeModel = computed({
+  get: () => activeApiRole.value === 'CHAT' ? model.value : documentModel.value,
+  set: value => { if (activeApiRole.value === 'CHAT') model.value = value; else documentModel.value = value },
+})
+const activeAvailableModels = computed(() => activeApiRole.value === 'CHAT'
+  ? chatAvailableModels.value : documentAvailableModels.value)
+const activeTestResult = computed(() => activeApiRole.value === 'CHAT' ? testResult.value : documentTestResult.value)
+const activeProtocolHint = computed(() => {
+  if (activeApiRole.value === 'CHAT') return 'OpenAI Compatible（自动）'
+  const url = documentBaseUrl.value.toLowerCase()
+  return url.includes('generativelanguage.googleapis.com') || /\/v1(?:beta|alpha)(?:\/|$)/.test(url)
+    ? 'Gemini Native（根据 URL 自动识别）'
+    : 'OpenAI Compatible（根据 URL 自动识别）'
+})
+
+watch(activeApiRole, () => {
+  modelCatalogVisible.value = false
+  modelCatalogError.value = false
+  modelCatalogStatus.value = ''
+})
 
 const openalexEnabled = ref(false)
 const ieeeXploreEnabled = ref(false)
@@ -283,8 +313,12 @@ async function loadSettings() {
       }
       if (item.keyName === 'model') model.value = item.value || ''
       if (item.keyName === 'base_url') baseUrl.value = item.value || ''
-      if (item.keyName === 'ai_provider') aiProvider.value = item.value || ''
-      if (item.keyName === 'ai_channel') aiChannel.value = item.value || ''
+      if (item.keyName === 'document_base_url') documentBaseUrl.value = item.value || ''
+      if (item.keyName === 'document_model') documentModel.value = item.value || ''
+      if (item.keyName === 'document_api_key') {
+        documentApiKey.value = item.value || ''
+        savedDocumentApiKey.value = item.value || ''
+      }
       if (item.keyName === 'openalex_enabled') openalexEnabled.value = item.value === 'true'
       if (item.keyName === 'ieee_xplore_enabled') ieeeXploreEnabled.value = item.value === 'true'
       if (item.keyName === 'ieee_xplore_api_key') {
@@ -315,12 +349,6 @@ async function loadSettings() {
       }
       if (item.keyName === 'zotero_collection_key') zoteroCollectionKey.value = item.value || ''
     }
-    if (!aiProvider.value) aiProvider.value = inferProvider(baseUrl.value, model.value)
-    if (!aiChannel.value) aiChannel.value = inferChannel(aiProvider.value, baseUrl.value)
-    if (!baseUrl.value) {
-      baseUrl.value = channelDefinition(aiProvider.value, aiChannel.value).baseUrl
-    }
-    if (!model.value) model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
   } catch (e) { /* 首次使用 */ }
 }
 
@@ -328,9 +356,8 @@ async function testConnection() {
   testing.value = true
   testResult.value = null
   try {
-    await doSave()
-    const res = await api.post('/settings/test')
-    testResult.value = res.data
+    const res = await api.post('/settings/capabilities/CHAT/test', capabilityTestPayload('CHAT'))
+    testResult.value = { success: res.data?.status === 'VERIFIED', message: res.data?.status === 'VERIFIED' ? 'Agent 连续工具调用已验证' : (res.data?.errorMessage || '能力测试失败') }
   } catch (e) {
     testResult.value = {
       success: false,
@@ -338,6 +365,29 @@ async function testConnection() {
     }
   } finally {
     testing.value = false
+  }
+}
+
+async function testDocumentConnection() {
+  testingDocument.value = true
+  documentTestResult.value = null
+  try {
+    const res = await api.post('/settings/capabilities/DOCUMENT/test', capabilityTestPayload('DOCUMENT'))
+    documentTestResult.value = { ...res.data, success: res.data?.status === 'VERIFIED', message: res.data?.status === 'VERIFIED' ? `图片输入已验证；原生 PDF ${res.data?.pdf ? '已启用' : '不支持，将使用结构化文本'}` : (res.data?.errorMessage || '连接测试失败') }
+  } catch (e) {
+    documentTestResult.value = { success: false, image: false, pdf: false, message: e.response?.data?.message || '连接测试失败' }
+  } finally { testingDocument.value = false }
+}
+
+function capabilityTestPayload(role) {
+  const enteredKey = (role === 'CHAT' ? apiKey.value : documentApiKey.value).trim()
+  const savedKey = role === 'CHAT' ? savedApiKey.value : savedDocumentApiKey.value
+  return {
+    baseUrl: (role === 'CHAT' ? baseUrl.value : documentBaseUrl.value).trim(),
+    model: (role === 'CHAT' ? model.value : documentModel.value).trim(),
+    // A masked value means “use the persisted secret”; a newly entered value is
+    // sent only for this probe and is never written by the test endpoint.
+    apiKey: enteredKey && enteredKey !== savedKey ? enteredKey : '',
   }
 }
 
@@ -359,6 +409,8 @@ async function doSave() {
   const payload = []
   const keyValue = apiKey.value.trim()
   const changedApiKey = Boolean(keyValue && keyValue !== savedApiKey.value)
+  const documentKeyValue = documentApiKey.value.trim()
+  const changedDocumentKey = Boolean(documentKeyValue && documentKeyValue !== savedDocumentApiKey.value)
   const changedIeeeKey = Boolean(ieeeXploreApiKey.value.trim() && ieeeXploreApiKey.value !== savedIeeeXploreApiKey.value)
   const changedAcmKey = Boolean(acmDlApiKey.value.trim() && acmDlApiKey.value !== savedAcmDlApiKey.value)
   const changedZoteroKey = Boolean(zoteroApiKey.value.trim() && zoteroApiKey.value !== savedZoteroApiKey.value)
@@ -366,10 +418,11 @@ async function doSave() {
   if (changedApiKey) {
     payload.push({ keyName: 'api_key', value: keyValue })
   }
-  payload.push({ keyName: 'ai_provider', value: aiProvider.value })
-  payload.push({ keyName: 'ai_channel', value: aiChannel.value })
-  payload.push({ keyName: 'model', value: model.value })
-  payload.push({ keyName: 'base_url', value: baseUrl.value })
+  payload.push({ keyName: 'model', value: model.value.trim() })
+  payload.push({ keyName: 'base_url', value: baseUrl.value.trim() })
+  payload.push({ keyName: 'document_base_url', value: documentBaseUrl.value.trim() })
+  payload.push({ keyName: 'document_model', value: documentModel.value.trim() })
+  if (changedDocumentKey) payload.push({ keyName: 'document_api_key', value: documentKeyValue })
   payload.push({ keyName: 'openalex_enabled', value: String(openalexEnabled.value) })
   payload.push({ keyName: 'ieee_xplore_enabled', value: String(ieeeXploreEnabled.value) })
   if (changedIeeeKey) {
@@ -415,27 +468,40 @@ async function doSave() {
   if (payload.length) {
     await api.put('/settings', payload)
     if (changedApiKey) savedApiKey.value = keyValue
+    if (changedDocumentKey) savedDocumentApiKey.value = documentKeyValue
     if (changedIeeeKey) savedIeeeXploreApiKey.value = ieeeXploreApiKey.value.trim()
     if (changedAcmKey) savedAcmDlApiKey.value = acmDlApiKey.value.trim()
     if (changedZoteroKey) savedZoteroApiKey.value = zoteroApiKey.value.trim()
   }
 }
 
-function onProviderChange() {
-  const channel = providerChannels(aiProvider.value)[0]
-  const replaceUrl = shouldReplaceBaseUrl(baseUrl.value)
-  aiChannel.value = channel.value
-  if (replaceUrl) baseUrl.value = channel.baseUrl
-  model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
-  testResult.value = null
-}
-
-function onChannelChange() {
-  if (shouldReplaceBaseUrl(baseUrl.value)) {
-    baseUrl.value = channelDefinition(aiProvider.value, aiChannel.value).baseUrl
+async function queryAvailableModels() {
+  if (!activeBaseUrl.value.trim() || !activeApiKey.value.trim()) {
+    ElMessage.warning('请先填写 URL 和 API Key')
+    return
   }
-  model.value = providerModels(aiProvider.value, aiChannel.value)[0] || ''
-  testResult.value = null
+  queryingModels.value = true
+  modelCatalogVisible.value = true
+  modelCatalogError.value = false
+  modelCatalogStatus.value = '正在查询可用模型…'
+  if (activeApiRole.value === 'CHAT') chatAvailableModels.value = []
+  else documentAvailableModels.value = []
+  try {
+    const res = await api.post('/settings/models', {
+      baseUrl: activeBaseUrl.value.trim(),
+      apiKey: activeApiKey.value.trim(),
+      role: activeApiRole.value,
+    })
+    const values = Array.isArray(res.data?.models) ? res.data.models : []
+    if (activeApiRole.value === 'CHAT') chatAvailableModels.value = values
+    else documentAvailableModels.value = values
+    modelCatalogStatus.value = `已获取 ${values.length} 个可用模型`
+  } catch (error) {
+    modelCatalogError.value = true
+    modelCatalogStatus.value = error.response?.data?.message || error.message || '查询可用模型失败'
+  } finally {
+    queryingModels.value = false
+  }
 }
 
 function capabilityLabel(key) {
@@ -444,6 +510,8 @@ function capabilityLabel(key) {
     stream: '流式输出',
     structured: '结构化输出',
     vision: '图片输入',
+    toolCalling: '工具调用',
+    continuousTools: '连续工具调用',
   }[key] || key
 }
 
@@ -471,6 +539,90 @@ onMounted(() => {
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 .settings-card h2 { margin: 0 0 8px; font-size: 20px; }
+.api-role-switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 48px;
+  margin: 22px 0 18px;
+  overflow: hidden;
+  border: 1px solid var(--ra-border);
+  border-radius: 12px;
+  background: var(--ra-bg);
+}
+.api-role-switch > span {
+  position: absolute;
+  inset: 3px 50% 3px 3px;
+  border: 1px solid var(--ra-link);
+  border-radius: 9px;
+  background: var(--ra-active-bg);
+  transition: transform .2s ease;
+}
+.api-role-switch.is-document > span { transform: translateX(calc(100% + 3px)); }
+.api-role-switch button {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  color: var(--ra-text-secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.model-catalog-form-item .el-form-item__content { display: block; }
+.model-query-row { display: flex; width: 100%; gap: 10px; }
+.model-query-row .el-input { min-width: 0; flex: 1; }
+.model-catalog-panel {
+  width: 100%;
+  margin-top: 8px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--ra-border);
+  border-radius: 8px;
+  background: var(--ra-panel-bg);
+}
+.model-catalog-list {
+  display: flex;
+  max-height: 136px;
+  overflow-y: auto;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+  padding: 12px;
+  scrollbar-gutter: stable;
+}
+.model-catalog-list button {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 7px 10px;
+  overflow: hidden;
+  align-items: center;
+  border: 1px solid var(--ra-border);
+  border-radius: 7px;
+  background: var(--ra-card-bg);
+  color: var(--ra-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.model-catalog-list button:hover { background: var(--ra-hover-bg); color: var(--ra-text); }
+.model-catalog-list button.is-selected { border-color: var(--ra-link); background: var(--ra-active-bg); color: var(--ra-active-text); }
+.model-catalog-empty { padding: 18px 10px; color: var(--ra-text-tertiary); font-size: 12px; text-align: center; }
+.model-catalog-status {
+  display: flex;
+  min-height: 30px;
+  padding: 0 10px;
+  align-items: center;
+  gap: 7px;
+  border-top: 1px solid var(--ra-border-light);
+  color: var(--ra-text-tertiary);
+  font-size: 11px;
+}
+.model-catalog-status__dot { width: 6px; height: 6px; border-radius: 50%; background: #67c23a; }
+.model-catalog-status.is-error { color: #f56c6c; }
+.model-catalog-status.is-error .model-catalog-status__dot { background: #f56c6c; }
 .settings-desc { font-size: 13px; color: var(--ra-text-tertiary); margin: 0 0 24px; line-height: 1.6; }
 .settings-form { margin-bottom: 20px; }
 .settings-actions { display: flex; gap: 12px; margin-bottom: 16px; }

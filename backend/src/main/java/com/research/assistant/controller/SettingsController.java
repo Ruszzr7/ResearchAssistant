@@ -4,10 +4,14 @@ import com.research.assistant.common.Result;
 import com.research.assistant.dto.AiConnectionTestResult;
 import com.research.assistant.dto.AiModelListRequest;
 import com.research.assistant.dto.AiModelListResult;
+import com.research.assistant.dto.AiCapabilityTestRequest;
 import com.research.assistant.entity.Settings;
 import com.research.assistant.service.AiModelCatalogService;
 import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.security.SettingsPolicy;
+import com.research.assistant.service.agent.capability.AiCapabilityService;
+import com.research.assistant.service.agent.capability.AiModelRole;
+import com.research.assistant.dto.agent.AiCapabilityView;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +23,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.List;
 
@@ -30,11 +35,33 @@ public class SettingsController {
     private static final Logger log = LoggerFactory.getLogger(SettingsController.class);
     private final SettingsService settingsService;
     private final AiModelCatalogService modelCatalogService;
+    private final AiCapabilityService capabilityService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SettingsController(SettingsService settingsService,
+                              AiModelCatalogService modelCatalogService,
+                              AiCapabilityService capabilityService) {
+        this.settingsService = settingsService;
+        this.modelCatalogService = modelCatalogService;
+        this.capabilityService = capabilityService;
+    }
 
     public SettingsController(SettingsService settingsService,
                               AiModelCatalogService modelCatalogService) {
-        this.settingsService = settingsService;
-        this.modelCatalogService = modelCatalogService;
+        this(settingsService, modelCatalogService, null);
+    }
+
+    @PostMapping("/capabilities/{role}/test")
+    public Result<AiCapabilityView> testCapabilities(@PathVariable String role,
+                                                     @Valid @RequestBody(required = false) AiCapabilityTestRequest request) {
+        AiModelRole modelRole = AiModelRole.valueOf(role.trim().toUpperCase());
+        if (request == null) return Result.ok(capabilityService.probe(modelRole));
+        return Result.ok(capabilityService.probeDraft(modelRole, request.baseUrl(), request.model(), request.apiKey()));
+    }
+
+    @GetMapping("/capabilities/{role}")
+    public Result<AiCapabilityView> getCapabilities(@PathVariable String role) {
+        return Result.ok(capabilityService.current(AiModelRole.valueOf(role.trim().toUpperCase())));
     }
 
     @GetMapping

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "agent-live-eval-v1",
+  "batchId": "evidence-paper-185",
+  "paperId": 185,
+  "paperTitle": "Paper 185",
+  "cases": [{
+    "id": "td3-aoi",
+    "category": "EVIDENCE",
+    "sessionKey": "evidence",
+    "message": "论文中的 TD3 方案在平均信息年龄方面表现如何？请给出简洁结论并附上可跳转的论文证据。",
+    "expectedStatuses": ["COMPLETED"],
+    "requiredTools": ["retrieve_paper_evidence"],
+    "requiredConceptGroups": [["TD3"], ["信息年龄", "AoI", "AAoI"], ["最低", "lowest", "优于"]],
+    "evidenceRequiredTermGroups": [["TD3"], ["AAoI", "average AoI"]],
+    "evidencePageAny": [5],
+    "minEvidence": 1,
+    "maxEvidence": 6,
+    "forbiddenTools": ["paper_action"],
+    "maxEvidenceToolCalls": 2,
+    "maxActualEvidenceSearches": 1,
+    "maxFailedToolCalls": 0,
+    "maxEvidenceToolDurationMs": 1500,
+    "maxEvidenceResponseBytes": 16384,
+    "maxElapsedMs": 60000,
+    "requireAllEvidenceNeedsFound": true,
+    "requireEvidenceIntegrity": true,
+    "maxToolCalls": 4
+  }]
+}

@@ -4,6 +4,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "PROJECT_DIR=%%~fI"
+if exist "%SCRIPT_DIR%local-config.cmd" call "%SCRIPT_DIR%local-config.cmd"
 set "BACKEND_DIR=%PROJECT_DIR%\backend"
 set "BACKEND_PID_FILE=%BACKEND_DIR%\backend.pid"
 set "APP_STORAGE_PDF_DIR=%PROJECT_DIR%\data\papers"
@@ -33,20 +34,10 @@ if errorlevel 1 (
 )
 
 set "JDK="
-if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" set "JDK=%JAVA_HOME%"
-if not defined JDK for /f "delims=" %%I in ('where java.exe 2^>nul') do if not defined JDK for %%J in ("%%~dpI..") do set "JDK=%%~fJ"
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%find-jdk17.ps1" 2^>nul`) do if not defined JDK set "JDK=%%I"
 if not defined JDK (
-  for %%I in (
-    "C:\tools\jdk-17.0.19+10"
-    "C:\tools\jdk-17"
-    "C:\tools\jdk-21"
-    "C:\Program Files\Eclipse Adoptium\jdk-17.0.11+9-hotspot"
-    "C:\Program Files\Java\jdk-17"
-    "C:\Program Files\Java\jdk-21"
-  ) do if not defined JDK if exist "%%~fI\bin\java.exe" set "JDK=%%~fI"
-)
-if not defined JDK (
-  echo [ERROR] JDK 17+ was not found. Install a JDK or set JAVA_HOME.
+  echo [ERROR] A complete JDK 17 installation was not found.
+  echo [HINT] Install JDK 17 or set JAVA17_HOME/JAVA_HOME in scripts\local-config.cmd.
   exit /b 1
 )
 

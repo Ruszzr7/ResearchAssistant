@@ -38,7 +38,7 @@ class PaperSourceIndexServiceTest {
     }
 
     @Test
-    void formulaAnchorUnionsNearbyTallFormulaFragmentsButNotOtherColumn() {
+    void formulaAnchorPublishesOneOuterBoxForNearbyFragmentsButNotOtherColumn() {
         PaperLayoutArtifact artifact = artifact(List.of(
                 block("eq", 4, 10, DocumentBlockRole.FORMULA, "Gamma = x / y (4)"),
                 new DocumentBlock("tall", 4, new NormalizedBoundingBox(0.18, 0.19, 0.25, 0.08),
@@ -51,7 +51,7 @@ class PaperSourceIndexServiceTest {
         SourceAnchor anchor = service.build(artifact).equations().get(0).definition();
 
         assertThat(anchor.kind()).isEqualTo(SourceAnchor.Kind.FORMULA_REGION);
-        assertThat(anchor.boxes()).hasSize(2);
+        assertThat(anchor.boxes()).hasSize(1);
         assertThat(anchor.bbox().right()).isLessThan(0.60);
     }
 
@@ -73,7 +73,7 @@ class PaperSourceIndexServiceTest {
 
         SourceAnchor anchor = service.build(artifact).equations().get(0).definition();
 
-        assertThat(anchor.boxes()).hasSize(2);
+        assertThat(anchor.boxes()).hasSize(1);
         assertThat(anchor.targetText()).contains("Rk(t) = log(1+x)", "- Q(beta). (31)")
                 .doesNotContain("where the terms");
     }

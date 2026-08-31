@@ -44,4 +44,31 @@ class AiModelCatalogServiceTest {
         assertThat(request.getValue().headers().firstValue("Authorization"))
                 .contains("Bearer sk-real-secret");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void queriesDocumentModelsWithTheDocumentKeyAndNormalizesGeminiNames() throws Exception {
+        SettingsService settings = mock(SettingsService.class);
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<String> response = mock(HttpResponse.class);
+        when(settings.getValue("document_api_key")).thenReturn("document-secret");
+        when(response.statusCode()).thenReturn(200);
+        when(response.body()).thenReturn("""
+                {"models":[{"name":"models/gemini-2.5-flash"}]}
+                """);
+        when(client.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(response);
+        AiModelCatalogService service = new AiModelCatalogService(
+                new ObjectMapper(), settings, client);
+
+        List<String> models = service.list(new AiModelListRequest(
+                "https://gateway.example/v1beta", "doc****mask", "DOCUMENT")).models();
+
+        assertThat(models).containsExactly("gemini-2.5-flash");
+        ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client).send(request.capture(), any(HttpResponse.BodyHandler.class));
+        assertThat(request.getValue().uri().toString()).isEqualTo("https://gateway.example/v1beta/models");
+        assertThat(request.getValue().headers().firstValue("x-goog-api-key"))
+                .contains("document-secret");
+    }
 }

@@ -55,6 +55,18 @@ class LangChain4jModelFactoryTest {
     }
 
     @Test
+    void agentModelUsesASeparateNoBlindRetryCache() {
+        givenSettings("https://api.deepseek.com", "deepseek-chat", "sk-key");
+
+        ChatModel agentFirst = factory.createAgentChatModel();
+        ChatModel agentSecond = factory.createAgentChatModel();
+        ChatModel regular = factory.createChatModel();
+
+        assertThat(agentSecond).isSameAs(agentFirst);
+        assertThat(regular).isNotSameAs(agentFirst);
+    }
+
+    @Test
     void shouldThrowWhenApiKeyMissing() {
         givenSettings("https://api.deepseek.com", "deepseek-chat", "");
 

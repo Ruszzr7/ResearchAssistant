@@ -47,6 +47,13 @@ public class PaperAnnotation {
     @TableField("ai_generated")
     private Boolean aiGenerated;
 
+    @TableField("agent_tool_call_id")
+    private String agentToolCallId;
+
+    private String documentHash;
+
+    private String sourceObjectId;
+
     /** 仅 COMMENT 使用；完成后在阅读器和批注列表中显示为绿色。 */
     private Boolean completed;
 
@@ -83,6 +90,15 @@ public class PaperAnnotation {
 
     public Boolean getAiGenerated() { return aiGenerated; }
     public void setAiGenerated(Boolean aiGenerated) { this.aiGenerated = aiGenerated; }
+
+    public String getAgentToolCallId() { return agentToolCallId; }
+    public void setAgentToolCallId(String agentToolCallId) { this.agentToolCallId = agentToolCallId; }
+
+    public String getDocumentHash() { return documentHash; }
+    public void setDocumentHash(String documentHash) { this.documentHash = documentHash; }
+
+    public String getSourceObjectId() { return sourceObjectId; }
+    public void setSourceObjectId(String sourceObjectId) { this.sourceObjectId = sourceObjectId; }
 
     public Boolean getCompleted() { return completed; }
     public void setCompleted(Boolean completed) { this.completed = completed; }

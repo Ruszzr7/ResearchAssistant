@@ -43,25 +43,27 @@ public class PaperMemoryQueryService {
         int completed = count(record.getCompletedChunks());
         int failed = count(record.getFailedChunks());
         String status = safe(record.getStatus(), PaperMemoryService.STATUS_STRUCTURED);
-        boolean profileReady = record.getProfileJson() != null && !record.getProfileJson().isBlank();
+        boolean profileReady = record.getProfileJson() != null && !record.getProfileJson().isBlank()
+                && profileQualityReady(record.getProfileQualityJson());
         PaperGlobalProfile profile = profileReady ? readProfile(record.getProfileJson()) : null;
         profileReady = profile != null;
         int progress = switch (status) {
-            case PaperUnderstandingService.STATUS_READY -> 100;
+            case PaperUnderstandingService.STATUS_READY -> profileReady ? 100 : 95;
             case PaperMemoryService.STATUS_STRUCTURED -> 5;
             default -> total == 0 ? 0 : Math.min(100,
                     (int) Math.round((completed + failed) * 100.0 / total));
         };
         boolean active = PaperUnderstandingService.STATUS_UNDERSTANDING.equals(status);
         boolean retry = PaperUnderstandingService.STATUS_PARTIAL.equals(status)
-                || PaperUnderstandingService.STATUS_FAILED.equals(status);
+                || PaperUnderstandingService.STATUS_FAILED.equals(status)
+                || (PaperUnderstandingService.STATUS_READY.equals(status) && !profileReady);
         return new PaperMemoryStatusView(
                 paperId, record.getId(), count(record.getRevision()), status,
                 safe(record.getStageText(), defaultStage(status)), progress,
                 total, completed, failed,
                 count(record.getPromptTokens()), count(record.getCompletionTokens()),
                 true, profileReady,
-                !active && !PaperUnderstandingService.STATUS_READY.equals(status),
+                !active && !profileReady,
                 retry, safe(record.getLastErrorCode(), ""), profile,
                 toInstant(record.getUpdatedAt()));
     }
@@ -72,6 +74,15 @@ public class PaperMemoryQueryService {
             return PaperGlobalProfile.SCHEMA_VERSION.equals(profile.schemaVersion()) ? profile : null;
         } catch (Exception exception) {
             return null;
+        }
+    }
+
+    private boolean profileQualityReady(String json) {
+        if (json == null || json.isBlank()) return false;
+        try {
+            return objectMapper.readTree(json).path("ready").asBoolean(false);
+        } catch (Exception exception) {
+            return false;
         }
     }
 

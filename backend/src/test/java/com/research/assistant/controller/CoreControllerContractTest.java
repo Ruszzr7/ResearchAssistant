@@ -65,7 +65,7 @@ class CoreControllerContractTest {
 
     @Test
     void workflowRejectsGapRequestWithTooFewPapers() throws Exception {
-        workflowMvc.perform(post("/api/agent/workflow/gap-research")
+        workflowMvc.perform(post("/api/research-automation/workflow/gap-research")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"paperIds\":[1,2]}"))
                 .andExpect(status().isBadRequest())
@@ -76,7 +76,7 @@ class CoreControllerContractTest {
     void workflowKeepsTaskResponseShapeForValidRequest() throws Exception {
         when(workflowService.submitPaperImport(any(), any())).thenReturn("task-1");
 
-        workflowMvc.perform(post("/api/agent/workflow/paper-import")
+        workflowMvc.perform(post("/api/research-automation/workflow/paper-import")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"paperId\":42}"))
                 .andExpect(status().isOk())

@@ -11,7 +11,7 @@ import { poll } from './task.js'
  */
 export function waitForAnalysis(apiGet, paperId, signal, onData) {
   return poll({
-    fetch: () => apiGet(`/agent/analysis/${paperId}`, { signal }).then(r => r.data),
+    fetch: () => apiGet(`/research-automation/analysis/${paperId}`, { signal }).then(r => r.data),
     isCompleted: data =>
       data?.processingStatus === 'COMPLETED' || !!data?.rawText?.trim(),
     isFailed: data => data?.processingStatus === 'FAILED',

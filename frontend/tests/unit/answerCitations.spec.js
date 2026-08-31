@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCitationSources, buildCitedAnswer } from '@/utils/answerCitations.js'
+import { buildCitationSources, buildCitedAnswer, stripModelCitationMarkers } from '@/utils/answerCitations.js'
 
 describe('answer citations', () => {
   it('places only grounded evidence links next to the matching answer sentence', () => {
@@ -12,6 +12,23 @@ describe('answer citations', () => {
 
     expect(cited).toContain('实验结果显示时延降低[1](#evidence-lay-result)')
     expect(cited).not.toContain('missing')
+  })
+
+  it('removes model-authored numeric markers before adding grounded clickable citations', () => {
+    const cited = buildCitedAnswer(
+      '方法填补了研究空白 [1]，并提高了速率 [3]。',
+      [{ text: '方法填补了研究空白', evidenceIds: ['source-a'] }],
+      [{ evidenceId: 'source-a', page: 4 }],
+    )
+
+    expect(cited).toContain('方法填补了研究空白[1](#evidence-source-a)')
+    expect(cited).not.toContain(' [1]')
+    expect(cited).not.toContain('[3]')
+  })
+
+  it('preserves mathematical intervals while removing standalone model citations', () => {
+    expect(stripModelCitationMarkers('约束为 $t \\in [0,1]$，并满足 $$C_k \\le R_c$$。结论成立 [1]。'))
+      .toBe('约束为 $t \\in [0,1]$，并满足 $$C_k \\le R_c$$。结论成立。')
   })
 
   it('uses the closest sentence when a grounded claim is paraphrased', () => {
@@ -91,6 +108,39 @@ describe('answer citations', () => {
     expect(sources[0].target.locator).toMatchObject({
       precision: 'FORMULA_REGION', targetText: '',
     })
+  })
+
+  it('groups sub-equations from one answer block into one clickable formula family', () => {
+    const evidence = ['35a', '35b', '35c'].map((formulaNumber, index) => ({
+      evidenceId: `eq-${formulaNumber}`,
+      paperId: 190,
+      page: 7,
+      formulaNumber,
+      blockId: `equation-region:p7-b00${index + 1}`,
+      role: 'FORMULA',
+      contentMode: 'REGION',
+      text: '[公式区域]',
+      sectionPath: ['IV. PROBLEM FORMULATION', `Equation (${formulaNumber})`],
+      locator: {
+        precision: 'FORMULA_REGION',
+        targetBbox: { x: 0.1, y: 0.3 + index * 0.05, width: 0.4, height: 0.03 },
+      },
+    }))
+    const blocks = [{
+      text: '原始优化问题见式 (35a)–(35c)。',
+      basis: 'PAPER_FACT',
+      citations: evidence.map(item => ({ evidenceId: item.evidenceId, quote: '[公式区域]' })),
+    }]
+
+    const cited = buildCitedAnswer('', [], evidence, blocks)
+    const sources = buildCitationSources([], evidence, blocks)
+
+    expect(cited).toContain('式 (35a)–(35c)。[1](#evidence-source~1)')
+    expect(cited.match(/#evidence-source~1/g)).toHaveLength(1)
+    expect(sources).toHaveLength(1)
+    expect(sources[0].evidenceIds).toEqual(['eq-35a', 'eq-35b', 'eq-35c'])
+    expect(sources[0].target.formulaNumbers).toEqual(['35a', '35b', '35c'])
+    expect(sources[0].target.locator.formulaNumbers).toEqual(['35a', '35b', '35c'])
   })
 
   it('never replaces a formula jump target with its supporting theorem prose', () => {

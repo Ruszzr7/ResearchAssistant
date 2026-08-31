@@ -26,6 +26,8 @@ public class PaperMemoryRecord {
     private String profileJson;
     private String memoryQualityJson;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String profileQualityJson;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String understandingVersion;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String stageText;
@@ -35,6 +37,7 @@ public class PaperMemoryRecord {
     private Integer failedChunks;
     private Integer promptTokens;
     private Integer completionTokens;
+    private Integer understandingAttemptCount;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String lastErrorCode;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
@@ -65,6 +68,8 @@ public class PaperMemoryRecord {
     public void setProfileJson(String profileJson) { this.profileJson = profileJson; }
     public String getMemoryQualityJson() { return memoryQualityJson; }
     public void setMemoryQualityJson(String memoryQualityJson) { this.memoryQualityJson = memoryQualityJson; }
+    public String getProfileQualityJson() { return profileQualityJson; }
+    public void setProfileQualityJson(String profileQualityJson) { this.profileQualityJson = profileQualityJson; }
     public String getUnderstandingVersion() { return understandingVersion; }
     public void setUnderstandingVersion(String understandingVersion) { this.understandingVersion = understandingVersion; }
     public String getStageText() { return stageText; }
@@ -81,6 +86,8 @@ public class PaperMemoryRecord {
     public void setPromptTokens(Integer promptTokens) { this.promptTokens = promptTokens; }
     public Integer getCompletionTokens() { return completionTokens; }
     public void setCompletionTokens(Integer completionTokens) { this.completionTokens = completionTokens; }
+    public Integer getUnderstandingAttemptCount() { return understandingAttemptCount; }
+    public void setUnderstandingAttemptCount(Integer understandingAttemptCount) { this.understandingAttemptCount = understandingAttemptCount; }
     public String getLastErrorCode() { return lastErrorCode; }
     public void setLastErrorCode(String lastErrorCode) { this.lastErrorCode = lastErrorCode; }
     public LocalDateTime getUnderstandingStartedAt() { return understandingStartedAt; }

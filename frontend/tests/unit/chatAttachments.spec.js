@@ -23,4 +23,17 @@ describe('chat attachment preparation', () => {
       name: 'archive.zip', type: 'application/zip', size: 20,
     })).rejects.toThrow('当前支持 PDF')
   })
+
+  it('keeps PDF, Word and image bytes for the document API', async () => {
+    const rawFile = { name: 'paper.docx', type: '', size: 12, arrayBuffer: async () => new ArrayBuffer(0) }
+    const attachment = await prepareChatAttachment(rawFile)
+
+    expect(attachment).toMatchObject({
+      name: 'paper.docx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      content: '',
+      truncated: false,
+      rawFile,
+    })
+  })
 })

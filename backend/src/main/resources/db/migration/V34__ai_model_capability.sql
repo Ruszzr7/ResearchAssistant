@@ -1,0 +1,20 @@
+CREATE TABLE ai_model_capability (
+    id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
+    model_role            VARCHAR(24)  NOT NULL,
+    config_signature      CHAR(64)     NOT NULL,
+    status                VARCHAR(24)  NOT NULL,
+    chat_supported        BOOLEAN      NOT NULL DEFAULT FALSE,
+    tool_calling_supported BOOLEAN     NOT NULL DEFAULT FALSE,
+    continuous_tools_supported BOOLEAN NOT NULL DEFAULT FALSE,
+    structured_supported  BOOLEAN      NOT NULL DEFAULT FALSE,
+    image_supported       BOOLEAN      NOT NULL DEFAULT FALSE,
+    pdf_supported         BOOLEAN      NOT NULL DEFAULT FALSE,
+    error_code            VARCHAR(64)  NULL,
+    error_message         VARCHAR(1000) NULL,
+    verified_at           DATETIME(6)  NOT NULL,
+    expires_at            DATETIME(6)  NOT NULL,
+    created_at            DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at            DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uk_ai_capability_role_signature (model_role, config_signature),
+    INDEX idx_ai_capability_expiry (model_role, status, expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

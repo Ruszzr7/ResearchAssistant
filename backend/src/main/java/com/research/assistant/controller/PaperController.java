@@ -120,7 +120,7 @@ public class PaperController {
     /** POST /api/papers — 手动导入论文 */
     @PostMapping
     public Result<Map<String, Object>> create(@RequestBody @Valid PaperWriteRequest request,
-                                                 @RequestParam(defaultValue = "true") boolean runWorkflow) {
+                                                 @RequestParam(defaultValue = "false") boolean runWorkflow) {
         Paper paper = toPaper(request, null);
         Paper saved = paperService.create(paper);
         String taskId = runWorkflow ? workflowService.submitPaperImport(saved.getId()) : null;
@@ -179,7 +179,7 @@ public class PaperController {
             @RequestParam(value = "keywords", required = false) String keywords,
             @RequestParam(value = "folderId", required = false) Long folderId,
             @RequestParam(defaultValue = "false") boolean overwrite,
-            @RequestParam(defaultValue = "true") boolean runWorkflow) {
+            @RequestParam(defaultValue = "false") boolean runWorkflow) {
         Paper paper = new Paper();
         paper.setTitle(title);
         paper.setAuthors(authors);

@@ -40,6 +40,21 @@ public class AsyncConfig {
         return executor;
     }
 
+    /** Agent turns must outlive the originating HTTP request and page lifecycle. */
+    @Bean(name = "agentTurnExecutor")
+    public TaskExecutor agentTurnExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(8);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("agent-turn-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.initialize();
+        return executor;
+    }
+
     /** 外部文献源专用线程池，避免限速/网络等待占满 AI 任务线程。 */
     @Bean(name = "literatureSearchExecutor")
     public TaskExecutor literatureSearchExecutor() {

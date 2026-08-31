@@ -8,17 +8,14 @@ const mocks = vi.hoisted(() => ({
   createResearchSession: vi.fn(),
   getResearchSession: vi.fn(),
   listResearchSessions: vi.fn(),
-  appendResearchMessages: vi.fn(),
-  attachResearchRun: vi.fn(),
   getPaperMemoryStatus: vi.fn(),
   startPaperUnderstanding: vi.fn(),
   prepareChatAttachment: vi.fn(),
   state: {
-    trace: { __v_isRef: true, value: null },
     running: { __v_isRef: true, value: false },
     error: { __v_isRef: true, value: '' },
     run: vi.fn(),
-    loadRecent: vi.fn(),
+    watchRun: vi.fn(),
   },
 }))
 
@@ -31,15 +28,13 @@ vi.mock('@/api/researchArchive.js', () => ({
   createResearchSession: mocks.createResearchSession,
   getResearchSession: mocks.getResearchSession,
   listResearchSessions: mocks.listResearchSessions,
-  appendResearchMessages: mocks.appendResearchMessages,
-  attachResearchRun: mocks.attachResearchRun,
 }))
 vi.mock('@/utils/chatAttachments.js', () => ({
   CHAT_ATTACHMENT_ACCEPT: '.pdf,.txt,.md,.tex',
   prepareChatAttachment: mocks.prepareChatAttachment,
 }))
-vi.mock('@/composables/usePaperWorkbench.js', () => ({
-  usePaperWorkbench: () => mocks.state,
+vi.mock('@/composables/usePaperAgent.js', () => ({
+  usePaperAgent: () => mocks.state,
 }))
 
 const passthrough = { template: '<span><slot /></span>' }
@@ -72,20 +67,16 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     mocks.createResearchSession.mockReset().mockResolvedValue({ id: 91 })
     mocks.getResearchSession.mockReset().mockResolvedValue({ messages: [], runs: [] })
     mocks.listResearchSessions.mockReset().mockResolvedValue([])
-    mocks.appendResearchMessages.mockReset().mockResolvedValue([])
-    mocks.attachResearchRun.mockReset().mockResolvedValue(undefined)
     mocks.getPaperMemoryStatus.mockReset().mockResolvedValue({
-      paperId: 1, status: 'READY', stageText: '论文记忆已就绪', progress: 100,
-      totalChunks: 4, completedChunks: 4, failedChunks: 0,
-      canStart: false, canRetry: false, revision: 2,
+      paperId: 1, status: 'PROFILE_READY', statusText: '论文理解已完成',
+      profileReady: true, conversationReady: true,
     })
     mocks.startPaperUnderstanding.mockReset().mockResolvedValue({ taskId: 'memory-task-1' })
     mocks.prepareChatAttachment.mockReset()
-    mocks.state.trace.value = null
     mocks.state.running.value = false
     mocks.state.error.value = ''
     mocks.state.run.mockReset()
-    mocks.state.loadRecent.mockReset().mockResolvedValue([])
+    mocks.state.watchRun.mockReset()
   })
 
   it('uses one unified research conversation and leaves comparison as an interface', async () => {
@@ -158,40 +149,51 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(wrapper.get('.content-stage').text()).toContain('selected method')
   })
 
-  it('shows blocking whole-paper understanding progress and retries partial memory', async () => {
+  it('shows a concise blocking understanding status and permits retry', async () => {
     mocks.getPaperMemoryStatus.mockResolvedValue({
-      paperId: 1, status: 'PARTIAL', stageText: '论文记忆部分就绪，可重试失败分块',
-      progress: 100, totalChunks: 5, completedChunks: 4, failedChunks: 1,
-      canStart: true, canRetry: true, revision: 3,
+      paperId: 1, status: 'RETRY_REQUIRED', statusText: '论文理解未完成，请重试',
+      profileReady: false, conversationReady: false,
     })
     const wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('.memory-status').text()).toContain('部分就绪')
-    expect(wrapper.get('.memory-status').text()).toContain('5/5')
-    expect(wrapper.get('.memory-status').text()).toContain('1 个待重试')
+    expect(wrapper.get('.memory-status').text()).toContain('论文理解未完成，请重试')
+    expect(wrapper.get('.memory-status').text()).not.toContain('分块')
+    expect(wrapper.get('.memory-status').text()).not.toContain('Token')
     await wrapper.get('.memory-status__action').trigger('click')
     await flushPromises()
 
-    expect(mocks.startPaperUnderstanding).toHaveBeenCalledWith(1, 'paper-memory-ui:1:3')
+    expect(mocks.startPaperUnderstanding).toHaveBeenCalledWith(1, expect.stringMatching(/^paper-memory-ui:1:/))
     expect(wrapper.get('.memory-status').text()).toContain('任务已提交')
+    wrapper.unmount()
+  })
+
+  it('keeps the manual understanding button visible when readiness loading fails', async () => {
+    mocks.getPaperMemoryStatus.mockRejectedValue(new Error('readiness unavailable'))
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.memory-status').text()).toContain('论文理解尚未启动')
+    expect(wrapper.get('.memory-status__action').text()).toContain('开始理解')
+    await wrapper.get('.memory-status__action').trigger('click')
+    await flushPromises()
+
+    expect(mocks.startPaperUnderstanding).toHaveBeenCalledWith(1, expect.stringMatching(/^paper-memory-ui:1:/))
     wrapper.unmount()
   })
 
   it('keeps paper questions disabled until the global profile is ready', async () => {
     mocks.getPaperMemoryStatus.mockResolvedValue({
-      paperId: 1, status: 'UNDERSTANDING', stageText: '正在理解论文全文…',
-      progress: 0, totalChunks: 1, completedChunks: 0, failedChunks: 0,
-      promptTokens: 420, completionTokens: 80,
-      profileReady: false, canStart: false, canRetry: false, revision: 3,
+      paperId: 1, status: 'UNDERSTANDING', statusText: '正在理解论文',
+      profileReady: false, conversationReady: false,
     })
     const wrapper = mountPanel({ selection: textSelection, selectionAnchor: textAnchor })
     await flushPromises()
 
     await wrapper.get('.assistant-composer textarea').setValue('现在可以提问吗？')
 
-    expect(wrapper.get('.memory-status').text()).toContain('全文理解')
-    expect(wrapper.get('.memory-status').text()).toContain('500 Token')
+    expect(wrapper.get('.memory-status').text()).toContain('正在理解论文')
+    expect(wrapper.get('.memory-status').text()).not.toContain('Token')
     expect(sendButton(wrapper).attributes()).toHaveProperty('disabled')
     expect(wrapper.get('.assistant-composer textarea').attributes('placeholder'))
       .toBe('论文理解完成后即可提问')
@@ -200,7 +202,6 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
 
   it('uses a confirmed selection only as the next-message attachment', async () => {
     mocks.state.run.mockImplementation(async (_request, options) => {
-      await options?.onPlanned?.({ runId: 'selection-turn-1' })
       options?.onAccepted?.()
       return {
         runId: 'selection-turn-1',
@@ -223,14 +224,12 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await flushPromises()
 
     expect(mocks.state.run).toHaveBeenCalledWith(expect.objectContaining({
-      question: '这段方法解决什么问题？',
+      userMessage: '这段方法解决什么问题？',
       selectionAnchor: textAnchor,
-      conversationId: expect.stringMatching(/^session-91-/),
+      researchSessionId: 91,
     }), expect.objectContaining({
-      onPlanned: expect.any(Function),
       onAccepted: expect.any(Function),
     }))
-    expect(mocks.attachResearchRun).toHaveBeenCalledWith(91, 'selection-turn-1')
     expect(wrapper.emitted('clear-selection')).toHaveLength(1)
     expect(wrapper.text()).not.toContain('待发送')
     expect(wrapper.text()).toContain('该方法解决估计问题')
@@ -253,7 +252,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await composer.trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(mocks.state.run).toHaveBeenCalledWith(expect.objectContaining({
-      question: '键盘发送测试',
+      userMessage: '键盘发送测试',
     }), expect.any(Object))
   })
 
@@ -292,7 +291,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await sendButton(wrapper).trigger('click')
     await flushPromises()
     expect(mocks.state.run).toHaveBeenCalledWith(expect.objectContaining({
-      question: '请分析所附附件。',
+      userMessage: '请分析所附附件。',
       attachments: [
         expect.objectContaining({ name: 'derivation.tex', content: '\\gamma = a / b' }),
         expect.objectContaining({ name: '公式1', mimeType: 'application/x-latex', content: '\\frac{a+b}{c}' }),
@@ -374,7 +373,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
 
     const first = mocks.state.run.mock.calls[0][0]
     const second = mocks.state.run.mock.calls[1][0]
-    expect(second.conversationId).toBe(first.conversationId)
+    expect(second.researchSessionId).toBe(first.researchSessionId)
     expect(second).not.toHaveProperty('conversationContext')
     expect(wrapper.findAll('.chat-message')).toHaveLength(4)
   })
@@ -410,7 +409,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.setProps({ selection: null, selectionAnchor: null })
     await wrapper.get('.assistant-composer textarea').setValue('没有新选区时继续追问')
 
-    expect(wrapper.get('.selection-chat__heading').text()).toContain('沿用本对话历史与论文理解')
+    expect(wrapper.get('.selection-chat__heading').text()).toContain('结合本对话历史判断是否需要查阅论文')
     expect(wrapper.get('.assistant-composer textarea').attributes('placeholder'))
       .toContain('继续当前对话')
     expect(sendButton(wrapper).attributes()).not.toHaveProperty('disabled')
@@ -419,23 +418,23 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await flushPromises()
 
     const secondRequest = mocks.state.run.mock.calls[1][0]
-    expect(secondRequest.conversationId).toBe(firstRequest.conversationId)
-    expect(secondRequest).not.toHaveProperty('selectionAnchor')
-    expect(secondRequest.scope).toBe('PAPER')
+    expect(secondRequest.researchSessionId).toBe(firstRequest.researchSessionId)
+    expect(secondRequest.selectionAnchor).toBeNull()
     expect(wrapper.findAll('.chat-message.is-user')[1].text()).toContain('继续上一问题')
 
+    mocks.createResearchSession.mockResolvedValueOnce({ id: 92 })
     await wrapper.findAll('.selection-chat__actions button')
       .find(button => button.text() === '新对话').trigger('click')
     expect(wrapper.findAll('.chat-message')).toHaveLength(0)
-    expect(wrapper.get('.selection-chat__heading').text()).toContain('基于论文理解开始对话')
+    expect(wrapper.get('.selection-chat__heading').text()).toContain('可直接提问')
     await wrapper.get('.assistant-composer textarea').setValue('新对话基于论文理解')
     expect(sendButton(wrapper).attributes()).not.toHaveProperty('disabled')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
 
     const newConversationRequest = mocks.state.run.mock.calls[2][0]
-    expect(newConversationRequest.conversationId).not.toBe(firstRequest.conversationId)
-    expect(newConversationRequest).not.toHaveProperty('selectionAnchor')
+    expect(newConversationRequest.researchSessionId).not.toBe(firstRequest.researchSessionId)
+    expect(newConversationRequest.selectionAnchor).toBeNull()
     expect(wrapper.findAll('.chat-message')).toHaveLength(2)
   })
 
@@ -472,11 +471,19 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     const wrapper = mountPanel()
     await flushPromises()
 
+    expect(wrapper.find('.conversation-picker').exists()).toBe(false)
+    expect(wrapper.emitted('research-session-change')).toContainEqual([92])
+    expect(mocks.getResearchSession).toHaveBeenCalledWith(92)
+
+    await wrapper.findAll('.selection-chat__actions button')
+      .find(button => button.text() === '切换对话').trigger('click')
+    await flushPromises()
     expect(wrapper.get('.conversation-picker').text()).toContain('方法讨论')
     expect(wrapper.get('.conversation-picker').text()).toContain('实验讨论')
     expect(wrapper.get('.conversation-picker').text()).not.toContain('其他论文')
 
-    await wrapper.findAll('.conversation-picker__item')[0].trigger('click')
+    await wrapper.findAll('.conversation-picker__item')
+      .find(button => button.text().includes('方法讨论')).trigger('click')
     await flushPromises()
     expect(wrapper.emitted('research-session-change')).toContainEqual([91])
     expect(mocks.getResearchSession).toHaveBeenCalledWith(91)
@@ -492,6 +499,60 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
       primaryPaperId: 1,
       title: '这个方法的核心假设是什么？',
     }))
+  })
+
+  it('does not resume an old failed run when the conversation already has a newer assistant answer', async () => {
+    mocks.listResearchSessions.mockResolvedValue([
+      { id: 91, primaryPaperId: 1, title: '已有对话', lastActivityAt: '2026-08-21T16:00:00' },
+    ])
+    mocks.getResearchSession.mockResolvedValue({
+      messages: [
+        { messageKey: 'old-user', role: 'USER', content: '旧问题', runId: 'failed-run' },
+        { messageKey: 'latest-user', role: 'USER', content: '新问题', runId: 'completed-run' },
+        { messageKey: 'latest-answer', role: 'ASSISTANT', content: '新回答', runId: 'completed-run' },
+      ],
+    })
+
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('新回答')
+    expect(mocks.state.watchRun).not.toHaveBeenCalled()
+  })
+
+  it('observes a persisted failed run only once instead of entering a restore loop', async () => {
+    mocks.listResearchSessions.mockResolvedValue([
+      { id: 91, primaryPaperId: 1, title: '失败对话', lastActivityAt: '2026-08-25T13:24:00' },
+    ])
+    mocks.getResearchSession.mockResolvedValue({
+      messages: [
+        { messageKey: 'failed-user', role: 'USER', content: '失败问题', runId: 'failed-run' },
+      ],
+    })
+    const failedRun = new Error('论文助手执行失败，请稍后重试')
+    failedRun.agentTerminal = true
+    mocks.state.watchRun.mockRejectedValue(failedRun)
+
+    const wrapper = mountPanel({ researchSessionId: 91 })
+    await flushPromises()
+
+    expect(mocks.state.watchRun).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('.error-state').text()).toContain('论文助手执行失败')
+
+    await wrapper.findAll('.selection-chat__actions button')
+      .find(button => button.text() === '新对话').trigger('click')
+    expect(wrapper.find('.error-state').exists()).toBe(false)
+
+    await wrapper.findAll('.selection-chat__actions button')
+      .find(button => button.text() === '切换对话').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.conversation-picker__item')
+      .find(button => button.text().includes('失败对话')).trigger('click')
+    await flushPromises()
+
+    expect(mocks.state.watchRun).toHaveBeenCalledTimes(1)
+    expect(mocks.getResearchSession).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('.error-state').text()).toContain('论文助手执行失败')
   })
 
   it('does not restore a conversation that belongs to another paper', async () => {
@@ -550,7 +611,7 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.get('.assistant-composer textarea').setValue('第一问')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
-    const firstConversation = mocks.state.run.mock.calls[0][0].conversationId
+    const firstConversation = mocks.state.run.mock.calls[0][0].researchSessionId
     await wrapper.get('.content-stage-collapsed button').trigger('click')
     await wrapper.get('.selection-clear-action').trigger('click')
     await wrapper.setProps({ selection: null, selectionAnchor: null })
@@ -567,29 +628,17 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await sendButton(wrapper).trigger('click')
     await flushPromises()
 
-    expect(mocks.state.run.mock.calls[1][0].conversationId).toBe(firstConversation)
+    expect(mocks.state.run.mock.calls[1][0].researchSessionId).toBe(firstConversation)
     expect(mocks.state.run.mock.calls[1][0].selectionAnchor.page).toBe(3)
     expect(wrapper.text()).toContain('引用第 2 页选区')
     expect(wrapper.text()).toContain('引用第 3 页选区')
   })
 
-  it('restores the latest server conversation id from the research archive', async () => {
+  it('restores all messages belonging to the selected research conversation', async () => {
     mocks.getResearchSession.mockResolvedValue({
       messages: [
         { messageKey: 'old:user', runId: 'old', role: 'USER', content: '旧对话' },
         { messageKey: 'latest:user', runId: 'latest', role: 'USER', content: '当前对话' },
-      ],
-      runs: [
-        {
-          runId: 'latest',
-          plan: { workflow: 'SELECTION_QA' },
-          invocation: { conversationId: 'session-91-restored' },
-        },
-        {
-          runId: 'old',
-          plan: { workflow: 'SELECTION_QA' },
-          invocation: { conversationId: 'session-91-old' },
-        },
       ],
     })
     mocks.state.run.mockResolvedValue({
@@ -600,12 +649,12 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     })
     await flushPromises()
     expect(wrapper.text()).toContain('当前对话')
-    expect(wrapper.text()).not.toContain('旧对话')
+    expect(wrapper.text()).toContain('旧对话')
     await wrapper.get('.assistant-composer textarea').setValue('继续追问')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
 
-    expect(mocks.state.run.mock.calls[0][0].conversationId).toBe('session-91-restored')
+    expect(mocks.state.run.mock.calls[0][0].researchSessionId).toBe(91)
     expect(mocks.createResearchSession).not.toHaveBeenCalled()
   })
 

@@ -14,6 +14,7 @@ import com.research.assistant.service.async.AsyncTaskHandlerRegistry;
 import com.research.assistant.service.rag.RagIndexingService;
 import com.research.assistant.service.rag.RagIndexingException;
 import com.research.assistant.service.rag.RagIndexingResult;
+import com.research.assistant.service.memory.PaperUnderstandingTaskService;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
@@ -43,7 +44,8 @@ public class AsyncTaskService {
     public static final String TASK_PROCESS_PAPER = "process-paper";
     public static final String TASK_DOWNLOAD_ARXIV = "download-arxiv-pdf";
 
-    private final AgentOrchestrator agentOrchestrator;
+    private final ResearchAutomationService automationService;
+    private final PaperUnderstandingTaskService paperUnderstandingTaskService;
     private final ArxivFetcher arxivFetcher;
     private final PaperMapper paperMapper;
     private final AsyncTaskManager asyncTaskManager;
@@ -55,7 +57,8 @@ public class AsyncTaskService {
     @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
-    public AsyncTaskService(@Lazy AgentOrchestrator agentOrchestrator,
+    public AsyncTaskService(@Lazy ResearchAutomationService automationService,
+                            PaperUnderstandingTaskService paperUnderstandingTaskService,
                             ArxivFetcher arxivFetcher,
                             PaperMapper paperMapper,
                             AsyncTaskManager asyncTaskManager,
@@ -63,7 +66,8 @@ public class AsyncTaskService {
                             PlanExecutor planExecutor,
                             RagIndexingService ragIndexingService,
                             AsyncTaskHandlerRegistry handlerRegistry) {
-        this.agentOrchestrator = agentOrchestrator;
+        this.automationService = automationService;
+        this.paperUnderstandingTaskService = paperUnderstandingTaskService;
         this.arxivFetcher = arxivFetcher;
         this.paperMapper = paperMapper;
         this.asyncTaskManager = asyncTaskManager;
@@ -79,13 +83,13 @@ public class AsyncTaskService {
         registerIfAbsent(TASK_COMPARE, context -> {
             context.stage("正在生成对比报告…");
             List<Long> paperIds = longList(context.arguments().get("paperIds"));
-            return agentOrchestrator.comparePapers(paperIds,
+            return automationService.comparePapers(paperIds,
                     (String) context.arguments().get("customDimensions"));
         });
         registerIfAbsent(TASK_GAP_PAPERS, context -> runGap(context,
-                () -> agentOrchestrator.analyzeGapsByPaperIds(longList(context.arguments().get("paperIds")))));
+                () -> automationService.analyzeGapsByPaperIds(longList(context.arguments().get("paperIds")))));
         registerIfAbsent(TASK_GAP_FOLDER, context -> runGap(context,
-                () -> agentOrchestrator.analyzeGaps(toLong(context.arguments().get("folderId")))));
+                () -> automationService.analyzeGaps(toLong(context.arguments().get("folderId")))));
         registerIfAbsent(TASK_PLAN, context -> {
             context.stage("正在规划任务…");
             String goal = (String) context.arguments().get("goal");
@@ -111,7 +115,7 @@ public class AsyncTaskService {
         });
         registerIfAbsent(TASK_PROCESS_PAPER, context -> {
             context.stage("正在分析论文…");
-            agentOrchestrator.processPaper(
+            paperUnderstandingTaskService.process(
                     toLong(context.arguments().get("paperId")), context::stage);
             return Map.of("paperId", toLong(context.arguments().get("paperId")), "processed", true);
         });
@@ -131,7 +135,6 @@ public class AsyncTaskService {
             update.setId(paperId);
             update.setPdfPath(fileName);
             paperMapper.updateById(update);
-            processPaperAsync(paperId);
             return Map.of("paperId", paperId, "fileName", fileName);
         });
     }
@@ -146,7 +149,7 @@ public class AsyncTaskService {
         context.stage("正在分析研究空白…");
         String gaps = supplier.get();
         context.stage("正在进行外部验证…");
-        return Map.of("gaps", gaps, "verified", agentOrchestrator.verifyGaps(gaps));
+        return Map.of("gaps", gaps, "verified", automationService.verifyGaps(gaps));
     }
 
     private List<Long> longList(Object value) {

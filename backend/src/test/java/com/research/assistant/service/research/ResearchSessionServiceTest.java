@@ -1,8 +1,5 @@
 package com.research.assistant.service.research;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.research.assistant.dto.research.ResearchMessageAppendRequest;
-import com.research.assistant.dto.research.ResearchMessageInput;
 import com.research.assistant.dto.research.ResearchSessionCreateRequest;
 import com.research.assistant.dto.research.ResearchSessionDetail;
 import com.research.assistant.dto.research.ResearchSessionUpdateRequest;
@@ -27,7 +24,6 @@ class ResearchSessionServiceTest {
 
     @Autowired private ResearchSessionService service;
     @Autowired private PaperMapper paperMapper;
-    @Autowired private ObjectMapper objectMapper;
 
     @Test
     void persistsSessionPapersMessagesAndResumeState() {
@@ -41,16 +37,6 @@ class ResearchSessionServiceTest {
         assertThat(created.getTitle()).isEqualTo("Durable Research Session");
         assertThat(created.getPapers()).extracting("id").containsExactly(paper.getId());
 
-        service.appendMessages(created.getId(), new ResearchMessageAppendRequest(List.of(
-                new ResearchMessageInput("question-1", "USER", "核心假设是什么？", null,
-                        objectMapper.createObjectNode().put("page", 3), null),
-                new ResearchMessageInput("answer-1", "ASSISTANT", "核心假设是……", null,
-                        null, objectMapper.createArrayNode()))));
-        // Retrying the same client request must not duplicate the conversation.
-        service.appendMessages(created.getId(), new ResearchMessageAppendRequest(List.of(
-                new ResearchMessageInput("question-1", "USER", "核心假设是什么？", null,
-                        null, null))));
-
         service.update(created.getId(), new ResearchSessionUpdateRequest(
                 "RSMA 会话", 13, "selection_qa", "EN", null, null));
         ResearchSessionDetail detail = service.get(created.getId());
@@ -58,7 +44,6 @@ class ResearchSessionServiceTest {
         assertThat(detail.session().getTitle()).isEqualTo("RSMA 会话");
         assertThat(detail.session().getLastPage()).isEqualTo(13);
         assertThat(detail.session().getOutputLanguage()).isEqualTo("EN");
-        assertThat(detail.messages()).hasSize(2);
-        assertThat(detail.messages().get(0).getSelectionAnchor().path("page").asInt()).isEqualTo(3);
+        assertThat(detail.messages()).isEmpty();
     }
 }

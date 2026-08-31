@@ -17,10 +17,8 @@ public class AiRequestConcurrencyConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(interceptor).addPathPatterns(
-                "/api/agent/chat",
-                "/api/agent/gap/chat",
-                "/api/agent/gap/stream",
-                "/api/agent/process/*/stream",
+                "/api/research-automation/gap/stream",
+                "/api/research-automation/process/*/stream",
                 "/api/writing/outline",
                 "/api/writing/related-work",
                 "/api/writing/citation-check"

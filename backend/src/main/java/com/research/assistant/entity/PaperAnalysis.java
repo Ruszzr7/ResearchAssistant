@@ -90,9 +90,6 @@ public class PaperAnalysis {
     @TableField("grounded_evidence_ids_json")
     private String groundedEvidenceIdsJson;
 
-    @TableField("workbench_run_id")
-    private String workbenchRunId;
-
     @TableField("layout_document_hash")
     private String layoutDocumentHash;
 
@@ -150,8 +147,6 @@ public class PaperAnalysis {
     public void setGroundedReport(String groundedReport) { this.groundedReport = groundedReport; }
     public String getGroundedEvidenceIdsJson() { return groundedEvidenceIdsJson; }
     public void setGroundedEvidenceIdsJson(String groundedEvidenceIdsJson) { this.groundedEvidenceIdsJson = groundedEvidenceIdsJson; }
-    public String getWorkbenchRunId() { return workbenchRunId; }
-    public void setWorkbenchRunId(String workbenchRunId) { this.workbenchRunId = workbenchRunId; }
     public String getLayoutDocumentHash() { return layoutDocumentHash; }
     public void setLayoutDocumentHash(String layoutDocumentHash) { this.layoutDocumentHash = layoutDocumentHash; }
     public String getLayoutParserVersion() { return layoutParserVersion; }

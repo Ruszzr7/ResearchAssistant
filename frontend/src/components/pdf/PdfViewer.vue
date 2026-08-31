@@ -228,11 +228,11 @@
               v-for="(quad, focusIndex) in evidenceFocusForPage(page.pageNum)"
               :key="focusIndex"
               :points="quadPoints(quad, page, viewportCoordinates)"
-              fill="#ff9800"
-              fill-opacity="0.18"
+              :fill="evidenceFocus?.mode === 'FORMULA_NUMBER' ? '#ffeb3b' : '#ff9800'"
+              :fill-opacity="evidenceFocus?.mode === 'FORMULA_NUMBER' ? 0.72 : 0.18"
               stroke="#ff9800"
               stroke-width="2"
-              stroke-dasharray="6 3"
+              :stroke-dasharray="evidenceFocus?.mode === 'FORMULA_NUMBER' ? 'none' : '6 3'"
             />
           </g>
           <g v-for="ann in pageAnnotations(page.pageNum)" :key="ann.localId"
@@ -436,6 +436,7 @@
 
       <PaperWorkbenchPanel
         v-if="workbenchPanelVisible"
+        :key="`${paper.id}:${assistantEntryKey}`"
         :style="{ flexBasis: assistantPanelWidth + 'px' }"
         :paper="paper"
         :selection="pendingTextSelection"
@@ -566,6 +567,7 @@ import {
   recognizeFormulaRegion,
   resolveSelectionAnchor,
 } from '@/api/workbench.js'
+import { submitAgentActionReceipt } from '@/api/agent.js'
 import {
   DEFAULT_WORKBENCH_RATIO,
   DEFAULT_COMMENT_PANEL_WIDTH,
@@ -582,6 +584,7 @@ import { createPdfInteractionEngine } from '@/services/pdfiumInteractionEngine.j
 import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
 import { copyPdfSelectionText, normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
 import { isTextSelectionDrag } from '@/utils/pdfTextSelection.js'
+import { formulaNumberCandidates, formulaNumberSearchQueries } from '@/utils/formulaEvidence.js'
 import {
   invalidatePageRenderSurface,
   pageRenderSurfaceIsUsable,
@@ -593,6 +596,7 @@ const props = defineProps({
   paper: { type: Object, required: true },
   initialEvidence: { type: Object, default: null },
   researchSessionId: { type: Number, default: null },
+  assistantEntryKey: { type: Number, default: 0 },
   initialPage: { type: Number, default: 1 },
 })
 
@@ -1645,26 +1649,68 @@ function openComparisonPaperInterface() {
 }
 
 async function jumpToEvidence(item) {
+  const page = Number(item?.page)
+  if (!Number.isInteger(page) || page < 1) return
   const targetBox = item?.locator?.targetBbox || item?.bbox
-  if (!item?.page || !targetBox) return
-  if (Number(item.paperId) !== Number(props.paper.id)) {
+  if (item.paperId != null && Number(item.paperId) !== Number(props.paper.id)) {
     emit('open-paper-evidence', item)
     return
   }
-  await goToPage(item.page)
+  await goToPage(page)
+  const formulaRegion = item?.locator?.precision === 'FORMULA_REGION'
+  const formulaLabels = formulaRegion ? formulaNumberCandidates(item) : []
+  const formulaNumberBoxes = formulaLabels.length
+    ? await locateFormulaNumberBoxes(page, formulaLabels, targetBox)
+    : []
+  if (formulaNumberBoxes.length) {
+    evidenceFocus.value = {
+      page,
+      boxes: formulaNumberBoxes,
+      mode: 'FORMULA_NUMBER',
+      formulaNumbers: formulaLabels,
+    }
+    await nextTick()
+    scrollEvidenceIntoView(page, formulaNumberBoxes)
+    scheduleEvidenceFocusClear()
+    return
+  }
+
+  // Formula-region geometry is only a scroll fallback. It is intentionally never painted as
+  // an evidence rectangle because the parser cannot reliably separate math glyph fragments.
+  if (formulaRegion) {
+    evidenceFocus.value = null
+    if (targetBox) scrollEvidenceIntoView(page, [targetBox])
+    ElMessage.info(formulaLabels.length
+      ? `已定位到式 (${formulaLabels.join('、')}) 所在区域，但未找到可高亮的公式编号`
+      : '已定位到公式所在区域；该公式没有可识别的编号')
+    scheduleEvidenceFocusClear()
+    return
+  }
+
   const exactBoxes = await locateEvidenceText(item)
   const locatorBoxes = validEvidenceBoxes(item?.locator?.targetBoxes)
-  const focusBoxes = exactBoxes.length ? exactBoxes : locatorBoxes.length ? locatorBoxes : [targetBox]
+  const focusBoxes = exactBoxes.length ? exactBoxes : locatorBoxes.length ? locatorBoxes : targetBox ? [targetBox] : []
+  if (!focusBoxes.length) {
+    evidenceFocus.value = null
+    ElMessage.info(`已定位到第 ${page} 页，但当前 PDF 没有可绘制的字符位置`)
+    scheduleEvidenceFocusClear()
+    return
+  }
   evidenceFocus.value = {
-    page: item.page,
+    page,
     boxes: focusBoxes,
+    mode: 'TEXT',
     precision: exactBoxes.length || locatorBoxes.length ? 'TEXT' : (item?.locator?.precision || 'BLOCK'),
   }
   await nextTick()
-  scrollEvidenceIntoView(item.page, focusBoxes)
-  if (!exactBoxes.length && !locatorBoxes.length && item?.locator?.precision !== 'FORMULA_REGION') {
+  scrollEvidenceIntoView(page, focusBoxes)
+  if (!exactBoxes.length && !locatorBoxes.length && !formulaRegion) {
     ElMessage.info('已定位到来源段落；PDF 字符映射不足，无法进一步精确到句子')
   }
+  scheduleEvidenceFocusClear()
+}
+
+function scheduleEvidenceFocusClear() {
   if (evidenceFocusTimer != null) window.clearTimeout(evidenceFocusTimer)
   evidenceFocusTimer = window.setTimeout(() => {
     evidenceFocus.value = null
@@ -1674,6 +1720,10 @@ async function jumpToEvidence(item) {
 
 async function executeAgentActions(actions) {
   for (const action of actions || []) {
+    if (action?.ticket && action?.target) {
+      await executeTicketedAgentAction(action)
+      continue
+    }
     if (!['HIGHLIGHT', 'UNDERLINE', 'ADD_NOTE', 'ADD_COMMENT', 'NAVIGATE'].includes(action?.type)) continue
     const actionLabel = {
       HIGHLIGHT: '高亮', UNDERLINE: '下划线', ADD_NOTE: '笔记', ADD_COMMENT: '批注', NAVIGATE: '跳转',
@@ -1702,6 +1752,11 @@ async function executeAgentActions(actions) {
         targetText: action.targetText || action.evidence.locator?.targetText || '',
       },
     }
+    if (action.type === 'NAVIGATE') {
+      await jumpToEvidence(target)
+      ElMessage.success(`已跳转到“${action.query}”`)
+      continue
+    }
     await goToPage(target.page)
     const exactBoxes = await locateEvidenceText(target)
     const fallbackBox = target.locator?.targetBbox || target.bbox
@@ -1714,17 +1769,6 @@ async function executeAgentActions(actions) {
       ? trustedSelectionBoxes : exactBoxes.length ? exactBoxes : formulaFallback
     if (!boxes.length) {
       ElMessage.warning(`已找到“${action.query}”的来源，但无法建立精确字符位置，因此未执行${actionLabel}`)
-      continue
-    }
-    if (action.type === 'NAVIGATE') {
-      evidenceFocus.value = {
-        page: target.page,
-        boxes,
-        precision: trustedSelectionBoxes.length || exactBoxes.length ? 'TEXT' : 'FORMULA_REGION',
-      }
-      await nextTick()
-      scrollEvidenceIntoView(target.page, boxes)
-      ElMessage.success(`已跳转到“${action.query}”`)
       continue
     }
     if (annotations.value.some(annotation => (
@@ -1798,6 +1842,35 @@ async function executeAgentActions(actions) {
   }
 }
 
+async function executeTicketedAgentAction(action) {
+  const page = Number(action.target?.pageNumber)
+  const boxes = validEvidenceBoxes(action.target?.rects)
+  try {
+    if (!Number.isInteger(page) || page < 1 || Number(action.target?.paperId) !== Number(props.paper.id)) {
+      throw new Error('操作目标不属于当前论文')
+    }
+    await goToPage(page)
+    if (boxes.length) {
+      evidenceFocus.value = { page, boxes, precision: 'TEXT' }
+      await nextTick()
+      scrollEvidenceIntoView(page, boxes)
+    }
+    const receipt = await submitAgentActionReceipt({ ticket: action.ticket, success: true, actualCoordinates: { page } })
+    await loadAnnotations()
+    ElMessage.success(receipt?.message || '页面操作已完成')
+  } catch (reason) {
+    try {
+      await submitAgentActionReceipt({
+        ticket: action.ticket,
+        success: false,
+        actualCoordinates: { page },
+        clientError: requestErrorMessage(reason),
+      })
+    } catch { /* The original error is more useful to the user. */ }
+    ElMessage.error(requestErrorMessage(reason, '页面操作失败'))
+  }
+}
+
 async function locateEvidenceText(item) {
   if (!pdfInteractionReady.value || !pdfInteractionEngine) return []
   const targetBox = item?.locator?.targetBbox || item?.bbox
@@ -1815,6 +1888,31 @@ async function locateEvidenceText(item) {
     located.push(...boxes)
   }
   return dedupeEvidenceBoxes(located)
+}
+
+async function locateFormulaNumberBoxes(page, labels, targetBox) {
+  if (!pdfInteractionReady.value || !pdfInteractionEngine) return []
+  const found = []
+  for (const label of labels) {
+    let labelMatches = []
+    for (const query of formulaNumberSearchQueries(label)) {
+      let matches
+      try { matches = await pdfInteractionEngine.search(query) }
+      catch { matches = [] }
+      labelMatches = (matches || []).filter(candidate => (
+        candidate.pageIndex + 1 === page && candidate.rects?.length
+      ))
+      if (labelMatches.length) break
+    }
+    if (!labelMatches.length) continue
+    const selected = targetBox && labelMatches.length > 1
+      ? [...labelMatches].sort((first, second) => (
+        evidenceMatchDistance(first.rects, targetBox) - evidenceMatchDistance(second.rects, targetBox)
+      )).slice(0, 1)
+      : labelMatches.slice(0, 1)
+    found.push(...selected.flatMap(match => match.rects || []))
+  }
+  return dedupeEvidenceBoxes(found)
 }
 
 function validEvidenceBoxes(boxes) {

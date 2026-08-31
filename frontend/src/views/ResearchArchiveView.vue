@@ -82,7 +82,7 @@
           </div>
           <div class="detail-summary__stats">
             <span>{{ detail.messages.length }} 条消息</span>
-            <span>{{ detail.runs.length }} 次运行</span>
+            <span>{{ detail.session.runCount || 0 }} 次运行</span>
           </div>
         </section>
 
@@ -107,20 +107,6 @@
               </article>
             </div>
             <el-empty v-else description="暂无选区对话" :image-size="64" />
-          </el-tab-pane>
-          <el-tab-pane label="分析记录" name="runs">
-            <div v-if="detail.runs.length" class="run-list">
-              <article v-for="run in detail.runs" :key="run.runId">
-                <div><b>{{ workflowLabel(run.plan?.workflow || run.invocation?.workflow) }}</b><el-tag size="small" :type="runStatusType(run.status)">{{ runStatusLabel(run.status) }}</el-tag></div>
-                <small>{{ formatTime(run.completedAt || run.createdAt) }}</small>
-                <ResearchMarkdown
-                  v-if="run.result?.answer"
-                  class="run-answer"
-                  :content="run.result.answer"
-                />
-              </article>
-            </div>
-            <el-empty v-else description="暂无分析记录" :image-size="64" />
           </el-tab-pane>
         </el-tabs>
       </div>
@@ -211,7 +197,7 @@ async function loadSessions() {
 
 async function openDetail(session) {
   detailVisible.value = true
-  detailTab.value = session.messageCount ? 'messages' : 'runs'
+  detailTab.value = 'messages'
   try { detail.value = await getResearchSession(session.id) }
   catch (reason) {
     detailVisible.value = false
@@ -295,22 +281,6 @@ function formatTime(value) {
   return new Date(value).toLocaleString('zh-CN', { hour12: false })
 }
 
-function workflowLabel(workflow) {
-  return {
-    SELECTION_QA: '论文对话', PAPER_ANALYSIS: '全文分析', PAPER_IMPROVEMENT: '论文改进空间',
-    PAPER_COMPARISON: '跨论文对比', RESEARCH_GAP: '领域研究空白', ANNOTATION_SUGGESTION: '批注建议',
-  }[workflow] || '论文分析'
-}
-
-function runStatusLabel(status) {
-  return { COMPLETED: '已完成', FAILED: '失败', RUNNING: '运行中', QUEUED: '排队中', PLANNED: '已规划', CANCELLED: '已取消' }[status] || status
-}
-
-function runStatusType(status) {
-  if (status === 'COMPLETED') return 'success'
-  if (['FAILED', 'CANCELLED'].includes(status)) return 'danger'
-  return 'info'
-}
 </script>
 
 <style scoped>

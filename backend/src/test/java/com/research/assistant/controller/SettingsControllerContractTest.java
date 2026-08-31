@@ -6,6 +6,8 @@ import com.research.assistant.dto.AiModelListResult;
 import com.research.assistant.entity.Settings;
 import com.research.assistant.service.AiModelCatalogService;
 import com.research.assistant.service.SettingsService;
+import com.research.assistant.service.agent.capability.AiCapabilityService;
+import com.research.assistant.dto.agent.AiCapabilityView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +24,9 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -36,12 +41,14 @@ class SettingsControllerContractTest {
     private SettingsService settingsService;
     @Mock
     private AiModelCatalogService modelCatalogService;
+    @Mock
+    private AiCapabilityService capabilityService;
 
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new SettingsController(settingsService, modelCatalogService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new SettingsController(settingsService, modelCatalogService, capabilityService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -113,5 +120,27 @@ class SettingsControllerContractTest {
                 .andExpect(jsonPath("$.data.models[0]").value("kimi-k2.6"))
                 .andExpect(jsonPath("$.data.models[1]").value("kimi-k3"))
                 .andExpect(jsonPath("$.data.count").value(2));
+    }
+
+    @Test
+    void capabilityProbeUsesDraftAndDoesNotSaveSettings() throws Exception {
+        when(capabilityService.probeDraft(org.mockito.ArgumentMatchers.eq(com.research.assistant.service.agent.capability.AiModelRole.CHAT),
+                org.mockito.ArgumentMatchers.eq("https://draft.example/v1"),
+                org.mockito.ArgumentMatchers.eq("draft-model"),
+                org.mockito.ArgumentMatchers.eq("draft-key")))
+                .thenReturn(new AiCapabilityView("CHAT", "VERIFIED", true, true, true, true,
+                        false, false, null, null, null, null));
+
+        mockMvc.perform(post("/api/settings/capabilities/CHAT/test")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"baseUrl\":\"https://draft.example/v1\",\"model\":\"draft-model\",\"apiKey\":\"draft-key\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("VERIFIED"));
+
+        verify(capabilityService).probeDraft(org.mockito.ArgumentMatchers.eq(com.research.assistant.service.agent.capability.AiModelRole.CHAT),
+                org.mockito.ArgumentMatchers.eq("https://draft.example/v1"),
+                org.mockito.ArgumentMatchers.eq("draft-model"),
+                org.mockito.ArgumentMatchers.eq("draft-key"));
+        verify(settingsService, never()).saveAll(any());
     }
 }

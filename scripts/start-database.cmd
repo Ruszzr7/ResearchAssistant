@@ -4,32 +4,54 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "PROJECT_DIR=%%~fI"
+if exist "%SCRIPT_DIR%local-config.cmd" call "%SCRIPT_DIR%local-config.cmd"
 set "RUNTIME_DIR=%PROJECT_DIR%\runtime"
 set "DATABASE_PID_FILE=%RUNTIME_DIR%\database.pid"
+if not defined RA_DATABASE_NAME set "RA_DATABASE_NAME=research_assistant"
+if not defined SPRING_DATASOURCE_USERNAME set "SPRING_DATASOURCE_USERNAME=root"
 if not exist "%RUNTIME_DIR%" mkdir "%RUNTIME_DIR%" >nul 2>&1
 
 if /i "%~1"=="--stop" goto stop_database
 
 call :port_listening 3306
 if not errorlevel 1 (
-  echo [INFO] Database is already ready on 127.0.0.1:3306.
-  exit /b 0
+  echo [INFO] Database server is already ready on 127.0.0.1:3306.
+  call :ensure_database
+  exit /b !ERRORLEVEL!
+)
+
+set "MYSQL_SERVICE="
+if defined MYSQL_SERVICE_NAME set "MYSQL_SERVICE=%MYSQL_SERVICE_NAME%"
+if not defined MYSQL_SERVICE for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$service = Get-CimInstance Win32_Service -ErrorAction SilentlyContinue ^| Where-Object { $_.Name -match 'mysql^|maria' -or $_.DisplayName -match 'mysql^|maria' } ^| Select-Object -First 1; if ($service) { $service.Name }"`) do set "MYSQL_SERVICE=%%I"
+if defined MYSQL_SERVICE (
+  echo [INFO] Starting Windows database service: !MYSQL_SERVICE!
+  powershell -NoProfile -Command "try { Start-Service -Name $env:MYSQL_SERVICE -ErrorAction Stop } catch { $command = 'Start-Service -Name ''' + $env:MYSQL_SERVICE + ''''; $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', $command) -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $proc.ExitCode }"
+  if errorlevel 1 (
+    echo [ERROR] Failed to start Windows database service !MYSQL_SERVICE!.
+    exit /b 1
+  )
+  echo [INFO] Waiting for database readiness...
+  for /L %%I in (1,1,30) do (
+    call :port_listening 3306
+    if not errorlevel 1 (
+      echo [OK] Database is ready: 127.0.0.1:3306
+      call :ensure_database
+      exit /b !ERRORLEVEL!
+    )
+    powershell -NoProfile -Command "Start-Sleep -Seconds 1"
+  )
+  echo [ERROR] Windows database service !MYSQL_SERVICE! did not open port 3306.
+  exit /b 1
 )
 
 set "MYSQLD="
 if defined MYSQL_HOME if exist "%MYSQL_HOME%\bin\mysqld.exe" set "MYSQLD=%MYSQL_HOME%\bin\mysqld.exe"
 if not defined MYSQLD for /f "delims=" %%I in ('where mysqld.exe 2^>nul') do if not defined MYSQLD set "MYSQLD=%%~fI"
 if not defined MYSQLD (
-  for %%I in (
-    "C:\tools\mysql-8.0.28-winx64\bin\mysqld.exe"
-    "C:\tools\mysql-8.0.33-winx64\bin\mysqld.exe"
-    "C:\tools\mysql-8.0.39-winx64\bin\mysqld.exe"
-    "C:\tools\mysql-8.0.40-winx64\bin\mysqld.exe"
-    "C:\tools\mysql-8.0.41-winx64\bin\mysqld.exe"
-    "C:\tools\mariadb-10.11.8-winx64\bin\mysqld.exe"
-    "C:\xampp\mysql\bin\mysqld.exe"
-    "D:\xampp\mysql\bin\mysqld.exe"
-  ) do if not defined MYSQLD if exist "%%~fI" set "MYSQLD=%%~fI"
+  for /d %%I in ("C:\Program Files\MySQL\MySQL Server *") do if not defined MYSQLD if exist "%%~fI\bin\mysqld.exe" set "MYSQLD=%%~fI\bin\mysqld.exe"
+)
+if not defined MYSQLD (
+  for /d %%I in ("C:\tools\mysql-*" "C:\tools\mariadb-*" "C:\xampp\mysql" "D:\xampp\mysql") do if not defined MYSQLD if exist "%%~fI\bin\mysqld.exe" set "MYSQLD=%%~fI\bin\mysqld.exe"
 )
 if not defined MYSQLD (
   echo [ERROR] mysqld.exe was not found. Install MySQL/MariaDB or set MYSQL_HOME.
@@ -52,8 +74,9 @@ echo [INFO] Waiting for database readiness...
 for /L %%I in (1,1,30) do (
   call :port_listening 3306
   if not errorlevel 1 (
-    echo [OK] Database is ready: 127.0.0.1:3306
-    exit /b 0
+      echo [OK] Database is ready: 127.0.0.1:3306
+      call :ensure_database
+      exit /b !ERRORLEVEL!
   )
   powershell -NoProfile -Command "Start-Sleep -Seconds 2"
 )
@@ -80,6 +103,37 @@ if "%STOP_RESULT%"=="3" (
 )
 del /q "%DATABASE_PID_FILE%" >nul 2>&1
 echo [OK] Database stopped.
+exit /b 0
+
+:ensure_database
+echo(!RA_DATABASE_NAME!| findstr /r /x "[A-Za-z0-9_][A-Za-z0-9_]*" >nul
+if errorlevel 1 (
+  echo [ERROR] Invalid RA_DATABASE_NAME: !RA_DATABASE_NAME!
+  exit /b 1
+)
+set "MYSQL_CLIENT="
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%find-mysql-client.ps1" 2^>nul`) do if not defined MYSQL_CLIENT set "MYSQL_CLIENT=%%I"
+if not defined MYSQL_CLIENT (
+  echo [ERROR] MySQL client was not found, so the application database cannot be verified.
+  echo [HINT] Install the MySQL client or set MYSQL_HOME in scripts\local-config.cmd.
+  exit /b 1
+)
+set "MYSQL_PWD=%SPRING_DATASOURCE_PASSWORD%"
+"!MYSQL_CLIENT!" --protocol=tcp --host=127.0.0.1 --port=3306 --user="%SPRING_DATASOURCE_USERNAME%" --database="!RA_DATABASE_NAME!" --execute="SELECT 1" >nul 2>&1
+if not errorlevel 1 (
+  echo [OK] Application database is accessible: !RA_DATABASE_NAME!
+  exit /b 0
+)
+echo [INFO] Creating application database if permitted: !RA_DATABASE_NAME!
+"!MYSQL_CLIENT!" --protocol=tcp --host=127.0.0.1 --port=3306 --user="%SPRING_DATASOURCE_USERNAME%" --execute="CREATE DATABASE IF NOT EXISTS ^`!RA_DATABASE_NAME!^` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] Cannot access or create database !RA_DATABASE_NAME! with user %SPRING_DATASOURCE_USERNAME%.
+  echo [HINT] Set the correct credentials in scripts\local-config.cmd or create the database manually.
+  set "MYSQL_PWD="
+  exit /b 1
+)
+set "MYSQL_PWD="
+echo [OK] Application database is ready: !RA_DATABASE_NAME!
 exit /b 0
 
 :port_listening

@@ -180,16 +180,21 @@ public class PaperSourceIndexService {
                 .filter(block -> verticalGap(labelBox, block.bbox()) <= 0.060)
                 .forEach(components::add);
         components.sort(Comparator.comparingInt(DocumentBlock::readingOrder));
-        List<NormalizedBoundingBox> boxes = components.stream()
+        List<NormalizedBoundingBox> componentBoxes = components.stream()
                 .map(block -> block.id().equals(label.id()) ? labelBox : block.bbox())
                 .toList();
-        NormalizedBoundingBox bbox = union(boxes);
+        NormalizedBoundingBox union = union(componentBoxes);
+        boolean reliableRegion = components.size() > 1 || label.role() == DocumentBlockRole.FORMULA;
+        // A very tall union usually means adjacent equations were accidentally joined. In that
+        // case the printed equation number is the honest, stable fallback.
+        if (union.height() > .22 || components.size() > 8) reliableRegion = false;
+        NormalizedBoundingBox bbox = reliableRegion ? padded(union, .006) : padded(labelBox, .004);
         String sourceText = components.stream().map(DocumentBlock::text)
                 .map(String::trim).filter(value -> !value.isBlank())
                 .distinct().reduce((first, second) -> first + " " + second).orElse("");
         return new SourceAnchor(sourceId(artifact, "equation:" + number), label.page(),
-                SourceAnchor.Kind.FORMULA_REGION, bbox, boxes, sourceText,
-                label.id(), label.confidence());
+                SourceAnchor.Kind.FORMULA_REGION, bbox, List.of(bbox), sourceText,
+                label.id(), reliableRegion ? label.confidence() : Math.min(label.confidence(), .55));
     }
 
     private boolean formulaComponent(DocumentBlock block) {
@@ -284,6 +289,14 @@ public class PaperSourceIndexService {
         double top = boxes.stream().mapToDouble(NormalizedBoundingBox::y).min().orElse(0);
         double right = boxes.stream().mapToDouble(NormalizedBoundingBox::right).max().orElse(left);
         double bottom = boxes.stream().mapToDouble(NormalizedBoundingBox::bottom).max().orElse(top);
+        return new NormalizedBoundingBox(left, top, right - left, bottom - top);
+    }
+
+    private NormalizedBoundingBox padded(NormalizedBoundingBox box, double padding) {
+        double left = Math.max(0, box.x() - padding);
+        double top = Math.max(0, box.y() - padding);
+        double right = Math.min(1, box.right() + padding);
+        double bottom = Math.min(1, box.bottom() + padding);
         return new NormalizedBoundingBox(left, top, right - left, bottom - top);
     }
 

@@ -10,8 +10,7 @@ import static com.research.assistant.service.ai.SuggestionPojos.*;
 /**
  * 工具型科研 Agent 接口 —— 用于需要 LLM 自主调用工具但不需要对话记忆的任务。
  * <p>
- * 与 {@link ResearchAiService} 分开配置，不绑定 {@code ChatMemoryProvider}，
- * 避免工具调用任务受历史消息污染或触发记忆相关异常。
+ * 不绑定对话记忆，避免自动化任务受历史消息污染。
  */
 public interface ResearchToolAgent {
 

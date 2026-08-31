@@ -55,6 +55,7 @@ class PaperMemoryQueryServiceTest {
         record.setPromptTokens(100);
         record.setCompletionTokens(40);
         record.setLastErrorCode("CHUNK_SUMMARY_PARTIAL");
+        record.setProfileQualityJson("{\"ready\":true}");
         record.setUpdatedAt(LocalDateTime.now());
         record.setProfileJson(objectMapper.writeValueAsString(profile()));
         when(paperMapper.selectById(6L)).thenReturn(paper);

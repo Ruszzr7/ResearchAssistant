@@ -302,7 +302,7 @@ function truncate(text, len) {
 async function startExtract() {
   if (workflowMode.value) {
     try {
-      const res = await api.post('/agent/workflow/literature-survey', { query: userInput.value })
+      const res = await api.post('/research-automation/workflow/literature-survey', { query: userInput.value })
       ElMessage.success('已启动文献调研工作流')
       router.push({ path: '/tasks', query: { highlight: res.data.taskId } })
     } catch (e) {
@@ -375,7 +375,7 @@ async function recommendFolderForSearch() {
   if (!first?.title) return
   recommendingFolder.value = true
   try {
-    const res = await api.post('/agent/folder-suggest', {
+    const res = await api.post('/research-automation/folder-suggest', {
       title: first.title,
       abstractText: first.summary || ''
     })

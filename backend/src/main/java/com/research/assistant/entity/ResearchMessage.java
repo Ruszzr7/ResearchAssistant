@@ -15,9 +15,13 @@ public class ResearchMessage {
     private Long sessionId;
     private String messageKey;
     private String role;
+    private String messageType;
+    private String messageStatus;
     private String content;
     private String runId;
+    private Long agentTurnId;
     private String selectionAnchorJson;
     private String evidenceJson;
+    private String evidenceSchemaVersion;
     private LocalDateTime createdAt;
 }

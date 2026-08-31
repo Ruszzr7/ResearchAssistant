@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "agent-live-eval-v1",
+  "batchId": "rsma-batch-1",
+  "paperId": 190,
+  "paperTitle": "Autonomous Driving with RSMA-Enabled Finite Blocklength Transmissions: Ergodic Performance Analysis and Optimization",
+  "cases": [
+    {
+      "id": "ordinary-sort",
+      "category": "ORDINARY",
+      "sessionKey": "ordinary",
+      "message": "冒泡排序的时间复杂度是多少？常见的排序方式有哪些？",
+      "expectedStatuses": ["COMPLETED"],
+      "forbiddenTools": ["read_paper_profile", "retrieve_paper_evidence", "paper_action"],
+      "requiredConceptGroups": [["O(n^2)", "O(n²)"], ["快速排序", "归并排序", "堆排序"]],
+      "maxToolCalls": 1
+    },
+    {
+      "id": "overview-summary",
+      "category": "OVERVIEW",
+      "sessionKey": "overview",
+      "message": "这篇论文主要研究什么？核心贡献与创新点是什么？",
+      "expectedStatuses": ["COMPLETED"],
+      "requiredTools": ["read_paper_profile"],
+      "requiredConceptGroups": [["RSMA", "速率分裂多址"], ["有限码长", "FBL", "finite blocklength"], ["遍历", "ergodic"], ["功率", "rate splitting", "速率拆分"]],
+      "forbiddenTerms": ["DeepSeek-V3.2", "稀疏注意力", "GRPO"],
+      "maxToolCalls": 3
+    },
+    {
+      "id": "ordinary-following-paper-turn",
+      "category": "ORDINARY",
+      "sessionKey": "overview",
+      "message": "顺便问一个无关问题：二分查找的时间复杂度是什么？",
+      "expectedStatuses": ["COMPLETED"],
+      "forbiddenTools": ["read_paper_profile", "retrieve_paper_evidence", "paper_action"],
+      "requiredConceptGroups": [["O(log n)", "O(log₂n)", "对数"]],
+      "maxToolCalls": 1
+    },
+    {
+      "id": "overview-method",
+      "category": "OVERVIEW",
+      "sessionKey": "method",
+      "message": "论文提出的联合优化方法由哪些变量和主要步骤构成？",
+      "expectedStatuses": ["COMPLETED"],
+      "requiredTools": ["read_paper_profile"],
+      "requiredConceptGroups": [["全局功率", "global power"], ["私有功率", "private power"], ["公共速率", "common rate"], ["梯度", "SQP", "序列二次"]],
+      "forbiddenTerms": ["DeepSeek-V3.2", "强化学习训练框架"],
+      "maxToolCalls": 3
+    },
+    {
+      "id": "evidence-formula-21",
+      "category": "EVIDENCE",
+      "sessionKey": "formula",
+      "message": "解释公式（21）的结论、各部分含义以及它在全文中的作用，并给出论文证据。",
+      "expectedStatuses": ["COMPLETED"],
+      "requiredTools": ["retrieve_paper_evidence"],
+      "requiredConceptGroups": [["21"], ["遍历速率", "ergodic rate"], ["公共流", "common stream", "私有流", "private stream"]],
+      "minEvidence": 1,
+      "formulaEvidenceAny": ["21"],
+      "maxToolCalls": 4
+    },
+    {
+      "id": "selection-formula-21",
+      "category": "SELECTION",
+      "sessionKey": "selection",
+      "message": "只根据我选中的公式，解释它表达了什么，并说明它与论文研究目标的关系。",
+      "selectionFromCase": "evidence-formula-21",
+      "selectionFormula": "21",
+      "expectedStatuses": ["COMPLETED"],
+      "requiredConceptGroups": [["遍历", "ergodic"], ["速率", "rate"]],
+      "forbiddenTools": ["paper_action"],
+      "maxToolCalls": 3
+    },
+    {
+      "id": "evidence-problem-35",
+      "category": "EVIDENCE",
+      "sessionKey": "optimization",
+      "message": "原始优化问题 P0（35a）到（35g）分别优化什么、约束什么？请结合论文原文解释。",
+      "expectedStatuses": ["COMPLETED"],
+      "requiredTools": ["retrieve_paper_evidence"],
+      "requiredConceptGroups": [["P0", "优化问题"], ["35a", "35"], ["QoS", "最低速率", "minimum rate"], ["功率", "power"]],
+      "minEvidence": 1,
+      "formulaEvidenceAny": ["35a", "35b", "35c", "35d", "35e", "35f", "35g"],
+      "maxToolCalls": 4
+    },
+    {
+      "id": "evidence-simulation",
+      "category": "EVIDENCE",
+      "sessionKey": "simulation",
+      "message": "仿真结果如何证明所提方案优于平均私有功率分配的 RSMA 和 SDMA？请引用对应证据。",
+      "expectedStatuses": ["COMPLETED"],
+      "requiredTools": ["retrieve_paper_evidence"],
+      "requiredConceptGroups": [["RSMA"], ["SDMA"], ["遍历", "ergodic"], ["公平", "最差", "poorest", "fairness"]],
+      "minEvidence": 1,
+      "maxToolCalls": 4
+    },
+    {
+      "id": "action-ambiguous",
+      "category": "ACTION",
+      "sessionKey": "ambiguous-action",
+      "message": "把论文里重要的公式高亮一下。",
+      "expectedStatuses": ["WAITING_USER"],
+      "forbiddenTools": ["paper_action"],
+      "maxToolCalls": 3
+    },
+    {
+      "id": "action-selected-formula",
+      "category": "ACTION",
+      "sessionKey": "selected-action",
+      "message": "把当前选中的公式高亮。",
+      "selectionFromCase": "evidence-formula-21",
+      "selectionFormula": "21",
+      "expectedStatuses": ["WAITING_CLIENT"],
+      "requiredTools": ["paper_action"],
+      "forbiddenTools": ["retrieve_paper_evidence"],
+      "pendingActionType": "HIGHLIGHT",
+      "maxToolCalls": 2
+    }
+  ]
+}
