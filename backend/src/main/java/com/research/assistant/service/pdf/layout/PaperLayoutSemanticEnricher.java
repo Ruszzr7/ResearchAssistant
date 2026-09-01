@@ -389,7 +389,9 @@ public class PaperLayoutSemanticEnricher {
                 first.latex() != null ? first.latex() : second.latex(),
                 first.tableText() != null ? first.tableText() : second.tableText(),
                 Math.min(first.confidence(), second.confidence()),
-                contentMode(first.role(), first.latex(), first.tableText())
+                contentMode(first.role(), first.latex(), first.tableText()),
+                first.mathProfile(),
+                mergedLane(first.layoutLane(), second.layoutLane())
         );
     }
 
@@ -417,8 +419,14 @@ public class PaperLayoutSemanticEnricher {
                 block.latex(),
                 block.tableText(),
                 block.confidence(),
-                contentMode(role, block.latex(), block.tableText())
+                contentMode(role, block.latex(), block.tableText()),
+                block.mathProfile(),
+                block.layoutLane()
         );
+    }
+
+    private DocumentLayoutLane mergedLane(DocumentLayoutLane first, DocumentLayoutLane second) {
+        return first == second ? first : DocumentLayoutLane.FULL;
     }
 
     private DocumentBlockContentMode contentMode(DocumentBlockRole role,

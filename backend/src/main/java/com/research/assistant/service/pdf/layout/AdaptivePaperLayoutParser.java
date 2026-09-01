@@ -21,6 +21,7 @@ public class AdaptivePaperLayoutParser implements PaperLayoutParser {
     static final String VERSION = "adaptive-layout-v1";
     private static final double MINIMUM_EXTERNAL_QUALITY = 0.60;
     private static final double MINIMUM_QUALITY_GAIN = 0.04;
+    private static final double MAX_ORDER_FIX_REGRESSION = 0.03;
     private static final Logger log = LoggerFactory.getLogger(AdaptivePaperLayoutParser.class);
 
     private final PdfBoxPaperLayoutParser primary;
@@ -59,8 +60,12 @@ public class AdaptivePaperLayoutParser implements PaperLayoutParser {
             return select(primaryArtifact, primaryQuality, null, true, false, attempt.errorCode());
         }
         LayoutQualityReport externalQuality = assessor.assess(attempt.artifact());
+        boolean orderRecovered = primaryQuality.issues().contains(LayoutQualityIssue.UNSTABLE_READING_ORDER)
+                && !externalQuality.issues().contains(LayoutQualityIssue.UNSTABLE_READING_ORDER)
+                && externalQuality.score() >= primaryQuality.score() - MAX_ORDER_FIX_REGRESSION;
         boolean accepted = externalQuality.score() >= MINIMUM_EXTERNAL_QUALITY
-                && externalQuality.score() >= primaryQuality.score() + MINIMUM_QUALITY_GAIN;
+                && (externalQuality.score() >= primaryQuality.score() + MINIMUM_QUALITY_GAIN
+                || orderRecovered);
         if (!accepted) {
             log.info("layout_fallback_no_gain paperId={} primaryQuality={} fallbackQuality={}",
                     paperId, primaryQuality.score(), externalQuality.score());

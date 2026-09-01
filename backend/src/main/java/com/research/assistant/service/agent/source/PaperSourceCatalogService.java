@@ -12,6 +12,8 @@ import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifactService;
 import com.research.assistant.service.pdf.layout.PaperSourceIndex;
 import com.research.assistant.service.pdf.layout.PaperSourceIndexService;
+import com.research.assistant.service.pdf.layout.PaperSourceContinuation;
+import com.research.assistant.service.pdf.layout.PaperSourceUnit;
 import com.research.assistant.service.pdf.layout.PaperSemanticSpan;
 import com.research.assistant.service.pdf.layout.PaperSemanticSpanBuilder;
 import com.research.assistant.service.pdf.layout.SourceAnchor;
@@ -136,6 +138,45 @@ public class PaperSourceCatalogService {
             locators.put(equation.entityId(), List.of(
                     locator(equation.entityId(), definition, definition.blockId())));
         }
+        for (PaperSourceUnit unit : index.sourceUnits()) {
+            String sourceId = stableId(artifact, "unit:" + unit.id());
+            List<String> sectionPath = new ArrayList<>(unit.sectionPath());
+            sectionPath.add(unit.label());
+            SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
+                    artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, contentType(unit.kind()),
+                    unit.text(), SourceObject.normalize(unit.text()), sectionPath, "",
+                    Map.of("sourceUnitId", unit.id(), "sourceUnitKind", unit.kind().name(),
+                            "blockIds", unit.blocks().stream().map(DocumentBlock::id)
+                                    .collect(java.util.stream.Collectors.joining(",")),
+                            "readingOrder", Integer.toString(unit.blocks().get(0).readingOrder())));
+            SourceLocator sourceLocator = new SourceLocator(
+                    locatorId(sourceId, unit.page(), unit.id()), sourceId, unit.page(),
+                    "PDF_NORMALIZED", unit.boxes(), unit.text(), precision(unit));
+            objects.put(sourceId, object);
+            locators.put(sourceId, List.of(sourceLocator));
+        }
+        for (PaperSourceContinuation continuation : index.continuations()) {
+            String sourceId = stableId(artifact, continuation.id());
+            PaperSourceUnit first = continuation.parts().get(0);
+            List<String> sectionPath = new ArrayList<>(first.sectionPath());
+            sectionPath.add(continuation.label());
+            SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
+                    artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION,
+                    contentType(continuation.kind()), continuation.text(),
+                    SourceObject.normalize(continuation.text()), sectionPath, "",
+                    Map.of("continuationId", continuation.id(),
+                            "sourceUnitKind", continuation.kind().name(),
+                            "pages", continuation.parts().stream().map(part -> Integer.toString(part.page()))
+                                    .collect(java.util.stream.Collectors.joining(",")),
+                            "readingOrder", Integer.toString(first.blocks().get(0).readingOrder())));
+            List<SourceLocator> continuationLocators = continuation.parts().stream()
+                    .map(part -> new SourceLocator(locatorId(sourceId, part.page(), part.id()),
+                            sourceId, part.page(), "PDF_NORMALIZED", part.boxes(),
+                            part.text(), precision(part)))
+                    .toList();
+            objects.put(sourceId, object);
+            locators.put(sourceId, continuationLocators);
+        }
         return new PaperSourceCatalog(artifact.paperId(), artifact.documentHash(), artifact.parserVersion(),
                 artifact.pageCount(), objects, locators);
     }
@@ -148,9 +189,14 @@ public class PaperSourceCatalogService {
         List<ScoredSource> scored = new ArrayList<>();
         for (SourceObject object : catalog.objects().values()) {
             if (!request.contentTypes().isEmpty() && !request.contentTypes().contains(object.contentType())) continue;
-            int page = catalog.requireLocators(object.sourceObjectId()).get(0).pageNumber();
-            if (request.pageStart() != null && page < request.pageStart()) continue;
-            if (request.pageEnd() != null && page > request.pageEnd()) continue;
+            List<SourceLocator> objectLocators = catalog.requireLocators(object.sourceObjectId());
+            int page = objectLocators.stream().mapToInt(SourceLocator::pageNumber).min().orElse(1);
+            if (request.pageStart() != null || request.pageEnd() != null) {
+                int start = request.pageStart() == null ? 1 : request.pageStart();
+                int end = request.pageEnd() == null ? catalog.pageCount() : request.pageEnd();
+                if (objectLocators.stream().noneMatch(locator ->
+                        locator.pageNumber() >= start && locator.pageNumber() <= end)) continue;
+            }
 
             String searchable = (object.normalizedContent() + " "
                     + String.join(" ", object.sectionPath()) + " " + object.formulaNumber())
@@ -193,10 +239,10 @@ public class PaperSourceCatalogService {
             throw new IllegalArgumentException("invalid page range");
         }
         return bounded(catalog, catalog.objects().values().stream()
-                .filter(object -> {
-                    int page = catalog.requireLocators(object.sourceObjectId()).get(0).pageNumber();
-                    return page >= startPage && page <= endPage;
-                }).toList(), maxCharacters);
+                .filter(object -> catalog.requireLocators(object.sourceObjectId()).stream()
+                        .anyMatch(locator -> locator.pageNumber() >= startPage
+                                && locator.pageNumber() <= endPage))
+                .toList(), maxCharacters);
     }
 
     public List<SourceObject> readSection(PaperSourceCatalog catalog, String section, int maxCharacters) {
@@ -266,6 +312,26 @@ public class PaperSourceCatalogService {
             case TABLE -> SourceContentType.TABLE;
             case FIGURE -> SourceContentType.FIGURE;
             default -> SourceContentType.TEXT;
+        };
+    }
+
+    private static SourceContentType contentType(PaperSourceUnit.Kind kind) {
+        return switch (kind) {
+            case FORMULA_FAMILY -> SourceContentType.FORMULA;
+            case FIGURE -> SourceContentType.FIGURE;
+            case TABLE -> SourceContentType.TABLE;
+            case ALGORITHM -> SourceContentType.TEXT;
+        };
+    }
+
+    private static EvidenceLocator.Precision precision(PaperSourceUnit unit) {
+        return switch (unit.kind()) {
+            case FORMULA_FAMILY -> EvidenceLocator.Precision.FORMULA_REGION;
+            case FIGURE -> unit.blocks().stream().anyMatch(block -> block.role() == DocumentBlockRole.FIGURE)
+                    ? EvidenceLocator.Precision.VISUAL_REGION : EvidenceLocator.Precision.BLOCK;
+            case TABLE -> unit.blocks().stream().anyMatch(block -> block.role() == DocumentBlockRole.TABLE)
+                    ? EvidenceLocator.Precision.VISUAL_REGION : EvidenceLocator.Precision.BLOCK;
+            case ALGORITHM -> EvidenceLocator.Precision.BLOCK;
         };
     }
 

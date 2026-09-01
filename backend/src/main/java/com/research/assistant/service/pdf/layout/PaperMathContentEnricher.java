@@ -34,7 +34,8 @@ public class PaperMathContentEnricher {
         MathContentProfile profile = detect(block.text());
         return new DocumentBlock(block.id(), block.page(), block.bbox(), block.role(),
                 block.readingOrder(), block.sectionPath(), block.text(), block.latex(),
-                block.tableText(), block.confidence(), block.contentMode(), profile);
+                block.tableText(), block.confidence(), block.contentMode(), profile,
+                block.layoutLane());
     }
 
     MathContentProfile detect(String text) {

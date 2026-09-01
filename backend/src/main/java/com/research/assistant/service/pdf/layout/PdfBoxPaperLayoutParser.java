@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 @Component
 public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
 
-    static final String VERSION = "pdfbox-layout-v3";
+    static final String VERSION = "pdfbox-layout-v4";
     private static final double EPSILON = 0.0001;
 
     @Override
@@ -69,7 +69,10 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
                             line.text(),
                             null,
                             null,
-                            blockConfidence(line, role, pageLayout.doubleColumn())
+                            blockConfidence(line, role, pageLayout.doubleColumn()),
+                            null,
+                            null,
+                            layoutLane(line.lane())
                     ));
                 }
             }
@@ -91,6 +94,16 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
     @Override
     public String parserVersion() {
         return VERSION;
+    }
+
+    private DocumentLayoutLane layoutLane(Lane lane) {
+        return switch (lane) {
+            case SINGLE -> DocumentLayoutLane.SINGLE;
+            case LEFT -> DocumentLayoutLane.LEFT;
+            case RIGHT -> DocumentLayoutLane.RIGHT;
+            case FULL -> DocumentLayoutLane.FULL;
+            case MARGIN -> DocumentLayoutLane.MARGIN;
+        };
     }
 
     private PageLayout buildPageLayout(PageGlyphs page) {
@@ -353,12 +366,25 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
         Set<VisualLine> consumed = new LinkedHashSet<>();
         double cursor = Double.NEGATIVE_INFINITY;
 
-        for (VisualLine anchor : anchors) {
-            appendColumnInterval(result, consumed, left, cursor, anchor.centerY());
-            appendColumnInterval(result, consumed, right, cursor, anchor.centerY());
-            result.add(anchor);
-            consumed.add(anchor);
-            cursor = Math.max(cursor, anchor.centerY());
+        for (List<VisualLine> anchorGroup : groupFullWidthAnchors(anchors)) {
+            double groupTop = anchorGroup.stream()
+                    .mapToDouble(VisualLine::top)
+                    .min()
+                    .orElse(Double.POSITIVE_INFINITY);
+            double groupBottom = anchorGroup.stream()
+                    .mapToDouble(VisualLine::bottom)
+                    .max()
+                    .orElse(groupTop);
+
+            appendColumnInterval(result, consumed, left, cursor, groupTop);
+            appendColumnInterval(result, consumed, right, cursor, groupTop);
+            anchorGroup.forEach(anchor -> {
+                result.add(anchor);
+                consumed.add(anchor);
+            });
+            appendOverlappingColumnLines(result, consumed, left, groupTop, groupBottom);
+            appendOverlappingColumnLines(result, consumed, right, groupTop, groupBottom);
+            cursor = Math.max(cursor, groupBottom);
         }
         appendColumnInterval(result, consumed, left, cursor, Double.POSITIVE_INFINITY);
         appendColumnInterval(result, consumed, right, cursor, Double.POSITIVE_INFINITY);
@@ -371,15 +397,67 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
         return List.copyOf(result);
     }
 
+    /**
+     * Treat adjacent full-width lines as one vertical reading-order boundary.
+     *
+     * <p>A multi-line formula, caption, or algorithm header is commonly emitted
+     * as several PDF text lines. If each line is used as an independent anchor,
+     * a column line whose baseline falls between two object lines can be
+     * inserted into the object. Grouping only changes ordering; the original
+     * line-level blocks and their coordinates remain intact.</p>
+     */
+    private List<List<VisualLine>> groupFullWidthAnchors(List<VisualLine> anchors) {
+        if (anchors.isEmpty()) {
+            return List.of();
+        }
+        List<List<VisualLine>> groups = new ArrayList<>();
+        List<VisualLine> current = new ArrayList<>();
+        double currentBottom = Double.NEGATIVE_INFINITY;
+
+        for (VisualLine anchor : anchors) {
+            double gap = anchor.top() - currentBottom;
+            double tolerance = current.isEmpty()
+                    ? 0
+                    : Math.max(3.0, median(current.stream()
+                            .map(line -> line.bottom() - line.top())
+                            .toList()) * 3.0);
+            if (!current.isEmpty() && gap > tolerance) {
+                groups.add(List.copyOf(current));
+                current = new ArrayList<>();
+            }
+            current.add(anchor);
+            currentBottom = Math.max(currentBottom, anchor.bottom());
+        }
+        if (!current.isEmpty()) {
+            groups.add(List.copyOf(current));
+        }
+        return List.copyOf(groups);
+    }
+
+    private void appendOverlappingColumnLines(List<VisualLine> target,
+                                              Set<VisualLine> consumed,
+                                              List<VisualLine> source,
+                                              double fromInclusive,
+                                              double toInclusive) {
+        source.stream()
+                .filter(line -> !consumed.contains(line))
+                .filter(line -> line.centerY() > fromInclusive + EPSILON
+                        && line.centerY() < toInclusive - EPSILON)
+                .forEach(line -> {
+                    target.add(line);
+                    consumed.add(line);
+                });
+    }
+
     private void appendColumnInterval(List<VisualLine> target,
                                       Set<VisualLine> consumed,
                                       List<VisualLine> source,
-                                      double fromExclusive,
-                                      double toExclusive) {
+                                      double fromInclusive,
+                                      double toInclusive) {
         source.stream()
                 .filter(line -> !consumed.contains(line))
-                .filter(line -> line.centerY() > fromExclusive + EPSILON
-                        && line.centerY() < toExclusive - EPSILON)
+                .filter(line -> line.centerY() >= fromInclusive - EPSILON
+                        && line.centerY() <= toInclusive + EPSILON)
                 .forEach(line -> {
                     target.add(line);
                     consumed.add(line);

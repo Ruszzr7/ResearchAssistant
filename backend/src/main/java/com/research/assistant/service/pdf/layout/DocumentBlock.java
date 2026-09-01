@@ -16,7 +16,8 @@ public record DocumentBlock(String id,
                             String tableText,
                             double confidence,
                             DocumentBlockContentMode contentMode,
-                            MathContentProfile mathProfile) {
+                            MathContentProfile mathProfile,
+                            DocumentLayoutLane layoutLane) {
 
     public DocumentBlock {
         sectionPath = sectionPath == null ? List.of() : List.copyOf(sectionPath);
@@ -24,6 +25,7 @@ public record DocumentBlock(String id,
         confidence = Math.max(0, Math.min(1, confidence));
         contentMode = contentMode == null ? inferContentMode(role, latex, tableText) : contentMode;
         mathProfile = mathProfile == null ? MathContentProfile.none("") : mathProfile;
+        layoutLane = layoutLane == null ? DocumentLayoutLane.UNKNOWN : layoutLane;
     }
 
     /** Compatibility constructor for existing deterministic parsers and fixtures. */
@@ -38,7 +40,7 @@ public record DocumentBlock(String id,
                          String tableText,
                          double confidence) {
         this(id, page, bbox, role, readingOrder, sectionPath, text, latex, tableText,
-                confidence, null, null);
+                confidence, null, null, DocumentLayoutLane.UNKNOWN);
     }
 
     /** Compatibility constructor for callers that explicitly set the content mode. */
@@ -54,7 +56,24 @@ public record DocumentBlock(String id,
                          double confidence,
                          DocumentBlockContentMode contentMode) {
         this(id, page, bbox, role, readingOrder, sectionPath, text, latex, tableText,
-                confidence, contentMode, null);
+                confidence, contentMode, null, DocumentLayoutLane.UNKNOWN);
+    }
+
+    /** Compatibility constructor for callers that explicitly set math metadata. */
+    public DocumentBlock(String id,
+                         int page,
+                         NormalizedBoundingBox bbox,
+                         DocumentBlockRole role,
+                         int readingOrder,
+                         List<String> sectionPath,
+                         String text,
+                         String latex,
+                         String tableText,
+                         double confidence,
+                         DocumentBlockContentMode contentMode,
+                         MathContentProfile mathProfile) {
+        this(id, page, bbox, role, readingOrder, sectionPath, text, latex, tableText,
+                confidence, contentMode, mathProfile, DocumentLayoutLane.UNKNOWN);
     }
 
     private static DocumentBlockContentMode inferContentMode(DocumentBlockRole role,

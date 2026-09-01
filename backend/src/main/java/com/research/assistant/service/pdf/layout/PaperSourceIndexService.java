@@ -26,6 +26,7 @@ public class PaperSourceIndexService {
     private static final Pattern MENTION_AT_END = Pattern.compile(
             "(?i).*(?:in|from|using|by|see|shown\\s+in|calculated\\s+by|given\\s+in|"
                     + "equation|eq\\.)\\s*\\(\\d{1,4}[a-z]?\\)\\s*[.,;:]?\\s*$");
+    private final PaperSourceUnitBuilder sourceUnitBuilder = new PaperSourceUnitBuilder();
 
     public PaperSourceIndex build(PaperLayoutArtifact artifact) {
         List<DocumentBlock> ordered = artifact.blocks().stream()
@@ -69,8 +70,11 @@ public class PaperSourceIndexService {
                 .sorted(Comparator.comparingInt((EquationEntity value) -> value.definition().page())
                         .thenComparingDouble(value -> value.definition().bbox().y()))
                 .toList();
+        List<PaperSourceUnit> sourceUnits = sourceUnitBuilder.build(artifact, result);
+        List<PaperSourceContinuation> continuations = sourceUnitBuilder.continuations(sourceUnits);
         return new PaperSourceIndex(PaperSourceIndex.SCHEMA_VERSION, artifact.paperId(),
-                artifact.documentHash(), artifact.parserVersion(), textAnchors, result);
+                artifact.documentHash(), artifact.parserVersion(), textAnchors, result,
+                sourceUnits, continuations);
     }
 
     private List<StatementOwner> statementOwners(List<DocumentBlock> blocks) {

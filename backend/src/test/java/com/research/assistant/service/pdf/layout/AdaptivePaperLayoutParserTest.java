@@ -61,6 +61,24 @@ class AdaptivePaperLayoutParserTest {
     }
 
     @Test
+    void shouldRunFallbackForGeometricOrderAnomaly() {
+        when(primary.parse(1L, file, hash)).thenReturn(geometricallyUnstable());
+        when(fallback.enabled()).thenReturn(true);
+        PaperLayoutArtifact external = geometricallyCorrect("mineru-external-layout-v1");
+        when(fallback.parse(1L, file, hash))
+                .thenReturn(ExternalLayoutParseResult.success(external, "mineru"));
+
+        PaperLayoutArtifact result = parser.parse(1L, file, hash);
+
+        verify(fallback).parse(1L, file, hash);
+        assertThat(result.provenance().fallbackEligible()).isTrue();
+        assertThat(result.provenance().fallbackAttempted()).isTrue();
+        assertThat(result.provenance().fallbackAccepted()).isTrue();
+        assertThat(result.blocks()).extracting(DocumentBlock::text)
+                .allMatch(text -> text.startsWith("mineru-external-layout-v1"));
+    }
+
+    @Test
     void shouldKeepPrimaryAndPersistSafeFailureCodeWhenFallbackFails() {
         when(primary.parse(1L, file, hash)).thenReturn(lowQuality());
         when(fallback.enabled()).thenReturn(true);
@@ -87,9 +105,43 @@ class AdaptivePaperLayoutParserTest {
                 Instant.EPOCH, 1, blocks);
     }
 
+    private PaperLayoutArtifact geometricallyUnstable() {
+        String text = "primary evidence ".repeat(12);
+        return new PaperLayoutArtifact(1L, hash, "pdfbox-layout-v4", 0.92,
+                Instant.EPOCH, 1, List.of(
+                blockAt(0, text + "left top", 0.08, 0.10, 0.40, 0.9),
+                blockAt(1, text + "right top", 0.56, 0.10, 0.36, 0.9),
+                blockAt(2, text + "right middle", 0.56, 0.16, 0.36, 0.9),
+                blockAt(3, text + "left middle", 0.08, 0.16, 0.40, 0.9),
+                blockAt(4, text + "right bottom", 0.56, 0.22, 0.36, 0.9),
+                blockAt(5, text + "left bottom", 0.08, 0.22, 0.40, 0.9)));
+    }
+
+    private PaperLayoutArtifact geometricallyCorrect(String prefix) {
+        String text = prefix + " evidence ".repeat(12);
+        return new PaperLayoutArtifact(1L, hash, prefix, 0.92,
+                Instant.EPOCH, 1, List.of(
+                blockAt(0, text + "left top", 0.08, 0.10, 0.40, 0.9),
+                blockAt(1, text + "left middle", 0.08, 0.16, 0.40, 0.9),
+                blockAt(2, text + "left bottom", 0.08, 0.22, 0.40, 0.9),
+                blockAt(3, text + "right top", 0.56, 0.10, 0.36, 0.9),
+                blockAt(4, text + "right middle", 0.56, 0.16, 0.36, 0.9),
+                blockAt(5, text + "right bottom", 0.56, 0.22, 0.36, 0.9)));
+    }
+
     private DocumentBlock block(int order, String text, double confidence) {
+        return blockAt(order, text, 0.08, 0.08 + order * 0.045, 0.42, confidence);
+    }
+
+    private DocumentBlock blockAt(int order,
+                                  String text,
+                                  double x,
+                                  double y,
+                                  double width,
+                                  double confidence) {
         return new DocumentBlock("b" + order, 1,
-                new NormalizedBoundingBox(0.08, 0.08 + order * 0.045, 0.42, 0.025),
-                DocumentBlockRole.BODY, order, List.of(), text, null, null, confidence);
+                new NormalizedBoundingBox(x, y, width, 0.025),
+                DocumentBlockRole.BODY, order, List.of(), text, null, null, confidence,
+                null, null, x >= 0.48 ? DocumentLayoutLane.RIGHT : DocumentLayoutLane.LEFT);
     }
 }

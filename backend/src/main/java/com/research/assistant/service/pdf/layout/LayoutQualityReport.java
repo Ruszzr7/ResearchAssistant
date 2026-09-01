@@ -9,14 +9,28 @@ public record LayoutQualityReport(double score,
                                   double validGeometryRatio,
                                   double cleanTextRatio,
                                   double averageBlockConfidence,
+                                  double readingOrderScore,
                                   List<LayoutQualityIssue> issues) {
     public LayoutQualityReport {
         score = clamp(score);
         validGeometryRatio = clamp(validGeometryRatio);
         cleanTextRatio = clamp(cleanTextRatio);
         averageBlockConfidence = clamp(averageBlockConfidence);
+        readingOrderScore = clamp(readingOrderScore);
         textCharacters = Math.max(0, textCharacters);
         issues = issues == null ? List.of() : List.copyOf(issues);
+    }
+
+    /** Compatibility constructor for callers created before geometric order scoring. */
+    public LayoutQualityReport(double score,
+                               boolean fallbackRecommended,
+                               int textCharacters,
+                               double validGeometryRatio,
+                               double cleanTextRatio,
+                               double averageBlockConfidence,
+                               List<LayoutQualityIssue> issues) {
+        this(score, fallbackRecommended, textCharacters, validGeometryRatio, cleanTextRatio,
+                averageBlockConfidence, 1, issues);
     }
 
     private static double clamp(double value) {

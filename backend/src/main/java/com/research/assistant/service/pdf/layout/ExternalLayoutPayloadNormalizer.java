@@ -90,7 +90,9 @@ public class ExternalLayoutPayloadNormalizer {
                         blankToNull(latex),
                         blankToNull(tableText),
                         confidence,
-                        contentMode(role, latex, tableText)
+                        contentMode(role, latex, tableText),
+                        null,
+                        DocumentLayoutLane.infer(bbox)
                 ));
             }
             return artifact(provider, paperId, documentHash, blocks,
@@ -132,7 +134,8 @@ public class ExternalLayoutPayloadNormalizer {
                         "ext-p%d-b%04d".formatted(candidate.box().page(), order),
                         candidate.box().page(), bbox, role, order++, List.of(), text,
                         latex, tableText, size.inferred() ? 0.64 : 0.82,
-                        contentMode(role, latex, tableText)));
+                        contentMode(role, latex, tableText), null,
+                        DocumentLayoutLane.infer(bbox)));
             }
             return artifact("GROBID", paperId, documentHash, blocks,
                     dimensions.keySet().stream().mapToInt(Integer::intValue).max().orElse(0));

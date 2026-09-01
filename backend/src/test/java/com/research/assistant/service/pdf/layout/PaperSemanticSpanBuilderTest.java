@@ -50,6 +50,69 @@ class PaperSemanticSpanBuilderTest {
                         DocumentBlockRole.BODY);
     }
 
+    @Test
+    void continuesAnUnfinishedParagraphAcrossAdjacentPageEdges() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                blockOnPage("tail", 1, DocumentBlockRole.BODY, 1,
+                        .55, .90, .38, .025, "The receiver jointly de-"),
+                blockOnPage("head", 2, DocumentBlockRole.BODY, 2,
+                        .08, .08, .40, .025, "codes the common and private streams.")));
+
+        List<PaperSemanticSpan> spans = builder.build(artifact);
+
+        assertThat(spans).singleElement().satisfies(span -> {
+            assertThat(span.text()).isEqualTo(
+                    "The receiver jointly decodes the common and private streams.");
+            assertThat(span.blockIds()).containsExactly("tail", "head");
+            assertThat(span.blocks()).extracting(DocumentBlock::page).containsExactly(1, 2);
+        });
+    }
+
+    @Test
+    void doesNotContinueACompletedSentenceAcrossPages() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                blockOnPage("tail", 1, DocumentBlockRole.BODY, 1,
+                        .55, .90, .38, .025, "The first experiment is complete."),
+                blockOnPage("head", 2, DocumentBlockRole.BODY, 2,
+                        .08, .08, .40, .025, "the next experiment changes the channel.")));
+
+        assertThat(builder.build(artifact)).hasSize(2);
+    }
+
+    @Test
+    void stopsAContinuedParagraphBeforeANumberedReferenceEntry() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                blockOnPage("tail", 1, DocumentBlockRole.BODY, 1,
+                        .55, .90, .38, .025, "The approximation is obtained by"),
+                blockOnPage("head", 2, DocumentBlockRole.BODY, 2,
+                        .08, .08, .40, .025, "applying the bound in the previous section"),
+                blockOnPage("reference", 2, DocumentBlockRole.BODY, 3,
+                        .08, .11, .40, .025, "[17] J. Zhang and J. Andrews, A reference title.")));
+
+        List<PaperSemanticSpan> spans = builder.build(artifact);
+
+        assertThat(spans).hasSize(2);
+        assertThat(spans.get(0).blockIds()).containsExactly("tail", "head");
+        assertThat(spans.get(0).text()).doesNotContain("[17]");
+        assertThat(spans.get(1).blockIds()).containsExactly("reference");
+    }
+
+    @Test
+    void doesNotContinueIntoABlockContainingAnInlineBibliographyEntry() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                blockOnPage("tail", 1, DocumentBlockRole.BODY, 1,
+                        .55, .90, .38, .025, "The expression is bounded by"),
+                blockOnPage("mixed", 2, DocumentBlockRole.BODY, 2,
+                        .08, .08, .82, .025,
+                        "applying Jensen's inequality [17] J. Zhang and J. Andrews, A reference title.")));
+
+        List<PaperSemanticSpan> spans = builder.build(artifact);
+
+        assertThat(spans).hasSize(2);
+        assertThat(spans.get(0).blockIds()).containsExactly("tail");
+        assertThat(spans.get(1).blockIds()).containsExactly("mixed");
+    }
+
     private PaperLayoutArtifact artifact(List<DocumentBlock> blocks) {
         return new PaperLayoutArtifact(7L, "a".repeat(64), "parser", .9,
                 Instant.parse("2026-01-01T00:00:00Z"), 1, blocks);
@@ -57,7 +120,12 @@ class PaperSemanticSpanBuilderTest {
 
     private DocumentBlock block(String id, DocumentBlockRole role, int order,
                                 double x, double y, double width, double height, String text) {
-        return new DocumentBlock(id, 1, new NormalizedBoundingBox(x, y, width, height),
+        return blockOnPage(id, 1, role, order, x, y, width, height, text);
+    }
+
+    private DocumentBlock blockOnPage(String id, int page, DocumentBlockRole role, int order,
+                                      double x, double y, double width, double height, String text) {
+        return new DocumentBlock(id, page, new NormalizedBoundingBox(x, y, width, height),
                 role, order, List.of("Method"), text, null, null, .9);
     }
 }

@@ -31,11 +31,18 @@ public class PaperSemanticSpanBuilder {
     private static final Pattern LIST_ITEM = Pattern.compile(
             "^(?:[•▪◦]|[-–—]\\s|\\(?\\d{1,2}[.)]\\s|\\(?[a-z][.)]\\s).+",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern REFERENCE_ENTRY = Pattern.compile(
+            "^\\s*\\[\\d{1,4}[a-z]?\\]\\s+.+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern INLINE_BIBLIOGRAPHY_ENTRY = Pattern.compile(
+            "\\[\\d{1,4}[a-z]?\\]\\s+(?:(?:[A-Z]\\.)\\s*){1,3}[\\p{L}][\\p{L}'’\\-]+",
+            Pattern.CASE_INSENSITIVE);
 
     public List<PaperSemanticSpan> build(PaperLayoutArtifact artifact) {
         if (artifact == null) throw new IllegalArgumentException("layout artifact is required");
         List<DocumentBlock> ordered = artifact.blocks().stream()
                 .filter(block -> block != null && !content(block).isBlank())
+                .filter(block -> !isPageDecoration(block))
+                .filter(this::isMeaningfulBlock)
                 .sorted(Comparator.comparingInt(DocumentBlock::readingOrder))
                 .toList();
         List<PaperSemanticSpan> result = new ArrayList<>();
@@ -45,6 +52,12 @@ public class PaperSemanticSpanBuilder {
         for (DocumentBlock block : ordered) {
             DocumentBlockRole role = effectiveRole(block);
             if (block.page() != currentPage) {
+                if (current != null && canContinueAcrossPage(current, block, role)) {
+                    current.add(block, content(block));
+                    currentPage = block.page();
+                    pageOrdinal = 0;
+                    continue;
+                }
                 if (current != null) result.add(current.finish());
                 current = null;
                 currentPage = block.page();
@@ -60,6 +73,34 @@ public class PaperSemanticSpanBuilder {
         }
         if (current != null) result.add(current.finish());
         return List.copyOf(result);
+    }
+
+    private boolean canContinueAcrossPage(Draft previous,
+                                          DocumentBlock current,
+                                          DocumentBlockRole currentRole) {
+        if (current.page() != previous.last().page() + 1
+                || previous.role != currentRole
+                || (currentRole != DocumentBlockRole.BODY
+                && currentRole != DocumentBlockRole.ABSTRACT)
+                || !previous.sectionPath.equals(current.sectionPath())) return false;
+        DocumentBlock prior = previous.last();
+        if (prior.bbox().bottom() < .84 || current.bbox().y() > .16) return false;
+        String before = previous.text.stripTrailing();
+        String after = content(current).stripLeading();
+        if (before.isBlank() || after.isBlank()
+                || TERMINAL_SENTENCE.matcher(before).matches()
+                || LIST_ITEM.matcher(after).matches()
+                || containsReferenceEntry(after)
+                || FIGURE_REFERENCE_SENTENCE.matcher(after).matches()) return false;
+        if (before.endsWith("-") && !before.endsWith("--")) return true;
+        int first = after.codePointAt(0);
+        return Character.isLowerCase(first) || ",;:)]}".indexOf(first) >= 0
+                || containsCjk(before) && containsCjk(after);
+    }
+
+    private boolean containsCjk(String value) {
+        return value.codePoints().anyMatch(codePoint ->
+                Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN);
     }
 
     public DocumentBlockRole effectiveRole(DocumentBlock block) {
@@ -78,12 +119,27 @@ public class PaperSemanticSpanBuilder {
         return DocumentBlockRole.FORMULA;
     }
 
+    private boolean isPageDecoration(DocumentBlock block) {
+        return block.role() == DocumentBlockRole.HEADER
+                || block.role() == DocumentBlockRole.FOOTER
+                || block.role() == DocumentBlockRole.MARGIN_METADATA;
+    }
+
+    private boolean isMeaningfulBlock(DocumentBlock block) {
+        if (block.role() == DocumentBlockRole.FORMULA
+                || block.role() == DocumentBlockRole.TABLE
+                || block.role() == DocumentBlockRole.FIGURE
+                || block.mathProfile().signalCount() > 0) return true;
+        return content(block).codePoints().anyMatch(Character::isLetterOrDigit);
+    }
+
     private boolean canMerge(Draft previous, DocumentBlock current, DocumentBlockRole currentRole) {
         if (previous.role != currentRole || !mergeable(currentRole)) return false;
         if (previous.blocks.size() >= MAX_BLOCKS_PER_SPAN
                 || previous.text.length() + content(current).length() > MAX_CHARACTERS_PER_SPAN) return false;
         if (!previous.sectionPath.equals(current.sectionPath())) return false;
         if (LIST_ITEM.matcher(content(current)).matches()) return false;
+        if (containsReferenceEntry(content(current))) return false;
         if (FIGURE_REFERENCE_SENTENCE.matcher(content(current)).matches()) return false;
         if (previous.text.length() >= 80
                 && TERMINAL_SENTENCE.matcher(previous.text).matches()
@@ -103,6 +159,11 @@ public class PaperSemanticSpanBuilder {
         boolean sameColumn = overlap / smallerWidth >= 0.55
                 || Math.abs(first.x() - second.x()) <= 0.06;
         return sameColumn;
+    }
+
+    private boolean containsReferenceEntry(String text) {
+        return REFERENCE_ENTRY.matcher(text).matches()
+                || INLINE_BIBLIOGRAPHY_ENTRY.matcher(text).find();
     }
 
     private boolean mergeable(DocumentBlockRole role) {

@@ -3,23 +3,21 @@ package com.research.assistant.service.pdf.layout;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
-/**
- * Deterministic quality gate for deciding whether an expensive parser is useful.
- * The score intentionally combines independent signals instead of trusting a
- * parser's self-reported confidence alone.
- */
+/** Deterministic quality gate for deciding whether an expensive parser is useful. */
 @Component
 public class PaperLayoutQualityAssessor {
 
     static final double FALLBACK_THRESHOLD = 0.68;
+    private static final double READING_ORDER_ISSUE_THRESHOLD = 0.92;
 
     public LayoutQualityReport assess(PaperLayoutArtifact artifact) {
         if (artifact == null) {
-            return new LayoutQualityReport(0, true, 0, 0, 0, 0,
+            return new LayoutQualityReport(0, true, 0, 0, 0, 0, 0,
                     List.of(LayoutQualityIssue.NO_TEXT_BLOCKS));
         }
         List<DocumentBlock> blocks = artifact.blocks();
@@ -32,7 +30,8 @@ public class PaperLayoutQualityAssessor {
         double blockConfidence = blocks.stream().mapToDouble(DocumentBlock::confidence)
                 .average().orElse(0);
         double cleanTextRatio = cleanTextRatio(blocks);
-        double orderScore = readingOrderScore(blocks);
+        ReadingOrderAssessment orderAssessment = readingOrderAssessment(blocks);
+        double orderScore = orderAssessment.score();
 
         List<LayoutQualityIssue> issues = new ArrayList<>();
         if (blocks.isEmpty() || characters == 0) issues.add(LayoutQualityIssue.NO_TEXT_BLOCKS);
@@ -40,7 +39,7 @@ public class PaperLayoutQualityAssessor {
         if (cleanTextRatio < 0.94) issues.add(LayoutQualityIssue.CORRUPTED_TEXT);
         if (geometryRatio < 0.96) issues.add(LayoutQualityIssue.INVALID_GEOMETRY);
         if (blockConfidence < 0.62) issues.add(LayoutQualityIssue.LOW_BLOCK_CONFIDENCE);
-        if (orderScore < 0.92) issues.add(LayoutQualityIssue.UNSTABLE_READING_ORDER);
+        if (orderAssessment.unstable()) issues.add(LayoutQualityIssue.UNSTABLE_READING_ORDER);
         if (artifact.layoutConfidence() < 0.65) issues.add(LayoutQualityIssue.LOW_LAYOUT_CONFIDENCE);
 
         double score = 0.28 * artifact.layoutConfidence()
@@ -54,10 +53,11 @@ public class PaperLayoutQualityAssessor {
         score = clamp(score);
         boolean fallback = score < FALLBACK_THRESHOLD
                 || issues.contains(LayoutQualityIssue.NO_TEXT_BLOCKS)
-                || issues.contains(LayoutQualityIssue.CORRUPTED_TEXT);
+                || issues.contains(LayoutQualityIssue.CORRUPTED_TEXT)
+                || issues.contains(LayoutQualityIssue.UNSTABLE_READING_ORDER);
         return new LayoutQualityReport(
                 score, fallback, characters, geometryRatio, cleanTextRatio,
-                blockConfidence, List.copyOf(issues));
+                blockConfidence, orderScore, List.copyOf(issues));
     }
 
     private boolean hasValidGeometry(DocumentBlock block) {
@@ -88,17 +88,98 @@ public class PaperLayoutQualityAssessor {
         return total == 0 ? 0 : clamp(1 - corrupt / (double) total);
     }
 
-    private double readingOrderScore(List<DocumentBlock> blocks) {
-        if (blocks.isEmpty()) return 0;
-        Set<Integer> orders = new HashSet<>();
-        int invalid = 0;
-        for (DocumentBlock block : blocks) {
-            if (block.readingOrder() < 0 || !orders.add(block.readingOrder())) invalid++;
+    private ReadingOrderAssessment readingOrderAssessment(List<DocumentBlock> blocks) {
+        if (blocks.isEmpty()) return new ReadingOrderAssessment(0, true);
+
+        List<DocumentBlock> ordered = blocks.stream()
+                .sorted(Comparator.comparingInt(DocumentBlock::readingOrder))
+                .toList();
+        OrderAudit structural = new OrderAudit();
+        for (int index = 0; index < ordered.size(); index++) {
+            structural.add(ordered.get(index).readingOrder() != index);
         }
-        return clamp(1 - invalid / (double) blocks.size());
+
+        Map<Integer, List<DocumentBlock>> pages = new LinkedHashMap<>();
+        ordered.stream()
+                .filter(this::hasValidGeometry)
+                .filter(block -> !isNonContentBlock(block))
+                .forEach(block -> pages.computeIfAbsent(block.page(), ignored -> new ArrayList<>())
+                        .add(block));
+        double worstPageOrderScore = pages.values().stream()
+                .mapToDouble(page -> {
+                    OrderAudit pageOrder = new OrderAudit();
+                    auditPageOrder(page, pageOrder);
+                    return pageOrder.score();
+                })
+                .min()
+                .orElse(1);
+
+        double score = Math.min(structural.score(), worstPageOrderScore);
+        return new ReadingOrderAssessment(score, score < READING_ORDER_ISSUE_THRESHOLD);
+    }
+
+    /** Audits lane phases without reordering same-lane text or mathematical fragments. */
+    private void auditPageOrder(List<DocumentBlock> page, OrderAudit audit) {
+        if (!isDoubleColumn(page)) return;
+
+        DocumentBlock previous = null;
+        for (DocumentBlock block : page) {
+            DocumentLayoutLane lane = block.layoutLane();
+            if (lane == DocumentLayoutLane.FULL) {
+                previous = null;
+                continue;
+            }
+            if (!isFlowBlock(block)
+                    || (lane != DocumentLayoutLane.LEFT && lane != DocumentLayoutLane.RIGHT)) {
+                continue;
+            }
+            if (previous != null && lane != previous.layoutLane()) {
+                boolean overlapsPreviousBand = block.bbox().y() <= previous.bbox().bottom() + 0.005;
+                audit.add(previous.layoutLane() == DocumentLayoutLane.RIGHT
+                        && lane == DocumentLayoutLane.LEFT
+                        && overlapsPreviousBand);
+            }
+            previous = block;
+        }
+    }
+
+    private boolean isDoubleColumn(List<DocumentBlock> page) {
+        long left = page.stream().filter(this::isFlowBlock)
+                .filter(block -> block.layoutLane() == DocumentLayoutLane.LEFT).count();
+        long right = page.stream().filter(this::isFlowBlock)
+                .filter(block -> block.layoutLane() == DocumentLayoutLane.RIGHT).count();
+        return left >= 3 && right >= 3;
+    }
+
+    private boolean isFlowBlock(DocumentBlock block) {
+        if (block.bbox().width() < 0.08) return false;
+        return block.text().codePoints().filter(Character::isLetterOrDigit).limit(8).count() >= 8;
+    }
+
+    private boolean isNonContentBlock(DocumentBlock block) {
+        return block.role() == DocumentBlockRole.HEADER
+                || block.role() == DocumentBlockRole.FOOTER
+                || block.role() == DocumentBlockRole.MARGIN_METADATA;
     }
 
     private double clamp(double value) {
         return Math.max(0, Math.min(1, value));
+    }
+
+    private record ReadingOrderAssessment(double score, boolean unstable) {
+    }
+
+    private static final class OrderAudit {
+        private int opportunities;
+        private int violations;
+
+        void add(boolean violation) {
+            opportunities++;
+            if (violation) violations++;
+        }
+
+        double score() {
+            return opportunities == 0 ? 1 : 1 - violations / (double) opportunities;
+        }
     }
 }
