@@ -34,7 +34,6 @@ public final class SettingsPolicy {
             "pdf_layout_fallback_enabled", "pdf_layout_fallback_provider", "pdf_layout_fallback_command",
             "pdf_js_viewer_enabled", "formula_extractor_enabled", "formula_extractor_command",
             "figure_extractor_enabled", "figure_extractor_command",
-            "obsidian_vault_path", "zotero_user_id", "zotero_api_key", "zotero_collection_key",
             "rag_enabled",
             "translation_provider", "deepl_auth_key", "deepl_api_base_url"
     );
@@ -54,8 +53,6 @@ public final class SettingsPolicy {
     private static final Set<String> URL_KEYS = Set.of(
             "base_url", "document_base_url", "acm_dl_api_url", "deepl_api_base_url");
 
-    private static final Set<String> SENSITIVE_EXACT_KEYS = Set.of("zotero_collection_key");
-
     private SettingsPolicy() {
     }
 
@@ -72,8 +69,7 @@ public final class SettingsPolicy {
                 || key.endsWith("_auth_key")
                 || key.endsWith("_token")
                 || key.endsWith("_secret")
-                || key.endsWith("_password")
-                || SENSITIVE_EXACT_KEYS.contains(key);
+                || key.endsWith("_password");
     }
 
     public static String mask(String value) {

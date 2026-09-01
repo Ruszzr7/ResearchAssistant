@@ -58,15 +58,15 @@ class SettingsControllerContractTest {
         Settings main = new Settings("api_key", "sk-main-secret");
         Settings legacy = new Settings("apiKey", "legacy-secret");
         Settings ieee = new Settings("ieee_xplore_api_key", "ieee-secret");
-        Settings zotero = new Settings("zotero_api_key", "zotero-secret");
-        when(settingsService.getAll()).thenReturn(List.of(main, legacy, ieee, zotero));
+        Settings semanticScholar = new Settings("semantic_scholar_api_key", "semantic-secret");
+        when(settingsService.getAll()).thenReturn(List.of(main, legacy, ieee, semanticScholar));
 
         mockMvc.perform(get("/api/settings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].value").value("sk-mai****cret"))
                 .andExpect(jsonPath("$.data[1].value").value("legacy****cret"))
                 .andExpect(jsonPath("$.data[2].value").value("ieee-s****cret"))
-                .andExpect(jsonPath("$.data[3].value").value("zotero****cret"))
+                .andExpect(jsonPath("$.data[3].value").value("semant****cret"))
                 .andExpect(jsonPath("$.data[0].value", not(containsString("secret"))));
     }
 

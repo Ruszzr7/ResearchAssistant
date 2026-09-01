@@ -17,11 +17,9 @@ public class ResearchAiConfig {
 
     @Bean
     @Lazy
-    public ResearchToolAgent researchToolAgent(LangChain4jModelFactory modelFactory,
-                                                ResearchTools researchTools) {
+    public ResearchToolAgent researchToolAgent(LangChain4jModelFactory modelFactory) {
         return AiServices.builder(ResearchToolAgent.class)
                 .chatModel(modelFactory.createChatModel())
-                .tools(researchTools)
                 .build();
     }
 

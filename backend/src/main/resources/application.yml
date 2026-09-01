@@ -83,7 +83,6 @@ app:
     cors:
       allowed-origins: ${RA_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174,http://[::1]:5173,http://[::1]:5174}
       allow-credentials: ${RA_CORS_ALLOW_CREDENTIALS:false}
-    ai-max-concurrency: ${RA_AI_MAX_CONCURRENCY:4}
   external:
     timeout: ${RA_EXTERNAL_TIMEOUT:30s}
     max-attempts: ${RA_EXTERNAL_MAX_ATTEMPTS:2}

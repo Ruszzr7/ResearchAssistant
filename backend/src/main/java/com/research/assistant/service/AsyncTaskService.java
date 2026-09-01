@@ -2,26 +2,16 @@ package com.research.assistant.service;
 
 import com.research.assistant.entity.Paper;
 import com.research.assistant.mapper.PaperMapper;
-import com.research.assistant.service.ai.plan.Plan;
-import com.research.assistant.service.ai.plan.PlanExecutor;
-import com.research.assistant.service.ai.plan.Planner;
-import com.research.assistant.service.ai.skill.SkillContext;
 import com.research.assistant.service.async.AsyncTaskManager;
 import com.research.assistant.service.async.AsyncTaskResult;
-import com.research.assistant.service.async.AsyncTaskExecutionContext;
 import com.research.assistant.service.async.AsyncTaskExecutionException;
 import com.research.assistant.service.async.AsyncTaskHandlerRegistry;
-import com.research.assistant.service.rag.RagIndexingService;
-import com.research.assistant.service.rag.RagIndexingException;
-import com.research.assistant.service.rag.RagIndexingResult;
 import com.research.assistant.service.memory.PaperUnderstandingTaskService;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,90 +19,40 @@ import java.util.Map;
 /**
  * 异步任务服务 —— 替代裸 {@code new Thread()}，统一使用 Spring 线程池。
  * <p>
- * 包含：论文 AI 处理、arXiv PDF 下载、论文对比、Gap 分析等耗时任务。
+ * 包含论文 AI 处理与 arXiv PDF 下载等耗时任务。
  * <p>
  * 注意：本服务只注入 Mapper，不注入 PaperService，以避免循环依赖。
  */
 @Service
 public class AsyncTaskService {
 
-    public static final String TASK_COMPARE = "compare-papers";
-    public static final String TASK_GAP_PAPERS = "gap-analysis-papers";
-    public static final String TASK_GAP_FOLDER = "gap-analysis-folder";
-    public static final String TASK_PLAN = "natural-language-plan";
-    public static final String TASK_RAG_INDEX = "rag-index";
     public static final String TASK_PROCESS_PAPER = "process-paper";
     public static final String TASK_DOWNLOAD_ARXIV = "download-arxiv-pdf";
 
-    private final ResearchAutomationService automationService;
     private final PaperUnderstandingTaskService paperUnderstandingTaskService;
     private final ArxivFetcher arxivFetcher;
     private final PaperMapper paperMapper;
     private final AsyncTaskManager asyncTaskManager;
-    private final Planner planner;
-    private final PlanExecutor planExecutor;
-    private final RagIndexingService ragIndexingService;
     private final AsyncTaskHandlerRegistry handlerRegistry;
 
     @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
-    public AsyncTaskService(@Lazy ResearchAutomationService automationService,
-                            PaperUnderstandingTaskService paperUnderstandingTaskService,
+    public AsyncTaskService(PaperUnderstandingTaskService paperUnderstandingTaskService,
                             ArxivFetcher arxivFetcher,
                             PaperMapper paperMapper,
                             AsyncTaskManager asyncTaskManager,
-                            Planner planner,
-                            PlanExecutor planExecutor,
-                            RagIndexingService ragIndexingService,
                             AsyncTaskHandlerRegistry handlerRegistry) {
-        this.automationService = automationService;
         this.paperUnderstandingTaskService = paperUnderstandingTaskService;
         this.arxivFetcher = arxivFetcher;
         this.paperMapper = paperMapper;
         this.asyncTaskManager = asyncTaskManager;
-        this.planner = planner;
-        this.planExecutor = planExecutor;
-        this.ragIndexingService = ragIndexingService;
         this.handlerRegistry = handlerRegistry;
         registerHandlers();
     }
 
     @PostConstruct
     void registerHandlers() {
-        registerIfAbsent(TASK_COMPARE, context -> {
-            context.stage("正在生成对比报告…");
-            List<Long> paperIds = longList(context.arguments().get("paperIds"));
-            return automationService.comparePapers(paperIds,
-                    (String) context.arguments().get("customDimensions"));
-        });
-        registerIfAbsent(TASK_GAP_PAPERS, context -> runGap(context,
-                () -> automationService.analyzeGapsByPaperIds(longList(context.arguments().get("paperIds")))));
-        registerIfAbsent(TASK_GAP_FOLDER, context -> runGap(context,
-                () -> automationService.analyzeGaps(toLong(context.arguments().get("folderId")))));
-        registerIfAbsent(TASK_PLAN, context -> {
-            context.stage("正在规划任务…");
-            String goal = (String) context.arguments().get("goal");
-            Plan plan = planner.plan(goal);
-            if (plan.steps().isEmpty()) {
-                return "当前目标无法匹配任何可用 Skill，请更具体地描述。";
-            }
-            context.stage("计划已生成，开始执行…");
-            return planExecutor.execute(plan,
-                    new SkillContext(context.taskId(), context::stage));
-        });
-        registerIfAbsent(TASK_RAG_INDEX, context -> {
-            context.stage("正在生成本地文本索引…");
-            Long paperId = toLong(context.arguments().get("paperId"));
-            try {
-                RagIndexingResult result = ragIndexingService.indexPaper(paperId);
-                return Map.of("paperId", result.paperId(), "indexed", result.indexed(),
-                        "chunkCount", result.chunkCount());
-            } catch (RagIndexingException e) {
-                boolean retryable = e.getReason() == RagIndexingException.Reason.INDEX_VERSION_FAILED;
-                throw new AsyncTaskExecutionException(e.getReason().name(), e.getMessage(), retryable, e);
-            }
-        });
         registerIfAbsent(TASK_PROCESS_PAPER, context -> {
             context.stage("正在分析论文…");
             paperUnderstandingTaskService.process(
@@ -143,27 +83,6 @@ public class AsyncTaskService {
         if (!handlerRegistry.contains(taskType)) {
             handlerRegistry.register(taskType, handler);
         }
-    }
-
-    private Object runGap(AsyncTaskExecutionContext context, java.util.function.Supplier<String> supplier) {
-        context.stage("正在分析研究空白…");
-        String gaps = supplier.get();
-        context.stage("正在进行外部验证…");
-        return Map.of("gaps", gaps, "verified", automationService.verifyGaps(gaps));
-    }
-
-    private List<Long> longList(Object value) {
-        if (!(value instanceof List<?> values)) {
-            return List.of();
-        }
-        List<Long> result = new ArrayList<>();
-        for (Object item : values) {
-            Long number = toLong(item);
-            if (number != null) {
-                result.add(number);
-            }
-        }
-        return result;
     }
 
     private Long toLong(Object value) {
@@ -212,86 +131,6 @@ public class AsyncTaskService {
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("paperId", paperId);
         return asyncTaskManager.submitRecoverable(taskType, null, "论文处理 (paperId=" + paperId + ")", arguments, idempotencyKey);
-    }
-
-    /**
-     * 提交异步论文对比任务。
-     *
-     * @return 任务 ID
-     */
-    public String submitComparePapers(List<Long> paperIds, String customDimensions) {
-        return submitComparePapers(paperIds, customDimensions, null);
-    }
-
-    public String submitComparePapers(List<Long> paperIds, String customDimensions, String idempotencyKey) {
-        String title = "论文对比 (" + (paperIds != null ? paperIds.size() : 0) + " 篇)";
-        Map<String, Object> arguments = new LinkedHashMap<>();
-        arguments.put("paperIds", paperIds == null ? List.of() : paperIds);
-        arguments.put("customDimensions", customDimensions);
-        return asyncTaskManager.submitRecoverable(TASK_COMPARE, null, title, arguments, idempotencyKey);
-    }
-
-    /**
-     * 提交异步 Gap 分析任务（库内分析 + 外部验证）。
-     *
-     * @return 任务 ID
-     */
-    public String submitGapAnalysis(List<Long> paperIds) {
-        return submitGapAnalysis(paperIds, null);
-    }
-
-    public String submitGapAnalysis(List<Long> paperIds, String idempotencyKey) {
-        String title = "Gap 分析 (" + (paperIds != null ? paperIds.size() : 0) + " 篇)";
-        return asyncTaskManager.submitRecoverable(TASK_GAP_PAPERS, null, title,
-                Map.of("paperIds", paperIds == null ? List.of() : paperIds), idempotencyKey);
-    }
-
-    /**
-     * 提交异步文件夹 Gap 分析任务。
-     *
-     * @return 任务 ID
-     */
-    public String submitGapAnalysisByFolder(Long folderId) {
-        return submitGapAnalysisByFolder(folderId, null);
-    }
-
-    public String submitGapAnalysisByFolder(Long folderId, String idempotencyKey) {
-        Map<String, Object> arguments = new LinkedHashMap<>();
-        arguments.put("folderId", folderId);
-        return asyncTaskManager.submitRecoverable(TASK_GAP_FOLDER, null,
-                "Gap 分析 (文件夹 " + folderId + ")", arguments, idempotencyKey);
-    }
-
-    /**
-     * 提交自然语言规划任务：LLM 先选择 Skill 生成计划，再自动执行。
-     *
-     * @return 任务 ID
-     */
-    public String submitPlan(String goal) {
-        return submitPlan(goal, null);
-    }
-
-    public String submitPlan(String goal, String idempotencyKey) {
-        String title = "智能规划";
-        if (goal != null) {
-            title += ": " + (goal.length() > 30 ? goal.substring(0, 30) + "…" : goal);
-        }
-        Map<String, Object> arguments = new LinkedHashMap<>();
-        arguments.put("goal", goal);
-        return asyncTaskManager.submitRecoverable(TASK_PLAN, null, title, arguments, idempotencyKey);
-    }
-
-    /**
-     * 提交 RAG 索引异步任务。
-     *
-     * @return 任务 ID
-     */
-    public String submitRagIndex(Long paperId) {
-        String title = "RAG 索引 (paperId=" + paperId + ")";
-        Map<String, Object> arguments = new LinkedHashMap<>();
-        arguments.put("paperId", paperId);
-        return asyncTaskManager.submitRecoverable(TASK_RAG_INDEX, null, title,
-                arguments, null);
     }
 
     /**

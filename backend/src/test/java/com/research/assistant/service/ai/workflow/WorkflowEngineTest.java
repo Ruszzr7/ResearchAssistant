@@ -69,11 +69,11 @@ class WorkflowEngineTest {
         doReturn(echoSkill).when(skillRegistry).get("echo");
         doReturn(wrapSkill).when(skillRegistry).get("wrap");
 
-        // 用自定义 workflow 覆盖默认 registry？不，这里直接测试默认 gap-research 太复杂。
+        // 使用自定义 workflow 验证引擎编排。
         // 改为构造一个测试用的 WorkflowDefinition，通过反射替换 registry 中的定义。
         WorkflowEngine engine = engine();
         replaceRegistryWith(engine, new WorkflowDefinition(
-                "gap-research", "test", "test",
+                "test-workflow", "test", "test",
                 List.of(
                         new WorkflowStepDefinition("echo", "echo", Map.of("value", "{{context.value}}"), "out1"),
                         new WorkflowStepDefinition("wrap", "wrap", Map.of("text", "{{prev}}"), "out2")
@@ -93,7 +93,7 @@ class WorkflowEngineTest {
             return r;
         }).when(workflowStepMapper).selectOne(any());
 
-        String taskId = engine.submit("gap-research", Map.of("value", "hello"));
+        String taskId = engine.submit("test-workflow", Map.of("value", "hello"));
         assertThat(taskId).isEqualTo("task-1");
 
         Object result = captured.get().apply("task-1", s -> {});
@@ -114,7 +114,7 @@ class WorkflowEngineTest {
 
         WorkflowEngine engine = engine();
         replaceRegistryWith(engine, new WorkflowDefinition(
-                "gap-research", "test", "test",
+                "test-workflow", "test", "test",
                 List.of(
                         new WorkflowStepDefinition("echo", "echo", Map.of("value", "x"), null),
                         new WorkflowStepDefinition("failing", "failing", Map.of(), null)
@@ -129,7 +129,7 @@ class WorkflowEngineTest {
 
         lenient().doAnswer(invocation -> new WorkflowStepRecord()).when(workflowStepMapper).selectOne(any());
 
-        engine.submit("gap-research", Map.of());
+        engine.submit("test-workflow", Map.of());
 
         boolean thrown = false;
         try {
@@ -149,14 +149,14 @@ class WorkflowEngineTest {
 
         WorkflowEngine engine = engine();
         replaceRegistryWith(engine, new WorkflowDefinition(
-                "gap-research", "test", "test",
+                "test-workflow", "test", "test",
                 List.of(
                         new WorkflowStepDefinition("echo", "echo", Map.of("value", "{{context.value}}"), "out1"),
                         new WorkflowStepDefinition("echo", "echo", Map.of("value", "retry"), "out2")
                 )
         ));
 
-        AsyncTaskResult<?> failedResult = AsyncTaskResult.pending("task-3", "排队中…", "gap-research", null, "test")
+        AsyncTaskResult<?> failedResult = AsyncTaskResult.pending("task-3", "排队中…", "test-workflow", null, "test")
                 .failed("boom");
         doReturn(failedResult).when(asyncTaskManager).get("task-3");
 
@@ -198,7 +198,7 @@ class WorkflowEngineTest {
 
         WorkflowEngine engine = engine();
         replaceRegistryWith(engine, new WorkflowDefinition(
-                "gap-research", "test", "test",
+                "test-workflow", "test", "test",
                 List.of(
                         new WorkflowStepDefinition("echo", "echo", Map.of("value", "x"), "out1"),
                         new WorkflowStepDefinition("pause", "echo", Map.of("value", "pause"), "out2", true)
@@ -214,7 +214,7 @@ class WorkflowEngineTest {
         lenient().doAnswer(invocation -> new WorkflowStepRecord()).when(workflowStepMapper).selectOne(any());
         doNothing().when(asyncTaskManager).setPendingUser(anyString(), any());
 
-        engine.submit("gap-research", Map.of());
+        engine.submit("test-workflow", Map.of());
 
         Object result = captured.get().apply("task-pause", s -> {});
         assertThat(result).isInstanceOf(Map.class);
@@ -232,7 +232,7 @@ class WorkflowEngineTest {
 
         WorkflowEngine engine = engine();
         replaceRegistryWith(engine, new WorkflowDefinition(
-                "gap-research", "test", "test",
+                "test-workflow", "test", "test",
                 List.of(new WorkflowStepDefinition(
                         "scalar", "scalar", Map.of("paperId", "{{context.paperId}}"), "out"))
         ));
@@ -244,7 +244,7 @@ class WorkflowEngineTest {
         }).when(asyncTaskManager).submit(anyString(), anyString(), anyString(), any(BiFunction.class));
         lenient().doAnswer(invocation -> new WorkflowStepRecord()).when(workflowStepMapper).selectOne(any());
 
-        engine.submit("gap-research", Map.of("paperId", 123L));
+        engine.submit("test-workflow", Map.of("paperId", 123L));
         Object result = captured.get().apply("task-scalar", s -> {});
 
         assertThat(result).isEqualTo(Map.of("out", 246L));

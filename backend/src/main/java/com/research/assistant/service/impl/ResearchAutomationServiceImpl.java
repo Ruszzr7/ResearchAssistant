@@ -2,13 +2,10 @@ package com.research.assistant.service.impl;
 
 import com.research.assistant.service.ResearchAutomationService;
 import com.research.assistant.service.ai.skill.*;
-import com.research.assistant.service.ai.skill.io.AnalyzeGapsInput;
-import com.research.assistant.service.ai.skill.io.ComparePapersInput;
 import com.research.assistant.service.ai.skill.io.SuggestFolderInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -17,67 +14,20 @@ import java.util.Map;
 /**
  * 非对话式研究自动化实现。
  * <p>
- * 处理状态机：PENDING → PROCESSING → COMPLETED / FAILED。
- * <p>
- * 当前实现已把具体 AI 能力拆分为独立 {@link Skill}，本类仅作为统一入口做参数封装与事务边界。
+ * 标签和文件夹推荐由独立 {@link Skill} 实现，本类负责参数封装和失败降级。
  */
 @Service
 public class ResearchAutomationServiceImpl implements ResearchAutomationService {
 
     private static final Logger log = LoggerFactory.getLogger(ResearchAutomationServiceImpl.class);
 
-    private final ComparePapersSkill comparePapersSkill;
-    private final AnalyzeGapsSkill analyzeGapsSkill;
-    private final VerifyGapsSkill verifyGapsSkill;
     private final SuggestTagsSkill suggestTagsSkill;
     private final SuggestFolderSkill suggestFolderSkill;
-    private final SuggestReadingStatusSkill suggestReadingStatusSkill;
-    private final SkillRegistry skillRegistry;
 
-    public ResearchAutomationServiceImpl(ComparePapersSkill comparePapersSkill,
-                                  AnalyzeGapsSkill analyzeGapsSkill,
-                                  VerifyGapsSkill verifyGapsSkill,
-                                  SuggestTagsSkill suggestTagsSkill,
-                                  SuggestFolderSkill suggestFolderSkill,
-                                  SuggestReadingStatusSkill suggestReadingStatusSkill,
-                                  SkillRegistry skillRegistry) {
-        this.comparePapersSkill = comparePapersSkill;
-        this.analyzeGapsSkill = analyzeGapsSkill;
-        this.verifyGapsSkill = verifyGapsSkill;
+    public ResearchAutomationServiceImpl(SuggestTagsSkill suggestTagsSkill,
+                                         SuggestFolderSkill suggestFolderSkill) {
         this.suggestTagsSkill = suggestTagsSkill;
         this.suggestFolderSkill = suggestFolderSkill;
-        this.suggestReadingStatusSkill = suggestReadingStatusSkill;
-        this.skillRegistry = skillRegistry;
-    }
-
-    @Override
-    @Transactional
-    public String comparePapers(List<Long> paperIds, String customDimensions) {
-        return execute(comparePapersSkill,
-                new ComparePapersInput(paperIds, customDimensions),
-                "compare-" + paperIds,
-                "论文对比失败");
-    }
-
-    @Override
-    public String analyzeGapsByPaperIds(List<Long> paperIds) {
-        return execute(analyzeGapsSkill,
-                new AnalyzeGapsInput(paperIds, null),
-                "gap-" + paperIds,
-                "Gap 分析失败");
-    }
-
-    @Override
-    public String analyzeGaps(Long folderId) {
-        return execute(analyzeGapsSkill,
-                new AnalyzeGapsInput(null, folderId),
-                "gap-folder-" + folderId,
-                "Gap 分析失败");
-    }
-
-    @Override
-    public List<Map<String, Object>> verifyGaps(String gapReport) {
-        return execute(verifyGapsSkill, gapReport, "verify-gaps", "Gap 验证失败");
     }
 
     @Override
@@ -122,27 +72,6 @@ public class ResearchAutomationServiceImpl implements ResearchAutomationService 
         fallback.put("newName", null);
         fallback.put("parentFolderId", null);
         return fallback;
-    }
-
-    @Override
-    public Map<String, Object> suggestReadingStatus(Long paperId) {
-        return executeQuietly(suggestReadingStatusSkill, paperId, "status-" + paperId,
-                "阅读状态推荐失败",
-                Map.of("status", com.research.assistant.constant.ReadingStatus.UNREAD,
-                        "reason", "推荐失败，默认未读"));
-    }
-
-    /**
-     * 执行会抛出的 Skill，非运行时异常包装为 RuntimeException。
-     */
-    private <I, O> O execute(Skill<I, O> skill, I input, String contextKey, String errorMessage) {
-        try {
-            return skill.execute(new SkillContext(contextKey), input);
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(errorMessage + ": " + e.getMessage(), e);
-        }
     }
 
     /**

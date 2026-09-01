@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * Agent 推荐类结构化输出 POJO。
  * <p>
- * 用于标签、文件夹、阅读状态等 Agent 推荐场景，配合 LangChain4j 的 JSON schema 输出。
+ * 用于标签、文件夹等 Agent 推荐场景，配合 LangChain4j 的 JSON schema 输出。
  */
 public class SuggestionPojos {
 
@@ -61,21 +61,4 @@ public class SuggestionPojos {
         public void setParentFolderId(Long parentFolderId) { this.parentFolderId = parentFolderId; }
     }
 
-    /**
-     * 阅读状态推荐结果。
-     */
-    public static class ReadingStatusSuggestionResult {
-
-        @Description("推荐的阅读状态：UNREAD（未读）/ READING（正在阅读）/ READ（已读）")
-        private String status;
-
-        @Description("推荐理由，一句话")
-        private String reason;
-
-        public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
-
-        public String getReason() { return reason; }
-        public void setReason(String reason) { this.reason = reason; }
-    }
 }

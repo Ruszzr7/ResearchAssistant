@@ -190,34 +190,6 @@
       </div>
     </div>
 
-    <div class="settings-card">
-      <h2>导出与同步</h2>
-      <p class="settings-desc">
-        配置 Obsidian vault 路径可将论文导出为 Markdown + BibTeX；配置 Zotero 信息可通过 Web API 推送条目。
-      </p>
-
-      <el-form label-width="160px" label-position="left" class="settings-form">
-        <el-form-item label="Obsidian Vault">
-          <el-input v-model="obsidianVaultPath" placeholder="如 C:\\Users\\xxx\\Documents\\Obsidian Vault" size="large" />
-        </el-form-item>
-
-        <el-form-item label="Zotero User ID">
-          <el-input v-model="zoteroUserId" placeholder="Zotero user ID" size="large" />
-        </el-form-item>
-        <el-form-item label="Zotero API Key">
-          <el-input v-model="zoteroApiKey" type="password" show-password placeholder="Zotero API key" size="large" />
-        </el-form-item>
-        <el-form-item label="Zotero Collection">
-          <el-input v-model="zoteroCollectionKey" placeholder="目标 collection key（可选）" size="large" />
-        </el-form-item>
-      </el-form>
-
-      <div class="settings-actions">
-        <el-button type="primary" @click="saveSettings" :loading="saving" size="large">
-          保存设置
-        </el-button>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -295,12 +267,6 @@ const formulaExtractorCommand = ref('')
 const figureExtractorEnabled = ref(false)
 const figureExtractorCommand = ref('')
 
-const obsidianVaultPath = ref('')
-const zoteroUserId = ref('')
-const zoteroApiKey = ref('')
-const savedZoteroApiKey = ref('')
-const zoteroCollectionKey = ref('')
-
 async function loadSettings() {
   try {
     const res = await api.get('/settings')
@@ -341,13 +307,6 @@ async function loadSettings() {
       if (item.keyName === 'formula_extractor_command') formulaExtractorCommand.value = item.value || ''
       if (item.keyName === 'figure_extractor_enabled') figureExtractorEnabled.value = item.value === 'true'
       if (item.keyName === 'figure_extractor_command') figureExtractorCommand.value = item.value || ''
-      if (item.keyName === 'obsidian_vault_path') obsidianVaultPath.value = item.value || ''
-      if (item.keyName === 'zotero_user_id') zoteroUserId.value = item.value || ''
-      if (item.keyName === 'zotero_api_key') {
-        zoteroApiKey.value = item.value || ''
-        savedZoteroApiKey.value = item.value || ''
-      }
-      if (item.keyName === 'zotero_collection_key') zoteroCollectionKey.value = item.value || ''
     }
   } catch (e) { /* 首次使用 */ }
 }
@@ -413,7 +372,6 @@ async function doSave() {
   const changedDocumentKey = Boolean(documentKeyValue && documentKeyValue !== savedDocumentApiKey.value)
   const changedIeeeKey = Boolean(ieeeXploreApiKey.value.trim() && ieeeXploreApiKey.value !== savedIeeeXploreApiKey.value)
   const changedAcmKey = Boolean(acmDlApiKey.value.trim() && acmDlApiKey.value !== savedAcmDlApiKey.value)
-  const changedZoteroKey = Boolean(zoteroApiKey.value.trim() && zoteroApiKey.value !== savedZoteroApiKey.value)
   // 只有在用户真正修改了 API Key（与加载回来的脱敏值不同）时才提交
   if (changedApiKey) {
     payload.push({ keyName: 'api_key', value: keyValue })
@@ -453,25 +411,12 @@ async function doSave() {
   if (figureExtractorCommand.value.trim()) {
     payload.push({ keyName: 'figure_extractor_command', value: figureExtractorCommand.value.trim() })
   }
-  if (obsidianVaultPath.value.trim()) {
-    payload.push({ keyName: 'obsidian_vault_path', value: obsidianVaultPath.value.trim() })
-  }
-  if (zoteroUserId.value.trim()) {
-    payload.push({ keyName: 'zotero_user_id', value: zoteroUserId.value.trim() })
-  }
-  if (changedZoteroKey) {
-    payload.push({ keyName: 'zotero_api_key', value: zoteroApiKey.value.trim() })
-  }
-  if (zoteroCollectionKey.value.trim()) {
-    payload.push({ keyName: 'zotero_collection_key', value: zoteroCollectionKey.value.trim() })
-  }
   if (payload.length) {
     await api.put('/settings', payload)
     if (changedApiKey) savedApiKey.value = keyValue
     if (changedDocumentKey) savedDocumentApiKey.value = documentKeyValue
     if (changedIeeeKey) savedIeeeXploreApiKey.value = ieeeXploreApiKey.value.trim()
     if (changedAcmKey) savedAcmDlApiKey.value = acmDlApiKey.value.trim()
-    if (changedZoteroKey) savedZoteroApiKey.value = zoteroApiKey.value.trim()
   }
 }
 

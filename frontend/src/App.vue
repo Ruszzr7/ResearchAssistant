@@ -190,7 +190,6 @@ const navigationItems = [
   { label: '文献检索', route: '/search', shortcut: 'Ctrl+3', icon: Search },
   { label: '论文助手', route: '/research', shortcut: 'Ctrl+4', icon: Reading },
   { label: '研究档案', route: '/archive', shortcut: 'Ctrl+5', icon: Document },
-  { label: '写作助手', route: '/writing', shortcut: 'Ctrl+6', icon: Document },
 ]
 
 function routeIsActive(target) {
@@ -449,7 +448,6 @@ const routeCommands = [
   { id: 'search', title: '打开文献检索', subtitle: 'AI 检索与多源搜索', route: '/search', shortcut: 'Ctrl+3', shortcutKey: '3', keywords: ['检索', 'search', '文献'] },
   { id: 'workbench', title: '打开论文助手', subtitle: '基于论文理解的连续科研对话', route: '/research', shortcut: 'Ctrl+4', shortcutKey: '4', keywords: ['助手', '对话', '分析', 'analysis', '论文助手'] },
   { id: 'archive', title: '打开研究档案', subtitle: '对话、分析与证据记录', route: '/archive', shortcut: 'Ctrl+5', shortcutKey: '5', keywords: ['档案', 'archive', '研究', '对话'] },
-  { id: 'writing', title: '打开写作助手', subtitle: '大纲 / Related Work / 引用', route: '/writing', shortcut: 'Ctrl+6', shortcutKey: '6', keywords: ['写作', 'writing', '大纲'] },
 ]
 
 const commands = [
@@ -473,7 +471,6 @@ const shortcutList = [
   { desc: '打开文献检索', keys: 'Ctrl + 3' },
   { desc: '打开论文助手', keys: 'Ctrl + 4' },
   { desc: '打开研究档案', keys: 'Ctrl + 5' },
-  { desc: '打开写作助手', keys: 'Ctrl + 6' },
 ]
 
 useKeyboardShortcuts([

@@ -7,9 +7,9 @@ import {
 
 describe('unified paper research route', () => {
   it('redirects every retired workbench mode to the same paper conversation', () => {
-    expect(legacyWorkbenchRedirect({ query: { paperId: '7', mode: 'compare' } }))
+    expect(legacyWorkbenchRedirect({ query: { paperId: '7', mode: 'analysis' } }))
       .toEqual({ path: '/research/7', query: {} })
-    expect(legacyWorkbenchRedirect({ query: { paperIds: '8,9', mode: 'gap', page: '3' } }))
+    expect(legacyWorkbenchRedirect({ query: { paperIds: '8,9', page: '3' } }))
       .toEqual({ path: '/research/8', query: { page: '3' } })
   })
 

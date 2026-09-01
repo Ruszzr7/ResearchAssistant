@@ -3,7 +3,6 @@ package com.research.assistant.service.ai.workflow;
 import com.research.assistant.service.async.AsyncTaskResult;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -16,17 +15,6 @@ public class WorkflowService {
 
     public WorkflowService(WorkflowEngine workflowEngine) {
         this.workflowEngine = workflowEngine;
-    }
-
-    /**
-     * 提交 Gap Research 工作流：库内 Gap 分析 → 外部验证。
-     */
-    public String submitGapResearch(List<Long> paperIds) {
-        return submitGapResearch(paperIds, null);
-    }
-
-    public String submitGapResearch(List<Long> paperIds, String idempotencyKey) {
-        return workflowEngine.submitRecoverable("gap-research", Map.of("paperIds", paperIds), idempotencyKey);
     }
 
     /**

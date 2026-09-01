@@ -259,7 +259,7 @@ function returnToLibrary() {
 
 function safeReturnTarget(value) {
   const target = String(Array.isArray(value) ? value[0] : value || '')
-  if (target === '/archive' || target.startsWith('/writing')) return target
+  if (target === '/archive') return target
   return '/library'
 }
 </script>

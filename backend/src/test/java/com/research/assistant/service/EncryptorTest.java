@@ -43,7 +43,7 @@ class EncryptorTest {
         assertThat(encryptor.shouldEncrypt("api_key")).isTrue();
         assertThat(encryptor.shouldEncrypt("apiKey")).isTrue();
         assertThat(encryptor.shouldEncrypt("embedding_api_key")).isTrue();
-        assertThat(encryptor.shouldEncrypt("zotero_api_key")).isTrue();
+        assertThat(encryptor.shouldEncrypt("semantic_scholar_api_key")).isTrue();
         assertThat(encryptor.shouldEncrypt("model")).isFalse();
         assertThat(encryptor.shouldEncrypt("provider_token")).isTrue();
         assertThat(encryptor.shouldEncrypt("provider_secret")).isTrue();

@@ -3,8 +3,6 @@ package com.research.assistant.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.service.SettingsService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -21,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Semantic Scholar API 查询器 —— 用于补充 arXiv 之外的学术来源，并支持引用网络扩展。
+ * Semantic Scholar API 查询器 —— 用于补充 arXiv 之外的学术来源。
  * <p>
  * Semantic Scholar 提供免费公开 API，无需 Key 即可进行基础搜索；机构/高频使用可配置 x-api-key。
  * 文档：https://api.semanticscholar.org/api-docs/graph
@@ -29,11 +27,8 @@ import java.util.Map;
 @Component
 public class SemanticScholarFetcher {
 
-    private static final Logger log = LoggerFactory.getLogger(SemanticScholarFetcher.class);
-
     private static final String API_BASE = "https://api.semanticscholar.org/graph/v1";
     private static final String FIELDS = "paperId,title,authors,year,abstract,url,externalIds";
-    private static final String AUTHOR_FIELDS = "authorId,name";
     private static final String API_KEY_SETTING = "semantic_scholar_api_key";
 
     private final ObjectMapper objectMapper;
@@ -71,85 +66,10 @@ public class SemanticScholarFetcher {
                 + "&fields=" + FIELDS
                 + "&limit=" + Math.min(maxResults, 100);
 
-        return fetchPapers(url, null);
+        return fetchPapers(url);
     }
 
-    /**
-     * 获取引用该论文的文献（前向引用）。
-     */
-    public List<Map<String, Object>> fetchCitations(String paperId, int limit) {
-        return fetchNetworkList(
-                "/paper/" + encode(paperId) + "/citations?fields=" + FIELDS + "&limit=" + Math.min(limit, 100),
-                "citingPaper");
-    }
-
-    /**
-     * 获取该论文引用的文献（后向引用）。
-     */
-    public List<Map<String, Object>> fetchReferences(String paperId, int limit) {
-        return fetchNetworkList(
-                "/paper/" + encode(paperId) + "/references?fields=" + FIELDS + "&limit=" + Math.min(limit, 100),
-                "citedPaper");
-    }
-
-    /**
-     * 获取某位作者的其他论文。
-     */
-    public List<Map<String, Object>> fetchAuthorPapers(String authorId, int limit) {
-        return fetchNetworkList(
-                "/author/" + encode(authorId) + "/papers?fields=" + FIELDS + "&limit=" + Math.min(limit, 100),
-                null);
-    }
-
-    /**
-     * 获取某篇论文的作者 ID 列表。
-     */
-    public List<String> fetchPaperAuthorIds(String paperId) {
-        try {
-            String url = API_BASE + "/paper/" + encode(paperId) + "?fields=" + AUTHOR_FIELDS;
-            HttpResponse<String> response = sendRequest(url);
-            if (response.statusCode() != 200) {
-                return List.of();
-            }
-            JsonNode root = objectMapper.readTree(response.body());
-            JsonNode authors = root.get("authors");
-            return extractAuthorIds(authors);
-        } catch (Exception e) {
-            log.warn("Semantic Scholar 获取作者 ID 失败 paperId={}: {}", paperId, e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
-     * 通用网络扩展请求：解析固定结构或 data[].field 包装。
-     */
-    private List<Map<String, Object>> fetchNetworkList(String relativeUrl, String nestedField) {
-        try {
-            HttpResponse<String> response = sendRequest(API_BASE + relativeUrl);
-            if (response.statusCode() != 200) {
-                log.warn("Semantic Scholar 网络扩展返回 HTTP {}", response.statusCode());
-                return List.of();
-            }
-            JsonNode root = objectMapper.readTree(response.body());
-            JsonNode data = root.get("data");
-            if (data == null || !data.isArray()) {
-                return List.of();
-            }
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (JsonNode item : data) {
-                JsonNode paper = nestedField != null ? item.get(nestedField) : item;
-                if (paper != null && !paper.isNull()) {
-                    result.add(normalizePaper(paper));
-                }
-            }
-            return result;
-        } catch (Exception e) {
-            log.warn("Semantic Scholar 网络扩展失败: {}", e.getMessage());
-            return List.of();
-        }
-    }
-
-    private List<Map<String, Object>> fetchPapers(String url, String nestedField) throws Exception {
+    private List<Map<String, Object>> fetchPapers(String url) throws Exception {
         HttpResponse<String> response = sendRequest(url);
         if (response.statusCode() != 200) {
             throw new RuntimeException("Semantic Scholar API 返回 HTTP " + response.statusCode());
@@ -160,8 +80,7 @@ public class SemanticScholarFetcher {
             return List.of();
         }
         List<Map<String, Object>> result = new ArrayList<>();
-        for (JsonNode item : data) {
-            JsonNode paper = nestedField != null ? item.get(nestedField) : item;
+        for (JsonNode paper : data) {
             if (paper != null && !paper.isNull()) {
                 result.add(normalizePaper(paper));
             }

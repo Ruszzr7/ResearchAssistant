@@ -8,7 +8,6 @@ import com.research.assistant.service.PaperService;
 import com.research.assistant.service.SearchService;
 import com.research.assistant.service.ReadingProgressService;
 import com.research.assistant.service.metadata.MetadataEnrichmentService;
-import com.research.assistant.service.source.CitationNetworkExpansionService;
 import com.research.assistant.service.ai.workflow.WorkflowService;
 import com.research.assistant.service.pdf.layout.DocumentBlock;
 import com.research.assistant.service.pdf.layout.DocumentBlockRole;
@@ -51,7 +50,6 @@ class DynamicRequestContractTest {
     @Mock private SearchService searchService;
     @Mock private ArxivFetcher arxivFetcher;
     @Mock private AsyncTaskService asyncTaskService;
-    @Mock private CitationNetworkExpansionService expansionService;
 
     private MockMvc paperMvc;
     private MockMvc searchMvc;
@@ -65,7 +63,7 @@ class DynamicRequestContractTest {
                 layoutArtifactService))
                 .setControllerAdvice(advice).build();
         searchMvc = MockMvcBuilders.standaloneSetup(new SearchController(
-                searchService, paperService, arxivFetcher, asyncTaskService, expansionService))
+                searchService, paperService, arxivFetcher, asyncTaskService))
                 .setControllerAdvice(advice).build();
         workflowMvc = MockMvcBuilders.standaloneSetup(new WorkflowController(workflowService))
                 .setControllerAdvice(advice).build();

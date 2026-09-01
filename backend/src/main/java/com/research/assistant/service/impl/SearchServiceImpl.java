@@ -62,36 +62,6 @@ public class SearchServiceImpl implements SearchService {
         return literatureSearchService.toResultMaps(candidates, keywords);
     }
 
-    @Override
-    public Map<String, Object> expandSearch(List<String> queries) {
-        Map<String, Object> result = new LinkedHashMap<>();
-
-        // 扩展策略
-        Map<String, Object> strategy = new LinkedHashMap<>();
-        strategy.put("cited_by", "检索引用这些论文的后续研究");
-        strategy.put("related_articles", "检索 arXiv 与 Semantic Scholar 上的相关工作");
-        strategy.put("author_tracking", "追踪一作和通信作者的其他论文");
-        strategy.put("depth", "1-2 层扩展");
-        result.put("strategy", strategy);
-
-        // 对每个查询提取关键词后执行多源扩展检索，再统一去重
-        List<LiteratureCandidate> all = new ArrayList<>();
-        for (String query : queries) {
-            if (query == null || query.isBlank()) continue;
-            String[] words = query.split("\\s+");
-            List<String> keywords = Arrays.stream(java.util.Arrays.copyOf(words, Math.min(5, words.length)))
-                    .filter(s -> s != null && !s.isBlank())
-                    .toList();
-            all.addAll(literatureSearchService.search(keywords, 5));
-        }
-
-        List<LiteratureCandidate> deduped = literatureSearchService.deduplicate(all);
-        List<Map<String, Object>> results = literatureSearchService.toResultMaps(deduped, List.of());
-        result.put("results", results);
-        result.put("total", results.size());
-        return result;
-    }
-
     /** 解析 LLM 返回的 JSON（处理可能的 markdown 包裹） */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseAgentJson(String llmOutput) {

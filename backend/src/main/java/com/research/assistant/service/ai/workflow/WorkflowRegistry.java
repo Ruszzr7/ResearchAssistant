@@ -17,7 +17,6 @@ public class WorkflowRegistry {
 
     public WorkflowRegistry() {
         this.definitions = Map.of(
-                "gap-research", gapResearch(),
                 "paper-import", paperImport(),
                 "literature-survey", literatureSurvey()
         );
@@ -29,32 +28,6 @@ public class WorkflowRegistry {
 
     public List<WorkflowDefinition> all() {
         return List.copyOf(definitions.values());
-    }
-
-    private static WorkflowDefinition gapResearch() {
-        Map<String, Object> analyzeArgs = new HashMap<>();
-        analyzeArgs.put("paperIds", "{{context.paperIds}}");
-        analyzeArgs.put("folderId", null);
-
-        return new WorkflowDefinition(
-                "gap-research",
-                "研究空白分析",
-                "基于论文列表识别研究空白，并通过 arXiv/Crossref 等外部来源验证每个 Gap 是否已被研究。",
-                List.of(
-                        new WorkflowStepDefinition(
-                                "库内 Gap 分析",
-                                Skills.ANALYZE_GAPS,
-                                analyzeArgs,
-                                "gaps"
-                        ),
-                        new WorkflowStepDefinition(
-                                "外部验证",
-                                Skills.VERIFY_GAPS,
-                                Map.of("gapReport", "{{prev}}"),
-                                "verified"
-                        )
-                )
-        );
     }
 
     private static WorkflowDefinition paperImport() {

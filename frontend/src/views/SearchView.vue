@@ -11,7 +11,7 @@
     </div>
 
     <div class="search-progress" aria-label="检索进度">
-      <div v-for="(label, index) in ['描述研究方向', 'Agent 理解确认', '精选搜索结果', '扩展检索']" :key="label"
+      <div v-for="(label, index) in ['描述研究方向', 'Agent 理解确认', '精选搜索结果']" :key="label"
         class="progress-step" :class="{ active: step === index + 1, done: step > index + 1 }">
         <span class="progress-dot">{{ step > index + 1 ? '✓' : index + 1 }}</span>
         <span>{{ label }}</span>
@@ -122,56 +122,6 @@
       <div v-else class="step-body"><p style="color:#c0c4cc">未找到匹配论文。请尝试修改关键词。</p></div>
     </div>
 
-    <!-- ====== Step 5-6: 扩展检索 ====== -->
-    <div class="step" :class="{ active: step >= 4 }" v-if="step >= 4">
-      <div class="step-header"><span class="step-num">4</span> 扩展检索</div>
-      <div class="step-body">
-        <div class="agent-msg">
-          <p><strong>扩展策略建议：</strong></p>
-          <ul>
-            <li><strong>Cited by</strong> — 检索引用已入库论文的后续研究</li>
-            <li><strong>Related articles</strong> — 检索 arXiv 上的相关工作</li>
-            <li><strong>作者追踪</strong> — 追踪一作和通信作者的其他论文</li>
-            <li>建议扩展深度：1-2 层</li>
-          </ul>
-        </div>
-        <div class="confirm-actions">
-          <div class="action-col">
-            <el-button type="primary" @click="expandLoading ? cancelExpandWithHint() : doExpand()"
-              :disabled="expandError">
-              {{ expandLoading ? '取消扩展' : '执行扩展检索' }}
-            </el-button>
-            <span v-if="expandLoading" class="stage-text">{{ expandStatus }}</span>
-            <span v-else-if="expandError" class="error-text">{{ expandError.message }}
-              <el-button size="small" link type="primary" @click="retryExpand()">重试</el-button>
-            </span>
-          </div>
-          <el-button @click="step = 3">跳过，回到结果</el-button>
-        </div>
-
-        <!-- 扩展结果 -->
-        <div v-if="expandResults.length" style="margin-top:16px">
-          <h4>扩展结果（{{ expandResults.length }} 篇）</h4>
-          <div class="result-card" v-for="(paper, idx) in expandResults" :key="'e'+idx">
-            <el-checkbox v-model="paper._checked" style="margin-right:8px" />
-            <div class="result-main">
-              <div class="result-title">{{ paper.title }}</div>
-              <div class="result-meta">
-                <span>{{ paper.authors }}</span><span class="meta-sep">·</span>
-                <span>{{ paper.published?.substring(0, 4) }}</span>
-              </div>
-              <div class="result-summary">{{ truncate(paper.summary, 200) }}</div>
-            </div>
-          </div>
-          <div class="step-actions">
-            <el-button type="primary" @click="openImportDialog" :disabled="!checkedPapers.length">
-              入库选中（{{ checkedPapers.length }}）
-            </el-button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- ====== 入库对话框 ====== -->
     <el-dialog v-model="importDialogVisible" title="导入论文到文库" width="450px">
       <p style="font-size:12px;color:#909399;margin:0 0 12px">已选 {{ checkedPapers.length }} 篇论文</p>
@@ -206,7 +156,7 @@ const step = ref(1)
 const userInput = ref('')
 const workflowMode = ref(false)
 
-// ===== 三个全局后台任务：切换页面不取消 =====
+// ===== 全局后台任务：切换页面不取消 =====
 const {
   isLoading: extractLoading,
   statusText: extractStatus,
@@ -223,15 +173,6 @@ const {
   cancel: cancelSearch,
   retry: retrySearch
 } = useGlobalTask('search-execute')
-const {
-  isLoading: expandLoading,
-  statusText: expandStatus,
-  error: expandError,
-  run: runExpand,
-  cancel: cancelExpand,
-  retry: retryExpand
-} = useGlobalTask('search-expand')
-
 // ===== 页面状态持久化：切换路由后恢复 =====
 const session = useGlobalTask('search-session').data
 function restoreSession() {
@@ -239,14 +180,12 @@ function restoreSession() {
   userInput.value = session.userInput || ''
   extraction.value = session.extraction || null
   results.value = session.results || []
-  expandResults.value = session.expandResults || []
 }
 function saveSession() {
   session.step = step.value
   session.userInput = userInput.value
   session.extraction = extraction.value
   session.results = results.value
-  session.expandResults = expandResults.value
 }
 
 function cancelExtractWithHint() {
@@ -257,23 +196,16 @@ function cancelSearchWithHint() {
   cancelSearch()
   ElMessage.info('已取消')
 }
-function cancelExpandWithHint() {
-  cancelExpand()
-  ElMessage.info('已取消')
-}
-
 const extraction = ref(null)
 const newKeyword = ref('')
 const newPaperType = ref('')
 const results = ref([])
-const expandResults = ref([])
 
 restoreSession()
 watch(step, saveSession)
 watch(userInput, saveSession)
 watch(extraction, saveSession, { deep: true })
 watch(results, saveSession, { deep: true })
-watch(expandResults, saveSession, { deep: true })
 
 const importing = ref(false)
 
@@ -283,8 +215,7 @@ const recommendingFolder = ref(false)
 const folders = ref([])
 const treeProps = { children: 'children', label: 'name' }
 
-const checkedPapers = computed(() =>
-  [...results.value, ...expandResults.value].filter(p => p._checked))
+const checkedPapers = computed(() => results.value.filter(p => p._checked))
 
 function addKeyword() {
   if (newKeyword.value.trim()) { extraction.value.keywords_en.push(newKeyword.value.trim()); newKeyword.value = '' }
@@ -326,18 +257,6 @@ async function confirmAndSearch() {
     results.value = []
     const res = await api.post('/search/execute', extraction.value, { signal })
     results.value = (res.data || []).map(p => ({ ...p, _checked: false }))
-  })
-}
-
-// Step 3→4: 扩展检索触发
-async function doExpand() {
-  await runExpand(async ({ signal, setStage }) => {
-    setStage('正在扩展检索…')
-    // 使用选中论文的标题作为扩展关键词（非索引号）
-    const titles = results.value.filter(p => p._checked).map(p => p.title).filter(Boolean)
-    const res = await api.post('/search/expand', { queries: titles }, { signal })
-    expandResults.value = (res.data.results || []).map(p => ({ ...p, _checked: false }))
-    step.value = 4
   })
 }
 
@@ -412,7 +331,7 @@ onMounted(async () => {
 .search-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:18px; }
 .search-heading h1 { margin:0; color:var(--ra-text); font-size:27px; line-height:1.2; letter-spacing:-.65px; }
 .search-heading p { margin:7px 0 0; color:var(--ra-text-tertiary); font-size:12px; }
-.search-progress { display:grid; grid-template-columns:repeat(4, 1fr); padding:10px 12px; margin-bottom:14px; border:1px solid var(--ra-border-light); border-radius:14px; background:var(--ra-panel-bg); box-shadow:0 4px 18px rgba(0,0,0,.03); }
+.search-progress { display:grid; grid-template-columns:repeat(3, 1fr); padding:10px 12px; margin-bottom:14px; border:1px solid var(--ra-border-light); border-radius:14px; background:var(--ra-panel-bg); box-shadow:0 4px 18px rgba(0,0,0,.03); }
 .progress-step { position:relative; display:flex; min-height:40px; align-items:center; justify-content:center; gap:9px; color:var(--ra-text-tertiary); font-size:12px; }
 .progress-step:not(:last-child)::after { content:''; position:absolute; right:-8px; width:16px; height:1px; background:var(--ra-border-light); }
 .progress-step.active { border-radius:10px; background:var(--ra-active-bg); color:var(--ra-active-text); font-weight:600; }

@@ -22,8 +22,4 @@ public interface SearchService {
      */
     List<Map<String, Object>> executeSearch(Map<String, Object> params);
 
-    /**
-     * Step 5-6: 基于已选论文（标题/关键词）生成扩展策略并执行。
-     */
-    Map<String, Object> expandSearch(java.util.List<String> queries);
 }

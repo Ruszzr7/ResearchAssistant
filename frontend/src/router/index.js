@@ -13,10 +13,8 @@ const routes = [
   { path: '/research/:paperId?', name: 'research', component: () => import('@/views/PaperResearchView.vue') },
   { path: '/workbench', redirect: to => legacyWorkbenchRedirect(to, 'analysis') },
   { path: '/analysis',  redirect: to => legacyWorkbenchRedirect(to, 'analysis') },
-  { path: '/gap',       redirect: to => legacyWorkbenchRedirect(to, 'gap') },
   { path: '/archive',   name: 'archive',   component: () => import('@/views/ResearchArchiveView.vue') },
   { path: '/tasks',     name: 'tasks',     component: () => import('@/views/TaskCenterView.vue') },
-  { path: '/writing',     name: 'writing',     component: () => import('@/views/WritingView.vue') },
   { path: '/settings',  name: 'settings',  component: () => import('@/views/SettingsView.vue') },
 ]
 

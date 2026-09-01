@@ -14,7 +14,7 @@
       type="info"
       :closable="true"
       @close="onIntroClose"
-      description="这里展示由 AI Agent / 工作流自动创建的后台任务（如文献综述、Gap 分析、论文导入、AI 精读等），不需要手动新建。你可以查看进度、取消运行中任务、重试失败任务或确认需要人工决策的步骤。已完成 / 失败 / 已取消的任务可手动删除。"
+      description="这里展示由 AI Agent / 工作流自动创建的后台任务（如文献综述、论文导入、AI 精读等），不需要手动新建。你可以查看进度、取消运行中任务、重试失败任务或确认需要人工决策的步骤。已完成 / 失败 / 已取消的任务可手动删除。"
       show-icon
       style="margin-bottom: 16px"
     />

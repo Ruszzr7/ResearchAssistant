@@ -2,7 +2,6 @@ package com.research.assistant.controller;
 
 import com.research.assistant.common.Result;
 import com.research.assistant.dto.WorkflowConfirmRequest;
-import com.research.assistant.dto.WorkflowGapResearchRequest;
 import com.research.assistant.dto.WorkflowLiteratureSurveyRequest;
 import com.research.assistant.dto.WorkflowPaperImportRequest;
 import com.research.assistant.service.ai.workflow.WorkflowService;
@@ -26,14 +25,6 @@ public class WorkflowController {
 
     public WorkflowController(WorkflowService workflowService) {
         this.workflowService = workflowService;
-    }
-
-    @PostMapping("/gap-research")
-    public Result<Map<String, String>> gapResearch(@RequestBody @Valid WorkflowGapResearchRequest request,
-                                                   @RequestHeader(value = "Idempotency-Key", required = false)
-                                                   String idempotencyKey) {
-        String taskId = workflowService.submitGapResearch(request.getPaperIds(), idempotencyKey);
-        return Result.ok(Map.of("taskId", taskId));
     }
 
     @PostMapping("/paper-import")

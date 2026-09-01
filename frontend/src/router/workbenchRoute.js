@@ -13,7 +13,7 @@ export function positivePageNumber(value) {
   return Number.isInteger(page) && page > 0 ? page : null
 }
 
-/** Retired analysis/gap routes now converge on the same paper conversation. */
+/** Retired workbench routes now converge on the same paper conversation. */
 export function legacyWorkbenchRedirect(to) {
   const firstLegacyPaperId = String(to?.query?.paperIds || '').split(',')
     .map(Number).find(id => Number.isInteger(id) && id > 0)

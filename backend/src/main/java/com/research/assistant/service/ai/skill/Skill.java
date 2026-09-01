@@ -14,12 +14,12 @@ public interface Skill<I, O> {
     String name();
 
     /**
-     * 技能能力描述，供 Planner / 用户理解该 Skill 能做什么。
+     * 技能能力描述，供注册表和调用方理解该 Skill 能做什么。
      */
     String description();
 
     /**
-     * 输入类型，用于把 Planner 生成的 JSON 参数反序列化为输入对象。
+     * 输入类型，用于把调用参数反序列化为输入对象。
      */
     Class<I> inputType();
 

@@ -208,24 +208,6 @@ CREATE TABLE paper_annotation (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE writing_project (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    topic VARCHAR(500),
-    outline_json TEXT,
-    related_work TEXT,
-    draft_content TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE writing_project_paper (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    project_id BIGINT NOT NULL,
-    paper_id BIGINT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE ai_quality_event (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id BIGINT,
@@ -331,46 +313,6 @@ CREATE TABLE research_message (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(session_id, message_key),
     FOREIGN KEY (session_id) REFERENCES research_session(id) ON DELETE CASCADE
-);
-
-CREATE TABLE writing_claim (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    project_id BIGINT NOT NULL,
-    section_name VARCHAR(120) NOT NULL,
-    claim_text TEXT NOT NULL,
-    position_no INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (project_id) REFERENCES writing_project(id) ON DELETE CASCADE
-);
-
-CREATE TABLE writing_claim_evidence (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    claim_id BIGINT NOT NULL,
-    paper_id BIGINT NOT NULL,
-    research_session_id BIGINT,
-    relation_type VARCHAR(16) NOT NULL,
-    page_number INT,
-    locator VARCHAR(255),
-    quote_text TEXT NOT NULL,
-    note VARCHAR(1000),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (claim_id) REFERENCES writing_claim(id) ON DELETE CASCADE,
-    FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE,
-    FOREIGN KEY (research_session_id) REFERENCES research_session(id) ON DELETE SET NULL
-);
-
-CREATE TABLE rag_consistency_audit (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    paper_id BIGINT,
-    provider VARCHAR(32) NOT NULL,
-    status VARCHAR(32) NOT NULL,
-    active_version INT,
-    metadata_chunk_count INT NOT NULL DEFAULT 0,
-    expected_chunk_count INT,
-    details_json TEXT,
-    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE agent_turn (

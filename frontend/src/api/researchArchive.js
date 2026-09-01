@@ -19,12 +19,3 @@ export function updateResearchSession(sessionId, request) {
 export function deleteResearchSession(sessionId) {
   return api.delete(`/research/sessions/${sessionId}`)
 }
-
-export function appendResearchMessages(sessionId, messages) {
-  return api.post(`/research/sessions/${sessionId}/messages`, { messages })
-    .then(response => response.data)
-}
-
-export function attachResearchRun(sessionId, runId) {
-  return api.post(`/research/sessions/${sessionId}/runs/${runId}`)
-}
