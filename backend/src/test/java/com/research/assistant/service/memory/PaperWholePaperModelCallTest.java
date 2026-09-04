@@ -32,7 +32,7 @@ class PaperWholePaperModelCallTest {
     void shouldUseOneMultimodalRequestAndParseTheWholeProfile() {
         PaperMemoryModelClient client = mock(PaperMemoryModelClient.class);
         PaperWholeDocumentInputBuilder inputBuilder = mock(PaperWholeDocumentInputBuilder.class);
-        PaperMemoryChunker chunker = new PaperMemoryChunker(1_000, 1_200);
+        PaperMemoryChunker chunker = new PaperMemoryChunker(1_200);
         PaperLayoutArtifact artifact = new PaperLayoutArtifact(
                 17L, "a".repeat(64), "parser", 0.9, Instant.now(), 1,
                 List.of(new DocumentBlock("b-1", 1,
@@ -42,10 +42,15 @@ class PaperWholePaperModelCallTest {
         PaperStructure structure = structure();
         when(inputBuilder.build(any(), any(), anyString())).thenReturn(
                 new PaperWholeDocumentInputBuilder.PaperWholeDocumentInput(
-                        "page-images", 1, 1,
+                        "page-images", 1, 1, 1,
                         List.of(TextContent.from("whole paper"),
                                 ImageContent.from("aGVsbG8=", "image/jpeg")),
-                        Map.of("p1-s0000", List.of("b-1"))));
+                        Map.of("p1-s0000", List.of("b-1")),
+                        Map.of("lr-p1-001", new LayoutUncertainRegion("lr-p1-001",
+                                "READING_ORDER", List.of("b-1"),
+                                List.of(new LayoutUncertainRegion.PageArea(1,
+                                        List.of(new NormalizedBoundingBox(.1, .1, .8, .1)))),
+                                "unique source text"))));
         when(client.chat(anyString(), anyList(), any(LlmCallPolicy.class))).thenReturn(
                 new LlmResponse("""
                         {"domain":"AI", "researchProblem":"Estimate the target robustly.",
@@ -53,7 +58,10 @@ class PaperWholePaperModelCallTest {
                           "evidenceSpanIds":["p1-s0000"],"confidence":0.88}],
                          "methodType":"EXPERIMENTAL", "methodSummary":"Estimator E is evaluated.",
                          "datasets":[],"models":["E"],"metrics":[],"keyFindings":[],"limitations":[],
-                         "experimentSetup":{},"benchmarkResults":[],"sectionDigests":[],"openQuestions":[]}
+                         "experimentSetup":{},"benchmarkResults":[],"sectionDigests":[],"openQuestions":[],
+                         "layoutRecoveries":[{"regionId":"lr-p1-001","status":"CORRECTED",
+                          "orderedBlockIds":["b-1"],"correctedText":"unique source text",
+                          "contentType":"TEXT"}]}
                         """, 100, 20, 120, "STOP"));
 
         PaperMemoryModelService service = new PaperMemoryModelService(
@@ -66,13 +74,15 @@ class PaperWholePaperModelCallTest {
                 .extracting(PaperMemoryClaim::evidenceBlockIds)
                 .isEqualTo(List.of("b-1"));
         assertThat(result.summary().promptTokens()).isEqualTo(100);
+        assertThat(result.recoveries()).singleElement()
+                .extracting(PaperLayoutRecovery::correctedText).isEqualTo("unique source text");
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> systemPrompt = ArgumentCaptor.forClass(String.class);
         verify(inputBuilder).build(any(), any(), prompt.capture());
         assertThat(prompt.getValue()).contains("页面视觉内容提供");
         assertThat(prompt.getValue()).contains("evidenceSpanIds");
         assertThat(prompt.getValue())
-                .contains("paper-memory-whole-v9-noncitable-captions")
+                .contains("paper-memory-whole-v12-visual-fallback")
                 .contains("提交前逐条检查 keyFindings")
                 .contains("找不到直接正文证据就删除该 finding");
         assertThat(prompt.getValue()).doesNotContain("unique source text");
@@ -81,6 +91,39 @@ class PaperWholePaperModelCallTest {
                 .contains("PARAGRAPH 或 ABSTRACT span")
                 .contains("AUXILIARY_CAPTION")
                 .contains("没有可引用 ID");
+    }
+
+    @Test
+    void keepsVisualFormulaAsFallbackInsteadOfAcceptingPartialTranscription() {
+        PaperMemoryModelClient client = mock(PaperMemoryModelClient.class);
+        PaperWholeDocumentInputBuilder inputBuilder = mock(PaperWholeDocumentInputBuilder.class);
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(17L, "a".repeat(64), "parser", .9,
+                Instant.now(), 1, List.of(new DocumentBlock("b-1", 1,
+                new NormalizedBoundingBox(.1, .1, .8, .1), DocumentBlockRole.FORMULA, 1,
+                List.of(), "x ? y (7)", null, null, .5)));
+        when(inputBuilder.build(any(), any(), anyString())).thenReturn(
+                new PaperWholeDocumentInputBuilder.PaperWholeDocumentInput("page-images", 1, 1, 1,
+                        List.of(TextContent.from("whole paper")), Map.of(), Map.of("lr-p1-001",
+                        new LayoutUncertainRegion("lr-p1-001", "VISUAL_CONTENT", List.of("b-1"),
+                                List.of(new LayoutUncertainRegion.PageArea(1,
+                                        List.of(new NormalizedBoundingBox(.1, .1, .8, .1)))), "x ? y (7)"))));
+        when(client.chat(anyString(), anyList(), any(LlmCallPolicy.class))).thenReturn(new LlmResponse("""
+                {"domain":"AI","researchProblem":"P","coreContributions":[],"methodType":"OTHER",
+                "methodSummary":"M","datasets":[],"models":[],"metrics":[],"keyFindings":[],"limitations":[],
+                "experimentSetup":{},"benchmarkResults":[],"sectionDigests":[],"openQuestions":[],
+                "layoutRecoveries":[{"regionId":"lr-p1-001","status":"CORRECTED",
+                "orderedBlockIds":["b-1"],"correctedText":"x =","contentType":"FORMULA"}]}
+                """, 100, 20, 120, "STOP"));
+
+        PaperMemoryModelService service = new PaperMemoryModelService(
+                client, new ObjectMapper().findAndRegisterModules(), inputBuilder, new PaperMemoryChunker(1_200));
+        PaperMemoryModelService.WholePaperGeneration result = service.understandWhole(structure(), artifact);
+
+        assertThat(result.recoveries()).singleElement().satisfies(recovery -> {
+            assertThat(recovery.corrected()).isFalse();
+            assertThat(recovery.status()).isEqualTo("UNRESOLVED");
+        });
+        verify(client, times(1)).chat(anyString(), anyList(), any(LlmCallPolicy.class));
     }
 
     private PaperStructure structure() {

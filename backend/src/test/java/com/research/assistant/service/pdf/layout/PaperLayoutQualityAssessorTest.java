@@ -88,6 +88,31 @@ class PaperLayoutQualityAssessorTest {
     }
 
     @Test
+    void shouldNotDiluteOneImpossibleTransitionWithinALongPage() {
+        List<DocumentBlock> blocks = new ArrayList<>();
+        int order = 0;
+        for (int phase = 0; phase < 12; phase++) {
+            double y = .05 + phase * .06;
+            blocks.add(blockAt(1, order++, "left clean paragraph " + phase,
+                    .08, y, .40, DocumentLayoutLane.LEFT));
+            blocks.add(blockAt(1, order++, "right clean paragraph " + phase,
+                    .56, y, .36, DocumentLayoutLane.RIGHT));
+            blocks.add(blockAt(1, order++, "full width region boundary " + phase,
+                    .08, y + .025, .84, DocumentLayoutLane.FULL));
+        }
+        blocks.add(blockAt(1, order++, "right flow after final boundary",
+                .56, .78, .36, DocumentLayoutLane.RIGHT));
+        blocks.add(blockAt(1, order++, "left fragment returned after right flow",
+                .08, .78, .40, DocumentLayoutLane.LEFT));
+
+        LayoutQualityReport report = assessor.assess(artifact(.92, blocks));
+
+        assertThat(report.readingOrderScore()).isGreaterThan(.92);
+        assertThat(report.issues()).contains(LayoutQualityIssue.UNSTABLE_READING_ORDER);
+        assertThat(report.fallbackRecommended()).isTrue();
+    }
+
+    @Test
     void shouldKeepCorrectDoubleColumnOrderOnFastPath() {
         PaperLayoutArtifact artifact = artifact(0.92, List.of(
                 blockAt(0, "left top text", 0.08, 0.10, 0.40, DocumentLayoutLane.LEFT),

@@ -3,11 +3,9 @@ package com.research.assistant.service.pdf.layout;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -17,8 +15,17 @@ public class PaperSourceUnitBuilder {
     private static final Pattern FORMULA_MEMBER = Pattern.compile("^(\\d{1,4})([a-z])$", Pattern.CASE_INSENSITIVE);
     private static final Pattern ALGORITHM = Pattern.compile(
             "(?i)^\\s*(algorithm|alg\\.)\\s*(\\d+[a-z]?)\\b.*");
+    private static final Pattern ALGORITHM_NARRATIVE = Pattern.compile(
+            "(?i)^\\s*(?:algorithm|alg\\.)\\s*\\d+[a-z]?\\s+"
+                    + "(?:is|uses|ensures|assumes|shows|provides|requires|contains|has|can)\\b.*");
+    private static final Pattern ALGORITHM_TITLE = Pattern.compile(
+            "(?i)^\\s*(?:algorithm|alg\\.)\\s*\\d+[a-z]?\\s*[:–—-]\\s*\\S.*");
+    private static final Pattern PROCEDURAL_SIGNAL = Pattern.compile(
+            "(?im)(?:^\\s*\\d{1,2}[.)]|\\b(?:input|output|initialize|repeat|while|return|update|solve|set)\\b|"
+                    + "\\bfor\\s+(?:each|all)\\b|\\bend\\s*(?:if|for|while)?\\b)");
     private static final Pattern CAPTION = Pattern.compile(
-            "(?i)^\\s*(fig(?:ure)?\\.?|table)\\s*([\\dIVX]+[a-z]?)\\s*[.:]\\s*.*");
+            "(?i)^\\s*(fig(?:ure)?\\.?|table)\\s*([\\dIVX]+[a-z]?)"
+                    + "(?:\\s*[.:–—-]\\s*|\\s+)(.+)");
     private static final Pattern VISUAL_REFERENCE = Pattern.compile(
             "(?i)^\\s*(?:in\\s+)?(?:fig(?:ure)?\\.?|table)\\s*[\\dIVX]+[a-z]?\\s+"
                     + "(?:shows|illustrates|depicts|presents|compares|plots|summarizes|lists)\\b.*");
@@ -161,31 +168,18 @@ public class PaperSourceUnitBuilder {
     }
 
     private List<PaperSourceUnit> algorithms(List<DocumentBlock> ordered) {
-        List<PaperSourceUnit> result = new ArrayList<>();
-        Set<String> consumed = new LinkedHashSet<>();
+        Map<String, PaperSourceUnit> distinct = new LinkedHashMap<>();
         for (int index = 0; index < ordered.size(); index++) {
             DocumentBlock start = ordered.get(index);
             Matcher matcher = ALGORITHM.matcher(start.text());
-            if (!matcher.matches() || consumed.contains(start.id())) continue;
-            List<DocumentBlock> blocks = new ArrayList<>();
-            blocks.add(start);
-            for (int next = index + 1; next < ordered.size() && blocks.size() < 16; next++) {
-                DocumentBlock candidate = ordered.get(next);
-                DocumentBlock previous = blocks.get(blocks.size() - 1);
-                if (candidate.page() != start.page() || ALGORITHM.matcher(candidate.text()).matches()
-                        || candidate.role() == DocumentBlockRole.HEADING
-                        || candidate.role() == DocumentBlockRole.CAPTION
-                        || candidate.role() == DocumentBlockRole.FIGURE
-                        || candidate.role() == DocumentBlockRole.TABLE
-                        || !compatibleLane(start, candidate)
-                        || verticalGap(previous.bbox(), candidate.bbox()) > .045
-                        || candidate.bbox().bottom() - start.bbox().y() > .40) break;
-                blocks.add(candidate);
-            }
-            consumed.addAll(blocks.stream().map(DocumentBlock::id).toList());
-            result.add(unit("algorithm:" + matcher.group(2) + ":p" + start.page(),
-                    PaperSourceUnit.Kind.ALGORITHM, matcher.group(1) + " " + matcher.group(2), blocks));
+            if (!matcher.matches() || ALGORITHM_NARRATIVE.matcher(start.text()).matches()) continue;
+            List<DocumentBlock> blocks = algorithmBlocks(ordered, index, start, matcher.group(2));
+            PaperSourceUnit candidate = unit("algorithm:" + matcher.group(2) + ":p" + start.page(),
+                    PaperSourceUnit.Kind.ALGORITHM, matcher.group(1) + " " + matcher.group(2), blocks);
+            if (!isAlgorithmSource(candidate)) continue;
+            distinct.merge(candidate.id(), candidate, this::strongerAlgorithmSource);
         }
+        List<PaperSourceUnit> result = new ArrayList<>(distinct.values());
         List<PaperSourceUnit> starts = List.copyOf(result);
         for (PaperSourceUnit algorithm : starts) {
             DocumentBlock tail = algorithm.blocks().get(algorithm.blocks().size() - 1);
@@ -203,6 +197,85 @@ public class PaperSourceUnitBuilder {
             }
         }
         return result;
+    }
+
+    private List<DocumentBlock> algorithmBlocks(List<DocumentBlock> ordered,
+                                                int startIndex,
+                                                DocumentBlock start,
+                                                String number) {
+        List<DocumentBlock> nearby = new ArrayList<>();
+        nearby.add(start);
+        for (int next = startIndex + 1; next < ordered.size() && nearby.size() < 32; next++) {
+            DocumentBlock candidate = ordered.get(next);
+            if (candidate.page() != start.page()
+                    || candidate.bbox().bottom() - start.bbox().y() > .45) break;
+            Matcher nextAlgorithm = ALGORITHM.matcher(candidate.text());
+            if (nextAlgorithm.matches()) {
+                if (!nextAlgorithm.group(2).equalsIgnoreCase(number)
+                        || !ALGORITHM_NARRATIVE.matcher(candidate.text()).matches()) break;
+                continue;
+            }
+            nearby.add(candidate);
+        }
+
+        DocumentLayoutLane contentLane = nearby.stream()
+                .filter(block -> proceduralSignalCount(block.text()) > 0)
+                .map(DocumentBlock::layoutLane)
+                .filter(lane -> lane == DocumentLayoutLane.LEFT || lane == DocumentLayoutLane.RIGHT)
+                .collect(java.util.stream.Collectors.groupingBy(lane -> lane,
+                        LinkedHashMap::new, java.util.stream.Collectors.counting()))
+                .entrySet().stream().max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey).orElse(start.layoutLane());
+
+        List<DocumentBlock> result = new ArrayList<>();
+        result.add(start);
+        for (DocumentBlock candidate : nearby.subList(1, nearby.size())) {
+            if (!compatibleWithLane(contentLane, candidate.layoutLane())) continue;
+            boolean titleContinuation = candidate.role() == DocumentBlockRole.HEADING
+                    && result.size() == 1
+                    && verticalGap(start.bbox(), candidate.bbox()) <= .025;
+            if (candidate.role() == DocumentBlockRole.HEADING
+                    && proceduralSignalCount(candidate.text()) == 0 && !titleContinuation
+                    || candidate.role() == DocumentBlockRole.CAPTION
+                    || candidate.role() == DocumentBlockRole.FIGURE
+                    || candidate.role() == DocumentBlockRole.TABLE) break;
+            if (!result.isEmpty()
+                    && verticalGap(result.get(result.size() - 1).bbox(), candidate.bbox()) > .06) break;
+            result.add(candidate);
+        }
+        return List.copyOf(result);
+    }
+
+    private boolean compatibleWithLane(DocumentLayoutLane lane, DocumentLayoutLane candidate) {
+        return lane == candidate || lane == DocumentLayoutLane.FULL
+                || lane == DocumentLayoutLane.SINGLE || lane == DocumentLayoutLane.UNKNOWN
+                || candidate == DocumentLayoutLane.FULL || candidate == DocumentLayoutLane.SINGLE
+                || candidate == DocumentLayoutLane.UNKNOWN;
+    }
+
+    private boolean isAlgorithmSource(PaperSourceUnit unit) {
+        int signals = proceduralSignalCount(unit.text());
+        boolean narrativeHeader = ALGORITHM_NARRATIVE.matcher(unit.blocks().get(0).text()).matches();
+        boolean captionStyleTitle = ALGORITHM_TITLE.matcher(unit.blocks().get(0).text()).matches();
+        return captionStyleTitle || signals >= 2 || signals >= 1 && !narrativeHeader
+                && (unit.blocks().size() >= 2 || unit.text().length() >= 60);
+    }
+
+    private PaperSourceUnit strongerAlgorithmSource(PaperSourceUnit first, PaperSourceUnit second) {
+        return algorithmSourceScore(second) > algorithmSourceScore(first) ? second : first;
+    }
+
+    private int algorithmSourceScore(PaperSourceUnit unit) {
+        return proceduralSignalCount(unit.text()) * 4
+                + Math.min(8, unit.blocks().size())
+                + Math.min(4, unit.text().length() / 80);
+    }
+
+    private int proceduralSignalCount(String text) {
+        Matcher matcher = PROCEDURAL_SIGNAL.matcher(text);
+        int count = 0;
+        while (matcher.find() && count < 8) count++;
+        return count;
     }
 
     private List<DocumentBlock> pageTopAlgorithmBlocks(List<DocumentBlock> ordered,
@@ -232,9 +305,10 @@ public class PaperSourceUnitBuilder {
     }
 
     private List<PaperSourceUnit> visuals(List<DocumentBlock> ordered) {
-        List<PaperSourceUnit> result = new ArrayList<>();
+        Map<String, PaperSourceUnit> distinct = new LinkedHashMap<>();
         for (int index = 0; index < ordered.size(); index++) {
             DocumentBlock caption = ordered.get(index);
+            if (VISUAL_REFERENCE.matcher(caption.text()).matches()) continue;
             Matcher matcher = CAPTION.matcher(caption.text());
             if (!matcher.matches()) continue;
             PaperSourceUnit.Kind kind = matcher.group(1).toLowerCase(Locale.ROOT).startsWith("table")
@@ -246,11 +320,31 @@ public class PaperSourceUnitBuilder {
             blocks.add(caption);
             adjacentExplanation(ordered, index, caption).ifPresent(blocks::add);
             blocks = blocks.stream().distinct().sorted(Comparator.comparingInt(DocumentBlock::readingOrder)).toList();
-            result.add(unit(kind.name().toLowerCase(Locale.ROOT) + ":" + matcher.group(2)
-                    + ":p" + caption.page(), kind,
-                    matcher.group(1) + " " + matcher.group(2), blocks));
+            PaperSourceUnit candidate = unit(kind.name().toLowerCase(Locale.ROOT) + ":" + matcher.group(2)
+                            + ":p" + caption.page(), kind,
+                    matcher.group(1) + " " + matcher.group(2), blocks);
+            String visualKey = kind == PaperSourceUnit.Kind.FIGURE
+                    ? kind.name() + ":" + matcher.group(2).toLowerCase(Locale.ROOT)
+                    : candidate.id();
+            distinct.merge(visualKey, candidate, this::strongerVisualSource);
         }
-        return result;
+        return List.copyOf(distinct.values());
+    }
+
+    private PaperSourceUnit strongerVisualSource(PaperSourceUnit first, PaperSourceUnit second) {
+        return visualSourceScore(second) > visualSourceScore(first) ? second : first;
+    }
+
+    private int visualSourceScore(PaperSourceUnit unit) {
+        DocumentBlock caption = unit.blocks().stream()
+                .filter(block -> CAPTION.matcher(block.text()).matches())
+                .findFirst().orElse(unit.blocks().get(0));
+        int score = caption.role() == DocumentBlockRole.CAPTION ? 4 : 0;
+        score += (int) unit.blocks().stream()
+                .filter(block -> block.role() == DocumentBlockRole.FIGURE
+                        || block.role() == DocumentBlockRole.TABLE).count() * 3;
+        return score + Math.min(3, unit.blocks().size())
+                + Math.min(2, caption.text().length() / 80);
     }
 
     private java.util.Optional<DocumentBlock> nearestVisual(List<DocumentBlock> ordered,

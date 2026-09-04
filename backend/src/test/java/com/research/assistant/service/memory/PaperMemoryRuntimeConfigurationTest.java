@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PaperMemoryRuntimeConfigurationTest {
 
     @Test
-    void applicationDefaultsKeepTheAdaptiveChunkerOnTheLargeChunkPath() throws Exception {
+    void applicationDefaultsKeepTheWholePaperSourceWithinTransportBounds() throws Exception {
         MutablePropertySources sources = new MutablePropertySources();
         new YamlPropertySourceLoader()
                 .load("application", new ClassPathResource("application.yml"))
@@ -19,10 +19,6 @@ class PaperMemoryRuntimeConfigurationTest {
         PropertySourcesPropertyResolver properties = new PropertySourcesPropertyResolver(sources);
 
         assertThat(properties.getProperty(
-                "app.paper-memory.chunk-target-chars", Integer.class)).isEqualTo(24_000);
-        assertThat(properties.getProperty(
-                "app.paper-memory.chunk-max-chars", Integer.class)).isEqualTo(36_000);
-        assertThat(properties.getProperty(
-                "app.paper-memory.single-pass-max-chars", Integer.class)).isEqualTo(80_000);
+                "app.paper-memory.source-max-chars", Integer.class)).isEqualTo(36_000);
     }
 }

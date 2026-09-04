@@ -17,38 +17,25 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
-/** Builds stable paper text with provenance markers. The active understanding
- * path uses {@link #wholePaper(PaperStructure, PaperLayoutArtifact)}; the
- * legacy bounded chunk method remains only for source compatibility while the
- * old map-reduce callers are removed. */
+/** Builds one stable, ordered paper source envelope with provenance markers.
+ * It is not a model chunker: the active understanding path sends this source
+ * together with the page images in one request. */
 @Component
 public class PaperMemoryChunker {
 
     public static final String VERSION = "whole-paper-input-v1";
 
-    private final int targetCharacters;
     private final int maxCharacters;
-    private final int singlePassCharacters;
 
     @Autowired
     public PaperMemoryChunker(
-            @Value("${app.paper-memory.chunk-target-chars:24000}") int targetCharacters,
-            @Value("${app.paper-memory.chunk-max-chars:36000}") int maxCharacters,
-            @Value("${app.paper-memory.single-pass-max-chars:80000}") int singlePassCharacters) {
-        this.targetCharacters = Math.max(1_000, targetCharacters);
-        this.maxCharacters = Math.max(this.targetCharacters, maxCharacters);
-        this.singlePassCharacters = Math.max(this.maxCharacters, singlePassCharacters);
+            @Value("${app.paper-memory.source-max-chars:36000}") int maxCharacters) {
+        this.maxCharacters = Math.max(1_000, maxCharacters);
     }
 
-    PaperMemoryChunker(int targetCharacters, int maxCharacters) {
-        this(targetCharacters, maxCharacters, maxCharacters);
-    }
-
-    /**
-     * Creates exactly one ordered representation of the complete scientific
-     * content. This intentionally ignores the old character budgets: those
-     * budgets were the source of the multi-call map-reduce behaviour.
-     */
+    /** Creates exactly one ordered representation of the complete scientific
+     * content. The character limit only prevents a single unusually large
+     * block from creating an unbounded transport string. */
     public PaperMemoryChunk wholePaper(PaperStructure structure,
                                        PaperLayoutArtifact artifact) {
         if (structure == null || artifact == null) {
@@ -74,73 +61,6 @@ public class PaperMemoryChunker {
                 "whole-paper", List.of(),
                 draft.pageStart == Integer.MAX_VALUE ? 0 : draft.pageStart,
                 draft.pageEnd, List.copyOf(draft.blockIds), text);
-    }
-
-    public List<PaperMemoryChunk> chunk(PaperStructure structure, PaperLayoutArtifact artifact) {
-        if (structure == null || artifact == null) {
-            throw new IllegalArgumentException("论文结构与版面制品不能为空");
-        }
-        Map<String, DocumentBlock> blocks = new LinkedHashMap<>();
-        artifact.blocks().stream()
-                .sorted(Comparator.comparingInt(DocumentBlock::readingOrder))
-                .forEach(block -> blocks.put(block.id(), block));
-        Map<String, PaperStructure.Section> sectionByBlock = sectionIndex(structure.sections());
-
-        List<ChunkDraft> drafts = new ArrayList<>();
-        ChunkDraft current = null;
-        for (String blockId : structure.readingOrder()) {
-            DocumentBlock block = blocks.get(blockId);
-            if (block == null || skip(block)) continue;
-            PaperStructure.Section section = sectionByBlock.get(block.id());
-            String sectionId = section == null ? "unassigned" : section.id();
-            List<String> headingPath = section == null
-                    ? block.sectionPath() : section.path();
-            List<String> segments = renderSegments(block);
-            for (String segment : segments) {
-                boolean sectionChanged = current != null && !current.sectionId.equals(sectionId);
-                boolean wouldOverflow = current != null
-                        && current.characterCount() + segment.length() + 1 > maxCharacters;
-                boolean targetReached = current != null && current.characterCount() >= targetCharacters;
-                boolean shouldSplitAtSection = sectionChanged && targetReached;
-                if (current == null || wouldOverflow || shouldSplitAtSection) {
-                    current = new ChunkDraft(sectionId, headingPath);
-                    drafts.add(current);
-                }
-                current.add(block, segment);
-            }
-        }
-
-        if (totalCharacters(drafts) <= singlePassCharacters && drafts.size() > 1) {
-            ChunkDraft combined = new ChunkDraft("whole-paper", List.of());
-            drafts.forEach(combined::add);
-            drafts = new ArrayList<>(List.of(combined));
-        }
-
-        List<PaperMemoryChunk> result = new ArrayList<>();
-        for (int index = 0; index < drafts.size(); index++) {
-            ChunkDraft draft = drafts.get(index);
-            String text = draft.text.toString().strip();
-            String fingerprint = fingerprint(structure, draft, text);
-            result.add(new PaperMemoryChunk(
-                    "pmc-" + fingerprint.substring(0, 16),
-                    fingerprint,
-                    index + 1,
-                    draft.sectionId,
-                    draft.headingPath,
-                    draft.pageStart == Integer.MAX_VALUE ? 0 : draft.pageStart,
-                    draft.pageEnd,
-                    List.copyOf(draft.blockIds),
-                    text));
-        }
-        return List.copyOf(result);
-    }
-
-    private Map<String, PaperStructure.Section> sectionIndex(List<PaperStructure.Section> sections) {
-        Map<String, PaperStructure.Section> result = new LinkedHashMap<>();
-        for (PaperStructure.Section section : sections) {
-            for (String blockId : section.blockIds()) result.put(blockId, section);
-        }
-        return result;
     }
 
     private boolean skip(DocumentBlock block) {
@@ -188,11 +108,6 @@ public class PaperMemoryChunker {
         return "";
     }
 
-    private int totalCharacters(List<ChunkDraft> drafts) {
-        return drafts.stream().mapToInt(ChunkDraft::characterCount).sum()
-                + Math.max(0, drafts.size() - 1);
-    }
-
     private String fingerprint(PaperStructure structure, ChunkDraft draft, String text) {
         String source = VERSION + "\n" + structure.source().documentHash() + "\n"
                 + structure.source().layoutParserVersion() + "\n" + draft.sectionId + "\n"
@@ -229,17 +144,5 @@ public class PaperMemoryChunker {
             pageEnd = Math.max(pageEnd, block.page());
         }
 
-        private void add(ChunkDraft draft) {
-            if (draft == null || draft.text.isEmpty()) return;
-            if (text.length() > 0) text.append('\n');
-            text.append(draft.text);
-            blockIds.addAll(draft.blockIds);
-            pageStart = Math.min(pageStart, draft.pageStart);
-            pageEnd = Math.max(pageEnd, draft.pageEnd);
-        }
-
-        private int characterCount() {
-            return text.length();
-        }
     }
 }

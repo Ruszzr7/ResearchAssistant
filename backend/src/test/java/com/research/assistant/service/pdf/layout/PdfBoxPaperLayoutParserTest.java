@@ -32,7 +32,7 @@ class PdfBoxPaperLayoutParserTest {
 
         assertThat(artifact.paperId()).isEqualTo(42L);
         assertThat(artifact.documentHash()).matches("[0-9a-f]{64}");
-        assertThat(artifact.parserVersion()).isEqualTo("pdfbox-layout-v4");
+        assertThat(artifact.parserVersion()).isEqualTo("pdfbox-layout-v6");
         assertThat(artifact.pageCount()).isEqualTo(1);
         assertThat(artifact.layoutConfidence()).isGreaterThanOrEqualTo(0.85);
         assertThat(artifact.blocks()).isNotEmpty();
@@ -108,6 +108,27 @@ class PdfBoxPaperLayoutParserTest {
     }
 
     @Test
+    void shouldReuseDocumentGutterOnSparseTransitionPage() throws Exception {
+        File pdf = createSparseTransitionPagePdf(tempDir.resolve("sparse-transition.pdf"));
+
+        PaperLayoutArtifact artifact = parser.parse(9L, pdf);
+        List<DocumentBlock> lastPage = artifact.blocks().stream()
+                .filter(block -> block.page() == 3)
+                .toList();
+
+        assertThat(lastPage).noneMatch(block ->
+                block.text().contains("Left continuation") && block.text().contains("[17] J. Author"));
+        assertThat(lastPage).anySatisfy(block -> {
+            assertThat(block.text()).contains("Left continuation");
+            assertThat(block.layoutLane()).isEqualTo(DocumentLayoutLane.LEFT);
+        });
+        assertThat(lastPage).anySatisfy(block -> {
+            assertThat(block.text()).contains("[17] J. Author");
+            assertThat(block.layoutLane()).isEqualTo(DocumentLayoutLane.RIGHT);
+        });
+    }
+
+    @Test
     void shouldSanityCheckConfiguredRealPaperSample() {
         String samplePath = System.getenv("RA_LAYOUT_SAMPLE");
         assumeTrue(samplePath != null && !samplePath.isBlank(),
@@ -178,6 +199,36 @@ class PdfBoxPaperLayoutParserTest {
                 artifact.parserVersion());
     }
 
+    @Test
+    void shouldKeepPaper195ColumnsSeparated() {
+        String samplePath = System.getenv("RA_LAYOUT_SAMPLE_195");
+        assumeTrue(samplePath != null && !samplePath.isBlank(),
+                "Set RA_LAYOUT_SAMPLE_195 to run the paper-195 regression check");
+        File sample = new File(samplePath);
+        assumeTrue(sample.isFile(), "Configured paper-195 sample does not exist");
+
+        PaperLayoutArtifact artifact = parser.parse(195L, sample);
+        LayoutQualityReport quality = new PaperLayoutQualityAssessor().assess(artifact);
+
+        assertThat(quality.readingOrderScore()).isEqualTo(1.0);
+        assertThat(quality.fallbackRecommended()).isFalse();
+        assertThat(artifact.blocks().stream()
+                .filter(block -> block.page() == 14)
+                .filter(block -> block.text().contains("which in turn is approximated by")
+                        && block.text().contains("[17]"))
+                .toList()).isEmpty();
+        assertThat(artifact.blocks().stream()
+                .filter(block -> block.page() == 14)
+                .filter(block -> block.text().contains("which in turn is approximated by"))
+                .toList()).allSatisfy(block ->
+                assertThat(block.layoutLane()).isEqualTo(DocumentLayoutLane.LEFT));
+        assertThat(artifact.blocks().stream()
+                .filter(block -> block.page() == 14)
+                .filter(block -> block.text().contains("[17] J. Zhang"))
+                .toList()).allSatisfy(block ->
+                assertThat(block.layoutLane()).isEqualTo(DocumentLayoutLane.RIGHT));
+    }
+
     private File createDoubleColumnPdf(Path path) throws Exception {
         try (PDDocument document = new PDDocument()) {
             PDPage page = new PDPage(PDRectangle.LETTER);
@@ -235,6 +286,35 @@ class PdfBoxPaperLayoutParserTest {
                 writeLine(content, "Left column lower line one", 50, 580, 10);
                 writeLine(content, "Right column lower line two", 330, 560, 10);
                 writeLine(content, "Left column lower line two", 50, 560, 10);
+            }
+            document.save(path.toFile());
+        }
+        return path.toFile();
+    }
+
+    private File createSparseTransitionPagePdf(Path path) throws Exception {
+        try (PDDocument document = new PDDocument()) {
+            for (int pageNumber = 1; pageNumber <= 3; pageNumber++) {
+                PDPage page = new PDPage(PDRectangle.LETTER);
+                document.addPage(page);
+                try (PDPageContentStream content = new PDPageContentStream(document, page)) {
+                    if (pageNumber < 3) {
+                        for (int line = 0; line < 5; line++) {
+                            float y = 700 - line * 20;
+                            writeLine(content, "Left column establishes document gutter " + line,
+                                    50, y, 10);
+                            writeLine(content, "Right column establishes document gutter " + line,
+                                    330, y, 10);
+                        }
+                    } else {
+                        writeLine(content, "Left continuation", 50, 700, 10);
+                        writeLine(content, "[17] J. Author, Reference entry", 330, 700, 10);
+                        writeLine(content, "Left equation tail", 50, 680, 10);
+                        writeLine(content, "reference continuation one", 330, 680, 10);
+                        writeLine(content, "Left final line", 50, 660, 10);
+                        writeLine(content, "reference continuation two", 330, 660, 10);
+                    }
+                }
             }
             document.save(path.toFile());
         }

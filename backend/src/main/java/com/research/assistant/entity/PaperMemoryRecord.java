@@ -24,6 +24,8 @@ public class PaperMemoryRecord {
     private String chunkSummariesJson;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String profileJson;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String layoutRecoveryJson;
     private String memoryQualityJson;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String profileQualityJson;
@@ -66,6 +68,8 @@ public class PaperMemoryRecord {
     public void setChunkSummariesJson(String chunkSummariesJson) { this.chunkSummariesJson = chunkSummariesJson; }
     public String getProfileJson() { return profileJson; }
     public void setProfileJson(String profileJson) { this.profileJson = profileJson; }
+    public String getLayoutRecoveryJson() { return layoutRecoveryJson; }
+    public void setLayoutRecoveryJson(String layoutRecoveryJson) { this.layoutRecoveryJson = layoutRecoveryJson; }
     public String getMemoryQualityJson() { return memoryQualityJson; }
     public void setMemoryQualityJson(String memoryQualityJson) { this.memoryQualityJson = memoryQualityJson; }
     public String getProfileQualityJson() { return profileQualityJson; }

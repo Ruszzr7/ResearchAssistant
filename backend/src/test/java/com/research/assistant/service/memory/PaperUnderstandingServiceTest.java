@@ -82,9 +82,8 @@ class PaperUnderstandingServiceTest {
         assertThat(result.promptTokens()).isEqualTo(500);
         assertThat(result.completionTokens()).isEqualTo(180);
         assertThat(result.profile()).isEqualTo(profile);
+        assertThat(record.getLayoutRecoveryJson()).isNull();
         verify(modelService).understandWhole(any(PaperStructure.class), any(PaperLayoutArtifact.class));
-        verify(modelService, never()).summarize(any());
-        verify(modelService, never()).profile(any(), any(), any(Integer.class), any(Integer.class));
     }
 
     @Test
@@ -121,8 +120,6 @@ class PaperUnderstandingServiceTest {
             assertThat(summary.finishReason()).isEqualTo("LENGTH");
         });
         verify(modelService).understandWhole(any(PaperStructure.class), any(PaperLayoutArtifact.class));
-        verify(modelService, never()).summarize(any());
-        verify(modelService, never()).profile(any(), any(), any(Integer.class), any(Integer.class));
     }
 
     private PaperMemoryRecord record() {

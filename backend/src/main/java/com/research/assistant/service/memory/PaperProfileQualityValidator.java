@@ -37,10 +37,6 @@ public class PaperProfileQualityValidator {
         if (profile.coreContributions().isEmpty()) issues.add("CORE_CONTRIBUTIONS_MISSING");
         if (profile.keyFindings().isEmpty()) issues.add("KEY_FINDINGS_MISSING");
         if (!profile.coverage().complete()) issues.add("PROFILE_COVERAGE_INCOMPLETE");
-        if (profile.qualityIssues().contains("PROFILE_INPUT_TRUNCATED")) {
-            issues.add("PROFILE_INPUT_TRUNCATED");
-        }
-
         Set<String> validBlockIds = new LinkedHashSet<>(structure.readingOrder());
         structure.pages().forEach(page -> validBlockIds.addAll(page.blockIds()));
         int invalidEvidence = 0;

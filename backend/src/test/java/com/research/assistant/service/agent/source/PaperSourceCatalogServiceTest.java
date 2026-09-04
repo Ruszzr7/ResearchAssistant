@@ -8,6 +8,10 @@ import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifactService;
 import com.research.assistant.service.pdf.layout.PaperSourceIndexService;
+import com.research.assistant.service.pdf.layout.PaperSemanticSpanBuilder;
+import com.research.assistant.service.memory.LayoutUncertainRegion;
+import com.research.assistant.service.memory.PaperLayoutRecovery;
+import com.research.assistant.service.memory.PaperLayoutRecoveryStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -17,6 +21,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class PaperSourceCatalogServiceTest {
 
@@ -121,6 +126,73 @@ class PaperSourceCatalogServiceTest {
         assertThat(service.readPages(catalog, 2, 2, 10_000))
                 .extracting(SourceObject::sourceObjectId)
                 .contains(continuation.sourceObjectId());
+    }
+
+    @Test
+    void searchesRecoveredContentAndKeepsOriginalRegionLocator() {
+        PaperLayoutArtifactService artifacts = mock(PaperLayoutArtifactService.class);
+        PaperLayoutRecoveryStore recoveries = mock(PaperLayoutRecoveryStore.class);
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(7L, "a".repeat(64), "parser-v1", .8,
+                Instant.now(), 1, List.of(new DocumentBlock("broken", 1,
+                box(.2, .3, .5, .08), DocumentBlockRole.FORMULA, 1, List.of("Method"),
+                "x ? y", null, null, .5)));
+        when(recoveries.read(artifact)).thenReturn(List.of(new PaperLayoutRecovery(
+                "lr-p1-001", "CORRECTED", "VISUAL_CONTENT", List.of("broken"),
+                List.of(new LayoutUncertainRegion.PageArea(1, List.of(box(.2, .3, .5, .08)))),
+                "z equals alpha plus beta", "FORMULA", "VISUAL_RECOVERY")));
+        PaperSourceCatalogService recoveredService = new PaperSourceCatalogService(
+                artifacts, new PaperSourceIndexService(), new PaperSemanticSpanBuilder(), recoveries);
+
+        PaperSourceCatalog catalog = recoveredService.build(artifact);
+        RetrievalHit hit = recoveredService.search(catalog,
+                new PaperSearchRequest("alpha plus beta", Set.of(SourceContentType.FORMULA), 1, 1, 5))
+                .get(0);
+
+        assertThat(catalog.requireObject(hit.sourceObjectId()).provenance().get("source"))
+                .isEqualTo("VISUAL_RECOVERY");
+        assertThat(catalog.requireLocators(hit.sourceObjectId())).singleElement().satisfies(locator -> {
+            assertThat(locator.pageNumber()).isEqualTo(1);
+            assertThat(locator.rects()).containsExactly(box(.2, .3, .5, .08));
+        });
+    }
+
+    @Test
+    void keepsUnresolvedFormulaAsSearchableVisualEvidenceWithNeighbouringContext() {
+        PaperLayoutArtifactService artifacts = mock(PaperLayoutArtifactService.class);
+        PaperLayoutRecoveryStore recoveries = mock(PaperLayoutRecoveryStore.class);
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(7L, "a".repeat(64), "parser-v1", .8,
+                Instant.now(), 1, List.of(
+                new DocumentBlock("before", 1, box(.1, .20, .8, .04), DocumentBlockRole.BODY,
+                        1, List.of("Method"), "We define the optimization objective.", null, null, .98),
+                new DocumentBlock("broken", 1, box(.2, .30, .5, .08), DocumentBlockRole.FORMULA,
+                        2, List.of("Method"), "x ? y (7)", null, null, .5),
+                new DocumentBlock("after", 1, box(.1, .42, .8, .04), DocumentBlockRole.BODY,
+                        3, List.of("Method"), "The constraint guarantees feasibility.", null, null, .98)));
+        when(recoveries.read(artifact)).thenReturn(List.of(new PaperLayoutRecovery(
+                "lr-p1-001", "UNRESOLVED", "VISUAL_CONTENT", List.of("broken"),
+                List.of(new LayoutUncertainRegion.PageArea(1, List.of(box(.2, .3, .5, .08)))),
+                "", "TEXT", "VISUAL_RECOVERY")));
+        PaperSourceCatalogService recoveredService = new PaperSourceCatalogService(
+                artifacts, new PaperSourceIndexService(), new PaperSemanticSpanBuilder(), recoveries);
+
+        PaperSourceCatalog catalog = recoveredService.build(artifact);
+        SourceObject source = catalog.objects().values().stream()
+                .filter(object -> "lr-p1-001".equals(object.provenance().get("recoveryRegionId")))
+                .findFirst().orElseThrow();
+        RetrievalHit hit = recoveredService.search(catalog,
+                        new PaperSearchRequest("Equation (7)", Set.of(SourceContentType.FORMULA), 1, 1, 5))
+                .stream().filter(candidate -> candidate.sourceObjectId().equals(source.sourceObjectId()))
+                .findFirst().orElseThrow();
+
+        assertThat(source.provenance().get("source")).isEqualTo("VISUAL_FALLBACK");
+        assertThat(source.rawContent()).contains("公式 (7)", "文本提取不可靠",
+                "optimization objective", "guarantees feasibility");
+        assertThat(hit.retrievalRoutes()).contains("FORMULA_NUMBER");
+        assertThat(catalog.requireLocators(source.sourceObjectId())).singleElement()
+                .satisfies(locator -> assertThat(locator.rects())
+                        .containsExactly(box(.2, .3, .5, .08)));
+        assertThat(catalog.objects().values()).anySatisfy(object ->
+                assertThat(object.rawContent()).contains("x ? y (7)"));
     }
 
     private PaperLayoutArtifact artifact() {

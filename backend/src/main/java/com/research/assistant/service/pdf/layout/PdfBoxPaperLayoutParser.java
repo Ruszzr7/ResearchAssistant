@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 @Component
 public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
 
-    static final String VERSION = "pdfbox-layout-v4";
+    static final String VERSION = "pdfbox-layout-v6";
     private static final double EPSILON = 0.0001;
 
     @Override
@@ -48,12 +48,13 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
         try (PDDocument document = Loader.loadPDF(file)) {
             GlyphCollector collector = new GlyphCollector();
             List<PageGlyphs> pages = collector.collect(document);
+            DocumentGutterProfile documentGutter = detectDocumentGutter(pages);
             List<DocumentBlock> blocks = new ArrayList<>();
             List<Double> pageConfidences = new ArrayList<>();
             int readingOrder = 0;
 
             for (PageGlyphs page : pages) {
-                PageLayout pageLayout = buildPageLayout(page);
+                PageLayout pageLayout = buildPageLayout(page, documentGutter);
                 pageConfidences.add(pageLayout.confidence());
                 int pageBlockIndex = 0;
                 for (VisualLine line : pageLayout.orderedLines()) {
@@ -106,13 +107,14 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
         };
     }
 
-    private PageLayout buildPageLayout(PageGlyphs page) {
+    private PageLayout buildPageLayout(PageGlyphs page, DocumentGutterProfile documentGutter) {
         List<Glyph> horizontal = page.glyphs().stream()
                 .filter(glyph -> glyph.orientation() == Orientation.HORIZONTAL)
                 .filter(glyph -> !glyph.text().isBlank())
                 .toList();
         List<RowBand> rows = clusterHorizontalRows(horizontal);
-        Gutter gutter = detectStableGutter(rows, page.width());
+        Gutter gutter = resolvePageGutter(
+                detectStableGutter(rows, page.width()), documentGutter, page.width());
         List<VisualLine> horizontalLines = rows.stream()
                 .flatMap(row -> splitRow(row, gutter, page.width()).stream())
                 .filter(line -> !line.text().isBlank())
@@ -148,6 +150,47 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
             confidence = 0.82;
         }
         return new PageLayout(List.copyOf(withMargins), doubleColumn, confidence);
+    }
+
+    /** Learns the dominant normalized gutter with one vote per page. */
+    private DocumentGutterProfile detectDocumentGutter(List<PageGlyphs> pages) {
+        List<NormalizedGutter> candidates = pages.stream()
+                .map(page -> {
+                    List<Glyph> horizontal = page.glyphs().stream()
+                            .filter(glyph -> glyph.orientation() == Orientation.HORIZONTAL)
+                            .filter(glyph -> !glyph.text().isBlank())
+                            .toList();
+                    Gutter gutter = detectStableGutter(clusterHorizontalRows(horizontal), page.width());
+                    return gutter == null ? null : new NormalizedGutter(
+                            gutter.x() / page.width(), gutter.minimumGap() / page.width());
+                })
+                .filter(candidate -> candidate != null)
+                .toList();
+        if (candidates.size() < 2) return null;
+
+        double center = median(candidates.stream().map(NormalizedGutter::x).toList());
+        List<NormalizedGutter> inliers = candidates.stream()
+                .filter(candidate -> Math.abs(candidate.x() - center) <= 0.045)
+                .toList();
+        if (inliers.size() < 2) return null;
+        return new DocumentGutterProfile(
+                median(inliers.stream().map(NormalizedGutter::x).toList()),
+                median(inliers.stream().map(NormalizedGutter::minimumGap).toList()),
+                inliers.size());
+    }
+
+    private Gutter resolvePageGutter(Gutter local,
+                                     DocumentGutterProfile document,
+                                     double pageWidth) {
+        if (document == null) return local;
+        Gutter dominant = new Gutter(
+                document.x() * pageWidth,
+                document.minimumGap() * pageWidth,
+                document.pageSupport());
+        if (local == null || Math.abs(local.x() / pageWidth - document.x()) > 0.035) {
+            return dominant;
+        }
+        return local;
     }
 
     private List<RowBand> clusterHorizontalRows(List<Glyph> glyphs) {
@@ -288,6 +331,7 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
             boolean pairedNumberedFormulas = containsNumberedFormula(leftLine.text())
                     && containsNumberedFormula(rightLine.text());
             if (rightLeft - leftRight >= gutter.minimumGap()
+                    || hasCenterWhitespaceValley(leftGlyphs, rightGlyphs, pageWidth)
                     || proseBesideNumberedFormula || pairedNumberedFormulas) {
                 return List.of(leftLine, rightLine);
             }
@@ -302,6 +346,29 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
             return List.of(line.withLane(Lane.RIGHT));
         }
         return List.of(line);
+    }
+
+    /**
+     * Uses glyph centers so a tall or wide mathematical symbol may overhang the
+     * gutter without joining two otherwise separate column lines.
+     */
+    private boolean hasCenterWhitespaceValley(List<Glyph> leftGlyphs,
+                                              List<Glyph> rightGlyphs,
+                                              double pageWidth) {
+        double leftCenter = leftGlyphs.stream()
+                .mapToDouble(glyph -> glyph.left() + glyph.width() / 2)
+                .max()
+                .orElse(Double.POSITIVE_INFINITY);
+        double rightCenter = rightGlyphs.stream()
+                .mapToDouble(glyph -> glyph.left() + glyph.width() / 2)
+                .min()
+                .orElse(Double.NEGATIVE_INFINITY);
+        double medianGlyphWidth = median(java.util.stream.Stream.concat(
+                        leftGlyphs.stream(), rightGlyphs.stream())
+                .map(Glyph::width)
+                .toList());
+        double minimumCenterGap = Math.max(pageWidth * 0.009, medianGlyphWidth * 1.6);
+        return rightCenter - leftCenter >= minimumCenterGap;
     }
 
     private boolean numberedFormulaBesideProse(String prose, String formula) {
@@ -394,7 +461,49 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
                 .sorted(Comparator.comparingDouble(VisualLine::top)
                         .thenComparingDouble(VisualLine::left))
                 .forEach(result::add);
+        return stabilizeLanePhases(result);
+    }
+
+    /** Enforces the page-region contract: within two full-width boundaries, read left then right. */
+    private List<VisualLine> stabilizeLanePhases(List<VisualLine> ordered) {
+        List<VisualLine> result = new ArrayList<>(ordered.size());
+        List<VisualLine> region = new ArrayList<>();
+        for (VisualLine line : ordered) {
+            if (line.lane() == Lane.FULL) {
+                appendStableRegion(result, region);
+                result.add(line);
+                region.clear();
+            } else {
+                region.add(line);
+            }
+        }
+        appendStableRegion(result, region);
         return List.copyOf(result);
+    }
+
+    private void appendStableRegion(List<VisualLine> target, List<VisualLine> region) {
+        if (!hasOverlappingLaneInversion(region)) {
+            target.addAll(region);
+            return;
+        }
+        region.stream().filter(line -> line.lane() == Lane.LEFT).forEach(target::add);
+        region.stream().filter(line -> line.lane() == Lane.RIGHT).forEach(target::add);
+        region.stream().filter(line -> line.lane() != Lane.LEFT && line.lane() != Lane.RIGHT)
+                .forEach(target::add);
+    }
+
+    private boolean hasOverlappingLaneInversion(List<VisualLine> region) {
+        VisualLine previous = null;
+        for (VisualLine line : region) {
+            if (line.lane() != Lane.LEFT && line.lane() != Lane.RIGHT) continue;
+            if (previous != null && previous.lane() == Lane.RIGHT && line.lane() == Lane.LEFT) {
+                double tolerance = Math.max(2.0,
+                        Math.min(previous.bottom() - previous.top(), line.bottom() - line.top()) * .5);
+                if (line.top() <= previous.bottom() + tolerance) return true;
+            }
+            previous = line;
+        }
+        return false;
     }
 
     /**
@@ -626,6 +735,12 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
     }
 
     private record Gutter(double x, double minimumGap, int support) {
+    }
+
+    private record NormalizedGutter(double x, double minimumGap) {
+    }
+
+    private record DocumentGutterProfile(double x, double minimumGap, int pageSupport) {
     }
 
     private record PageLayout(List<VisualLine> orderedLines, boolean doubleColumn, double confidence) {

@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -92,10 +93,29 @@ public class PaperSemanticSpanBuilder {
                 || LIST_ITEM.matcher(after).matches()
                 || containsReferenceEntry(after)
                 || FIGURE_REFERENCE_SENTENCE.matcher(after).matches()) return false;
-        if (before.endsWith("-") && !before.endsWith("--")) return true;
+        boolean hyphenatedWord = before.endsWith("-") && !before.endsWith("--")
+                && after.codePoints().findFirst().stream().anyMatch(Character::isLowerCase);
+        if (!proseBoundary(prior, before, hyphenatedWord)
+                || !proseBoundary(current, after, hyphenatedWord)) return false;
+        if (hyphenatedWord) return true;
         int first = after.codePointAt(0);
         return Character.isLowerCase(first) || ",;:)]}".indexOf(first) >= 0
                 || containsCjk(before) && containsCjk(after);
+    }
+
+    /** Rejects page-edge labels, axes and compact formula fragments without naming paper formats. */
+    private boolean proseBoundary(DocumentBlock block, String text, boolean hyphenatedWord) {
+        if (block.mathProfile() != null
+                && block.mathProfile().level() == MathContentLevel.MATH_RICH) return false;
+        long cjk = text.codePoints().filter(codePoint ->
+                Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN).count();
+        if (cjk >= 8) return true;
+        long letters = text.codePoints().filter(Character::isLetter).count();
+        Matcher words = Pattern.compile("[\\p{L}]{2,}").matcher(text);
+        int wordCount = 0;
+        while (words.find() && wordCount < 3) wordCount++;
+        return letters >= (hyphenatedWord ? 8 : 14)
+                && wordCount >= (hyphenatedWord ? 2 : 3);
     }
 
     private boolean containsCjk(String value) {

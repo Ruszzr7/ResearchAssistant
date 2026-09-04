@@ -208,24 +208,29 @@ public class LangChain4jModelFactory {
             var builder = GoogleAiGeminiChatModel.builder()
                     .apiKey(settings.apiKey()).modelName(settings.model())
                     // Document understanding is one deliberate whole-paper call.
-                    // Do not hide a second 180-second provider request behind the
+                    // Do not hide a second provider request behind the bounded
                     // call; the durable task must fail once and report the cause.
-                    .timeout(Duration.ofSeconds(180)).maxRetries(0);
+                    .timeout(Duration.ofSeconds(90)).maxRetries(0);
             if (settings.baseUrl() != null && !settings.baseUrl().isBlank()) builder.baseUrl(settings.baseUrl());
             return builder.build();
         }
         var builder = OpenAiChatModel.builder().baseUrl(settings.baseUrl())
                 .apiKey(settings.apiKey()).modelName(settings.model())
-                .timeout(Duration.ofSeconds(180)).maxRetries(0);
+                .timeout(Duration.ofSeconds(90)).maxRetries(0);
         AiProviderProfile profile = profile(settings);
         if (profile.provider() == com.research.assistant.service.ai.provider.AiProvider.KIMI
-                && "coding".equals(profile.channel())) {
-            // Kimi Coding may spend the whole request deadline on hidden reasoning.
-            // Paper understanding is bounded JSON extraction, so disable that
-            // reasoning path just as we already do for Agent chat turns.
+                && supportsKimiStructuredExtraction(settings.model())) {
+            // Kimi K2.5/K2.6 enables hidden thinking by default. Paper understanding
+            // is bounded JSON extraction, so keep the document call responsive;
+            // Agent chat keeps its independent thinking policy.
             builder.customParameters(java.util.Map.of("thinking", java.util.Map.of("type", "disabled")));
         }
         return builder.build();
+    }
+
+    private boolean supportsKimiStructuredExtraction(String model) {
+        String normalized = model == null ? "" : model.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("kimi-k2.5") || normalized.equals("kimi-k2.6");
     }
 
     private AiProviderProfile profile(AiRoleSettings settings) {

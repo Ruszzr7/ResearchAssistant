@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
-/** Global paper portrait synthesized only from grounded chunk summaries. */
+/** Global paper portrait synthesized from the grounded whole-paper source. */
 public record PaperGlobalProfile(String schemaVersion,
                                  Long paperId,
                                  String title,

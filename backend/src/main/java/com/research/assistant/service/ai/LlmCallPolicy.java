@@ -1,6 +1,12 @@
 package com.research.assistant.service.ai;
 
 import com.research.assistant.dto.LlmResponse;
+import dev.langchain4j.data.message.Content;
+import dev.langchain4j.data.message.ImageContent;
+import dev.langchain4j.data.message.PdfFileContent;
+import dev.langchain4j.data.message.TextContent;
+
+import java.util.List;
 
 /**
  * 单次 LLM 调用的轻量预算策略。
@@ -17,6 +23,9 @@ public record LlmCallPolicy(
         int maxAttempts,
         boolean jsonOutput,
         String reasoningEffort) {
+
+    /** 粗略预留视觉输入预算；具体图片 token 化由 Provider 决定。 */
+    private static final int MULTIMODAL_PART_TOKEN_ESTIMATE = 1_024;
 
     public LlmCallPolicy(String taskType,
                          int maxInputChars,
@@ -72,6 +81,36 @@ public record LlmCallPolicy(
 
     public boolean exceedsInputBudget(String systemPrompt, String userMessage) {
         return estimatePromptTokens(systemPrompt, userMessage) > maxInputTokens;
+    }
+
+    /**
+     * 估算包含文本、图片或文件的实际用户消息。LangChain4j 不暴露 Provider
+     * 的图片 token 计算，因此文本按字符估算，视觉内容按 part 预留固定预算。
+     */
+    public int estimateInputTokens(String systemPrompt, List<? extends Content> userContents) {
+        long textChars = textChars(systemPrompt, userContents);
+        long visualParts = userContents == null ? 0 : userContents.stream()
+                .filter(content -> content instanceof ImageContent || content instanceof PdfFileContent)
+                .count();
+        long estimate = (textChars + 3) / 4
+                + visualParts * MULTIMODAL_PART_TOKEN_ESTIMATE;
+        return estimate >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) estimate;
+    }
+
+    public boolean exceedsInputBudget(String systemPrompt, List<? extends Content> userContents) {
+        return textChars(systemPrompt, userContents) > maxInputChars
+                || estimateInputTokens(systemPrompt, userContents) > maxInputTokens;
+    }
+
+    private long textChars(String systemPrompt, List<? extends Content> userContents) {
+        long chars = systemPrompt == null ? 0 : systemPrompt.length();
+        if (userContents == null) return chars;
+        for (Content content : userContents) {
+            if (content instanceof TextContent textContent && textContent.text() != null) {
+                chars += textContent.text().length();
+            }
+        }
+        return chars;
     }
 
     public boolean exceedsOutputBudget(LlmResponse response) {

@@ -50,6 +50,17 @@ class PaperWholePaperFourPaperModelEvalTest {
                     result.profile().coreContributions().size(), result.profile().keyFindings().size(),
                     result.profile().limitations().size(), result.profile().benchmarkResults().size(),
                     result.profile().qualityIssues());
+            System.out.printf("PAPER_EVAL_RECOVERY paper=%d corrected=%d unresolved=%d details=%s%n",
+                    paperId,
+                    result.recoveries().stream().filter(PaperLayoutRecovery::corrected).count(),
+                    result.recoveries().stream().filter(recovery -> !recovery.corrected()).count(),
+                    result.recoveries().stream().map(recovery -> recovery.regionId() + ":"
+                            + recovery.status() + ":" + recovery.issueType()).toList());
+            System.out.printf("PAPER_EVAL_PROFILE paper=%d problem=%s method=%s contributions=%s findings=%s limitations=%s%n",
+                    paperId, result.profile().researchProblem(), result.profile().methodSummary(),
+                    result.profile().coreContributions().stream().map(PaperMemoryClaim::statement).toList(),
+                    result.profile().keyFindings().stream().map(PaperMemoryClaim::statement).toList(),
+                    result.profile().limitations().stream().map(PaperMemoryClaim::statement).toList());
         }
     }
 

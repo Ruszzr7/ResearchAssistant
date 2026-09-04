@@ -3,7 +3,7 @@ package com.research.assistant.service.memory;
 import java.time.Instant;
 import java.util.List;
 
-/** Persisted semantic summary for one deterministic paper-memory chunk. */
+/** Persisted semantic summary for the one whole-paper understanding result. */
 public record PaperChunkSummary(String chunkId,
                                 String sourceFingerprint,
                                 int ordinal,
@@ -65,7 +65,7 @@ public record PaperChunkSummary(String chunkId,
                 chunk.id(), chunk.sourceFingerprint(), chunk.ordinal(), chunk.sectionId(),
                 chunk.headingPath(), chunk.pageStart(), chunk.pageEnd(), chunk.blockIds(),
                 "", List.of(), List.of(), List.of(), List.of(), List.of(), FAILED,
-                List.of(issue == null || issue.isBlank() ? "CHUNK_SUMMARY_FAILED" : issue),
+                List.of(issue == null || issue.isBlank() ? "WHOLE_PAPER_GENERATION_FAILED" : issue),
                 promptTokens, completionTokens, finishReason, Instant.now());
     }
 

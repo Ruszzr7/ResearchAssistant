@@ -24,13 +24,6 @@ public class DocumentRolePaperMemoryModelClient implements PaperMemoryModelClien
     }
 
     @Override
-    public LlmResponse chat(String systemPrompt, String userMessage, LlmCallPolicy policy) {
-        return chat(systemPrompt,
-                List.of(dev.langchain4j.data.message.TextContent.from(userMessage == null ? "" : userMessage)),
-                policy);
-    }
-
-    @Override
     public LlmResponse chat(String systemPrompt, List<Content> userContents, LlmCallPolicy policy) {
         capabilityService.requireDocumentReady();
         var response = modelFactory.createDocumentModel().chat(ChatRequest.builder()

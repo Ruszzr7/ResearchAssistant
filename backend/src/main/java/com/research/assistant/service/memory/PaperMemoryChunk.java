@@ -2,7 +2,7 @@ package com.research.assistant.service.memory;
 
 import java.util.List;
 
-/** One bounded, section-aware model input with stable layout-block provenance. */
+/** One complete paper source envelope with stable layout-block provenance. */
 public record PaperMemoryChunk(String id,
                                String sourceFingerprint,
                                int ordinal,

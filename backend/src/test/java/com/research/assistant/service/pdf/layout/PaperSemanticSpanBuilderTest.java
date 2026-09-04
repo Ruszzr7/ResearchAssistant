@@ -113,6 +113,18 @@ class PaperSemanticSpanBuilderTest {
         assertThat(spans.get(1).blockIds()).containsExactly("mixed");
     }
 
+    @Test
+    void doesNotJoinCompactMathOrPanelLabelsAcrossPages() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                blockOnPage("math-tail", 1, DocumentBlockRole.BODY, 1,
+                        .55, .90, .38, .025, "d theta = 4 pi / 9"),
+                blockOnPage("panel-head", 2, DocumentBlockRole.BODY, 2,
+                        .08, .08, .40, .025, "a")));
+
+        assertThat(builder.build(artifact)).hasSize(2)
+                .allSatisfy(span -> assertThat(span.blocks()).hasSize(1));
+    }
+
     private PaperLayoutArtifact artifact(List<DocumentBlock> blocks) {
         return new PaperLayoutArtifact(7L, "a".repeat(64), "parser", .9,
                 Instant.parse("2026-01-01T00:00:00Z"), 1, blocks);

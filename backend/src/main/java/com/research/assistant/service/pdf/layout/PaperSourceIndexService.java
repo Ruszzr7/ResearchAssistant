@@ -27,10 +27,12 @@ public class PaperSourceIndexService {
             "(?i).*(?:in|from|using|by|see|shown\\s+in|calculated\\s+by|given\\s+in|"
                     + "equation|eq\\.)\\s*\\(\\d{1,4}[a-z]?\\)\\s*[.,;:]?\\s*$");
     private final PaperSourceUnitBuilder sourceUnitBuilder = new PaperSourceUnitBuilder();
+    private final FormulaContextBuilder formulaContextBuilder = new FormulaContextBuilder();
 
     public PaperSourceIndex build(PaperLayoutArtifact artifact) {
         List<DocumentBlock> ordered = artifact.blocks().stream()
                 .sorted(Comparator.comparingInt(DocumentBlock::readingOrder)).toList();
+        List<FormulaContextBuilder.FormulaContext> formulaContexts = formulaContextBuilder.build(artifact);
         List<SourceAnchor> textAnchors = ordered.stream()
                 .filter(block -> block.contentMode() == DocumentBlockContentMode.TEXT)
                 .map(block -> anchor(artifact, block, SourceAnchor.Kind.TEXT_RANGE,
@@ -44,7 +46,7 @@ public class PaperSourceIndexService {
             while (matcher.find()) {
                 String number = matcher.group(1);
                 if (isDefinition(ordered, block, matcher.start())) {
-                    SourceAnchor definition = formulaAnchor(artifact, ordered, block, number);
+                    SourceAnchor definition = formulaAnchor(artifact, ordered, block, number, formulaContexts);
                     StatementOwner owner = nearestOwner(ordered, statementOwners, block);
                     EquationEntity.Relation relation = owner == null
                             ? EquationEntity.Relation.OTHER
@@ -171,8 +173,17 @@ public class PaperSourceIndexService {
     private SourceAnchor formulaAnchor(PaperLayoutArtifact artifact,
                                        List<DocumentBlock> blocks,
                                        DocumentBlock label,
-                                       String number) {
+                                       String number,
+                                       List<FormulaContextBuilder.FormulaContext> formulaContexts) {
         NormalizedBoundingBox labelBox = formulaLabelBox(label);
+        FormulaContextBuilder.FormulaContext context = formulaContextBuilder
+                .find(formulaContexts, label, number).orElse(null);
+        if (context != null) {
+            NormalizedBoundingBox bbox = padded(context.bbox(), .006);
+            return new SourceAnchor(sourceId(artifact, "equation:" + number), label.page(),
+                    SourceAnchor.Kind.FORMULA_REGION, bbox, List.of(bbox), context.text(),
+                    label.id(), Math.min(label.confidence(), context.confidence()));
+        }
         List<DocumentBlock> components = new ArrayList<>();
         components.add(label);
         blocks.stream()

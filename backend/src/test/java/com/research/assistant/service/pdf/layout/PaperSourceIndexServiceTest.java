@@ -60,6 +60,29 @@ class PaperSourceIndexServiceTest {
     }
 
     @Test
+    void formulaAnchorUsesTheCompleteNumberedDisplayContext() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                new DocumentBlock("line-1", 5, new NormalizedBoundingBox(.58, .30, .32, .02),
+                        DocumentBlockRole.FORMULA, 10, List.of("Model"),
+                        "a = b +", null, null, .88, DocumentBlockContentMode.REGION,
+                        null, DocumentLayoutLane.RIGHT),
+                new DocumentBlock("line-2", 5, new NormalizedBoundingBox(.60, .35, .28, .02),
+                        DocumentBlockRole.FORMULA, 11, List.of("Model"),
+                        "c - d +", null, null, .88, DocumentBlockContentMode.REGION,
+                        null, DocumentLayoutLane.RIGHT),
+                new DocumentBlock("line-3", 5, new NormalizedBoundingBox(.58, .41, .32, .02),
+                        DocumentBlockRole.FORMULA, 12, List.of("Model"),
+                        "e = f. (10)", null, null, .88, DocumentBlockContentMode.REGION,
+                        null, DocumentLayoutLane.RIGHT)));
+
+        SourceAnchor anchor = service.build(artifact).equations().get(0).definition();
+
+        assertThat(anchor.targetText()).contains("a = b +", "c - d +", "e = f. (10)");
+        assertThat(anchor.bbox().y()).isLessThan(.30);
+        assertThat(anchor.bbox().bottom()).isGreaterThan(.43);
+    }
+
+    @Test
     void formulaAnchorIncludesMathDenseBodyFragmentsButExcludesFollowingProse() {
         MathContentProfile math = new MathContentProfile(
                 MathContentLevel.LIGHT, .35, 2, List.of(), "test");
@@ -204,6 +227,58 @@ class PaperSourceIndexServiceTest {
         assertThat(figure.boxes()).hasSize(3);
         assertThat(table.blocks()).extracting(DocumentBlock::id)
                 .containsExactly("table", "table-caption", "table-explanation");
+    }
+
+    @Test
+    void prefersProceduralAlgorithmObjectOverNarrativeMentionWithSameLabel() {
+        List<DocumentBlock> blocks = List.of(
+                block("mention", 3, 1, DocumentBlockRole.BODY,
+                        "Algorithm 1 is discussed in the following section."),
+                block("algorithm", 3, 2, DocumentBlockRole.BODY,
+                        "Algorithm 1 Iterative allocation"),
+                block("step1", 3, 3, DocumentBlockRole.BODY,
+                        "1. Initialize the power vector."),
+                block("step2", 3, 4, DocumentBlockRole.BODY,
+                        "2. Update the common stream."));
+
+        List<PaperSourceUnit> algorithms = service.build(artifact(blocks)).sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.ALGORITHM).toList();
+
+        assertThat(algorithms).singleElement().satisfies(unit ->
+                assertThat(unit.blocks()).extracting(DocumentBlock::id)
+                        .containsExactly("algorithm", "step1", "step2"));
+    }
+
+    @Test
+    void recognizesCaptionWithoutPunctuationButRejectsNarrativeReference() {
+        List<DocumentBlock> blocks = List.of(
+                block("caption", 4, 1, DocumentBlockRole.CAPTION,
+                        "Fig. 7 Two-user achievable rate region"),
+                block("reference", 4, 2, DocumentBlockRole.BODY,
+                        "Fig. 7 shows the achievable rate of both users."));
+
+        List<PaperSourceUnit> figures = service.build(artifact(blocks)).sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.FIGURE).toList();
+
+        assertThat(figures).singleElement().satisfies(unit -> {
+            assertThat(unit.label()).isEqualTo("Fig. 7");
+            assertThat(unit.blocks()).extracting(DocumentBlock::id)
+                    .containsExactly("caption", "reference");
+        });
+    }
+
+    @Test
+    void keepsCaptionStyleAlgorithmTitleWhenBodyIsGraphical() {
+        PaperSourceUnit algorithm = service.build(artifact(List.of(
+                        block("algorithm-title", 3, 1, DocumentBlockRole.CAPTION,
+                                "Algorithm 4: One-dimensional SCA."))))
+                .sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.ALGORITHM)
+                .findFirst().orElseThrow();
+
+        assertThat(algorithm.label()).isEqualTo("Algorithm 4");
+        assertThat(algorithm.blocks()).extracting(DocumentBlock::id)
+                .containsExactly("algorithm-title");
     }
 
     @Test

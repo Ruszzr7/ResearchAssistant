@@ -5,6 +5,7 @@ import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.agent.capability.AiCapabilityService;
 import com.research.assistant.service.pdf.layout.DocumentBlock;
 import com.research.assistant.service.pdf.layout.DocumentBlockRole;
+import com.research.assistant.service.pdf.layout.DocumentBlockContentMode;
 import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
 import com.research.assistant.service.pdf.layout.PaperPdfFileResolver;
@@ -55,8 +56,9 @@ class PaperWholeDocumentInputBuilderTest {
         assertThat(input.mode()).isEqualTo("page-images");
         assertThat(input.pageCount()).isEqualTo(2);
         assertThat(input.imageCount()).isEqualTo(2);
+        assertThat(input.recoveryImageCount()).isEqualTo(1);
         assertThat(input.contents()).anyMatch(content -> content instanceof ImageContent);
-        assertThat(input.contents().stream().filter(content -> content instanceof ImageContent)).hasSize(2);
+        assertThat(input.contents().stream().filter(content -> content instanceof ImageContent)).hasSize(3);
         assertThat(input.contents()).noneMatch(content -> content instanceof PdfFileContent);
         assertThat(input.contents().stream().map(Content::toString).toList())
                 .anyMatch(value -> value.contains("p1-s0000") && value.contains("first page"));
@@ -65,6 +67,9 @@ class PaperWholeDocumentInputBuilderTest {
                         && value.contains("no-evidence-id") && value.contains("Figure 1"));
         assertThat(input.spanBlockIds()).containsEntry("p1-s0000", List.of("b1"));
         assertThat(input.spanBlockIds().values()).noneMatch(ids -> ids.contains("b3"));
+        assertThat(input.recoveryRegions()).hasSize(1);
+        assertThat(input.contents().stream().map(Content::toString).toList())
+                .anyMatch(value -> value.contains("LAYOUT_RECOVERY_IMAGE"));
     }
 
     @Test
@@ -72,6 +77,7 @@ class PaperWholeDocumentInputBuilderTest {
         Path root = Files.createTempDirectory("paper-whole-native");
         Path pdf = root.resolve("paper.pdf");
         try (PDDocument document = new PDDocument()) {
+            document.addPage(new PDPage());
             document.addPage(new PDPage());
             document.save(pdf.toFile());
         }
@@ -91,8 +97,9 @@ class PaperWholeDocumentInputBuilderTest {
 
         assertThat(input.mode()).isEqualTo("native-pdf");
         assertThat(input.imageCount()).isZero();
+        assertThat(input.recoveryImageCount()).isEqualTo(1);
         assertThat(input.contents()).anyMatch(content -> content instanceof PdfFileContent);
-        assertThat(input.contents()).noneMatch(content -> content instanceof ImageContent);
+        assertThat(input.contents()).anyMatch(content -> content instanceof ImageContent);
     }
 
     private PaperLayoutArtifact artifact() {
@@ -103,7 +110,11 @@ class PaperWholeDocumentInputBuilderTest {
                 new DocumentBlock("b3", 2,
                         new NormalizedBoundingBox(0.1, 0.3, 0.8, 0.1),
                         DocumentBlockRole.CAPTION, 3, List.of(), "Figure 1. Result.",
-                        null, null, 0.9)));
+                        null, null, 0.9),
+                new DocumentBlock("b4", 2,
+                        new NormalizedBoundingBox(0.2, 0.5, 0.6, 0.08),
+                        DocumentBlockRole.FORMULA, 4, List.of(), "x", null, null,
+                        0.55, DocumentBlockContentMode.REGION)));
     }
 
     private DocumentBlock block(String id, int page, int order, String text) {

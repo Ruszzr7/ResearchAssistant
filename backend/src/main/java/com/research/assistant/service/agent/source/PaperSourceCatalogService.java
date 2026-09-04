@@ -17,6 +17,8 @@ import com.research.assistant.service.pdf.layout.PaperSourceUnit;
 import com.research.assistant.service.pdf.layout.PaperSemanticSpan;
 import com.research.assistant.service.pdf.layout.PaperSemanticSpanBuilder;
 import com.research.assistant.service.pdf.layout.SourceAnchor;
+import com.research.assistant.service.memory.PaperLayoutRecovery;
+import com.research.assistant.service.memory.PaperLayoutRecoveryStore;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -43,6 +45,7 @@ public class PaperSourceCatalogService {
     private final PaperLayoutArtifactService artifactService;
     private final PaperSourceIndexService sourceIndexService;
     private final PaperSemanticSpanBuilder spanBuilder;
+    private final PaperLayoutRecoveryStore recoveryStore;
     /**
      * Building the source index performs structural equation/statement analysis over the
      * complete layout artifact.  It is deterministic for one PDF/parser version, so rebuilding
@@ -54,16 +57,24 @@ public class PaperSourceCatalogService {
 
     public PaperSourceCatalogService(PaperLayoutArtifactService artifactService,
                                      PaperSourceIndexService sourceIndexService) {
-        this(artifactService, sourceIndexService, new PaperSemanticSpanBuilder());
+        this(artifactService, sourceIndexService, new PaperSemanticSpanBuilder(), null);
+    }
+
+    public PaperSourceCatalogService(PaperLayoutArtifactService artifactService,
+                                     PaperSourceIndexService sourceIndexService,
+                                     PaperSemanticSpanBuilder spanBuilder) {
+        this(artifactService, sourceIndexService, spanBuilder, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public PaperSourceCatalogService(PaperLayoutArtifactService artifactService,
                                      PaperSourceIndexService sourceIndexService,
-                                     PaperSemanticSpanBuilder spanBuilder) {
+                                     PaperSemanticSpanBuilder spanBuilder,
+                                     PaperLayoutRecoveryStore recoveryStore) {
         this.artifactService = artifactService;
         this.sourceIndexService = sourceIndexService;
         this.spanBuilder = spanBuilder;
+        this.recoveryStore = recoveryStore;
     }
 
     public PaperSourceCatalog latest(long paperId) {
@@ -85,12 +96,19 @@ public class PaperSourceCatalogService {
         if (artifact == null || artifact.paperId() == null || artifact.paperId() <= 0) {
             throw new IllegalArgumentException("a versioned paper layout artifact is required");
         }
-        CatalogKey key = new CatalogKey(artifact.paperId(), artifact.documentHash(), artifact.parserVersion());
-        return catalogCache.get(key, ignored -> buildUncached(artifact));
+        List<PaperLayoutRecovery> recoveries = recoveryStore == null ? List.of() : recoveryStore.read(artifact);
+        CatalogKey key = new CatalogKey(artifact.paperId(), artifact.documentHash(), artifact.parserVersion(),
+                recoveries);
+        return catalogCache.get(key, ignored -> buildUncached(artifact, recoveries));
     }
 
-    private PaperSourceCatalog buildUncached(PaperLayoutArtifact artifact) {
+    private PaperSourceCatalog buildUncached(PaperLayoutArtifact artifact,
+                                             List<PaperLayoutRecovery> recoveries) {
         PaperSourceIndex index = sourceIndexService.build(artifact);
+        Set<String> recoveredBlockIds = recoveries.stream()
+                .filter(PaperLayoutRecovery::corrected)
+                .flatMap(recovery -> recovery.orderedBlockIds().stream())
+                .collect(java.util.stream.Collectors.toSet());
         Map<String, DocumentBlock> blockById = new LinkedHashMap<>();
         artifact.blocks().stream().sorted(Comparator.comparingInt(DocumentBlock::readingOrder))
                 .forEach(block -> blockById.put(block.id(), block));
@@ -100,15 +118,25 @@ public class PaperSourceCatalogService {
         Map<String, SourceObject> objects = new LinkedHashMap<>();
         Map<String, List<SourceLocator>> locators = new LinkedHashMap<>();
         for (PaperSemanticSpan span : spanBuilder.build(artifact)) {
+            List<DocumentBlock> sourceBlocks = span.blocks().stream()
+                    .filter(block -> !recoveredBlockIds.contains(block.id()))
+                    .toList();
+            if (sourceBlocks.isEmpty()) continue;
             String sourceId = stableId(artifact, "span:" + span.id());
-            String raw = span.text();
+            String raw = sourceBlocks.size() == span.blocks().size()
+                    ? span.text()
+                    : sourceBlocks.stream().map(DocumentBlock::text)
+                            .filter(text -> !text.isBlank())
+                            .collect(java.util.stream.Collectors.joining("\n"));
+            if (raw.isBlank()) continue;
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
                     artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, contentType(span.role()), raw,
                     SourceObject.normalize(raw), span.sectionPath(), "",
-                    Map.of("spanId", span.id(), "blockIds", String.join(",", span.blockIds()),
-                            "role", span.role().name(), "readingOrder",
-                            Integer.toString(span.blocks().get(0).readingOrder())));
-            List<SourceLocator> spanLocators = span.blocks().stream().map(block -> {
+                    Map.of("spanId", span.id(), "blockIds", sourceBlocks.stream()
+                                    .map(DocumentBlock::id).collect(java.util.stream.Collectors.joining(",")),
+                             "role", span.role().name(), "readingOrder",
+                            Integer.toString(sourceBlocks.get(0).readingOrder())));
+            List<SourceLocator> spanLocators = sourceBlocks.stream().map(block -> {
                 SourceAnchor anchor = textAnchorByBlock.get(block.id());
                 if (anchor != null && span.role() == block.role()) {
                     return locator(sourceId, anchor, block.id());
@@ -123,6 +151,7 @@ public class PaperSourceCatalogService {
 
         for (EquationEntity equation : index.equations()) {
             SourceAnchor definition = equation.definition();
+            if (recoveredBlockIds.contains(definition.blockId())) continue;
             DocumentBlock block = blockById.get(definition.blockId());
             List<String> sectionPath = new ArrayList<>(block == null ? List.of() : block.sectionPath());
             sectionPath.add("Equation (" + equation.number() + ")");
@@ -139,6 +168,7 @@ public class PaperSourceCatalogService {
                     locator(equation.entityId(), definition, definition.blockId())));
         }
         for (PaperSourceUnit unit : index.sourceUnits()) {
+            if (unit.blocks().stream().map(DocumentBlock::id).anyMatch(recoveredBlockIds::contains)) continue;
             String sourceId = stableId(artifact, "unit:" + unit.id());
             List<String> sectionPath = new ArrayList<>(unit.sectionPath());
             sectionPath.add(unit.label());
@@ -156,6 +186,8 @@ public class PaperSourceCatalogService {
             locators.put(sourceId, List.of(sourceLocator));
         }
         for (PaperSourceContinuation continuation : index.continuations()) {
+            if (continuation.parts().stream().flatMap(part -> part.blocks().stream())
+                    .map(DocumentBlock::id).anyMatch(recoveredBlockIds::contains)) continue;
             String sourceId = stableId(artifact, continuation.id());
             PaperSourceUnit first = continuation.parts().get(0);
             List<String> sectionPath = new ArrayList<>(first.sectionPath());
@@ -177,11 +209,113 @@ public class PaperSourceCatalogService {
             objects.put(sourceId, object);
             locators.put(sourceId, continuationLocators);
         }
+        for (PaperLayoutRecovery recovery : recoveries) {
+            String sourceId = stableId(artifact, "recovery:" + recovery.regionId());
+            DocumentBlock first = recovery.orderedBlockIds().stream().map(blockById::get)
+                    .filter(java.util.Objects::nonNull).findFirst().orElse(null);
+            List<String> sectionPath = new ArrayList<>(first == null ? List.of() : first.sectionPath());
+            boolean corrected = recovery.corrected();
+            sectionPath.add(corrected ? "Recovered layout region" : "Visual source region");
+            SourceContentType type = recoveryContentType(recovery, blockById);
+            String sourceText = corrected ? recovery.correctedText()
+                    : visualFallbackText(recovery, artifact.blocks(), blockById, type);
+            String formulaNumber = type == SourceContentType.FORMULA
+                    ? String.join(",", formulaNumbers(sourceText)) : "";
+            Map<String, String> provenance = new LinkedHashMap<>();
+            provenance.put("recoveryRegionId", recovery.regionId());
+            provenance.put("issueType", recovery.issueType());
+            provenance.put("source", corrected ? recovery.provenance() : "VISUAL_FALLBACK");
+            provenance.put("blockIds", String.join(",", recovery.orderedBlockIds()));
+            provenance.put("readingOrder", Integer.toString(
+                    first == null ? Integer.MAX_VALUE : first.readingOrder()));
+            provenance.put("recoveryMode", corrected ? "TEXT_RECOVERY" : "VISUAL_FALLBACK");
+            SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
+                    artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, type,
+                    sourceText, SourceObject.normalize(sourceText), sectionPath, formulaNumber, provenance);
+            List<SourceLocator> recoveryLocators = recovery.pageAreas().stream()
+                    .map(area -> new SourceLocator(locatorId(sourceId, area.page(), recovery.regionId()),
+                            sourceId, area.page(), "PDF_NORMALIZED", area.boxes(),
+                            sourceText, type == SourceContentType.FORMULA
+                            ? EvidenceLocator.Precision.FORMULA_REGION
+                            : EvidenceLocator.Precision.VISUAL_REGION))
+                    .toList();
+            if (!recoveryLocators.isEmpty()) {
+                objects.put(sourceId, object);
+                locators.put(sourceId, recoveryLocators);
+            }
+        }
         return new PaperSourceCatalog(artifact.paperId(), artifact.documentHash(), artifact.parserVersion(),
                 artifact.pageCount(), objects, locators);
     }
 
-    private record CatalogKey(long paperId, String documentHash, String parserVersion) { }
+    private SourceContentType recoveredContentType(String value) {
+        try {
+            return SourceContentType.valueOf(value == null ? "TEXT" : value.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return SourceContentType.TEXT;
+        }
+    }
+
+    private SourceContentType recoveryContentType(PaperLayoutRecovery recovery,
+                                                  Map<String, DocumentBlock> blockById) {
+        SourceContentType declared = recoveredContentType(recovery.contentType());
+        if (declared != SourceContentType.TEXT) return declared;
+        boolean formula = recovery.orderedBlockIds().stream().map(blockById::get)
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(block -> block.role() == DocumentBlockRole.FORMULA);
+        return formula ? SourceContentType.FORMULA : declared;
+    }
+
+    private String visualFallbackText(PaperLayoutRecovery recovery,
+                                      List<DocumentBlock> allBlocks,
+                                      Map<String, DocumentBlock> blockById,
+                                      SourceContentType type) {
+        List<DocumentBlock> regionBlocks = recovery.orderedBlockIds().stream().map(blockById::get)
+                .filter(java.util.Objects::nonNull)
+                .sorted(Comparator.comparingInt(DocumentBlock::readingOrder))
+                .toList();
+        String label = type == SourceContentType.FORMULA
+                ? formulaLabel(regionBlocks) : "视觉内容区域";
+        StringBuilder text = new StringBuilder(label)
+                .append("的文本提取不可靠，请查看原始页面区域。\n");
+        String context = neighbouringText(regionBlocks, allBlocks);
+        if (!context.isBlank()) text.append("邻近正文：").append(context);
+        return text.toString().strip();
+    }
+
+    private String formulaLabel(List<DocumentBlock> blocks) {
+        String labels = formulaNumbers(blocks.stream().map(DocumentBlock::text)
+                        .collect(java.util.stream.Collectors.joining(" "))).stream()
+                .map(number -> "(" + number + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        return labels.isBlank() ? "公式区域" : "公式 " + labels;
+    }
+
+    private String neighbouringText(List<DocumentBlock> regionBlocks, List<DocumentBlock> allBlocks) {
+        if (regionBlocks.isEmpty()) return "";
+        int firstOrder = regionBlocks.get(0).readingOrder();
+        int lastOrder = regionBlocks.get(regionBlocks.size() - 1).readingOrder();
+        String before = allBlocks.stream()
+                .filter(block -> block.readingOrder() < firstOrder && block.role() == DocumentBlockRole.BODY)
+                .filter(block -> block.text() != null && !block.text().isBlank())
+                .max(Comparator.comparingInt(DocumentBlock::readingOrder))
+                .map(block -> limitContext(block.text())).orElse("");
+        String after = allBlocks.stream()
+                .filter(block -> block.readingOrder() > lastOrder && block.role() == DocumentBlockRole.BODY)
+                .filter(block -> block.text() != null && !block.text().isBlank())
+                .min(Comparator.comparingInt(DocumentBlock::readingOrder))
+                .map(block -> limitContext(block.text())).orElse("");
+        return java.util.stream.Stream.of(before, after).filter(value -> !value.isBlank())
+                .collect(java.util.stream.Collectors.joining(" "));
+    }
+
+    private String limitContext(String text) {
+        String normalized = text == null ? "" : text.replaceAll("\\s+", " ").strip();
+        return normalized.length() <= 360 ? normalized : normalized.substring(0, 360).strip() + "…";
+    }
+
+    private record CatalogKey(long paperId, String documentHash, String parserVersion,
+                              List<PaperLayoutRecovery> recoveries) { }
 
     public List<RetrievalHit> search(PaperSourceCatalog catalog, PaperSearchRequest request) {
         String query = SourceObject.normalize(request.query()).toLowerCase(Locale.ROOT);
@@ -210,7 +344,13 @@ public class PaperSourceCatalogService {
             } else if (lexical > 0) {
                 routes.add("TOKEN_COVERAGE");
             }
-            if (!formulaNumbers.isEmpty() && formulaNumbers.contains(object.formulaNumber().toLowerCase(Locale.ROOT))) {
+            Set<String> objectFormulaNumbers = new LinkedHashSet<>(formulaNumbers(object.rawContent()));
+            if (!object.formulaNumber().isBlank()) {
+                objectFormulaNumbers.addAll(java.util.Arrays.stream(object.formulaNumber().split(","))
+                        .map(String::strip).filter(value -> !value.isBlank()).toList());
+            }
+            if (!formulaNumbers.isEmpty() && objectFormulaNumbers.stream()
+                    .map(value -> value.toLowerCase(Locale.ROOT)).anyMatch(formulaNumbers::contains)) {
                 routes.add("FORMULA_NUMBER");
                 score = Math.max(score, 1.0);
             }

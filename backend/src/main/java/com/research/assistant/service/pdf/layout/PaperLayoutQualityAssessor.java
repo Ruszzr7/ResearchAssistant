@@ -105,17 +105,18 @@ public class PaperLayoutQualityAssessor {
                 .filter(block -> !isNonContentBlock(block))
                 .forEach(block -> pages.computeIfAbsent(block.page(), ignored -> new ArrayList<>())
                         .add(block));
-        double worstPageOrderScore = pages.values().stream()
-                .mapToDouble(page -> {
-                    OrderAudit pageOrder = new OrderAudit();
-                    auditPageOrder(page, pageOrder);
-                    return pageOrder.score();
-                })
-                .min()
-                .orElse(1);
+        double worstPageOrderScore = 1;
+        boolean impossibleLaneTransition = false;
+        for (List<DocumentBlock> page : pages.values()) {
+            OrderAudit pageOrder = new OrderAudit();
+            auditPageOrder(page, pageOrder);
+            worstPageOrderScore = Math.min(worstPageOrderScore, pageOrder.score());
+            impossibleLaneTransition |= pageOrder.hasViolations();
+        }
 
         double score = Math.min(structural.score(), worstPageOrderScore);
-        return new ReadingOrderAssessment(score, score < READING_ORDER_ISSUE_THRESHOLD);
+        return new ReadingOrderAssessment(score,
+                score < READING_ORDER_ISSUE_THRESHOLD || impossibleLaneTransition);
     }
 
     /** Audits lane phases without reordering same-lane text or mathematical fragments. */
@@ -180,6 +181,10 @@ public class PaperLayoutQualityAssessor {
 
         double score() {
             return opportunities == 0 ? 1 : 1 - violations / (double) opportunities;
+        }
+
+        boolean hasViolations() {
+            return violations > 0;
         }
     }
 }

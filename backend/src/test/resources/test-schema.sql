@@ -128,6 +128,7 @@ CREATE TABLE paper_memory (
     structure_json CLOB NOT NULL,
     chunk_summaries_json CLOB,
     profile_json CLOB,
+    layout_recovery_json CLOB,
     memory_quality_json CLOB,
     profile_quality_json CLOB,
     understanding_version VARCHAR(64),

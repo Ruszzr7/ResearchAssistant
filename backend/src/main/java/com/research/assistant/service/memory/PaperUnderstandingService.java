@@ -25,7 +25,7 @@ import java.util.function.Consumer;
 @Service
 public class PaperUnderstandingService {
 
-    public static final String PIPELINE_VERSION = "paper-understanding-v5-semantic-spans";
+    public static final String PIPELINE_VERSION = "paper-understanding-v7-visual-fallback";
     public static final String STATUS_UNDERSTANDING = "UNDERSTANDING";
     public static final String STATUS_READY = "READY";
     public static final String STATUS_PARTIAL = "PARTIAL";
@@ -80,16 +80,17 @@ public class PaperUnderstandingService {
         if (record == null) throw new IllegalStateException("论文结构记忆未持久化");
         PaperLayoutArtifact artifact = artifactService.ensureArtifact(paperId, false);
         PaperGlobalProfile cached = compatibleProfile(record, forceRefresh);
-        if (!forceRefresh && STATUS_READY.equals(record.getStatus()) && cached != null) {
-            return result(record, List.of(), cached);
+        if (!forceRefresh && STATUS_READY.equals(record.getStatus())
+                && profileQualityReady(record) && cached != null) {
+            return result(record, List.of(), cached, readRecoveries(record));
         }
 
         PaperMemoryChunk wholePaper = chunker.wholePaper(state.structure(), artifact);
         if (wholePaper.blockIds().isEmpty() || wholePaper.text().isBlank()) {
             beginAttempt(record);
             finish(record, STATUS_FAILED, List.of(), null, 0, 0,
-                    "NO_PAPER_CONTENT", "未找到可理解的论文正文");
-            return result(record, List.of(), null);
+                    List.of(), "NO_PAPER_CONTENT", "未找到可理解的论文正文");
+            return result(record, List.of(), null, List.of());
         }
 
         beginAttempt(record);
@@ -105,22 +106,39 @@ public class PaperUnderstandingService {
             PaperProfileQualityReport quality = qualityValidator.validate(state.structure(), profile);
             record.setProfileQualityJson(write(quality));
             PaperChunkSummary summary = generated.summary();
-            finish(record, STATUS_READY, List.of(summary), profile,
-                    summary.promptTokens(), summary.completionTokens(), null, "论文记忆已就绪");
-            stage(stageUpdater, "论文记忆已就绪");
-            return result(record, List.of(summary), profile);
+            String status = quality.ready() ? STATUS_READY
+                    : quality.usable() ? STATUS_PARTIAL : STATUS_FAILED;
+            String errorCode = quality.ready() ? null
+                    : quality.usable() ? "PROFILE_QUALITY_PARTIAL" : "PROFILE_QUALITY_FAILED";
+            String stageText = quality.ready() ? "论文记忆已就绪"
+                    : quality.usable() ? "论文理解部分完成，请重试" : "论文理解质量未达要求，请重试";
+            long correctedRegions = generated.recoveries().stream()
+                    .filter(PaperLayoutRecovery::corrected).count();
+            long unresolvedRegions = generated.recoveries().size() - correctedRegions;
+            log.info("paper_understanding_quality paperId={} ready={} usable={} issues={} "
+                            + "correctedRegions={} unresolvedRegions={}",
+                    paperId, quality.ready(), quality.usable(), quality.issues(),
+                    correctedRegions, unresolvedRegions);
+            finish(record, status, List.of(summary), profile,
+                    summary.promptTokens(), summary.completionTokens(), generated.recoveries(),
+                    errorCode, stageText);
+            stage(stageUpdater, stageText);
+            return result(record, List.of(summary), profile, generated.recoveries());
         } catch (RuntimeException exception) {
-            log.warn("paper_whole_understanding_failed paperId={} memoryId={} errorType={}",
-                    paperId, record.getId(), exception.getClass().getSimpleName());
+            Throwable root = exception;
+            while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+            log.warn("paper_whole_understanding_failed paperId={} memoryId={} errorType={} rootType={} message={}",
+                    paperId, record.getId(), exception.getClass().getSimpleName(),
+                    root.getClass().getSimpleName(), root.getMessage());
             PaperChunkSummary failed = PaperChunkSummary.failed(
                     wholePaper, "WHOLE_PAPER_GENERATION_FAILED",
                     usagePromptTokens(exception), usageCompletionTokens(exception),
                     usageFinishReason(exception));
             finish(record, STATUS_FAILED, List.of(failed), null,
                     failed.promptTokens(), failed.completionTokens(),
-                    "WHOLE_PAPER_GENERATION_FAILED", "论文全文理解失败，请重试");
+                    List.of(), "WHOLE_PAPER_GENERATION_FAILED", "论文全文理解失败，请重试");
             stage(stageUpdater, "论文全文理解失败，请重试");
-            return result(record, List.of(failed), null);
+            return result(record, List.of(failed), null, List.of());
         }
     }
 
@@ -138,6 +156,15 @@ public class PaperUnderstandingService {
         }
     }
 
+    private boolean profileQualityReady(PaperMemoryRecord record) {
+        if (record.getProfileQualityJson() == null || record.getProfileQualityJson().isBlank()) return false;
+        try {
+            return objectMapper.readTree(record.getProfileQualityJson()).path("ready").asBoolean(false);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private void initialize(PaperMemoryRecord record) {
         record.setStatus(STATUS_UNDERSTANDING);
         record.setUnderstandingVersion(PIPELINE_VERSION);
@@ -149,6 +176,7 @@ public class PaperUnderstandingService {
         record.setCompletionTokens(0);
         record.setChunkSummariesJson(null);
         record.setProfileJson(null);
+        record.setLayoutRecoveryJson(null);
         record.setProfileQualityJson(null);
         record.setLastErrorCode(null);
         record.setUnderstandingStartedAt(LocalDateTime.now());
@@ -171,6 +199,7 @@ public class PaperUnderstandingService {
                         PaperGlobalProfile profile,
                         int promptTokens,
                         int completionTokens,
+                        List<PaperLayoutRecovery> recoveries,
                         String errorCode,
                         String stageText) {
         record.setStatus(status);
@@ -183,6 +212,7 @@ public class PaperUnderstandingService {
         record.setCompletionTokens(Math.max(0, completionTokens));
         record.setChunkSummariesJson(write(summaries));
         record.setProfileJson(profile == null ? null : write(profile));
+        record.setLayoutRecoveryJson(recoveries == null || recoveries.isEmpty() ? null : write(recoveries));
         record.setLastErrorCode(errorCode);
         record.setUnderstandingCompletedAt(LocalDateTime.now());
         record.setUpdatedAt(LocalDateTime.now());
@@ -192,12 +222,23 @@ public class PaperUnderstandingService {
 
     private PaperUnderstandingResult result(PaperMemoryRecord record,
                                             List<PaperChunkSummary> summaries,
-                                            PaperGlobalProfile profile) {
+                                            PaperGlobalProfile profile,
+                                            List<PaperLayoutRecovery> recoveries) {
         return new PaperUnderstandingResult(
                 record.getId(), record.getPaperId(), record.getStatus(),
                 count(record.getTotalChunks()), count(record.getCompletedChunks()),
                 count(record.getFailedChunks()), count(record.getPromptTokens()),
-                count(record.getCompletionTokens()), summaries, profile);
+                count(record.getCompletionTokens()), summaries, profile, recoveries);
+    }
+
+    private List<PaperLayoutRecovery> readRecoveries(PaperMemoryRecord record) {
+        if (record.getLayoutRecoveryJson() == null || record.getLayoutRecoveryJson().isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(record.getLayoutRecoveryJson(), objectMapper.getTypeFactory()
+                    .constructCollectionType(List.class, PaperLayoutRecovery.class));
+        } catch (Exception ignored) {
+            return List.of();
+        }
     }
 
     private int usagePromptTokens(RuntimeException exception) {

@@ -90,6 +90,7 @@ public class PaperMemoryService {
         record.setMemoryQualityJson(write(structure.quality(), "论文结构质量无法序列化"));
         record.setChunkSummariesJson(null);
         record.setProfileJson(null);
+        record.setLayoutRecoveryJson(null);
         record.setUnderstandingVersion(null);
         record.setStageText("PDF 结构已就绪");
         record.setTotalChunks(0);
