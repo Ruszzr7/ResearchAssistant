@@ -10,9 +10,11 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.List;
+import java.util.Arrays;
 import java.util.stream.IntStream;
 
 /** Loads the versioned paper portrait on demand. It never performs retrieval or model calls. */
@@ -64,52 +66,90 @@ public class PaperOverviewToolRegistry {
             payload.put("status", "READY".equalsIgnoreCase(memory.getStatus()) ? "ready" : "partial");
             payload.put("untrustedPaperContent", true);
             payload.put("paperId", paperId);
-            payload.put("profile", compactProfile(profile));
-            payload.put("usage", "Use this overview for whole-paper orientation. For exact support or a clickable citation, use a relevant claimRef to guide retrieve_paper_evidence. Do not call this tool again merely to confirm information already present in context.");
-            return result(payload);
+            payload.put("profile", compactProfile(profile, catalog));
+            payload.put("sourceObjectIds", profileSourceIds(profile, catalog));
+            payload.put("usage", "Use this overview for whole-paper orientation. Its sourceObjectIds may be cited when they directly support a claim. For exact quotations, formulas, figures, tables, or page-specific visual inspection, use paper-evidence. Do not call this Skill again merely to confirm information already present in context; reactivate it only when its instructions or profile context are absent after compaction.");
+            return result(payload, profileSourceIds(profile, catalog));
         } catch (Exception error) {
             throw new IllegalStateException("stored paper overview is invalid", error);
         }
     }
 
-    private Map<String, Object> compactProfile(PaperGlobalProfile profile) {
+    private Map<String, Object> compactProfile(PaperGlobalProfile profile, PaperSourceCatalog catalog) {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("title", profile.title());
         value.put("domain", profile.domain());
         value.put("researchProblem", profile.researchProblem());
-        value.put("coreContributions", claims("contribution", profile.coreContributions()));
+        value.put("coreContributions", claims("contribution", profile.coreContributions(), catalog));
         value.put("methodType", profile.methodType());
         value.put("methodSummary", profile.methodSummary());
         value.put("datasets", profile.datasets());
         value.put("models", profile.models());
         value.put("metrics", profile.metrics());
-        value.put("keyFindings", claims("finding", profile.keyFindings()));
-        value.put("limitations", claims("limitation", profile.limitations()));
+        value.put("keyFindings", claims("finding", profile.keyFindings(), catalog));
+        value.put("limitations", claims("limitation", profile.limitations(), catalog));
         value.put("experimentSetup", profile.experimentSetup());
         value.put("benchmarkResults", IntStream.range(0, profile.benchmarkResults().size()).mapToObj(index -> {
             PaperGlobalProfile.BenchmarkResult result = profile.benchmarkResults().get(index);
             return Map.of("claimRef", "benchmark:" + index,
                     "metric", result.metric(), "value", result.value(),
-                    "baseline", result.baseline(), "dataset", result.dataset());
+                    "baseline", result.baseline(), "dataset", result.dataset(),
+                    "sourceObjectIds", validSourceIds(result.evidenceBlockIds(), catalog));
         }).toList());
         value.put("openQuestions", profile.openQuestions());
         return value;
     }
 
-    private List<Map<String, String>> claims(String prefix, List<PaperMemoryClaim> claims) {
+    private List<Map<String, Object>> claims(String prefix, List<PaperMemoryClaim> claims,
+                                             PaperSourceCatalog catalog) {
         return IntStream.range(0, claims.size())
                 .mapToObj(index -> Map.of("claimRef", prefix + ":" + index,
-                        "statement", claims.get(index).statement()))
+                        "statement", claims.get(index).statement(),
+                        "sourceObjectIds", validSourceIds(claims.get(index).evidenceBlockIds(), catalog)))
                 .toList();
     }
 
+    private Set<String> profileSourceIds(PaperGlobalProfile profile, PaperSourceCatalog catalog) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        profile.coreContributions().forEach(claim -> result.addAll(validSourceIds(claim.evidenceBlockIds(), catalog)));
+        profile.keyFindings().forEach(claim -> result.addAll(validSourceIds(claim.evidenceBlockIds(), catalog)));
+        profile.limitations().forEach(claim -> result.addAll(validSourceIds(claim.evidenceBlockIds(), catalog)));
+        profile.benchmarkResults().forEach(benchmark -> result.addAll(validSourceIds(benchmark.evidenceBlockIds(), catalog)));
+        return Set.copyOf(result);
+    }
+
+    private List<String> validSourceIds(List<String> sourceIds, PaperSourceCatalog catalog) {
+        if (sourceIds == null || sourceIds.isEmpty() || catalog == null) return List.of();
+        Set<String> requested = sourceIds.stream()
+                .filter(id -> id != null && !id.isBlank())
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        for (String requestedId : requested) {
+            if (catalog.objects().containsKey(requestedId)) result.add(requestedId);
+        }
+        for (var source : catalog.objects().values()) {
+            Set<String> blockIds = new LinkedHashSet<>();
+            String many = source.provenance().getOrDefault("blockIds", "");
+            if (!many.isBlank()) Arrays.stream(many.split(","))
+                    .map(String::trim).filter(value -> !value.isBlank()).forEach(blockIds::add);
+            String one = source.provenance().getOrDefault("blockId", "");
+            if (!one.isBlank()) blockIds.add(one.trim());
+            if (!java.util.Collections.disjoint(blockIds, requested)) result.add(source.sourceObjectId());
+        }
+        return List.copyOf(result);
+    }
+
     private AgentToolExecution result(Object value) {
+        return result(value, Set.of());
+    }
+
+    private AgentToolExecution result(Object value, Set<String> sourceObjectIds) {
         try {
             String json = objectMapper.writeValueAsString(value);
             if (json.getBytes(StandardCharsets.UTF_8).length > MAX_RESULT_BYTES) {
                 throw new IllegalStateException("paper overview exceeded the model payload limit");
             }
-            return new AgentToolExecution(json, Set.of());
+            return new AgentToolExecution(json, sourceObjectIds);
         } catch (Exception error) {
             throw error instanceof RuntimeException runtime ? runtime
                     : new IllegalStateException("failed to serialize paper overview", error);

@@ -38,6 +38,27 @@ public interface AgentToolCallMapper extends BaseMapper<AgentToolCallRecord> {
                                                                @Param("parserVersion") String parserVersion,
                                                                @Param("limit") int limit);
 
+    @Select("SELECT c.* FROM agent_tool_call c "
+            + "JOIN agent_run r ON r.run_id = c.run_id "
+            + "JOIN agent_turn t ON t.id = r.turn_id "
+            + "WHERE t.session_id = #{sessionId} "
+            + "AND c.status = 'COMPLETED' "
+            + "AND c.read_only = TRUE "
+            + "AND c.tool_name = 'activate_skill' "
+            + "AND c.result_json IS NOT NULL AND c.result_json <> '' "
+            + "AND r.document_hash = #{documentHash} "
+            + "AND r.parser_version = #{parserVersion} "
+            + "AND (#{summaryBoundary} = 0 OR EXISTS ("
+            + "SELECT 1 FROM research_message m "
+            + "WHERE m.agent_turn_id = t.id AND m.role = 'ASSISTANT' "
+            + "AND m.id > #{summaryBoundary})) "
+            + "ORDER BY c.completed_at DESC, c.id DESC LIMIT #{limit}")
+    List<AgentToolCallRecord> selectRecentCompletedSkillActivations(@Param("sessionId") long sessionId,
+                                                                      @Param("documentHash") String documentHash,
+                                                                      @Param("parserVersion") String parserVersion,
+                                                                      @Param("summaryBoundary") long summaryBoundary,
+                                                                      @Param("limit") int limit);
+
     @Select("SELECT COALESCE(MAX(ordinal_no), 0) FROM agent_tool_call WHERE run_id = #{runId}")
     int selectMaxOrdinal(@Param("runId") String runId);
 

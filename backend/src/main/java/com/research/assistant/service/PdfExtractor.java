@@ -1,10 +1,7 @@
 package com.research.assistant.service;
 
-import com.research.assistant.service.pdf.ExternalCommandPdfParser;
-import com.research.assistant.service.pdf.FigureRegion;
+import com.research.assistant.service.pdf.PdfBoxPdfParser;
 import com.research.assistant.service.pdf.PdfParseResult;
-import com.research.assistant.service.pdf.figure.FigureExtractor;
-import com.research.assistant.service.pdf.formula.FormulaExtractor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -16,8 +13,7 @@ import java.nio.file.Path;
 /**
  * PDF 文本提取器 —— 统一入口。
  * <p>
- * 底层委托给 {@link com.research.assistant.service.pdf.PdfParser} 实现；
- * 默认使用 PDFBox，用户可在设置中启用外部解析器（Marker / MinerU / Grobid）。
+ * 底层固定使用 PDFBox，保证本地部署不依赖外部解析命令。
  */
 @Component
 public class PdfExtractor {
@@ -25,16 +21,10 @@ public class PdfExtractor {
     @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
-    private final ExternalCommandPdfParser pdfParser;
-    private final FormulaExtractor formulaExtractor;
-    private final FigureExtractor figureExtractor;
+    private final PdfBoxPdfParser pdfParser;
 
-    public PdfExtractor(ExternalCommandPdfParser pdfParser,
-                        FormulaExtractor formulaExtractor,
-                        FigureExtractor figureExtractor) {
+    public PdfExtractor(PdfBoxPdfParser pdfParser) {
         this.pdfParser = pdfParser;
-        this.formulaExtractor = formulaExtractor;
-        this.figureExtractor = figureExtractor;
     }
 
     /**
@@ -160,28 +150,6 @@ public class PdfExtractor {
             return 0;
         }
         return pdfParser.countPages(file);
-    }
-
-    /**
-     * 提取 PDF 中的公式（LaTeX 列表）。
-     */
-    public java.util.List<String> extractFormulas(String pdfPath) {
-        File file = resolveFile(pdfPath);
-        if (file == null) {
-            return java.util.List.of();
-        }
-        return formulaExtractor.extract(file);
-    }
-
-    /**
-     * 提取 PDF 中的图表区域。
-     */
-    public java.util.List<FigureRegion> extractFigures(String pdfPath) {
-        File file = resolveFile(pdfPath);
-        if (file == null) {
-            return java.util.List.of();
-        }
-        return figureExtractor.extract(file);
     }
 
     private File resolveFile(String pdfPath) {

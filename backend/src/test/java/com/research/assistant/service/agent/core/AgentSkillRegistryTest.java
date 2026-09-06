@@ -9,26 +9,29 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class AgentSkillRegistryTest {
 
     @Test
-    void exposesNoPaperSkillsWhenThereIsNoCurrentSourceCatalog() {
+    void exposesSkillMetadataBeforeThereIsACurrentSourceCatalog() {
         PaperReadToolRegistry reads = mock(PaperReadToolRegistry.class);
-        AgentSkillRegistry registry = new AgentSkillRegistry(reads);
+        PaperOverviewToolRegistry overview = mock(PaperOverviewToolRegistry.class);
+        when(reads.definitions()).thenReturn(List.of());
+        when(overview.definition()).thenReturn(new AgentToolDefinition(
+                PaperOverviewToolRegistry.TOOL_NAME, "overview", "{\"type\":\"object\"}"));
+        AgentSkillRegistry registry = new AgentSkillRegistry(reads, overview);
         AgentContextSnapshot context = new AgentContextSnapshot(7L, null, null,
                 List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
                 java.util.Set.of(), "{}");
 
-        assertThat(registry.available(context, "hello")).isEmpty();
-        assertThat(registry.tools(context, "hello")).isEmpty();
+        assertThat(registry.bindings(context, "hello")).extracting(AgentSkillBinding::name)
+                .containsExactly("paper-profile", "paper-evidence", "paper-action");
     }
 
     @Test
-    void exposesIndependentPaperSkillsAndDescribesExplicitPageActions() {
+    void loadsStandardSkillMetadataAndKeepsHostToolsScopedToTheirSkill() {
         PaperReadToolRegistry reads = mock(PaperReadToolRegistry.class);
         when(reads.definitions()).thenReturn(List.of(
                 new AgentToolDefinition("retrieve_paper_evidence", "read", "{\"type\":\"object\"}")));
@@ -38,19 +41,16 @@ class AgentSkillRegistryTest {
                 List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
                 java.util.Set.of(), "{}");
 
-        assertThat(registry.available(context, "请解释论文")).extracting(AgentSkill::id)
-                .containsExactly("paper_evidence", "page_action");
-        assertThat(registry.tools(context, "请解释论文")).extracting(AgentToolDefinition::name)
-                .containsExactly("retrieve_paper_evidence", "paper_action");
-        assertThat(registry.available(context, "请把式 21 高亮")).extracting(AgentSkill::id)
-                .containsExactly("paper_evidence", "page_action");
-        assertThat(registry.tools(context, "请把式 21 高亮")).extracting(AgentToolDefinition::name)
-                .containsExactly("retrieve_paper_evidence", "paper_action");
-        assertThat(registry.prompt(context, "请把式 21 高亮"))
-                .contains("Optional capabilities available")
-                .contains("按需批量查阅")
-                .contains("多个证据需求", "再次调用", "CAPTION 只作辅助")
-                .contains("只有用户明确要求");
+        List<AgentSkillBinding> bindings = registry.bindings(context, "请解释论文");
+
+        assertThat(bindings).extracting(AgentSkillBinding::name)
+                .containsExactly("paper-evidence", "paper-action");
+        assertThat(bindings.get(0).description()).contains("原始证据", "引用", "图像");
+        assertThat(bindings.get(0).skill().content()).contains("retrieve_paper_evidence");
+        assertThat(bindings.get(0).tools()).extracting(AgentToolDefinition::name)
+                .containsExactly("retrieve_paper_evidence");
+        assertThat(bindings.get(1).tools()).extracting(AgentToolDefinition::name)
+                .containsExactly("paper_action");
     }
 
     @Test
@@ -66,8 +66,11 @@ class AgentSkillRegistryTest {
                 List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
                 java.util.Set.of(), "{}");
 
-        assertThat(registry.tools(context, "请解释论文")).extracting(AgentToolDefinition::name)
-                .contains(PaperOverviewToolRegistry.TOOL_NAME, "paper_action");
+        assertThat(registry.bindings(context, "请解释论文")).extracting(AgentSkillBinding::name)
+                .containsExactly("paper-profile", "paper-evidence", "paper-action");
+        assertThat(registry.bindings(context, "请解释论文").get(0).tools())
+                .extracting(AgentToolDefinition::name)
+                .containsExactly(PaperOverviewToolRegistry.TOOL_NAME);
     }
 
     @Test
@@ -80,7 +83,8 @@ class AgentSkillRegistryTest {
                 List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
                 java.util.Set.of(), "{}");
 
-        AgentToolDefinition action = registry.tools(context, "请把当前选区高亮").stream()
+        AgentToolDefinition action = registry.bindings(context, "请把当前选区高亮").stream()
+                .flatMap(binding -> binding.tools().stream())
                 .filter(tool -> "paper_action".equals(tool.name())).findFirst().orElseThrow();
         JsonNode schema = new ObjectMapper().readTree(action.parametersJsonSchema());
 

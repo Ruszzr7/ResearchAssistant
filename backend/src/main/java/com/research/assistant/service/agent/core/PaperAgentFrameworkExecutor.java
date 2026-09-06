@@ -19,9 +19,29 @@ public interface PaperAgentFrameworkExecutor {
         return execute(messages, tools, handler);
     }
 
+    /**
+     * Executes with standard Skills whose metadata is visible initially and
+     * whose scoped tools are supplied only after the model activates a Skill.
+     * Older lightweight test gateways can keep implementing the basic method;
+     * the LangChain4j adapter overrides this overload for real Skill support.
+     */
+    default AgentFrameworkResult execute(List<AgentChatEntry> messages,
+                                         List<AgentToolDefinition> tools,
+                                         List<AgentSkillBinding> skills,
+                                         ToolHandler handler,
+                                         SkillActivationHandler activationHandler,
+                                         ModelCallObserver observer) {
+        return execute(messages, tools, handler, observer);
+    }
+
     @FunctionalInterface
     interface ToolHandler {
-        String execute(AgentToolRequest request);
+        AgentToolExecution execute(AgentToolRequest request);
+    }
+
+    @FunctionalInterface
+    interface SkillActivationHandler {
+        void activated(String toolCallId, String skillName, String argumentsJson, String instructions);
     }
 
     @FunctionalInterface

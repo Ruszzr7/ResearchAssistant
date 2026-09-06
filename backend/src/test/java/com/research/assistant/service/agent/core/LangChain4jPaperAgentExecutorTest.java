@@ -7,11 +7,13 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.skills.DefaultSkill;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -43,7 +45,9 @@ class LangChain4jPaperAgentExecutorTest {
                         new AgentToolDefinition("submit_answer", "finish", objectSchema("groundingMode"))),
                 request -> {
                     executed.add(request.name());
-                    return "submit_answer".equals(request.name()) ? "FINAL" : "{\"source\":\"evidence\"}";
+                    return new AgentToolExecution(
+                            "submit_answer".equals(request.name()) ? "FINAL" : "{\"source\":\"evidence\"}",
+                            Set.of());
                 });
 
         assertThat(result.content()).isEqualTo("FINAL");
@@ -70,7 +74,7 @@ class LangChain4jPaperAgentExecutorTest {
         AgentFrameworkResult result = executor.execute(model,
                 List.of(AgentChatEntry.system("system"), AgentChatEntry.user("复杂度？")),
                 List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
-                request -> "unexpected");
+                request -> new AgentToolExecution("unexpected", Set.of()));
 
         assertThat(result.content()).contains("冒泡排序");
         assertThat(result.toolCalls()).isZero();
@@ -96,7 +100,7 @@ class LangChain4jPaperAgentExecutorTest {
                 List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("groundingMode"))),
                 request -> {
                     if (attempts.incrementAndGet() == 1) throw new IllegalArgumentException("evidence invalid");
-                    return "CORRECTED";
+                    return new AgentToolExecution("CORRECTED", Set.of());
                 });
 
         assertThat(result.content()).isEqualTo("CORRECTED");
@@ -131,7 +135,8 @@ class LangChain4jPaperAgentExecutorTest {
                         new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
                 request -> {
                     executed.add(request.name());
-                    return "submit_answer".equals(request.name()) ? "FINAL" : "{\"sources\":[]}";
+                    return new AgentToolExecution(
+                            "submit_answer".equals(request.name()) ? "FINAL" : "{\"sources\":[]}", Set.of());
                 });
 
         assertThat(result.content()).isEqualTo("FINAL");
@@ -155,7 +160,7 @@ class LangChain4jPaperAgentExecutorTest {
 
         executor.execute(model, List.of(AgentChatEntry.system("secret"), AgentChatEntry.user("question")),
                 List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
-                request -> "unused", traces::add);
+                request -> new AgentToolExecution("unused", Set.of()), traces::add);
 
         assertThat(traces).hasSize(1);
         assertThat(traces.get(0).ordinal()).isEqualTo(1);
@@ -163,6 +168,131 @@ class LangChain4jPaperAgentExecutorTest {
         assertThat(traces.get(0).messageCount()).isEqualTo(2);
         assertThat(traces.toString()).doesNotContain("secret", "question", "done");
         assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void attachesToolVisualsToTheNextRequestForTheSameAgent() {
+        List<ChatRequest> requests = new ArrayList<>();
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                requests.add(request);
+                if (requests.size() == 1) {
+                    return response("visual-1", "retrieve_paper_evidence",
+                            "{\"needs\":[{\"query\":\"figure\",\"includeVisual\":true}]}");
+                }
+                return ChatResponse.builder().aiMessage(AiMessage.from("看到了图像证据")).build();
+            }
+        };
+        LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
+                mock(com.research.assistant.service.ai.LangChain4jModelFactory.class), new ObjectMapper());
+        AgentVisualContent visual = new AgentVisualContent(
+                "src-figure", 4, "FIGURE", "image/png", new byte[]{1, 2, 3}, 10, 10);
+
+        AgentFrameworkResult result = executor.execute(model,
+                List.of(AgentChatEntry.system("system"), AgentChatEntry.user("图中是什么？")),
+                List.of(new AgentToolDefinition("retrieve_paper_evidence", "retrieve",
+                        objectSchema("needs"))),
+                request -> new AgentToolExecution("{\"sources\":[]}",
+                        Set.of("src-figure"), List.of(visual)));
+
+        assertThat(result.content()).contains("图像证据");
+        assertThat(requests).hasSize(2);
+        assertThat(requests.get(1).messages().stream()
+                .filter(message -> message instanceof dev.langchain4j.data.message.UserMessage)
+                .map(message -> (dev.langchain4j.data.message.UserMessage) message)
+                .flatMap(message -> message.contents().stream())
+                .anyMatch(content -> content instanceof dev.langchain4j.data.message.ImageContent)).isTrue();
+        assertThat(requests.get(1).messages().toString()).contains("src-figure", "page=4");
+    }
+
+    @Test
+    void exposesOnlyActivateSkillBeforeActivationAndScopedToolsAfterActivation() {
+        List<ChatRequest> requests = new ArrayList<>();
+        List<String> activations = new ArrayList<>();
+        AtomicInteger modelCalls = new AtomicInteger();
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                requests.add(request);
+                if (modelCalls.incrementAndGet() == 1) {
+                    return response("activate-1", "activate_skill",
+                            "{\"skill_name\":\"paper-evidence\"}");
+                }
+                if (modelCalls.get() == 2) {
+                    return response("evidence-1", "retrieve_paper_evidence",
+                            "{\"needs\":[{\"query\":\"method\"}]}");
+                }
+                return ChatResponse.builder().aiMessage(AiMessage.from("完成")).build();
+            }
+        };
+        AgentSkillBinding evidence = new AgentSkillBinding(
+                DefaultSkill.builder()
+                        .name("paper-evidence")
+                        .description("Retrieve original evidence and source-linked images")
+                        .content("Call retrieve_paper_evidence for exact paper support.")
+                        .build(),
+                List.of(new AgentToolDefinition("retrieve_paper_evidence", "retrieve",
+                        objectSchema("needs"))));
+        LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
+                mock(com.research.assistant.service.ai.LangChain4jModelFactory.class), new ObjectMapper());
+
+        AgentFrameworkResult result = executor.execute(model,
+                List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
+                List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
+                List.of(evidence),
+                request -> new AgentToolExecution("{\"sources\":[]}", Set.of()),
+                (id, name, arguments, instructions) -> activations.add(name),
+                trace -> { });
+
+        assertThat(result.content()).isEqualTo("完成");
+        assertThat(requests).hasSize(3);
+        assertThat(toolNames(requests.get(0))).contains("activate_skill", "submit_answer")
+                .doesNotContain("retrieve_paper_evidence");
+        assertThat(toolNames(requests.get(1))).contains("activate_skill", "retrieve_paper_evidence")
+                .doesNotContain("paper_action");
+        assertThat(requests.get(1).messages().toString()).contains("Call retrieve_paper_evidence");
+        assertThat(activations).containsExactly("paper-evidence");
+    }
+
+    @Test
+    void treatsARehydratedActivationTranscriptAsAlreadyActivated() {
+        List<ChatRequest> requests = new ArrayList<>();
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                requests.add(request);
+                return ChatResponse.builder().aiMessage(AiMessage.from("继续使用已有能力")).build();
+            }
+        };
+        AgentSkillBinding evidence = new AgentSkillBinding(
+                DefaultSkill.builder()
+                        .name("paper-evidence")
+                        .description("Retrieve original evidence")
+                        .content("Call retrieve_paper_evidence.")
+                        .build(),
+                List.of(new AgentToolDefinition("retrieve_paper_evidence", "retrieve",
+                        objectSchema("needs"))));
+        LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
+                mock(com.research.assistant.service.ai.LangChain4jModelFactory.class), new ObjectMapper());
+        ToolExecutionRequest activation = ToolExecutionRequest.builder()
+                .id("activation-1").name("activate_skill")
+                .arguments("{\"skill_name\":\"paper-evidence\"}").build();
+
+        executor.execute(model,
+                List.of(AgentChatEntry.system("system"),
+                        AgentChatEntry.assistantTool(activation.id(), activation.name(), activation.arguments()),
+                        AgentChatEntry.tool(activation.id(), activation.name(), "Call retrieve_paper_evidence.",
+                                java.util.Map.of("activated_skill", "paper-evidence")),
+                        AgentChatEntry.user("question")),
+                List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
+                List.of(evidence),
+                request -> new AgentToolExecution("unused", Set.of()),
+                (id, name, arguments, instructions) -> { },
+                trace -> { });
+
+        assertThat(requests).hasSize(1);
+        assertThat(toolNames(requests.get(0))).contains("activate_skill", "retrieve_paper_evidence");
     }
 
     @Test
@@ -183,5 +313,9 @@ class LangChain4jPaperAgentExecutorTest {
         return "{\"type\":\"object\",\"properties\":{\"" + required
                 + "\":{\"type\":\"string\"}},\"required\":[\"" + required
                 + "\"],\"additionalProperties\":false}";
+    }
+
+    private static List<String> toolNames(ChatRequest request) {
+        return request.toolSpecifications().stream().map(specification -> specification.name()).toList();
     }
 }

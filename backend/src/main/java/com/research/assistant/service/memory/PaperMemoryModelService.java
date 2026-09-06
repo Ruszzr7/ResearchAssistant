@@ -35,7 +35,7 @@ public class PaperMemoryModelService {
             "CONTRIBUTION", "METHOD", "FINDING", "LIMITATION", "DEFINITION", "OTHER");
 
     private static final String WHOLE_SYSTEM_PROMPT = """
-            你是严谨的论文全局理解器。输入由完整论文的段落级 span 和全部页面图像组成。
+            你是严谨的论文全局理解器。输入由完整论文的段落级 span、必要的版面区域图像以及可选的原生 PDF 组成。
             只根据输入生成紧凑论文画像，不得引入外部知识，不得把推测写成事实。
             事实必须引用输入中真实出现、且能直接支持陈述的 span ID；不要引用 block ID。
             对性能趋势、比较、数值、原因或鲁棒性等 finding，至少引用一个明确陈述该结论的
@@ -66,7 +66,7 @@ public class PaperMemoryModelService {
     /**
      * Understands the complete paper in one model-controlled request. The
      * input builder chooses the already verified native-PDF capability or the
-     * text plus all page-images representation.
+     * structured text plus a bounded set of page or source-region visuals.
      */
     public WholePaperGeneration understandWhole(PaperStructure structure,
                                                 PaperLayoutArtifact artifact) {

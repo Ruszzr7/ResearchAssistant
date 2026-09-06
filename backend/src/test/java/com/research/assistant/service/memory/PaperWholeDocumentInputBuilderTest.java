@@ -29,7 +29,7 @@ import static org.mockito.Mockito.when;
 class PaperWholeDocumentInputBuilderTest {
 
     @Test
-    void shouldSendAllPagesAsTextAndImagesWhenNativePdfIsUnavailable() throws Exception {
+    void shouldSendOnlyRecoveryImagesWhenNativePdfIsUnavailableAndLayoutHasNoOrderIssue() throws Exception {
         Path root = Files.createTempDirectory("paper-whole-input");
         Path pdf = root.resolve("paper.pdf");
         try (PDDocument document = new PDDocument()) {
@@ -44,7 +44,7 @@ class PaperWholeDocumentInputBuilderTest {
         paper.setPdfPath("paper.pdf");
         when(paperMapper.selectById(7L)).thenReturn(paper);
         AiCapabilityService capability = mock(AiCapabilityService.class);
-        when(capability.documentPdfReady()).thenReturn(false);
+        when(capability.pdfReady()).thenReturn(false);
 
         PaperWholeDocumentInputBuilder builder = new PaperWholeDocumentInputBuilder(
                 paperMapper, new PaperPdfFileResolver(root.toString()), capability);
@@ -55,10 +55,10 @@ class PaperWholeDocumentInputBuilderTest {
 
         assertThat(input.mode()).isEqualTo("page-images");
         assertThat(input.pageCount()).isEqualTo(2);
-        assertThat(input.imageCount()).isEqualTo(2);
+        assertThat(input.imageCount()).isZero();
         assertThat(input.recoveryImageCount()).isEqualTo(1);
         assertThat(input.contents()).anyMatch(content -> content instanceof ImageContent);
-        assertThat(input.contents().stream().filter(content -> content instanceof ImageContent)).hasSize(3);
+        assertThat(input.contents().stream().filter(content -> content instanceof ImageContent)).hasSize(1);
         assertThat(input.contents()).noneMatch(content -> content instanceof PdfFileContent);
         assertThat(input.contents().stream().map(Content::toString).toList())
                 .anyMatch(value -> value.contains("p1-s0000") && value.contains("first page"));
@@ -88,7 +88,7 @@ class PaperWholeDocumentInputBuilderTest {
         paper.setPdfPath("paper.pdf");
         when(paperMapper.selectById(7L)).thenReturn(paper);
         AiCapabilityService capability = mock(AiCapabilityService.class);
-        when(capability.documentPdfReady()).thenReturn(true);
+        when(capability.pdfReady()).thenReturn(true);
 
         PaperWholeDocumentInputBuilder builder = new PaperWholeDocumentInputBuilder(
                 paperMapper, new PaperPdfFileResolver(root.toString()), capability);

@@ -20,11 +20,12 @@ import com.research.assistant.service.agent.runtime.AgentAttachmentService;
 import com.research.assistant.service.agent.source.CitationRequest;
 import com.research.assistant.service.agent.source.GroundEvidenceService;
 import com.research.assistant.service.agent.source.GroundedAnswer;
-import com.research.assistant.service.agent.action.ActionTarget;
 import com.research.assistant.service.agent.action.ActionTicketService;
 import com.research.assistant.service.agent.action.PaperActionResolver;
-import com.research.assistant.service.agent.action.PaperActionType;
 import com.research.assistant.service.agent.capability.AiCapabilityService;
+import com.research.assistant.service.agent.skill.PaperActionSkillTool;
+import com.research.assistant.service.agent.skill.PaperEvidenceSkillTool;
+import com.research.assistant.service.agent.skill.PaperProfileSkillTool;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -58,12 +59,12 @@ public class AgentLoopService {
     private final AgentContextAssembler contextAssembler;
     private final AgentModelSnapshotService snapshotService;
     private final PaperAgentFrameworkExecutor frameworkExecutor;
-    private final PaperReadToolRegistry toolRegistry;
-    private final PaperOverviewToolRegistry overviewToolRegistry;
+    private final PaperEvidenceSkillTool evidenceSkillTool;
+    private final PaperProfileSkillTool profileSkillTool;
+    private final PaperActionSkillTool actionSkillTool;
     private final GroundEvidenceService evidenceService;
     private final ResearchMessageMapper messageMapper;
     private final ObjectMapper objectMapper;
-    private final PaperActionResolver actionResolver;
     private final ActionTicketService ticketService;
     private final AiCapabilityService capabilityService;
     private final AgentAttachmentService attachmentService;
@@ -72,22 +73,22 @@ public class AgentLoopService {
     @org.springframework.beans.factory.annotation.Autowired
     public AgentLoopService(AgentRuntimeService runtimeService, AgentContextAssembler contextAssembler,
                             AgentModelSnapshotService snapshotService, PaperAgentFrameworkExecutor frameworkExecutor,
-                            PaperReadToolRegistry toolRegistry, GroundEvidenceService evidenceService,
+                            PaperEvidenceSkillTool evidenceSkillTool, PaperProfileSkillTool profileSkillTool,
+                            PaperActionSkillTool actionSkillTool, GroundEvidenceService evidenceService,
                             ResearchMessageMapper messageMapper, ObjectMapper objectMapper,
-                            PaperActionResolver actionResolver, ActionTicketService ticketService,
+                            ActionTicketService ticketService,
                             AiCapabilityService capabilityService, AgentAttachmentService attachmentService,
-                            AgentSkillRegistry skillRegistry,
-                            PaperOverviewToolRegistry overviewToolRegistry) {
+                            AgentSkillRegistry skillRegistry) {
         this.runtimeService = runtimeService;
         this.contextAssembler = contextAssembler;
         this.snapshotService = snapshotService;
         this.frameworkExecutor = frameworkExecutor;
-        this.toolRegistry = toolRegistry;
-        this.overviewToolRegistry = overviewToolRegistry;
+        this.evidenceSkillTool = evidenceSkillTool;
+        this.profileSkillTool = profileSkillTool;
+        this.actionSkillTool = actionSkillTool;
         this.evidenceService = evidenceService;
         this.messageMapper = messageMapper;
         this.objectMapper = objectMapper;
-        this.actionResolver = actionResolver;
         this.ticketService = ticketService;
         this.capabilityService = capabilityService;
         this.attachmentService = attachmentService;
@@ -101,9 +102,11 @@ public class AgentLoopService {
                             ResearchMessageMapper messageMapper, ObjectMapper objectMapper,
                             PaperActionResolver actionResolver, ActionTicketService ticketService,
                             AiCapabilityService capabilityService, AgentAttachmentService attachmentService) {
-        this(runtimeService, contextAssembler, snapshotService, frameworkExecutor, toolRegistry, evidenceService,
-                messageMapper, objectMapper, actionResolver, ticketService, capabilityService, attachmentService,
-                new AgentSkillRegistry(toolRegistry), null);
+        this(runtimeService, contextAssembler, snapshotService, frameworkExecutor,
+                new PaperEvidenceSkillTool(toolRegistry), null, new PaperActionSkillTool(actionResolver),
+                evidenceService, messageMapper, objectMapper, ticketService, capabilityService, attachmentService,
+                new AgentSkillRegistry(new PaperEvidenceSkillTool(toolRegistry), null,
+                        new PaperActionSkillTool(actionResolver), java.nio.file.Path.of("../skills")));
     }
 
     public AgentTurnResult execute(AgentTurnInput input) {
@@ -159,17 +162,19 @@ public class AgentLoopService {
         Map<String, AgentToolExecution> readToolCache = new HashMap<>();
         EvidenceReadState evidenceReadState = new EvidenceReadState();
         List<AgentToolDefinition> definitions = new ArrayList<>();
-        definitions.addAll(skillRegistry.tools(context, input.userMessage()));
+        List<AgentSkillBinding> skills = skillRegistry.bindings(context, input.userMessage());
         definitions.add(new AgentToolDefinition("submit_answer",
                 "Submit the final answer as ordered answerBlocks. For a paper-dependent answer, this is the required final step after reading paper evidence so the server can create clickable citations. Each block is complete GitHub-flavored Markdown; keep one factual claim or one tightly related claim group per block, use $...$ for inline LaTeX and $$...$$ for display LaTeX, and do not add numeric citation markers. Attach only sourceObjectIds that were actually read and support that block; general explanation or an explicit statement that the paper does not provide evidence may remain uncited. If no paper evidence was needed, this tool is also valid for a direct structured answer.", ANSWER_SCHEMA));
         definitions.add(new AgentToolDefinition("ask_clarification",
                 "Ask one concise natural-language clarification question only when a requested page operation or answer materially depends on missing or ambiguous user intent. Do not use it for ordinary solvable questions.",
                 CLARIFICATION_SCHEMA));
-        List<AgentChatEntry> messages = withSkillPrompt(context, input.userMessage());
+        List<AgentChatEntry> messages = context.messages();
         try {
-            AgentFrameworkResult frameworkResult = frameworkExecutor.execute(messages, definitions,
+            AgentFrameworkResult frameworkResult = frameworkExecutor.execute(messages, definitions, skills,
                     request -> executeFrameworkTool(context, turn, run.getRunId(), readSources,
                             readToolCache, evidenceReadState, input.userMessage(), request),
+                    (toolCallId, skillName, argumentsJson, instructions) -> persistSkillActivation(
+                            run.getRunId(), toolCallId, skillName, argumentsJson, instructions),
                     trace -> runtimeService.recordModelCall(run.getRunId(), trace));
             runtimeService.recordUsage(run.getRunId(), frameworkResult.modelCalls(), frameworkResult.toolCalls(),
                     frameworkResult.promptTokens(), frameworkResult.completionTokens());
@@ -201,7 +206,7 @@ public class AgentLoopService {
         }
     }
 
-    private String executeFrameworkTool(AgentContextSnapshot context,
+    private AgentToolExecution executeFrameworkTool(AgentContextSnapshot context,
                                         AgentTurnRecord turn,
                                         String runId,
                                         Set<String> readSources,
@@ -209,7 +214,7 @@ public class AgentLoopService {
                                         EvidenceReadState evidenceReadState,
                                         String evidenceFocus,
                                         AgentToolRequest request) {
-        boolean mutation = AgentSkillRegistry.isMutationTool(request.name());
+        boolean mutation = actionSkillTool.supports(request.name());
         AgentToolCallRecord call = runtimeService.registerToolCall(runId, request.name(),
                 request.argumentsJson(), !mutation, runId + ":" + request.id());
         call = runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.RUNNING,
@@ -222,12 +227,12 @@ public class AgentLoopService {
                 String resultJson = writeResult(waiting);
                 if (!transitionRunBeforePersistingResult(runId, AgentRunStatus.WAITING_USER, resultJson)) {
                     failLateToolCall(call);
-                    return writeResult(currentResult(runId));
+                    return toolResult(writeResult(currentResult(runId)));
                 }
                 runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED,
                         resultJson, null, null);
                 saveAssistantMessage(turn, runId, "CLARIFICATION", question, null);
-                return resultJson;
+                return toolResult(resultJson);
             }
             if ("submit_answer".equals(request.name())) {
                 JsonNode submission = objectMapper.readTree(request.argumentsJson());
@@ -239,12 +244,12 @@ public class AgentLoopService {
                     String resultJson = writeResult(waiting);
                     if (!transitionRunBeforePersistingResult(runId, AgentRunStatus.WAITING_USER, resultJson)) {
                         failLateToolCall(call);
-                        return writeResult(currentResult(runId));
+                        return toolResult(writeResult(currentResult(runId)));
                     }
                     runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED,
                             resultJson, null, null);
                     saveAssistantMessage(turn, runId, "CLARIFICATION", clarification, null);
-                    return resultJson;
+                    return toolResult(resultJson);
                 }
                 GroundedAnswer grounded = parseAndGround(request.argumentsJson(), context, readSources);
                 List<AgentEvidenceView> evidence = evidenceViews(grounded, context);
@@ -253,50 +258,41 @@ public class AgentLoopService {
                 String resultJson = writeResult(completed);
                 if (!transitionRunBeforePersistingResult(runId, AgentRunStatus.COMPLETED, resultJson)) {
                     failLateToolCall(call);
-                    return writeResult(currentResult(runId));
+                    return toolResult(writeResult(currentResult(runId)));
                 }
                 runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED,
                         resultJson, null, null);
                 saveAssistantMessage(turn, runId, "CHAT", grounded.answer(), resultJson);
-                return resultJson;
+                return toolResult(resultJson);
             }
-            if ("paper_action".equals(request.name())) {
-                if (context.sourceCatalog() == null) throw new IllegalArgumentException("paper source is not ready");
-                JsonNode args = objectMapper.readTree(request.argumentsJson());
-                PaperActionType type = AgentSkillRegistry.actionType(requiredText(args, "actionType"));
-                String sourceId = requiredText(args, "sourceObjectId");
-                if (!readSources.contains(sourceId)) {
-                    throw new IllegalArgumentException("action source was not read or selected: " + sourceId);
-                }
-                String content = optionalParameter(args.path("content").asText(null));
-                if ((type == PaperActionType.NOTE || type == PaperActionType.COMMENT) && content == null) {
-                    throw new IllegalArgumentException("note/comment content is required");
-                }
-                String color = optionalParameter(args.path("color").asText(null));
-                ActionTarget target = actionResolver.resolve(context.sourceCatalog(), sourceId);
+            if (actionSkillTool.supports(request.name())) {
+                PaperActionSkillTool.PreparedAction preparedAction = actionSkillTool.prepare(context.sourceCatalog(),
+                        readSources, request.argumentsJson(), objectMapper);
                 ActionTicketService.IssuedActionTicket issued = ticketService.issue(runId, call,
-                        type, target, content, color);
-                AgentPendingAction action = new AgentPendingAction(call.getToolCallId(), type, target,
-                        content, color, issued.ticket(), issued.expiresAt());
+                        preparedAction.type(), preparedAction.target(), preparedAction.content(), preparedAction.color());
+                AgentPendingAction action = new AgentPendingAction(call.getToolCallId(), preparedAction.type(),
+                        preparedAction.target(), preparedAction.content(), preparedAction.color(),
+                        issued.ticket(), issued.expiresAt());
                 AgentTurnResult waiting = new AgentTurnResult(turn.getTurnId(), runId,
                         AgentRunStatus.WAITING_CLIENT.name(), "正在执行页面操作。", List.of(), List.of(), List.of(action));
                 String resultJson = writeResult(waiting);
                 if (!transitionRunBeforePersistingResult(runId, AgentRunStatus.WAITING_CLIENT, resultJson)) {
                     failLateToolCall(call);
-                    return writeResult(currentResult(runId));
+                    return toolResult(writeResult(currentResult(runId)));
                 }
                 runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.WAITING_CLIENT,
                         resultJson, null, null);
-                return resultJson;
+                return toolResult(resultJson);
             }
-            if (PaperOverviewToolRegistry.TOOL_NAME.equals(request.name())) {
-                if (context.paperId() == null || overviewToolRegistry == null) {
+            if (profileSkillTool != null && profileSkillTool.supports(request.name())) {
+                if (context.paperId() == null) {
                     throw new IllegalArgumentException("paper overview is not available");
                 }
-                AgentToolExecution overview = overviewToolRegistry.execute(context.paperId(), context.sourceCatalog());
+                AgentToolExecution overview = profileSkillTool.execute(context.paperId(), context.sourceCatalog());
+                readSources.addAll(overview.sourceObjectIds());
                 runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED,
                         overview.resultJson(), null, null);
-                return overview.resultJson();
+                return overview;
             }
             if (context.sourceCatalog() == null) throw new IllegalArgumentException("paper source is not ready");
             AgentToolExecution result;
@@ -309,14 +305,13 @@ public class AgentLoopService {
                 result = readToolCache.get(cacheKey);
                 reused = result != null;
                 if (result == null) {
-                    result = toolRegistry.execute(context.sourceCatalog(), request.name(),
-                            effectiveArguments);
+                    result = evidenceSkillTool.execute(context.sourceCatalog(), request.name(), effectiveArguments);
                     readToolCache.put(cacheKey, result);
                 }
             }
             Set<String> newSourceIds = new LinkedHashSet<>(result.sourceObjectIds());
             newSourceIds.removeAll(readSources);
-            if (AgentSkillRegistry.isPaperReadTool(request.name())) {
+            if (evidenceSkillTool.supports(request.name())) {
                 if (!result.sourceObjectIds().isEmpty()) {
                     evidenceReadState.markUsableEvidence();
                 }
@@ -325,30 +320,39 @@ public class AgentLoopService {
             readSources.addAll(result.sourceObjectIds());
             runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED,
                     result.resultJson(), null, null);
-            return result.resultJson();
+            return result;
         } catch (Exception error) {
             runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.FAILED, null,
                     "TOOL_INPUT_OR_EXECUTION_FAILED", safeError(error));
-            if (AgentSkillRegistry.isPaperReadTool(request.name())) {
-                return readUnavailableResult();
+            if (evidenceSkillTool.supports(request.name())) {
+                return toolResult(readUnavailableResult());
             }
             throw error instanceof RuntimeException runtime ? runtime : new IllegalArgumentException(error);
         }
     }
 
-    private List<AgentChatEntry> withSkillPrompt(AgentContextSnapshot context, String userMessage) {
-        String prompt = skillRegistry.prompt(context, userMessage);
-        if (prompt.isBlank()) return context.messages();
-        List<AgentChatEntry> messages = new ArrayList<>(context.messages());
-        for (int index = 0; index < messages.size(); index++) {
-            AgentChatEntry message = messages.get(index);
-            if (message.role() == AgentChatEntry.Role.SYSTEM) {
-                messages.set(index, AgentChatEntry.system(message.content() + "\n\n" + prompt));
-                return List.copyOf(messages);
-            }
+    private void persistSkillActivation(String runId, String toolCallId, String skillName,
+                                        String argumentsJson, String instructions) {
+        if (runId == null || skillName == null || skillName.isBlank()
+                || instructions == null || instructions.isBlank()) return;
+        try {
+            String stableRequestId = toolCallId == null || toolCallId.isBlank()
+                    ? "activation-" + Integer.toHexString((skillName + argumentsJson).hashCode())
+                    : toolCallId;
+            AgentToolCallRecord call = runtimeService.registerToolCall(runId, "activate_skill",
+                    argumentsJson == null || argumentsJson.isBlank() ? "{}" : argumentsJson,
+                    true, runId + ":activate:" + stableRequestId);
+            call = runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.RUNNING,
+                    null, null, null);
+            String resultJson = objectMapper.writeValueAsString(Map.of(
+                    "skillName", skillName.trim(),
+                    "instructions", instructions));
+            runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED,
+                    resultJson, null, null);
+        } catch (Exception ignored) {
+            // Skill activation has already completed in the model loop. Its
+            // transcript persistence is only for continuity on later turns.
         }
-        messages.add(0, AgentChatEntry.system(prompt));
-        return List.copyOf(messages);
     }
 
     private String evidenceArguments(String toolName, String argumentsJson, String evidenceFocus) {
@@ -401,7 +405,8 @@ public class AgentLoopService {
                 payload.put("stopReason", execution.sourceObjectIds().isEmpty()
                         ? "no_matching_evidence" : "no_new_evidence");
             }
-            return new AgentToolExecution(objectMapper.writeValueAsString(payload), execution.sourceObjectIds());
+            return new AgentToolExecution(objectMapper.writeValueAsString(payload),
+                    execution.sourceObjectIds(), execution.visuals());
         } catch (Exception ignored) {
             // Diagnostics must never make an otherwise valid paper read unavailable.
             return execution;
@@ -456,6 +461,10 @@ public class AgentLoopService {
         } catch (com.fasterxml.jackson.core.JsonProcessingException error) {
             return "{\"status\":\"unavailable\",\"sources\":[]}";
         }
+    }
+
+    private static AgentToolExecution toolResult(String resultJson) {
+        return new AgentToolExecution(resultJson, Set.of());
     }
 
     private static boolean isStoredResult(AgentTurnResult result, String runId) {
@@ -615,35 +624,24 @@ public class AgentLoopService {
 
     private AgentTurnResult executeExplicitAction(AgentTurnInput input, AgentContextSnapshot context,
                                                   AgentTurnRecord turn, AgentRunRecord run) {
-        if (context.sourceCatalog() == null) throw new IllegalArgumentException("paper source is not ready");
-        String typeName = input.explicitAction().type();
-        PaperActionType type;
-        try { type = PaperActionType.valueOf(typeName); }
-        catch (IllegalArgumentException unsupported) {
-            throw new IllegalArgumentException("unsupported explicit action: " + typeName);
-        }
         Object sourceValue = input.explicitAction().parameters().get("sourceObjectId");
         String sourceId = sourceValue == null ? null : sourceValue.toString().trim();
-        if (sourceId == null || sourceId.isBlank()) {
-            throw new IllegalArgumentException("explicit action requires a trusted sourceObjectId");
-        }
         String content = optionalParameter(input.explicitAction().parameters().get("content"));
-        if ((type == PaperActionType.NOTE || type == PaperActionType.COMMENT) && content == null) {
-            throw new IllegalArgumentException("note/comment content is required");
-        }
         String color = optionalParameter(input.explicitAction().parameters().get("color"));
-        ActionTarget target = actionResolver.resolve(context.sourceCatalog(), sourceId);
+        PaperActionSkillTool.PreparedAction preparedAction = actionSkillTool.prepareExplicit(context.sourceCatalog(),
+                input.explicitAction().type(), sourceId, content, color);
         String arguments;
         try { arguments = objectMapper.writeValueAsString(input.explicitAction().parameters()); }
         catch (Exception error) { throw new IllegalArgumentException("explicit action parameters are invalid", error); }
         AgentToolCallRecord call = runtimeService.registerToolCall(run.getRunId(),
-                "explicit_" + type.name().toLowerCase(), arguments, false,
-                run.getRunId() + ":explicit:" + type + ":" + sourceId);
+                "explicit_" + preparedAction.type().name().toLowerCase(), arguments, false,
+                run.getRunId() + ":explicit:" + preparedAction.type() + ":" + sourceId);
         call = runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.RUNNING, null, null, null);
         ActionTicketService.IssuedActionTicket issued = ticketService.issue(run.getRunId(), call,
-                type, target, content, color);
-        AgentPendingAction action = new AgentPendingAction(call.getToolCallId(), type, target,
-                content, color, issued.ticket(), issued.expiresAt());
+                preparedAction.type(), preparedAction.target(), preparedAction.content(), preparedAction.color());
+        AgentPendingAction action = new AgentPendingAction(call.getToolCallId(), preparedAction.type(),
+                preparedAction.target(), preparedAction.content(), preparedAction.color(),
+                issued.ticket(), issued.expiresAt());
         String message = "正在执行页面操作。";
         AgentTurnResult waiting = new AgentTurnResult(turn.getTurnId(), run.getRunId(), AgentRunStatus.WAITING_CLIENT.name(),
                 message, List.of(), List.of(), List.of(action));

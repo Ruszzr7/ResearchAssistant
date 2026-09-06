@@ -5,8 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.entity.PaperMemoryRecord;
 import com.research.assistant.mapper.PaperMemoryMapper;
 import com.research.assistant.service.agent.source.PaperSourceCatalog;
+import com.research.assistant.service.agent.source.SourceContentType;
+import com.research.assistant.service.agent.source.SourceObject;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -39,13 +42,19 @@ class PaperOverviewToolRegistryTest {
                 }
                 """);
         when(mapper.selectLatest(9L)).thenReturn(memory);
-        PaperSourceCatalog catalog = new PaperSourceCatalog(9L, "hash", "parser", 1, Map.of(), Map.of());
+        SourceObject contributionSource = new SourceObject("span-p1", 9L, "hash", "parser", 1,
+                SourceContentType.TEXT, "A contribution", null, List.of("Introduction"), "",
+                Map.of("blockId", "p1-b1"));
+        PaperSourceCatalog catalog = new PaperSourceCatalog(9L, "hash", "parser", 1,
+                Map.of("span-p1", contributionSource), Map.of());
 
         AgentToolExecution execution = new PaperOverviewToolRegistry(mapper, objectMapper).execute(9L, catalog);
         JsonNode json = objectMapper.readTree(execution.resultJson());
 
         assertThat(json.at("/profile/coreContributions/0/statement").asText()).isEqualTo("A contribution");
         assertThat(json.at("/profile/coreContributions/0/claimRef").asText()).isEqualTo("contribution:0");
+        assertThat(json.at("/profile/coreContributions/0/sourceObjectIds").toString()).contains("span-p1");
+        assertThat(execution.sourceObjectIds()).contains("span-p1");
         assertThat(json.at("/profile/keyFindings/0/statement").asText()).isEqualTo("A finding");
         assertThat(json.at("/profile/keyFindings/0/claimRef").asText()).isEqualTo("finding:0");
         assertThat(json.at("/profile/benchmarkResults/0/value").asText()).isEqualTo("91%");

@@ -122,7 +122,7 @@ class AgentLoopServiceTest {
     void transientCapabilityProbeFailureDoesNotBlockDirectChat() {
         AiCapabilityService capability = mock(AiCapabilityService.class);
         doThrow(new IllegalStateException("AGENT_MODEL_CAPABILITY_NOT_VERIFIED"))
-                .when(capability).requireChatAgentReady();
+                .when(capability).requireReady();
         service = new AgentLoopService(runtime, assembler, snapshots, gateway, tools,
                 new GroundEvidenceService(), messages, new ObjectMapper(), actionResolver,
                 ticketService, capability, null);
@@ -279,7 +279,8 @@ class AgentLoopServiceTest {
 
         service.execute(input("找出文章最重要的一条公式结论"));
 
-        assertThat(gateway.requests.get(0).tools()).extracting(AgentToolDefinition::name)
+        assertThat(gateway.requests.get(0).skills()).flatExtracting(AgentSkillBinding::tools)
+                .extracting(AgentToolDefinition::name)
                 .contains("paper_action");
     }
 
@@ -566,12 +567,28 @@ class AgentLoopServiceTest {
         @Override public AgentFrameworkResult execute(List<AgentChatEntry> messages,
                                                       List<AgentToolDefinition> tools,
                                                       ToolHandler handler) {
+            return executeScript(messages, tools, List.of(), handler);
+        }
+
+        @Override public AgentFrameworkResult execute(List<AgentChatEntry> messages,
+                                                       List<AgentToolDefinition> tools,
+                                                       List<AgentSkillBinding> skills,
+                                                       ToolHandler handler,
+                                                       SkillActivationHandler activationHandler,
+                                                       ModelCallObserver observer) {
+            return executeScript(messages, tools, skills, handler);
+        }
+
+        private AgentFrameworkResult executeScript(List<AgentChatEntry> messages,
+                                                   List<AgentToolDefinition> tools,
+                                                   List<AgentSkillBinding> skills,
+                                                   ToolHandler handler) {
             if (failure != null) throw failure;
             int modelCalls = 0;
             int toolCalls = 0;
             List<AgentChatEntry> transcript = new java.util.ArrayList<>(messages);
             while (true) {
-                requests.add(new RequestSnapshot(List.copyOf(transcript), tools));
+                requests.add(new RequestSnapshot(List.copyOf(transcript), tools, skills));
                 ScriptedDecision decision = decisions.remove();
                 modelCalls++;
                 if (decision.toolCalls().isEmpty()) {
@@ -581,7 +598,8 @@ class AgentLoopServiceTest {
                     toolCalls++;
                     transcript.add(AgentChatEntry.assistantTool(call.id(), call.name(), call.argumentsJson()));
                     try {
-                        String result = handler.execute(call);
+                        AgentToolExecution execution = handler.execute(call);
+                        String result = execution.resultJson();
                         if ("submit_answer".equals(call.name()) || "ask_clarification".equals(call.name())
                                 || "paper_action".equals(call.name())) {
                             return new AgentFrameworkResult(result, modelCalls, toolCalls, 0, 0);
@@ -602,5 +620,6 @@ class AgentLoopServiceTest {
     }
 
     private record ScriptedDecision(String text, List<AgentToolRequest> toolCalls) { }
-    private record RequestSnapshot(List<AgentChatEntry> messages, List<AgentToolDefinition> tools) { }
+    private record RequestSnapshot(List<AgentChatEntry> messages, List<AgentToolDefinition> tools,
+                                   List<AgentSkillBinding> skills) { }
 }

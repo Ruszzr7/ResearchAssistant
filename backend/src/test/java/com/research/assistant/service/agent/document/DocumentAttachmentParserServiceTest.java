@@ -45,11 +45,11 @@ class DocumentAttachmentParserServiceTest {
         record.setOriginalName("figure.png");
         record.setExtractionStatus("PENDING");
         when(attachments.resolveContent(record)).thenReturn(image);
-        when(factory.createDocumentModel()).thenReturn(model);
+        when(factory.createPaperUnderstandingModel()).thenReturn(model);
         when(model.chat(any(dev.langchain4j.model.chat.request.ChatRequest.class)))
                 .thenReturn(ChatResponse.builder().aiMessage(dev.langchain4j.data.message.AiMessage.from("结构化图片说明")).build());
-        doNothing().when(capabilities).requireDocumentReady();
-        when(capabilities.documentPdfReady()).thenReturn(false);
+        doNothing().when(capabilities).requireReady();
+        when(capabilities.pdfReady()).thenReturn(false);
 
         DocumentAttachmentParserService service = new DocumentAttachmentParserService(attachments, capabilities, factory);
         String result = service.resolve(record, "这张图表达了什么？");
@@ -104,7 +104,7 @@ class DocumentAttachmentParserServiceTest {
         record.setOriginalName("paper.docx");
         record.setExtractionStatus("PENDING");
         when(attachments.resolveContent(record)).thenReturn(docx);
-        when(factory.createDocumentModel()).thenReturn(model);
+        when(factory.createPaperUnderstandingModel()).thenReturn(model);
         when(model.chat(any(dev.langchain4j.model.chat.request.ChatRequest.class)))
                 .thenReturn(ChatResponse.builder().aiMessage(dev.langchain4j.data.message.AiMessage.from("结构化 Word 内容")).build());
 
@@ -138,8 +138,8 @@ class DocumentAttachmentParserServiceTest {
         record.setOriginalName("paper.pdf");
         record.setExtractionStatus("PENDING");
         when(attachments.resolveContent(record)).thenReturn(pdf);
-        when(capabilities.documentPdfReady()).thenReturn(false);
-        when(factory.createDocumentModel()).thenReturn(model);
+        when(capabilities.pdfReady()).thenReturn(false);
+        when(factory.createPaperUnderstandingModel()).thenReturn(model);
         when(model.chat(any(dev.langchain4j.model.chat.request.ChatRequest.class)))
                 .thenReturn(ChatResponse.builder().aiMessage(dev.langchain4j.data.message.AiMessage.from("结构化 PDF 内容")).build());
 

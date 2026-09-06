@@ -82,7 +82,7 @@ public class DocumentAttachmentParserService {
         }
 
         try {
-            capabilityService.requireDocumentReady();
+            capabilityService.requireReady();
             byte[] bytes = Files.readAllBytes(attachmentService.resolveContent(attachment));
             ParsedContent parsed = parseInput(attachment, bytes);
             String prompt = buildQuestionPrompt(attachment, userQuestion, parsed.text());
@@ -101,7 +101,7 @@ public class DocumentAttachmentParserService {
                 result = invoke(contents(prompt, parsed.text(), parsed.images()));
             }
             result = bounded(result);
-            if (result.isBlank()) throw new IllegalStateException("解析 API 返回了空内容");
+            if (result.isBlank()) throw new IllegalStateException("统一多模态 API 返回了空内容");
             attachmentService.updateExtraction(attachment, "PARSED", result,
                     "{\"source\":\"document-api\",\"mode\":\"" + mode + "\"}");
             return result;
@@ -121,7 +121,7 @@ public class DocumentAttachmentParserService {
     private ParsedContent parseInput(AgentAttachmentRecord attachment, byte[] bytes) throws IOException {
         String mediaType = attachment.getMediaType() == null ? "" : attachment.getMediaType().toLowerCase(Locale.ROOT);
         if ("application/pdf".equals(mediaType)) {
-            if (capabilityService.documentPdfReady()) return new ParsedContent("", List.of(), true, "native-pdf");
+            if (capabilityService.pdfReady()) return new ParsedContent("", List.of(), true, "native-pdf");
             return renderPdf(bytes);
         }
         if (mediaType.contains("wordprocessingml") || hasExtension(attachment, "docx")) {
@@ -187,7 +187,7 @@ public class DocumentAttachmentParserService {
     }
 
     private String invoke(List<Content> contents) {
-        ChatResponse response = modelFactory.createDocumentModel().chat(ChatRequest.builder()
+        ChatResponse response = modelFactory.createPaperUnderstandingModel().chat(ChatRequest.builder()
                 .messages(SystemMessage.from(PARSER_SYSTEM_PROMPT), UserMessage.from(contents))
                 .maxOutputTokens(12_000)
                 .build());

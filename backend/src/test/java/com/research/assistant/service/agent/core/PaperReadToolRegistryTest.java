@@ -45,6 +45,10 @@ class PaperReadToolRegistryTest {
         assertThat(registry.definitions().get(0).description())
                 .contains("all currently known", "one fallback", "coverage");
         assertThat(schema.at("/properties/needs/items/properties/targets").isObject()).isTrue();
+        assertThat(schema.at("/properties/needs/items/properties/includeVisual/type").asText())
+                .isEqualTo("boolean");
+        assertThat(schema.at("/properties/needs/items/properties/sourceObjectIds").isObject()).isTrue();
+        assertThat(schema.at("/properties/needs/items/anyOf").isMissingNode()).isTrue();
         assertThat(schema.at("/properties/maxEvidence/maximum").asInt()).isEqualTo(8);
         assertThat(registry.definitions("请总结第 5 页")).extracting(AgentToolDefinition::name)
                 .containsExactly("retrieve_paper_evidence");
@@ -79,6 +83,22 @@ class PaperReadToolRegistryTest {
         assertThat(execution.sourceObjectIds()).containsExactlyInAnyOrder("src-1", "src-2");
         verify(sourceService).readSource(catalog, "src-1");
         verify(sourceService).readSource(catalog, "src-2");
+    }
+
+    @Test
+    void readsKnownTrustedSourceWithoutRunningAnotherSearch() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        PaperSourceCatalog catalog = catalog(5, "formula", "context");
+        when(sourceService.readSource(catalog, "src-1")).thenReturn(catalog.requireObject("src-1"));
+
+        AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"sourceObjectIds\":[\"src-1\"],\"includeVisual\":true}]}");
+
+        assertThat(execution.sourceObjectIds()).containsExactly("src-1");
+        assertThat(objectMapper.readTree(execution.resultJson())
+                .at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-1");
+        verify(sourceService, times(0)).search(eq(catalog), any());
     }
 
     @Test

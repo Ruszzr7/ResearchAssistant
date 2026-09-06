@@ -16,61 +16,52 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AiCapabilityServiceTest {
+
     @Test
-    void verifiesNativeToolCallAndContinuationBeforeEnablingChatAgent() {
+    void verifiesToolImageContinuationAndStructuredOutputTogether() {
         AiModelCapabilityMapper mapper = mock(AiModelCapabilityMapper.class);
-        AiRoleSettingsService settings = mock(AiRoleSettingsService.class);
+        AiSettingsService settings = mock(AiSettingsService.class);
         LangChain4jModelFactory factory = mock(LangChain4jModelFactory.class);
-        when(settings.resolve(AiModelRole.CHAT)).thenReturn(role(AiModelRole.CHAT, "a".repeat(64)));
+        when(settings.resolve()).thenReturn(settings("a".repeat(64)));
         ChatModel model = mock(ChatModel.class);
         when(factory.createAgentChatModel()).thenReturn(model);
         ToolExecutionRequest call = ToolExecutionRequest.builder().id("probe").name("capability_echo")
                 .arguments("{\"value\":\"READY\"}").build();
         when(model.chat(any(ChatRequest.class))).thenReturn(
                 ChatResponse.builder().aiMessage(AiMessage.from(java.util.List.of(call))).build(),
-                ChatResponse.builder().aiMessage(AiMessage.from("DONE")).build());
-        doAnswer(invocation -> { AiModelCapabilityRecord value = invocation.getArgument(0); value.setId(1L); return 1; })
-                .when(mapper).insert(any(AiModelCapabilityRecord.class));
+                ChatResponse.builder().aiMessage(AiMessage.from(
+                        "{\"tool\":\"READY\",\"image\":\"VISION_7\"}")).build())
+                .thenThrow(new RuntimeException("pdf unsupported"));
+        doAnswer(invocation -> {
+            AiModelCapabilityRecord value = invocation.getArgument(0);
+            value.setId(1L);
+            return 1;
+        }).when(mapper).insert(any(AiModelCapabilityRecord.class));
         AiCapabilityService service = new AiCapabilityService(mapper, settings, factory);
 
-        var result = service.probe(AiModelRole.CHAT);
+        var result = service.probe();
 
         assertThat(result.status()).isEqualTo("VERIFIED");
         assertThat(result.toolCalling()).isTrue();
         assertThat(result.continuousTools()).isTrue();
+        assertThat(result.toolImageContinuation()).isTrue();
+        assertThat(result.image()).isTrue();
+        assertThat(result.structured()).isTrue();
+        assertThat(result.pdf()).isFalse();
         ArgumentCaptor<ChatRequest> requests = ArgumentCaptor.forClass(ChatRequest.class);
-        verify(model, times(2)).chat(requests.capture());
+        verify(model, times(3)).chat(requests.capture());
         assertThat(requests.getAllValues().get(0).toolChoice()).isEqualTo(ToolChoice.AUTO);
+        assertThat(requests.getAllValues().get(1).messages().toString()).contains("ImageContent");
         verify(mapper).insert(any(AiModelCapabilityRecord.class));
     }
 
-    @Test
-    void documentProbeKeepsImageRequiredAndTreatsPdfAsOptionalCapability() {
-        AiModelCapabilityMapper mapper = mock(AiModelCapabilityMapper.class);
-        AiRoleSettingsService settings = mock(AiRoleSettingsService.class);
-        LangChain4jModelFactory factory = mock(LangChain4jModelFactory.class);
-        when(settings.resolve(AiModelRole.DOCUMENT)).thenReturn(role(AiModelRole.DOCUMENT, "b".repeat(64)));
-        ChatModel model = mock(ChatModel.class);
-        when(factory.createDocumentModel()).thenReturn(model);
-        when(model.chat(any(dev.langchain4j.data.message.ChatMessage[].class)))
-                .thenReturn(ChatResponse.builder().aiMessage(AiMessage.from("IMAGE_OK")).build())
-                .thenThrow(new RuntimeException("pdf unsupported"));
-        AiCapabilityService service = new AiCapabilityService(mapper, settings, factory);
-
-        var result = service.probe(AiModelRole.DOCUMENT);
-
-        assertThat(result.status()).isEqualTo("VERIFIED");
-        assertThat(result.image()).isTrue();
-        assertThat(result.pdf()).isFalse();
-    }
-
-    private AiRoleSettings role(AiModelRole role, String signature) {
-        return new AiRoleSettings(role, "OPENAI_COMPATIBLE", "test", "default", "https://example.test/v1",
-                "secret", "fake", signature);
+    private AiSettings settings(String signature) {
+        return new AiSettings("OPENAI_COMPATIBLE", "test", "default",
+                "https://example.test/v1", "secret", "fake", signature);
     }
 }

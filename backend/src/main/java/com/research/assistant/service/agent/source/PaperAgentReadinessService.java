@@ -92,7 +92,7 @@ public class PaperAgentReadinessService {
             status = "FILE_MISSING";
             text = "论文 PDF 不可用";
         }
-        boolean visualReady = capabilityService != null && capabilityService.documentImageReady();
+        boolean visualReady = capabilityService != null && capabilityService.imageReady();
         return new PaperAgentReadinessView(paperId, status, text, fileReady, localReady,
                 localReady, profileReady, visualReady, fallback, profileReady || fallback, attempts);
     }

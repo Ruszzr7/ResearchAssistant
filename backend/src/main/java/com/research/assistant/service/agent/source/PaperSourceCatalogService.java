@@ -460,7 +460,7 @@ public class PaperSourceCatalogService {
             case FORMULA_FAMILY -> SourceContentType.FORMULA;
             case FIGURE -> SourceContentType.FIGURE;
             case TABLE -> SourceContentType.TABLE;
-            case ALGORITHM -> SourceContentType.TEXT;
+            case ALGORITHM -> SourceContentType.ALGORITHM;
         };
     }
 

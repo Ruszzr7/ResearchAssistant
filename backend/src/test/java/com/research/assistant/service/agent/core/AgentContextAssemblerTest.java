@@ -94,6 +94,71 @@ class AgentContextAssemblerTest {
     }
 
     @Test
+    void rehydratesSkillActivationAsAnOfficialToolTranscript() {
+        ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
+        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
+        AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
+        PaperMemoryMapper memories = mock(PaperMemoryMapper.class);
+        PaperSourceCatalogService sources = mock(PaperSourceCatalogService.class);
+        AgentToolCallMapper toolCalls = mock(AgentToolCallMapper.class);
+        ResearchSession session = new ResearchSession(); session.setId(7L); session.setPrimaryPaperId(9L);
+        when(sessions.selectById(7L)).thenReturn(session);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(9L, "hash", "parser", 1, Map.of(), Map.of());
+        when(sources.latest(9L)).thenReturn(catalog);
+        when(messages.selectFinalAfter(7L, 0)).thenReturn(List.of());
+        AgentToolCallRecord activation = new AgentToolCallRecord();
+        activation.setToolCallId("activation-1");
+        activation.setToolName("activate_skill");
+        activation.setArgumentsJson("{\"skill_name\":\"paper-evidence\"}");
+        activation.setResultJson("{\"skillName\":\"paper-evidence\",\"instructions\":\"Use original evidence.\"}");
+        when(toolCalls.selectRecentCompletedSkillActivations(7L, "hash", "parser", 0, 3))
+                .thenReturn(List.of(activation));
+
+        AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
+                sources, new ObjectMapper(), null, null, null, toolCalls);
+
+        AgentContextSnapshot result = assembler.assemble(input(7L, null));
+
+        assertThat(result.messages()).anyMatch(message ->
+                message.role() == AgentChatEntry.Role.ASSISTANT_TOOL
+                        && message.toolName().equals("activate_skill"));
+        assertThat(result.messages()).anyMatch(message ->
+                message.role() == AgentChatEntry.Role.TOOL
+                        && message.content().equals("Use original evidence.")
+                        && "paper-evidence".equals(message.attributes().get("activated_skill")));
+        assertThat(result.snapshotJson()).contains("\"rehydratedSkillActivationCount\":1");
+    }
+
+    @Test
+    void restoresProfileSourceIdsToTheCurrentCitationSet() {
+        ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
+        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
+        AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
+        PaperMemoryMapper memories = mock(PaperMemoryMapper.class);
+        PaperSourceCatalogService sources = mock(PaperSourceCatalogService.class);
+        AgentToolCallMapper toolCalls = mock(AgentToolCallMapper.class);
+        ResearchSession session = new ResearchSession(); session.setId(7L); session.setPrimaryPaperId(9L);
+        when(sessions.selectById(7L)).thenReturn(session);
+        SourceObject source = new SourceObject("p1-b1", 9L, "hash", "parser", 1,
+                SourceContentType.TEXT, "profile evidence", null, List.of("Results"), "", Map.of());
+        PaperSourceCatalog catalog = new PaperSourceCatalog(9L, "hash", "parser", 1,
+                Map.of("p1-b1", source), Map.of());
+        when(sources.latest(9L)).thenReturn(catalog);
+        AgentToolCallRecord profile = new AgentToolCallRecord();
+        profile.setToolName("read_paper_profile");
+        profile.setResultJson("{\"sourceObjectIds\":[\"p1-b1\",\"stale\"]}");
+        when(toolCalls.selectRecentCompletedPaperReads(7L, "hash", "parser", 8))
+                .thenReturn(List.of(profile));
+
+        AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
+                sources, new ObjectMapper(), null, null, null, toolCalls);
+
+        AgentContextSnapshot result = assembler.assemble(input(7L, null));
+
+        assertThat(result.preReadSourceIds()).containsExactly("p1-b1");
+    }
+
+    @Test
     void rejectsSelectionFromStalePdfVersion() {
         ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
         ResearchMessageMapper messages = mock(ResearchMessageMapper.class);

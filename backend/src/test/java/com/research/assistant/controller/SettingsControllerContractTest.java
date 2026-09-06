@@ -57,9 +57,9 @@ class SettingsControllerContractTest {
     void getSettingsMasksEverySensitiveKey() throws Exception {
         Settings main = new Settings("api_key", "sk-main-secret");
         Settings legacy = new Settings("apiKey", "legacy-secret");
-        Settings ieee = new Settings("ieee_xplore_api_key", "ieee-secret");
-        Settings semanticScholar = new Settings("semantic_scholar_api_key", "semantic-secret");
-        when(settingsService.getAll()).thenReturn(List.of(main, legacy, ieee, semanticScholar));
+        Settings legacyProvider = new Settings("legacy_api_key", "ieee-secret");
+        Settings providerToken = new Settings("provider_token", "semantic-secret");
+        when(settingsService.getAll()).thenReturn(List.of(main, legacy, legacyProvider, providerToken));
 
         mockMvc.perform(get("/api/settings"))
                 .andExpect(status().isOk())
@@ -124,21 +124,19 @@ class SettingsControllerContractTest {
 
     @Test
     void capabilityProbeUsesDraftAndDoesNotSaveSettings() throws Exception {
-        when(capabilityService.probeDraft(org.mockito.ArgumentMatchers.eq(com.research.assistant.service.agent.capability.AiModelRole.CHAT),
-                org.mockito.ArgumentMatchers.eq("https://draft.example/v1"),
+        when(capabilityService.probeDraft(org.mockito.ArgumentMatchers.eq("https://draft.example/v1"),
                 org.mockito.ArgumentMatchers.eq("draft-model"),
                 org.mockito.ArgumentMatchers.eq("draft-key")))
-                .thenReturn(new AiCapabilityView("CHAT", "VERIFIED", true, true, true, true,
-                        false, false, null, null, null, null));
+                .thenReturn(new AiCapabilityView("VERIFIED", true, true, true, true,
+                        true, true, false, null, null, null, null));
 
-        mockMvc.perform(post("/api/settings/capabilities/CHAT/test")
+        mockMvc.perform(post("/api/settings/capabilities/test")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"baseUrl\":\"https://draft.example/v1\",\"model\":\"draft-model\",\"apiKey\":\"draft-key\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("VERIFIED"));
 
-        verify(capabilityService).probeDraft(org.mockito.ArgumentMatchers.eq(com.research.assistant.service.agent.capability.AiModelRole.CHAT),
-                org.mockito.ArgumentMatchers.eq("https://draft.example/v1"),
+        verify(capabilityService).probeDraft(org.mockito.ArgumentMatchers.eq("https://draft.example/v1"),
                 org.mockito.ArgumentMatchers.eq("draft-model"),
                 org.mockito.ArgumentMatchers.eq("draft-key"));
         verify(settingsService, never()).saveAll(any());

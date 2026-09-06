@@ -17,6 +17,7 @@ public class AiModelCapabilityRecord {
     private Boolean chatSupported;
     private Boolean toolCallingSupported;
     private Boolean continuousToolsSupported;
+    private Boolean toolImageContinuationSupported;
     private Boolean structuredSupported;
     private Boolean imageSupported;
     private Boolean pdfSupported;

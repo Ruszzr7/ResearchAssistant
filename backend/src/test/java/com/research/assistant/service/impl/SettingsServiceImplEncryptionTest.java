@@ -87,8 +87,8 @@ class SettingsServiceImplEncryptionTest {
 
     @Test
     void getAllMasksSensitiveValuesAndKeepsConfiguredFlag() {
-        Settings setting = new Settings("ieee_xplore_api_key",
-                encryptor.encryptIfNeeded("ieee_xplore_api_key", "ieee-secret"));
+        Settings setting = new Settings("api_key",
+                encryptor.encryptIfNeeded("api_key", "ieee-secret"));
         when(settingsMapper.selectList(null)).thenReturn(List.of(setting));
 
         List<Settings> result = service.getAll();

@@ -4,5 +4,6 @@ public enum SourceContentType {
     TEXT,
     FORMULA,
     TABLE,
-    FIGURE
+    FIGURE,
+    ALGORITHM
 }

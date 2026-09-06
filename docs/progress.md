@@ -263,3 +263,12 @@
 - 增加 Git 忽略的 `scripts/local-config.cmd` 与可提交示例，可覆盖数据库账号、JDK/MySQL 位置、MySQL 服务名和 `RA_MASTER_KEY`，真实密码和密钥不进入仓库，也不永久修改系统环境。
 - 数据库脚本会识别/启动已有 MySQL 服务、验证应用数据库，并在账号有权限时自动创建缺失数据库；后续表结构仍只由 Flyway 管理。前端首次启动按锁文件执行 `npm ci`，Node.js 低于 18 时给出明确错误。
 - 前端启动增加项目进程归属校验：5173 被其他项目占用时不再把任意网页误判为 Research Assistant，也不会结束未知进程。README 已补充从克隆、可选本机配置到单脚本启动的完整步骤；未启用或引入 Docker。
+
+## 2026-09-06 标准 Agent Skills 渐进式披露（当前未提交）
+
+- 引入 LangChain4j 官方 `langchain4j-skills`，从三个独立 Skill 目录加载 `name`、`description` 和 `SKILL.md`；元数据始终可见，完整说明只在 Agent 调用官方 `activate_skill` 后进入上下文。
+- `paper-profile` 只负责整篇论文画像，`paper-evidence` 负责批量证据检索与按需局部图片，`paper-action` 负责一个明确页面操作；业务 Java 类作为激活后的宿主工具，不再伪装成 Skill 脚本或由后端按问题编排调用顺序。
+- 当前运行内由 LangChain4j 记忆自动回灌 Skill 指令和工具结果；跨回合仅持久化并恢复最近有效的官方激活 transcript，摘要压缩后 Agent 可自行再次激活缺失的 Skill。Runtime 只做通用持久化、幂等、安全与终态支撑。
+- 画像结果保留有效来源 ID，证据结果将局部视觉内容传递给下一次模型请求；页面操作仍只接受可信来源 ID，不接受模型生成坐标。未新增 Skill 脚本、论文专用调用门禁、固定调用顺序或额外模型。
+- 聚焦回归与后端全量回归通过：474 项执行、0 失败、0 错误、18 跳过；前端 29 个测试文件共 129 项通过，生产构建成功；`git diff --check` 通过。
+- 三个标准 Skill 的元数据简介统一改为中文，并同步更新元数据加载测试断言；`AgentSkillRegistryTest` 4 项通过。证据检索重构仅完成现状分析与方案讨论稿，本轮尚未实施。

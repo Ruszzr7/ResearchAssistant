@@ -49,6 +49,8 @@ management:
 
 # Application
 app:
+  agent:
+    skills-dir: ${APP_AGENT_SKILLS_DIR:../skills}
   paper-memory:
     # Only used to split an individual oversized source block for transport;
     # paper understanding itself remains one whole-paper model call.

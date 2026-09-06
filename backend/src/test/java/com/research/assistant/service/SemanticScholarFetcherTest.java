@@ -19,7 +19,6 @@ class SemanticScholarFetcherTest {
 
     private HttpClient httpClient;
     private HttpResponse<String> response;
-    private SettingsService settingsService;
     private SemanticScholarFetcher fetcher;
 
     @BeforeEach
@@ -27,8 +26,7 @@ class SemanticScholarFetcherTest {
     void setUp() {
         httpClient = mock(HttpClient.class);
         response = mock(HttpResponse.class);
-        settingsService = mock(SettingsService.class);
-        fetcher = new SemanticScholarFetcher(new ObjectMapper(), httpClient, settingsService);
+        fetcher = new SemanticScholarFetcher(new ObjectMapper(), httpClient);
     }
 
     @Test
@@ -51,8 +49,7 @@ class SemanticScholarFetcherTest {
     }
 
     @Test
-    void searchShouldEncodeQueryAndAddApiKey() throws Exception {
-        when(settingsService.getValue("semantic_scholar_api_key")).thenReturn("secret-key");
+    void searchShouldEncodeQueryWithoutExtraApiKey() throws Exception {
         when(response.statusCode()).thenReturn(200);
         when(response.body()).thenReturn("{\"data\":[]}");
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
@@ -61,20 +58,8 @@ class SemanticScholarFetcherTest {
 
         verify(httpClient).send(argThat((HttpRequest request) ->
                         request.uri().toString().contains("query=graph+neural")
-                                && request.headers().firstValue("x-api-key").orElse("").equals("secret-key")),
+                                && request.headers().firstValue("x-api-key").isEmpty()),
                 any(HttpResponse.BodyHandler.class));
-    }
-
-    @Test
-    void shouldNotAddApiKeyWhenMissing() throws Exception {
-        when(response.statusCode()).thenReturn(200);
-        when(response.body()).thenReturn("{\"data\":[]}");
-        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
-
-        fetcher.search("neural", 5);
-
-        verify(httpClient).send(argThat((HttpRequest request) ->
-                request.headers().firstValue("x-api-key").isEmpty()), any(HttpResponse.BodyHandler.class));
     }
 
     @Test

@@ -108,6 +108,13 @@
             <artifactId>langchain4j-google-ai-gemini</artifactId>
             <version>${langchain4j.version}</version>
         </dependency>
+        <!-- Official Agent Skills progressive-disclosure support. The beta module
+             is intentionally kept at the matching LangChain4j 1.15.1 line. -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-skills</artifactId>
+            <version>1.15.1-beta25</version>
+        </dependency>
 
         <!-- 本地缓存 — 推荐结果缓存 -->
         <dependency>

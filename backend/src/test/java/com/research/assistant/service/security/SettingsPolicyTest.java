@@ -27,10 +27,6 @@ class SettingsPolicyTest {
                 new Settings("translation_provider", "deepl"),
                 new Settings("deepl_api_base_url", "https://api-free.deepl.com")));
         SettingsPolicy.validateBatch(List.of(
-                new Settings("pdf_layout_fallback_enabled", "true"),
-                new Settings("pdf_layout_fallback_provider", "MINERU"),
-                new Settings("pdf_layout_fallback_command", "adapter {input} {output}")));
-        SettingsPolicy.validateBatch(List.of(
                 new Settings("ai_provider", "kimi"),
                 new Settings("ai_channel", "coding")));
 
@@ -38,10 +34,7 @@ class SettingsPolicyTest {
                 List.of(new Settings("unknown_key", "value"))))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SettingsPolicy.validateBatch(
-                List.of(new Settings("openalex_enabled", "yes"))))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> SettingsPolicy.validateBatch(
-                List.of(new Settings("pdf_layout_fallback_provider", "UNKNOWN"))))
+                List.of(new Settings("retired_external_setting", "true"))))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SettingsPolicy.validateBatch(
                 List.of(new Settings("translation_provider", "llm"))))

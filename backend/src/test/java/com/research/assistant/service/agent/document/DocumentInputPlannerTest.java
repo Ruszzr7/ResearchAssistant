@@ -32,7 +32,7 @@ class DocumentInputPlannerTest {
     }
 
     private AiCapabilityView capability(boolean image, boolean pdf) {
-        return new AiCapabilityView("DOCUMENT", "VERIFIED", true, false, false, false,
+        return new AiCapabilityView("VERIFIED", true, true, true, image, true,
                 image, pdf, null, null, java.time.LocalDateTime.now(), java.time.LocalDateTime.now().plusDays(1));
     }
 }

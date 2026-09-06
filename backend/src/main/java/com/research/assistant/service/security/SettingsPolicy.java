@@ -25,33 +25,16 @@ public final class SettingsPolicy {
 
     private static final Set<String> ALLOWED_KEYS = Set.of(
             "ai_provider", "ai_channel", "api_key", "base_url", "model",
-            "document_ai_transport", "document_ai_provider", "document_ai_channel",
-            "document_api_key", "document_base_url", "document_model",
-            "openalex_enabled", "ieee_xplore_enabled", "ieee_xplore_api_key",
-            "acm_dl_enabled", "acm_dl_api_url", "acm_dl_api_key",
-            "semantic_scholar_api_key",
-            "pdf_parser_provider", "pdf_parser_external_enabled", "pdf_parser_external_command",
-            "pdf_layout_fallback_enabled", "pdf_layout_fallback_provider", "pdf_layout_fallback_command",
-            "pdf_js_viewer_enabled", "formula_extractor_enabled", "formula_extractor_command",
-            "figure_extractor_enabled", "figure_extractor_command",
             "rag_enabled",
             "translation_provider", "deepl_auth_key", "deepl_api_base_url"
     );
 
     private static final Set<String> BOOLEAN_KEYS = Set.of(
-            "openalex_enabled", "ieee_xplore_enabled", "acm_dl_enabled",
-            "pdf_parser_external_enabled", "pdf_js_viewer_enabled",
-            "pdf_layout_fallback_enabled",
-            "formula_extractor_enabled", "figure_extractor_enabled", "rag_enabled"
-    );
-
-    private static final Set<String> COMMAND_KEYS = Set.of(
-            "pdf_parser_external_command", "pdf_layout_fallback_command",
-            "formula_extractor_command", "figure_extractor_command"
+            "rag_enabled"
     );
 
     private static final Set<String> URL_KEYS = Set.of(
-            "base_url", "document_base_url", "acm_dl_api_url", "deepl_api_base_url");
+            "base_url", "deepl_api_base_url");
 
     private SettingsPolicy() {
     }
@@ -120,14 +103,6 @@ public final class SettingsPolicy {
                 && !"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
             throw new IllegalArgumentException("设置项必须是 true 或 false: " + key);
         }
-        if ("pdf_parser_provider".equals(key)
-                && !Set.of("PDFBOX", "EXTERNAL").contains(value.toUpperCase(Locale.ROOT))) {
-            throw new IllegalArgumentException("不支持的 PDF 解析器: " + value);
-        }
-        if ("pdf_layout_fallback_provider".equals(key)
-                && !Set.of("AUTO", "GROBID", "MINERU").contains(value.toUpperCase(Locale.ROOT))) {
-            throw new IllegalArgumentException("不支持的版面回退解析器: " + value);
-        }
         if ("translation_provider".equals(key) && !"deepl".equalsIgnoreCase(value)) {
             throw new IllegalArgumentException("不支持的翻译服务: " + value);
         }
@@ -141,10 +116,6 @@ public final class SettingsPolicy {
                 .contains(value.toLowerCase(Locale.ROOT))) {
             throw new IllegalArgumentException("不支持的 AI 接入通道: " + value);
         }
-        if ("document_ai_transport".equals(key)
-                && !Set.of("openai_compatible", "gemini_native").contains(value.toLowerCase(Locale.ROOT))) {
-            throw new IllegalArgumentException("不支持的文档模型接入方式: " + value);
-        }
         if (URL_KEYS.contains(key)) {
             try {
                 URI uri = URI.create(value);
@@ -154,9 +125,6 @@ public final class SettingsPolicy {
             } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException("URL 格式无效: " + key);
             }
-        }
-        if (COMMAND_KEYS.contains(key) && value.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException("外部命令包含非法字符: " + key);
         }
     }
 }

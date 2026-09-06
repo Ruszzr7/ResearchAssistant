@@ -47,14 +47,16 @@ public class PaperReadToolRegistry {
     private static final String EVIDENCE_SCHEMA = """
             {"type":"object","properties":{
             "needs":{"type":"array","maxItems":4,"items":{"type":"object","properties":{
-            "id":{"type":"string","maxLength":40},"query":{"type":"string","maxLength":400},
+            "id":{"type":"string","maxLength":40},"query":{"type":"string","maxLength":400,"description":"Search text for this need. Provide query or sourceObjectIds."},
             "keywords":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":120}},
             "targets":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":120}},
             "sectionHint":{"type":"string","maxLength":120},
             "pageHints":{"type":"array","maxItems":2,"items":{"type":"integer","minimum":1}},
             "profileClaimRefs":{"type":"array","maxItems":4,"items":{"type":"string","maxLength":40}},
-            "contentTypes":{"type":"array","items":{"type":"string","enum":["TEXT","FORMULA","TABLE","FIGURE"]}}},
-            "required":["query"],"additionalProperties":false}},
+            "contentTypes":{"type":"array","items":{"type":"string","enum":["TEXT","FORMULA","TABLE","FIGURE","ALGORITHM"]}},
+            "sourceObjectIds":{"type":"array","maxItems":4,"items":{"type":"string","maxLength":160},"description":"Known trusted source IDs to read directly without searching again. Provide sourceObjectIds or query."},
+            "includeVisual":{"type":"boolean","description":"Attach a source-linked crop when visual inspection is needed."}},
+            "additionalProperties":false}},
             "pageRanges":{"type":"array","maxItems":2,"items":{"type":"object","properties":{"startPage":{"type":"integer","minimum":1},"endPage":{"type":"integer","minimum":1}},"required":["startPage","endPage"],"additionalProperties":false}},
             "maxEvidence":{"type":"integer","minimum":1,"maximum":8}},"additionalProperties":false}
             """;
@@ -77,7 +79,7 @@ public class PaperReadToolRegistry {
 
     public List<AgentToolDefinition> definitions() {
         return List.of(new AgentToolDefinition("retrieve_paper_evidence",
-                "Retrieve citable page-level evidence from the current paper before composing paper-dependent factual answers. Put all currently known evidence needs in one needs array and use targets for explicit formulas, figures, metrics, sections, methods, or other items that must all be covered. One call performs focused retrieval with at most one fallback per need and expands structurally related formula parts. The result returns compact sources plus deterministic per-need target coverage. Use it for exact paper facts, formulas, experiments, or citations, not for whole-paper orientation or page changes. After receiving sources, judge their sufficiency and answer; call again only when you can name a specific missing fact and use a genuinely different query. If no new source is returned or exhausted is true, stop searching and state the limitation instead of inventing evidence. A CAPTION is auxiliary context; support performance claims with body text, tables, or formulas.", EVIDENCE_SCHEMA));
+                "Retrieve citable page-level evidence from the current paper before composing paper-dependent factual answers. Put all currently known evidence needs in one needs array and use targets for explicit formulas, figures, metrics, sections, methods, or other items that must all be covered. Set includeVisual only when the formula, figure, table, or algorithm must be inspected as an image; up to two source-linked crops are returned to the same Agent. Known sourceObjectIds can be read directly without searching again. One call performs focused retrieval with at most one fallback per need, expands structurally related formula parts, and reports per-need coverage. After receiving sources, judge their sufficiency and answer; call again only for a specific unresolved fact with a genuinely different query. If no new source is returned or exhausted is true, stop searching and state the limitation instead of inventing evidence.", EVIDENCE_SCHEMA));
     }
 
     /** Compatibility entry point; model-facing tools no longer vary by message keywords. */
@@ -132,14 +134,25 @@ public class PaperReadToolRegistry {
             JsonNode search = requestedNeeds.get(index);
             Set<SourceContentType> types = contentTypes(search.path("contentTypes"));
             String query = boundedQuery(search.path("query").asText(""));
+            Map<String, MergedHit> searchHits = new LinkedHashMap<>();
+            int directCount = 0;
+            for (JsonNode sourceIdNode : search.path("sourceObjectIds")) {
+                if (directCount++ >= 4) break;
+                String sourceId = sourceIdNode.asText("").trim();
+                if (!catalog.objects().containsKey(sourceId)) continue;
+                MergedHit direct = merged.computeIfAbsent(sourceId,
+                        id -> new MergedHit(id, 1.10, new LinkedHashSet<>()));
+                direct.score = Math.max(direct.score, 1.10);
+                direct.searchIndexes.add(index);
+                searchHits.put(sourceId, direct);
+            }
             if (query.isEmpty()) {
-                hitsBySearch.put(index, List.of());
+                hitsBySearch.put(index, new ArrayList<>(searchHits.values()));
                 continue;
             }
             PageHint pageHint = pageHint(search);
             PaperSearchRequest request = new PaperSearchRequest(query, types, pageHint.start(), pageHint.end(),
                     MAX_SEARCH_RESULTS);
-            Map<String, MergedHit> searchHits = new LinkedHashMap<>();
             int refCount = 0;
             for (JsonNode ref : search.path("profileClaimRefs")) {
                 if (refCount++ >= 4) break;

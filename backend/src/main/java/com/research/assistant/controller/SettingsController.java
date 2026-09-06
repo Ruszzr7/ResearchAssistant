@@ -10,7 +10,6 @@ import com.research.assistant.service.AiModelCatalogService;
 import com.research.assistant.service.SettingsService;
 import com.research.assistant.service.security.SettingsPolicy;
 import com.research.assistant.service.agent.capability.AiCapabilityService;
-import com.research.assistant.service.agent.capability.AiModelRole;
 import com.research.assistant.dto.agent.AiCapabilityView;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -23,7 +22,6 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.List;
 
@@ -51,17 +49,16 @@ public class SettingsController {
         this(settingsService, modelCatalogService, null);
     }
 
-    @PostMapping("/capabilities/{role}/test")
-    public Result<AiCapabilityView> testCapabilities(@PathVariable String role,
-                                                     @Valid @RequestBody(required = false) AiCapabilityTestRequest request) {
-        AiModelRole modelRole = AiModelRole.valueOf(role.trim().toUpperCase());
-        if (request == null) return Result.ok(capabilityService.probe(modelRole));
-        return Result.ok(capabilityService.probeDraft(modelRole, request.baseUrl(), request.model(), request.apiKey()));
+    @PostMapping("/capabilities/test")
+    public Result<AiCapabilityView> testCapabilities(
+            @Valid @RequestBody(required = false) AiCapabilityTestRequest request) {
+        if (request == null) return Result.ok(capabilityService.probe());
+        return Result.ok(capabilityService.probeDraft(request.baseUrl(), request.model(), request.apiKey()));
     }
 
-    @GetMapping("/capabilities/{role}")
-    public Result<AiCapabilityView> getCapabilities(@PathVariable String role) {
-        return Result.ok(capabilityService.current(AiModelRole.valueOf(role.trim().toUpperCase())));
+    @GetMapping("/capabilities")
+    public Result<AiCapabilityView> getCapabilities() {
+        return Result.ok(capabilityService.current());
     }
 
     @GetMapping

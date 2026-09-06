@@ -2,7 +2,6 @@ package com.research.assistant.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.research.assistant.service.SettingsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -21,7 +20,7 @@ import java.util.Map;
 /**
  * Semantic Scholar API 查询器 —— 用于补充 arXiv 之外的学术来源。
  * <p>
- * Semantic Scholar 提供免费公开 API，无需 Key 即可进行基础搜索；机构/高频使用可配置 x-api-key。
+ * Semantic Scholar 提供免费公开 API；本地部署不依赖额外检索密钥。
  * 文档：https://api.semanticscholar.org/api-docs/graph
  */
 @Component
@@ -29,24 +28,20 @@ public class SemanticScholarFetcher {
 
     private static final String API_BASE = "https://api.semanticscholar.org/graph/v1";
     private static final String FIELDS = "paperId,title,authors,year,abstract,url,externalIds";
-    private static final String API_KEY_SETTING = "semantic_scholar_api_key";
-
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
-    private final SettingsService settingsService;
 
     @Autowired
-    public SemanticScholarFetcher(ObjectMapper objectMapper, SettingsService settingsService) {
+    public SemanticScholarFetcher(ObjectMapper objectMapper) {
         this(objectMapper, HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .followRedirects(HttpClient.Redirect.NORMAL)
-                .build(), settingsService);
+                .build());
     }
 
-    SemanticScholarFetcher(ObjectMapper objectMapper, HttpClient httpClient, SettingsService settingsService) {
+    SemanticScholarFetcher(ObjectMapper objectMapper, HttpClient httpClient) {
         this.objectMapper = objectMapper;
         this.httpClient = httpClient;
-        this.settingsService = settingsService;
     }
 
     /**
@@ -94,10 +89,6 @@ public class SemanticScholarFetcher {
                 .timeout(Duration.ofSeconds(30))
                 .header("Accept", "application/json")
                 .GET();
-        String apiKey = settingsService != null ? settingsService.getValue(API_KEY_SETTING) : null;
-        if (apiKey != null && !apiKey.isBlank()) {
-            builder.header("x-api-key", apiKey);
-        }
         return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 

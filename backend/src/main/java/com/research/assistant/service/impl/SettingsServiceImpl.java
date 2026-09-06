@@ -31,10 +31,6 @@ public class SettingsServiceImpl implements SettingsService {
             Map.entry("ai_channel", "RA_AI_CHANNEL"),
             Map.entry("base_url", "RA_BASE_URL"),
             Map.entry("model", "RA_MODEL"),
-            Map.entry("document_api_key", "RA_DOCUMENT_API_KEY"),
-            Map.entry("document_base_url", "RA_DOCUMENT_BASE_URL"),
-            Map.entry("document_model", "RA_DOCUMENT_MODEL"),
-            Map.entry("document_ai_transport", "RA_DOCUMENT_AI_TRANSPORT"),
             Map.entry("translation_provider", "RA_TRANSLATION_PROVIDER"),
             Map.entry("deepl_auth_key", "DEEPL_AUTH_KEY"),
             Map.entry("deepl_api_base_url", "DEEPL_API_BASE_URL")

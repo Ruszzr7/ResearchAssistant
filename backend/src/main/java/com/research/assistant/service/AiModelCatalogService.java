@@ -49,7 +49,7 @@ public class AiModelCatalogService {
 
     public AiModelListResult list(AiModelListRequest request) {
         URI endpoint = modelsEndpoint(request.baseUrl());
-        String apiKey = resolveApiKey(request.apiKey(), request.role());
+        String apiKey = resolveApiKey(request.apiKey());
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalArgumentException("请先填写 API Key");
         }
@@ -105,10 +105,10 @@ public class AiModelCatalogService {
         return endpoint;
     }
 
-    private String resolveApiKey(String value, String role) {
+    private String resolveApiKey(String value) {
         String supplied = value == null ? "" : value.trim();
         if (supplied.isBlank() || SettingsPolicy.isMaskedValue(supplied)) {
-            return settingsService.getValue("DOCUMENT".equals(role) ? "document_api_key" : "api_key");
+            return settingsService.getValue("api_key");
         }
         return supplied;
     }

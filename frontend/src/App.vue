@@ -43,7 +43,7 @@
             <el-icon><Moon v-if="dark.dark" /><Sunny v-else /></el-icon>
             <span>{{ dark.dark ? '切换亮色' : '切换暗色' }}</span>
           </button>
-          <button class="sidebar-nav-item" type="button" title="API 设置" @click="showSettings = true">
+          <button class="sidebar-nav-item" type="button" title="API 设置" @click="goTo('/settings')">
             <el-icon><Setting /></el-icon><span>API 设置</span>
           </button>
           <button class="sidebar-nav-item" type="button" title="快捷键 (?)" @click="showShortcuts = true">
@@ -71,73 +71,6 @@
       </main>
     </section>
 
-    <!-- ====== 设置弹窗 ====== -->
-    <el-dialog
-      v-model="showSettings"
-      title="API 设置"
-      width="620px"
-      :close-on-click-modal="false"
-      append-to-body
-      :z-index="20020"
-      class="api-settings-dialog"
-    >
-      <div class="api-role-switch" :class="{ 'is-document': activeApiRole === 'DOCUMENT' }" role="tablist" aria-label="API 类型">
-        <span class="api-role-switch__indicator" aria-hidden="true" />
-        <button type="button" role="tab" :aria-selected="activeApiRole === 'CHAT'" @click="activeApiRole = 'CHAT'">对话 API</button>
-        <button type="button" role="tab" :aria-selected="activeApiRole === 'DOCUMENT'" @click="activeApiRole = 'DOCUMENT'">解析 API</button>
-      </div>
-      <p class="api-role-description">
-        {{ activeApiRole === 'CHAT'
-          ? '用于日常对话和 Agent 工具调用。接口需要支持连续 Tool Calling。'
-          : '用于图片、PDF 和 Word 附件理解。接口必须支持图片，原生 PDF 能力由测试自动检测。' }}
-      </p>
-      <el-form label-position="top" class="api-role-form">
-        <el-form-item label="接口地址（URL）">
-          <el-input v-model="activeBaseUrl" placeholder="https://api.example.com/v1" />
-        </el-form-item>
-        <el-form-item label="模型" class="model-catalog-form-item">
-          <div class="model-catalog-control">
-            <el-input v-model="activeModel" placeholder="输入模型名称" />
-            <el-button :loading="queryingModels" @click="queryAvailableModels">查询可用模型</el-button>
-          </div>
-          <section v-if="modelCatalogVisible" class="model-catalog-panel" aria-label="可用模型">
-            <div v-if="availableModels.length" class="model-catalog-list">
-              <button
-                v-for="item in availableModels"
-                :key="item"
-                type="button"
-                :class="{ 'is-selected': item === activeModel }"
-                @click="activeModel = item"
-              >
-                {{ item }}
-              </button>
-            </div>
-            <div v-else class="model-catalog-empty">{{ modelCatalogStatus }}</div>
-            <footer class="model-catalog-status" :class="{ 'is-error': modelCatalogError }">
-              <span class="model-catalog-status__dot" aria-hidden="true"></span>
-              <span>{{ modelCatalogStatus }}</span>
-            </footer>
-          </section>
-        </el-form-item>
-        <el-form-item label="接口密钥（API Key）">
-          <el-input v-model="activeApiKey" type="password" show-password placeholder="留空表示不更改已保存密钥" />
-        </el-form-item>
-      </el-form>
-      <p class="api-protocol-hint">调用协议：{{ activeProtocolHint }}</p>
-      <div v-if="testResult !== null" class="test-result" :class="{ success: testResult.success, fail: !testResult.success }">
-        <div>{{ testResult.success ? '✅ ' : '❌ ' }}{{ testResult.message }}</div>
-        <div v-if="testResult.capabilities" class="capability-list">
-          <span v-for="(value, key) in testResult.capabilities" :key="key">{{ capabilityLabel(key) }}：{{ value }}</span>
-        </div>
-      </div>
-      <template #footer>
-        <el-button
-          @click="activeApiRole === 'CHAT' ? testConnection() : testDocumentConnection()"
-          :loading="activeApiRole === 'CHAT' ? testing : testingDocument"
-        >{{ activeApiRole === 'CHAT' ? '测试对话能力' : '测试解析能力' }}</el-button>
-        <el-button type="primary" @click="saveAndClose" :loading="saving">保存设置</el-button>
-      </template>
-    </el-dialog>
     <!-- ====== 命令面板 ====== -->
     <CommandPalette v-model="showPalette" :commands="commands" @execute="onCommandExecute" />
 
@@ -160,10 +93,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import api from '@/api'
-import { ElMessage } from 'element-plus'
 import {
   Collection, Document, Expand, Fold, House, Moon, QuestionFilled,
   Reading, Search, Setting, Sunny, Tickets,
@@ -211,236 +142,8 @@ function toggleTaskCenter() {
 
 watch(() => route.fullPath, () => { navOverlayOpen.value = false })
 
-const showSettings = ref(false)
 const showShortcuts = ref(false)
 const showPalette = ref(false)
-const activeApiRole = ref('CHAT')
-const apiKey = ref('')
-const savedApiKey = ref('')
-const model = ref('')
-const baseUrl = ref('')
-const testing = ref(false)
-const saving = ref(false)
-const testResult = ref(null)
-const documentBaseUrl = ref('')
-const documentModel = ref('')
-const documentApiKey = ref('')
-const savedDocumentApiKey = ref('')
-const testingDocument = ref(false)
-const queryingModels = ref(false)
-const modelCatalogVisible = ref(false)
-const modelCatalogError = ref(false)
-const modelCatalogStatus = ref('')
-const chatAvailableModels = ref([])
-const documentAvailableModels = ref([])
-const activeBaseUrl = computed({
-  get: () => activeApiRole.value === 'CHAT' ? baseUrl.value : documentBaseUrl.value,
-  set: value => { if (activeApiRole.value === 'CHAT') baseUrl.value = value; else documentBaseUrl.value = value },
-})
-const activeApiKey = computed({
-  get: () => activeApiRole.value === 'CHAT' ? apiKey.value : documentApiKey.value,
-  set: value => { if (activeApiRole.value === 'CHAT') apiKey.value = value; else documentApiKey.value = value },
-})
-const activeModel = computed({
-  get: () => activeApiRole.value === 'CHAT' ? model.value : documentModel.value,
-  set: value => { if (activeApiRole.value === 'CHAT') model.value = value; else documentModel.value = value },
-})
-const availableModels = computed(() => activeApiRole.value === 'CHAT'
-  ? chatAvailableModels.value : documentAvailableModels.value)
-const activeProtocolHint = computed(() => {
-  if (activeApiRole.value === 'CHAT') return 'OpenAI Compatible（自动）'
-  const url = documentBaseUrl.value.toLowerCase()
-  return url.includes('generativelanguage.googleapis.com') || /\/v1(?:beta|alpha)(?:\/|$)/.test(url)
-    ? 'Gemini Native（根据 URL 自动识别）'
-    : 'OpenAI Compatible（根据 URL 自动识别）'
-})
-
-async function loadSettings() {
-  try {
-    const res = await api.get('/settings')
-    const list = res.data
-    const find = (key) => {
-      const item = list.find(i => i.keyName === key)
-      return item ? item.value || '' : ''
-    }
-    savedApiKey.value = find('api_key')
-    model.value = find('model')
-    baseUrl.value = find('base_url')
-    documentBaseUrl.value = find('document_base_url')
-    documentModel.value = find('document_model')
-    savedDocumentApiKey.value = find('document_api_key')
-    documentApiKey.value = savedDocumentApiKey.value
-    // 后端返回的是脱敏后的 Key，直接显示在密码框中，提示用户已保存
-    apiKey.value = savedApiKey.value
-    testResult.value = null
-    resetModelCatalog()
-  } catch (e) { /* 首次使用 */ }
-}
-
-// 打开设置弹窗时重新加载，避免显示上次未保存的临时输入
-watch(showSettings, (val) => {
-  if (val) loadSettings()
-})
-watch(activeApiRole, () => {
-  testResult.value = null
-  resetModelCatalog()
-})
-
-async function doSave() {
-  const keyInput = apiKey.value.trim()
-  const payload = [
-    { keyName: 'model', value: model.value.trim() },
-    { keyName: 'base_url', value: baseUrl.value.trim() },
-    { keyName: 'document_base_url', value: documentBaseUrl.value.trim() },
-    { keyName: 'document_model', value: documentModel.value.trim() },
-  ]
-  // 只有用户真正填写了新的 Key（与加载回来的脱敏值不同）时才提交，避免用掩码覆盖真实 Key
-  if (keyInput && keyInput !== savedApiKey.value) {
-    payload.push({ keyName: 'api_key', value: keyInput })
-    savedApiKey.value = keyInput
-  }
-  const documentKeyInput = documentApiKey.value.trim()
-  if (documentKeyInput && documentKeyInput !== savedDocumentApiKey.value) {
-    payload.push({ keyName: 'document_api_key', value: documentKeyInput })
-    savedDocumentApiKey.value = documentKeyInput
-  }
-  if (payload.length) {
-    await api.put('/settings', payload)
-  }
-}
-
-function resetModelCatalog() {
-  modelCatalogVisible.value = false
-  modelCatalogError.value = false
-  modelCatalogStatus.value = ''
-}
-
-function validateActiveApiSettings() {
-  if (!activeBaseUrl.value.trim()) {
-    ElMessage.warning('请先填写接口地址')
-    return false
-  }
-  if (!activeModel.value.trim()) {
-    ElMessage.warning('请先填写模型')
-    return false
-  }
-  const savedKey = activeApiRole.value === 'CHAT' ? savedApiKey.value : savedDocumentApiKey.value
-  if (!activeApiKey.value.trim() && !savedKey) {
-    ElMessage.warning('请先填写 API Key')
-    return false
-  }
-  return true
-}
-
-async function queryAvailableModels() {
-  if (!activeBaseUrl.value.trim()) {
-    ElMessage.warning('请先填写 Base URL')
-    return
-  }
-  const savedKey = activeApiRole.value === 'CHAT' ? savedApiKey.value : savedDocumentApiKey.value
-  if (!activeApiKey.value.trim() && !savedKey) {
-    ElMessage.warning('请先填写 API Key')
-    return
-  }
-  queryingModels.value = true
-  modelCatalogVisible.value = true
-  modelCatalogError.value = false
-  modelCatalogStatus.value = '正在查询可用模型…'
-  if (activeApiRole.value === 'CHAT') chatAvailableModels.value = []
-  else documentAvailableModels.value = []
-  try {
-    const res = await api.post('/settings/models', {
-      baseUrl: activeBaseUrl.value.trim(),
-      apiKey: activeApiKey.value.trim(),
-      role: activeApiRole.value,
-    })
-    const models = Array.isArray(res.data?.models) ? res.data.models : []
-    if (activeApiRole.value === 'CHAT') chatAvailableModels.value = models
-    else documentAvailableModels.value = models
-    modelCatalogStatus.value = `已获取 ${availableModels.value.length} 个可用模型`
-  } catch (e) {
-    modelCatalogError.value = true
-    modelCatalogStatus.value = e.response?.data?.message || e.message || '查询可用模型失败'
-  } finally {
-    queryingModels.value = false
-  }
-}
-
-function capabilityLabel(key) {
-  return {
-    chat: '文本对话',
-    stream: '流式输出',
-    structured: '结构化输出',
-    vision: '图片输入',
-    toolCalling: '工具调用',
-    continuousTools: '连续工具调用',
-  }[key] || key
-}
-
-async function testConnection() {
-  if (!validateActiveApiSettings()) return
-  testing.value = true
-  testResult.value = null
-  try {
-    const res = await api.post('/settings/capabilities/CHAT/test', capabilityTestPayload('CHAT'))
-    testResult.value = {
-      success: res.data?.status === 'VERIFIED',
-      message: res.data?.status === 'VERIFIED' ? 'Agent 连续工具调用已验证' : (res.data?.errorMessage || '能力测试失败'),
-      capabilities: {
-        toolCalling: res.data?.toolCalling ? '已验证' : '失败',
-        continuousTools: res.data?.continuousTools ? '已验证' : '失败',
-      },
-    }
-  } catch (e) {
-    testResult.value = { success: false, message: e.response?.data?.message || e.message || '网络错误' }
-  } finally {
-    testing.value = false
-  }
-}
-
-async function testDocumentConnection() {
-  if (!validateActiveApiSettings()) return
-  testingDocument.value = true
-  testResult.value = null
-  try {
-    const res = await api.post('/settings/capabilities/DOCUMENT/test', capabilityTestPayload('DOCUMENT'))
-    testResult.value = {
-      success: res.data?.status === 'VERIFIED',
-      message: res.data?.status === 'VERIFIED'
-        ? `图片输入已验证；原生 PDF ${res.data?.pdf ? '已启用' : '不支持，将使用结构化文本'}`
-        : (res.data?.errorMessage || '论文解析模型测试失败'),
-    }
-  } catch (e) {
-    testResult.value = { success: false, message: e.response?.data?.message || e.message || '论文解析模型测试失败' }
-  } finally {
-    testingDocument.value = false
-  }
-}
-
-function capabilityTestPayload(role) {
-  const enteredKey = (role === 'CHAT' ? apiKey.value : documentApiKey.value).trim()
-  const savedKey = role === 'CHAT' ? savedApiKey.value : savedDocumentApiKey.value
-  return {
-    baseUrl: (role === 'CHAT' ? baseUrl.value : documentBaseUrl.value).trim(),
-    model: (role === 'CHAT' ? model.value : documentModel.value).trim(),
-    // Keep a saved masked key out of the request; the backend resolves it from
-    // persisted settings. A newly entered key is used only for this probe.
-    apiKey: enteredKey && enteredKey !== savedKey ? enteredKey : '',
-  }
-}
-
-async function saveAndClose() {
-  saving.value = true
-  try {
-    await doSave()
-    showSettings.value = false
-    ElMessage.success('设置已保存')
-  } catch (e) {
-    ElMessage.error('保存失败')
-  } finally {
-    saving.value = false
-  }
-}
 
 const routeCommands = [
   { id: 'dashboard', title: '打开看板', subtitle: '首页数据面板', route: '/', shortcut: 'Ctrl+1', shortcutKey: '1', keywords: ['看板', 'dashboard', '首页'] },
@@ -454,7 +157,7 @@ const commands = [
   ...routeCommands,
   { id: 'tasks', title: '查看后台任务', subtitle: '异步任务与工作流', route: '/tasks', shortcut: '', keywords: ['任务', 'task', '工作流'] },
   { id: 'search-quick', title: '全局搜索论文…', subtitle: '跳转到文献检索', action: () => router.push('/search'), shortcut: 'Ctrl+Shift+F', keywords: ['搜索', 'search', '论文'] },
-  { id: 'settings', title: '打开设置', subtitle: 'API 与模型配置', action: () => { showSettings.value = true }, shortcut: '', keywords: ['设置', 'settings', 'api'] },
+  { id: 'settings', title: '打开设置', subtitle: 'API 与模型配置', route: '/settings', shortcut: '', keywords: ['设置', 'settings', 'api'] },
   { id: 'theme', title: '切换主题', subtitle: '亮色 / 暗色', action: toggleTheme, shortcut: '', keywords: ['主题', 'theme', '暗色', '亮色'] },
 ]
 
@@ -484,9 +187,6 @@ useKeyboardShortcuts([
   })),
 ])
 
-onMounted(() => {
-  loadSettings()
-})
 </script>
 
 <style>
@@ -703,122 +403,10 @@ html.dark .brand-mark__dark { opacity:1; }
   overflow: auto;
   background: var(--ra-bg);
 }
-.test-result {
-  padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-top: 8px;
-}
-.api-settings-dialog .el-dialog__body { padding-top: 18px; }
-.api-role-switch {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  height: 48px;
-  margin-bottom: 20px;
-  overflow: hidden;
-  border: 1px solid var(--ra-border);
-  border-radius: 12px;
-  background: var(--ra-bg);
-}
-.api-role-switch__indicator {
-  position: absolute;
-  inset: 3px 50% 3px 3px;
-  border: 1px solid color-mix(in srgb, var(--ra-link) 72%, transparent);
-  border-radius: 9px;
-  background: var(--ra-active-bg);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ra-link) 28%, transparent);
-  transition: transform .2s ease;
-}
-.api-role-switch.is-document .api-role-switch__indicator { transform: translateX(calc(100% + 3px)); }
-.api-role-switch button {
-  position: relative;
-  z-index: 1;
-  border: 0;
-  background: transparent;
-  color: var(--ra-text-secondary);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.api-role-switch button[aria-selected="true"] { color: var(--ra-text); }
-.api-role-description {
-  min-height: 42px;
-  margin: 0 0 18px;
-  color: var(--ra-text-tertiary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.api-role-form .el-form-item { margin-bottom: 18px; }
-.api-role-form .el-form-item__label { color: var(--ra-text-secondary); font-weight: 600; }
-.api-protocol-hint { margin: -4px 0 14px; color: var(--ra-text-tertiary); font-size: 12px; }
-.test-result.success { background: #f0f9eb; color: #67c23a; }
-.test-result.fail { background: #fef0f0; color: #f56c6c; }
-.model-catalog-form-item .el-form-item__content { display: block; }
-.model-catalog-control { display: flex; width: 100%; gap: 10px; }
-.model-catalog-control .el-input { min-width: 0; flex: 1; }
-.model-catalog-control .el-button { flex: 0 0 auto; }
-.model-catalog-panel {
-  width: 100%;
-  margin-top: 8px;
-  overflow: hidden;
-  box-sizing: border-box;
-  border: 1px solid var(--ra-border);
-  border-radius: 8px;
-  background: var(--ra-panel-bg);
-}
-.model-catalog-list {
-  display: flex;
-  max-height: 136px;
-  overflow-y: auto;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 8px;
-  padding: 12px;
-  scrollbar-gutter: stable;
-}
-.model-catalog-list button {
-  display: inline-flex;
-  max-width: 100%;
-  padding: 7px 10px;
-  overflow: hidden;
-  align-items: center;
-  border: 1px solid var(--ra-border);
-  border-radius: 7px;
-  background: var(--ra-card-bg);
-  color: var(--ra-text-secondary);
-  font: inherit;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.model-catalog-list button:hover { background: var(--ra-hover-bg); color: var(--ra-text); }
-.model-catalog-list button.is-selected { border-color: var(--ra-link); background: var(--ra-active-bg); color: var(--ra-active-text); }
-.model-catalog-empty { padding: 18px 10px; color: var(--ra-text-tertiary); font-size: 12px; text-align: center; }
-.model-catalog-status {
-  display: flex;
-  min-height: 30px;
-  padding: 0 10px;
-  align-items: center;
-  gap: 7px;
-  border-top: 1px solid var(--ra-border-light);
-  color: var(--ra-text-tertiary);
-  font-size: 11px;
-}
-.model-catalog-status__dot { width: 6px; height: 6px; border-radius: 50%; background: #67c23a; }
-.model-catalog-status.is-error { color: #f56c6c; }
-.model-catalog-status.is-error .model-catalog-status__dot { background: #f56c6c; }
-.capability-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-top: 8px;
-  font-size: 12px;
-}
 .advanced-settings {
   width: 100%;
   border-top: none;
 }
-html.dark .test-result.success { background: #1e3924; color: #85ce61; }
-html.dark .test-result.fail { background: #3b1e1e; color: #f89898; }
 
 @media (max-width: 760px) {
   .app-container.is-dashboard { grid-template-columns: 52px minmax(0, 1fr); }
