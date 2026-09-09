@@ -59,6 +59,7 @@ public class PaperEvidenceSkillTool {
             if (visualNeeds.isEmpty()) return evidence;
 
             ObjectNode payload = (ObjectNode) objectMapper.readTree(evidence.resultJson());
+            if ("invalid_request".equals(payload.path("status").asText())) return evidence;
             List<String> visualSourceIds = visualSourceIds(payload.path("evidenceNeeds"), visualNeeds);
             List<AgentVisualContent> visuals;
             String unavailableReason = null;
@@ -82,7 +83,7 @@ public class PaperEvidenceSkillTool {
             return new AgentToolExecution(objectMapper.writeValueAsString(payload),
                     evidence.sourceObjectIds(), visuals);
         } catch (Exception error) {
-            throw new IllegalArgumentException("unable to prepare visual paper evidence", error);
+            throw new IllegalArgumentException("无法准备论文视觉证据", error);
         }
     }
 

@@ -25,13 +25,13 @@ public record PaperSourceCatalog(
 
     public SourceObject requireObject(String sourceObjectId) {
         SourceObject object = objects.get(sourceObjectId);
-        if (object == null) throw new IllegalArgumentException("source object not found: " + sourceObjectId);
+        if (object == null) throw new IllegalArgumentException("找不到来源对象：" + sourceObjectId);
         return object;
     }
 
     public List<SourceLocator> requireLocators(String sourceObjectId) {
         List<SourceLocator> value = locators.get(sourceObjectId);
-        if (value == null || value.isEmpty()) throw new IllegalArgumentException("source locator not found: " + sourceObjectId);
+        if (value == null || value.isEmpty()) throw new IllegalArgumentException("找不到来源定位：" + sourceObjectId);
         return value;
     }
 }

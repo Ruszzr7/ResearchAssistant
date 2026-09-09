@@ -127,7 +127,7 @@ public class SettingsServiceImpl implements SettingsService {
                 "vision", profile.vision() ? "支持" : "不支持",
                 "retrieval", "本地版面与关键词检索");
         try {
-            String result = llmService.chat("Reply with exactly one word: OK", "ping");
+            String result = llmService.chat("只回复一个单词：OK", "ping");
             boolean ok = result != null && !result.isBlank();
             Map<String, String> verified = new java.util.LinkedHashMap<>(capabilities);
             verified.put("chat", ok ? "已验证" : "响应为空");

@@ -1,5 +1,8 @@
 import { onUnmounted, ref } from 'vue'
 import { executeAgentTurn, getAgentRun, uploadAgentAttachment } from '@/api/agent.js'
+import { mapAgentEvidenceList } from '@/utils/evidenceViewModel.js'
+
+export { unionBoundingBoxes } from '@/utils/evidenceViewModel.js'
 
 export function usePaperAgent() {
   const running = ref(false)
@@ -119,26 +122,7 @@ async function toApiInput(request) {
 }
 
 function toViewModel(response) {
-  const evidence = (response.evidence || []).map(item => {
-    const locator = item.locators?.[0] || {}
-    return {
-      evidenceId: item.sourceObjectId,
-      sourceObjectId: item.sourceObjectId,
-      paperId: item.paperId || null,
-      page: locator.pageNumber,
-      text: item.quote,
-      formulaNumber: item.formulaNumber || '',
-      formulaNumbers: Array.isArray(item.formulaNumbers) ? item.formulaNumbers : [],
-      locator: {
-        targetText: item.quote,
-        targetBoxes: locator.rects || [],
-        targetBbox: unionBoundingBoxes(locator.rects || []),
-        precision: locator.precision,
-        formulaNumber: item.formulaNumber || '',
-        formulaNumbers: Array.isArray(item.formulaNumbers) ? item.formulaNumbers : [],
-      },
-    }
-  })
+  const evidence = mapAgentEvidenceList(response.evidence || [])
   const claims = (response.citations || []).map(item => ({
     text: response.message?.slice(item.answerStart, item.answerEnd) || '',
     evidenceIds: [item.sourceObjectId],
@@ -154,20 +138,5 @@ function toViewModel(response) {
     runId: response.runId,
     status: response.status,
     result: { answer: response.message || '', claims, answerBlocks: [], evidence, actions },
-  }
-}
-
-export function unionBoundingBoxes(boxes) {
-  const valid = (boxes || []).filter(box => Number.isFinite(Number(box?.x))
-    && Number.isFinite(Number(box?.y)) && Number(box?.width) > 0 && Number(box?.height) > 0)
-  if (!valid.length) return null
-  const left = Math.min(...valid.map(box => Number(box.x)))
-  const top = Math.min(...valid.map(box => Number(box.y)))
-  const right = Math.max(...valid.map(box => Number(box.x) + Number(box.width)))
-  const bottom = Math.max(...valid.map(box => Number(box.y) + Number(box.height)))
-  const normalized = value => Number(value.toFixed(6))
-  return {
-    x: normalized(left), y: normalized(top),
-    width: normalized(right - left), height: normalized(bottom - top),
   }
 }

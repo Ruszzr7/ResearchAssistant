@@ -27,7 +27,8 @@ class PaperEvidenceSkillToolTest {
         ObjectMapper objectMapper = new ObjectMapper();
         PaperSourceCatalog catalog = new PaperSourceCatalog(
                 9, "h".repeat(64), "parser", 5, Map.of(), Map.of());
-        String arguments = "{\"needs\":[{\"query\":\"figure\",\"includeVisual\":true}]}";
+        String arguments = "{\"needs\":[{\"id\":\"figure\",\"objective\":\"确认图中信息\","
+                + "\"query\":\"figure\",\"includeVisual\":true}]}";
         when(readTool.execute(catalog, "retrieve_paper_evidence", arguments)).thenReturn(
                 new AgentToolExecution("""
                         {"status":"found","evidenceNeeds":[

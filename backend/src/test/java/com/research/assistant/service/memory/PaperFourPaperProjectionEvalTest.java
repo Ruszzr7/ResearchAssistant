@@ -26,7 +26,7 @@ class PaperFourPaperProjectionEvalTest {
 
     @Test
     void projectsCurrentFourReadyProfilesWithoutRefreshingTheModel() {
-        for (Long paperId : List.of(184L, 185L, 190L, 191L)) {
+        for (Long paperId : List.of(184L, 185L, 191L, 204L)) {
             PaperUnderstandingResult result = understandingService.understand(paperId, false, null);
             assertThat(result.status()).isEqualTo(PaperUnderstandingService.STATUS_READY);
             var analysis = projectionService.project(paperId, result);

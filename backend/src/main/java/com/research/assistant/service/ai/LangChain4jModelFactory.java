@@ -16,6 +16,7 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +37,15 @@ public class LangChain4jModelFactory {
     private volatile String cachedStreamingSignature;
     private volatile ChatModel cachedPaperModel;
     private volatile String cachedPaperSignature;
+
+    /**
+     * Paper understanding can legitimately take longer than interactive chat,
+     * especially for a long multimodal document. Keep this separate from the
+     * chat and agent request deadlines so it can be tuned without changing
+     * their behavior.
+     */
+    @Value("${app.ai.paper-request-timeout-seconds:150}")
+    private long paperRequestTimeoutSeconds = 150;
 
     @org.springframework.beans.factory.annotation.Autowired
     public LangChain4jModelFactory(SettingsService settingsService,
@@ -174,7 +184,7 @@ public class LangChain4jModelFactory {
         if ("GEMINI_NATIVE".equals(settings.transport())) {
             var builder = GoogleAiGeminiChatModel.builder()
                     .apiKey(settings.apiKey()).modelName(settings.model())
-                    .timeout(Duration.ofSeconds(90)).maxRetries(0)
+                    .timeout(Duration.ofSeconds(paperRequestTimeoutSeconds)).maxRetries(0)
                     .maxOutputTokens(profile.defaultMaxOutputTokens());
             if (!settings.baseUrl().isBlank()) builder.baseUrl(settings.baseUrl());
             if (profile.temperature() != null) builder.temperature(profile.temperature());
@@ -182,11 +192,16 @@ public class LangChain4jModelFactory {
         }
         var builder = OpenAiChatModel.builder().baseUrl(settings.baseUrl())
                 .apiKey(settings.apiKey()).modelName(settings.model())
-                .timeout(Duration.ofSeconds(90)).maxRetries(0);
-        if (profile.provider() == AiProvider.KIMI && supportsKimiStructuredExtraction(settings.model())) {
+                .timeout(Duration.ofSeconds(paperRequestTimeoutSeconds)).maxRetries(0);
+        if (profile.provider() == AiProvider.KIMI
+                && shouldDisableKimiPaperThinking(profile, settings.model())) {
             builder.customParameters(java.util.Map.of("thinking", java.util.Map.of("type", "disabled")));
         }
         return builder.build();
+    }
+
+    private boolean shouldDisableKimiPaperThinking(AiProviderProfile profile, String model) {
+        return "coding".equals(profile.channel()) || supportsKimiStructuredExtraction(model);
     }
 
     private boolean supportsKimiStructuredExtraction(String model) {

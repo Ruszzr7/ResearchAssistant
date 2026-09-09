@@ -64,12 +64,12 @@ class PaperWholeDocumentInputBuilderTest {
                 .anyMatch(value -> value.contains("p1-s0000") && value.contains("first page"));
         assertThat(input.contents().stream().map(Content::toString).toList())
                 .anyMatch(value -> value.contains("AUXILIARY_CAPTION")
-                        && value.contains("no-evidence-id") && value.contains("Figure 1"));
+                        && value.contains("无证据ID") && value.contains("Figure 1"));
         assertThat(input.spanBlockIds()).containsEntry("p1-s0000", List.of("b1"));
         assertThat(input.spanBlockIds().values()).noneMatch(ids -> ids.contains("b3"));
         assertThat(input.recoveryRegions()).hasSize(1);
         assertThat(input.contents().stream().map(Content::toString).toList())
-                .anyMatch(value -> value.contains("LAYOUT_RECOVERY_IMAGE"));
+                .anyMatch(value -> value.contains("版面恢复图像"));
     }
 
     @Test

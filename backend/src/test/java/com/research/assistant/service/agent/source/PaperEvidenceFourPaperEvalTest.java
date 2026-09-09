@@ -59,7 +59,7 @@ class PaperEvidenceFourPaperEvalTest {
             String name = testCase.path("name").asText();
             PaperSourceCatalog catalog = sourceService.latest(paperId);
             var argumentsNode = objectMapper.createObjectNode();
-            argumentsNode.set("searches", testCase.path("searches"));
+            argumentsNode.set("needs", testCase.path("needs"));
             argumentsNode.put("maxEvidence", 6);
             String arguments = objectMapper.writeValueAsString(argumentsNode);
             long started = System.nanoTime();
@@ -107,13 +107,13 @@ class PaperEvidenceFourPaperEvalTest {
             } else {
                 failures.add(label(paperId, name) + " direct evidence fell below rank 4: " + matchedRank);
             }
-            Set<Integer> coveredSearches = new HashSet<>();
+            Set<Integer> coveredNeeds = new HashSet<>();
             for (JsonNode source : sources) {
-                source.path("matchedSearches").forEach(index -> coveredSearches.add(index.asInt()));
+                source.path("matchedSearches").forEach(index -> coveredNeeds.add(index.asInt()));
             }
-            for (int index = 0; index < testCase.path("searches").size(); index++) {
-                if (!coveredSearches.contains(index)) failures.add(label(paperId, name)
-                        + " uncovered searchIndex=" + index);
+            for (int index = 0; index < testCase.path("needs").size(); index++) {
+                if (!coveredNeeds.contains(index)) failures.add(label(paperId, name)
+                        + " uncovered needIndex=" + index);
             }
             System.out.printf(Locale.ROOT,
                     "EVIDENCE_EVAL paper=%d case=%s rank=%d returned=%d bytes=%d profileRefs=%s%n",

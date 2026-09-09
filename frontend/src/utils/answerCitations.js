@@ -9,10 +9,14 @@ export function buildCitedAnswer(answer, claims = [], evidence = [], answerBlock
   let nextNumber = 1
   const insertions = []
   const fallbackMarkers = []
+  const seenClaimBindings = new Set()
 
   for (const claim of claims) {
     const ids = [...new Set(claim?.evidenceIds || [])].filter(id => evidenceById.has(id))
     if (!ids.length) continue
+    const bindingKey = `${String(claim?.text || '').trim()}\u0000${ids.join('\u0000')}`
+    if (seenClaimBindings.has(bindingKey)) continue
+    seenClaimBindings.add(bindingKey)
     const markers = ids.map(id => {
       if (!numberById.has(id)) numberById.set(id, nextNumber++)
       return `[${numberById.get(id)}](#evidence-${encodeURIComponent(id)})`
@@ -114,15 +118,19 @@ export function buildCitationSources(claims = [], evidence = [], answerBlocks = 
   if (answerBlocks?.length) return boundCitationContext(answerBlocks, evidence).sources
   const evidenceById = new Map((evidence || []).map(item => [item.evidenceId, item]))
   const seen = new Set()
+  const seenPhysical = new Set()
   const sources = []
   for (const claim of claims || []) {
     for (const evidenceId of claim?.evidenceIds || []) {
       if (seen.has(evidenceId)) continue
       const item = evidenceById.get(evidenceId)
       if (!item) continue
+      const physicalKey = item.evidenceKey || ''
+      if (physicalKey && seenPhysical.has(physicalKey)) continue
       seen.add(evidenceId)
+      if (physicalKey) seenPhysical.add(physicalKey)
       sources.push(sourceView(sources.length + 1, `evidence:${evidenceId}`, item, item,
-        item.locator?.targetText || item.text || ''))
+        item.quote || item.locator?.targetText || item.text || '', item.fullText || item.text || ''))
     }
   }
   return sources
@@ -169,7 +177,8 @@ function boundCitationContext(blocks, evidence) {
       ? `formula:${item.paperId || ''}:${item.page || ''}:${base}`
       : ''
     const quote = String(citation?.quote || '').trim()
-    return { citation, formulaKey, item, formulaTarget, quote }
+    return { citation, formulaKey, item, formulaTarget, quote,
+      fullText: item.fullText || item.text || quote }
   }
 
   function sourceForCitation(citation) {
@@ -214,12 +223,15 @@ function boundCitationContext(blocks, evidence) {
     if (existing) {
       if (moreInformativeQuote(value.quote, existing.quote)) {
         existing.quote = value.quote
-        existing.excerpt = sourceExcerpt(value.quote, existing.target)
-        existing.title = value.quote
+        existing.excerpt = sourceExcerpt(value.fullText || value.quote, existing.target)
+        existing.excerptTruncated = existing.fullTextAvailable
+          && String(value.fullText || value.quote).length > 220
+        existing.title = value.fullText || value.quote
       }
       continue
     }
-    const source = sourceView(sources.length + 1, value.key, value.item, value.target, value.quote)
+    const source = sourceView(sources.length + 1, value.key, value.item, value.target,
+      value.quote, value.fullText)
     source.evidenceIds = value.evidenceIds
     sources.push(source)
     sourceByKey.set(value.key, source)
@@ -263,6 +275,7 @@ function singleDescriptor(value) {
     key,
     item: value.item,
     quote: value.quote,
+    fullText: value.fullText,
     evidenceIds: [value.item.evidenceId],
     target: {
       ...targetItem,
@@ -281,6 +294,7 @@ function mergedFormulaDescriptor(values) {
     key,
     item: first.item,
     quote: '',
+    fullText: first.item?.fullText || first.item?.text || '',
     evidenceIds: [...new Set(values.map(value => value.item.evidenceId))],
     target: {
       ...target,
@@ -330,12 +344,15 @@ function mergedTextDescriptor(values) {
     : [item.locator?.targetBbox || item.bbox]).filter(Boolean)
   const targetBbox = unionBoundingBoxes(targetBoxes)
   const quote = quotes.join(' ').replace(/\s+/g, ' ').trim()
+  const fullText = items.map(item => item.fullText || item.text || '')
+    .filter(Boolean).join('\n').trim()
   const first = items[0]
   const key = `span:${first.paperId || ''}:${first.page || ''}:${items.map(item => item.blockId).join('|')}:${normalize(quote)}`
   return {
     key,
     item: first,
     quote,
+    fullText,
     evidenceIds: [...new Set(items.map(item => item.evidenceId))],
     target: {
       ...first,
@@ -356,7 +373,8 @@ function mergedTextDescriptor(values) {
 
 function citationQuoteKey(item, quote) {
   const targetText = quote || item?.locator?.targetText || item?.text || ''
-  return `evidence:${item?.evidenceId || ''}:quote:${normalize(targetText)}`
+  const identity = item?.evidenceKey || item?.evidenceId || ''
+  return `evidence:${identity}:quote:${normalize(targetText)}`
 }
 
 function canMergeCitationContinuation(previous, current) {
@@ -430,8 +448,14 @@ function unionBoundingBoxes(boxes) {
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
-function sourceView(number, key, item, target, quote) {
+function sourceView(number, key, item, target, quote, completeText = '') {
   const formula = isFormulaRegion(target)
+  const candidateText = String(completeText || item?.fullText || item?.text || '').trim()
+  const quotedText = String(quote || '').trim()
+  const fullText = isEvidencePlaceholder(candidateText) && quotedText && !isEvidencePlaceholder(quotedText)
+    ? quotedText : candidateText || quotedText
+  const excerptText = quotedText || fullText
+  const displayText = fullText || String(quote || '').trim()
   return {
     number,
     key,
@@ -439,12 +463,21 @@ function sourceView(number, key, item, target, quote) {
     page: target?.page || item?.page,
     formulaNumber: target?.formulaNumber || item?.formulaNumber || '',
     formulaNumbers: target?.formulaNumbers || item?.formulaNumbers || [],
-    quote: String(quote || '').trim(),
-    excerpt: sourceExcerpt(quote, target || item),
-    title: String(quote || target?.text || item?.text || '').trim(),
+    quote: String(quote || displayText).trim(),
+    fullText,
+    fullTextAvailable: item?.fullTextAvailable !== false,
+    excerpt: sourceExcerpt(excerptText, target || item),
+    excerptTruncated: item?.fullTextAvailable !== false && fullText.length > 220,
+    textFormat: item?.textFormat || '',
+    textReliable: item?.textReliable !== false,
+    title: displayText || String(target?.text || item?.text || '').trim(),
     kind: formula ? '公式' : '正文',
     target,
   }
+}
+
+function isEvidencePlaceholder(value) {
+  return /^\[(?:公式|表格|图形)区域/.test(String(value || '').trim())
 }
 
 function sourceExcerpt(quote, item) {

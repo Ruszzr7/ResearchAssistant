@@ -348,4 +348,74 @@ describe('answer citations', () => {
     expect(sources[2].evidenceIds).toEqual(['lay-order-139'])
     expect(cited).toContain('公共流 SINR 定义如下。[1](#evidence-source~1)')
   })
+
+  it('deduplicates physically identical evidence while retaining complete text', () => {
+    const fullText = '同一物理区域的完整证据。'.repeat(30)
+    const evidence = [
+      {
+        evidenceId: 'source-a', evidenceKey: 'ev-same', paperId: 7, page: 3,
+        quote: `${fullText.slice(0, 319)}…`, fullText,
+        locator: { precision: 'BLOCK', targetText: '同一物理区域的完整证据。',
+          targetBoxes: [{ x: .1, y: .2, width: .3, height: .04 }] },
+      },
+      {
+        evidenceId: 'source-b', evidenceKey: 'ev-same', paperId: 7, page: 3,
+        quote: `${fullText.slice(0, 319)}…`, fullText,
+        locator: { precision: 'BLOCK', targetText: '同一物理区域的完整证据。',
+          targetBoxes: [{ x: .1, y: .2, width: .3, height: .04 }] },
+      },
+    ]
+    const sources = buildCitationSources([
+      { text: '第一处依据', evidenceIds: ['source-a'] },
+      { text: '重复依据', evidenceIds: ['source-b'] },
+    ], evidence)
+
+    expect(sources).toHaveLength(1)
+    expect(sources[0].fullText).toBe(fullText)
+    expect(sources[0].excerptTruncated).toBe(true)
+  })
+
+  it('does not label a legacy evidence preview as expandable full text', () => {
+    const preview = '历史证据摘要。'.repeat(40)
+    const sources = buildCitationSources([
+      { text: '旧回答', evidenceIds: ['legacy-source'] },
+    ], [{
+      evidenceId: 'legacy-source', evidenceKey: 'legacy-physical', paperId: 7, page: 3,
+      quote: preview, fullText: preview, fullTextAvailable: false,
+      locator: { precision: 'BLOCK', targetText: preview,
+        targetBoxes: [{ x: .1, y: .2, width: .3, height: .04 }] },
+    }])
+
+    expect(sources).toHaveLength(1)
+    expect(sources[0].fullTextAvailable).toBe(false)
+    expect(sources[0].excerptTruncated).toBe(false)
+  })
+
+  it('does not render an exactly repeated persisted citation twice', () => {
+    const answer = '同一段答案只应显示一次来源。'
+    const evidence = [{
+      evidenceId: 'source-a', paperId: 7, page: 3, quote: '完整证据', fullText: '完整证据',
+      locator: { precision: 'BLOCK', targetText: '完整证据',
+        targetBoxes: [{ x: .1, y: .2, width: .3, height: .04 }] },
+    }]
+    const duplicate = { text: answer, evidenceIds: ['source-a'] }
+
+    expect(buildCitedAnswer(answer, [duplicate, duplicate], evidence))
+      .toBe('同一段答案只应显示一次来源。[1](#evidence-source-a)')
+  })
+
+  it('exposes reliable LaTeX metadata for formula evidence', () => {
+    const evidence = [{
+      evidenceId: 'eq-21', paperId: 204, page: 6, formulaNumber: '21',
+      quote: '公式 (21)', fullText: '\\hat{R}_c(t)=\\Psi(D)',
+      contentType: 'FORMULA', textFormat: 'LATEX', textReliable: true,
+      locator: { precision: 'FORMULA_REGION', targetBbox: { x: .2, y: .3, width: .4, height: .05 } },
+    }]
+    const sources = buildCitationSources([
+      { text: '核心速率见式 (21)', evidenceIds: ['eq-21'] },
+    ], evidence)
+
+    expect(sources).toHaveLength(1)
+    expect(sources[0]).toMatchObject({ kind: '公式', fullText: '\\hat{R}_c(t)=\\Psi(D)', textFormat: 'LATEX', textReliable: true })
+  })
 })

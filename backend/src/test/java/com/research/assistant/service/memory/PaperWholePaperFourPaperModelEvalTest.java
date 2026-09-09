@@ -66,7 +66,7 @@ class PaperWholePaperFourPaperModelEvalTest {
 
     private static List<Long> paperIds() {
         String configured = System.getenv("PAPER_UNDERSTANDING_EVAL_IDS");
-        if (configured == null || configured.isBlank()) return List.of(184L, 185L, 190L, 191L);
+        if (configured == null || configured.isBlank()) return List.of(184L, 185L, 191L, 204L);
         return Stream.of(configured.split(","))
                 .map(String::trim)
                 .filter(value -> !value.isBlank())

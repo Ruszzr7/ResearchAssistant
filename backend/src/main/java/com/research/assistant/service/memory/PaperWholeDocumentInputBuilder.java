@@ -134,7 +134,7 @@ public class PaperWholeDocumentInputBuilder {
         List<Integer> readingOrderPages = readingOrderPages(regions);
         List<PageImage> images = renderPageImages(pdf, readingOrderPages);
         for (PageImage image : images) {
-            contents.add(TextContent.from("\n[PAGE_IMAGE page=" + image.page() + "]"));
+            contents.add(TextContent.from("\n[页面图像 page=" + image.page() + "]"));
             contents.add(ImageContent.from(Base64.getEncoder().encodeToString(image.bytes()),
                     "image/jpeg"));
         }
@@ -154,7 +154,7 @@ public class PaperWholeDocumentInputBuilder {
 
     private String renderRecoveryManifest(List<LayoutUncertainRegion> regions) {
         if (regions.isEmpty()) {
-            return "\n[LAYOUT_RECOVERY_REGIONS]\nnone\n";
+            return "\n[LAYOUT_RECOVERY_REGIONS]\n无\n";
         }
         StringBuilder text = new StringBuilder("\n[LAYOUT_RECOVERY_REGIONS]\n");
         for (LayoutUncertainRegion region : regions) {
@@ -171,7 +171,7 @@ public class PaperWholeDocumentInputBuilder {
 
     private void appendRecoveryImages(List<Content> contents, List<RecoveryImage> images) {
         for (RecoveryImage image : images) {
-            contents.add(TextContent.from("\n[LAYOUT_RECOVERY_IMAGE regionId=" + image.regionId()
+            contents.add(TextContent.from("\n[版面恢复图像 regionId=" + image.regionId()
                     + " page=" + image.page() + "]"));
             contents.add(ImageContent.from(Base64.getEncoder().encodeToString(image.bytes()), "image/jpeg"));
         }
@@ -179,7 +179,7 @@ public class PaperWholeDocumentInputBuilder {
 
     private void appendVisualSourceImages(List<Content> contents, List<VisualImage> images) {
         for (VisualImage image : images) {
-            contents.add(TextContent.from("\n[VISUAL_SOURCE role=" + image.role()
+            contents.add(TextContent.from("\n[视觉来源 role=" + image.role()
                     + " blockId=" + image.blockId() + " page=" + image.page() + "]"));
             contents.add(ImageContent.from(Base64.getEncoder().encodeToString(image.bytes()), "image/jpeg"));
         }
@@ -187,19 +187,19 @@ public class PaperWholeDocumentInputBuilder {
 
     private String renderText(PaperStructure structure, List<PaperSemanticSpan> spans) {
         StringBuilder text = new StringBuilder();
-        text.append("[DOCUMENT_METADATA]\n")
-                .append("title: ").append(structure.metadata().title()).append('\n')
-                .append("authors: ").append(String.join(", ", structure.metadata().authors())).append('\n')
-                .append("abstract: ").append(structure.metadata().abstractText()).append("\n\n");
+        text.append("[文档元数据]\n")
+                .append("标题：").append(structure.metadata().title()).append('\n')
+                .append("作者：").append(String.join("、", structure.metadata().authors())).append('\n')
+                .append("摘要：").append(structure.metadata().abstractText()).append("\n\n");
         int currentPage = -1;
         for (PaperSemanticSpan span : spans) {
             if (span.page() != currentPage) {
                 currentPage = span.page();
-                text.append("\n=== PAGE ").append(currentPage).append(" ===\n");
+                text.append("\n=== 第 ").append(currentPage).append(" 页 ===\n");
             }
             if (span.role() == DocumentBlockRole.CAPTION) {
                 text.append("[page=").append(span.page())
-                        .append(" | AUXILIARY_CAPTION | no-evidence-id] ")
+                        .append(" | AUXILIARY_CAPTION | 无证据ID] ")
                         .append(span.text()).append('\n');
             } else {
                 text.append('[').append(span.id()).append(" | page=")

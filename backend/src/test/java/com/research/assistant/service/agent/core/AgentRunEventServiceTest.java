@@ -62,7 +62,8 @@ class AgentRunEventServiceTest {
         call.setToolName("retrieve_paper_evidence");
         call.setStatus("COMPLETED");
         call.setResultJson("{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"s-1\",\"content\":\"secret\"}],"
-                + "\"evidenceNeeds\":[{\"status\":\"found\"},{\"status\":\"not_found\"}]}");
+                + "\"evidenceNeeds\":[{\"needId\":\"mechanism\",\"retrievalStatus\":\"found\",\"progress\":{\"outcome\":\"new_sources\",\"attempt\":1,\"refinementCount\":0,\"newSourceObjectIds\":[\"s-1\"],\"recommendedAction\":\"judge\",\"reason\":\"请判断\"}},"
+                + "{\"retrievalStatus\":\"not_found\"}]}");
         when(calls.selectByRunId("run-3")).thenReturn(List.of(call));
 
         AgentRunEvent event = new AgentRunEventService(loop, calls, new ObjectMapper()).events("run-3", 0).get(1);
@@ -73,6 +74,32 @@ class AgentRunEventServiceTest {
                 .containsEntry("evidenceNeedCount", 2)
                 .containsEntry("evidenceNeedFoundCount", 1);
         assertThat(data.get("returnedSourceObjectIds")).isEqualTo(List.of("s-1"));
+        assertThat(data.toString()).contains("evidenceNeedProgress", "mechanism", "new_sources", "请判断");
+        assertThat(data).doesNotContainKeys("stopRecommended", "coverage", "newSourceCount");
         assertThat(data.toString()).doesNotContain("secret");
+    }
+
+    @Test
+    void exposesEvidenceValidationCodesWithoutPromptOrPaperText() {
+        AgentLoopService loop = mock(AgentLoopService.class);
+        AgentToolCallMapper calls = mock(AgentToolCallMapper.class);
+        when(loop.currentResult("run-4")).thenReturn(new AgentTurnResult("turn-4", "run-4", "COMPLETED",
+                "answer", List.of(), List.of()));
+        AgentToolCallRecord call = new AgentToolCallRecord();
+        call.setToolCallId("tool-4");
+        call.setToolName("retrieve_paper_evidence");
+        call.setStatus("COMPLETED");
+        call.setResultJson("{\"status\":\"invalid_request\",\"sources\":[],\"issues\":["
+                + "{\"needId\":\"result\",\"code\":\"MISSING_RETRIEVAL_ANCHOR\",\"message\":\"secret prompt\"}]}");
+        when(calls.selectByRunId("run-4")).thenReturn(List.of(call));
+
+        AgentRunEvent event = new AgentRunEventService(loop, calls, new ObjectMapper()).events("run-4", 0).get(1);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) event.data();
+
+        assertThat(data).containsEntry("resultStatus", "invalid_request")
+                .containsEntry("validationIssueCount", 1);
+        assertThat(data.get("validationIssueCodes")).isEqualTo(List.of("MISSING_RETRIEVAL_ANCHOR"));
+        assertThat(data.toString()).doesNotContain("secret prompt");
     }
 }

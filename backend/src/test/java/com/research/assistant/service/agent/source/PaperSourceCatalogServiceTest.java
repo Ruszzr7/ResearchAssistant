@@ -100,6 +100,25 @@ class PaperSourceCatalogServiceTest {
     }
 
     @Test
+    void prefersReliableLatexForFormulaEvidence() {
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(8L, "b".repeat(64), "parser-v1", .95,
+                Instant.parse("2026-01-01T00:00:00Z"), 1, List.of(
+                new DocumentBlock("formula", 1, box(.2, .35, .6, .06), DocumentBlockRole.FORMULA,
+                        1, List.of("Method"), "garbled formula (7)",
+                        "\\hat{x}=\\frac{a}{b}", null, .97)));
+
+        PaperSourceCatalog catalog = service.build(artifact);
+        SourceObject formula = catalog.objects().values().stream()
+                .filter(object -> object.contentType() == SourceContentType.FORMULA)
+                .filter(object -> "7".equals(object.formulaNumber()))
+                .findFirst().orElseThrow();
+
+        assertThat(formula.rawContent()).isEqualTo("\\hat{x}=\\frac{a}{b}");
+        assertThat(formula.provenance()).containsEntry("textFormat", "LATEX")
+                .containsEntry("textReliable", "true");
+    }
+
+    @Test
     void exposesCrossPageContinuationWithPerPageLocators() {
         PaperLayoutArtifact artifact = new PaperLayoutArtifact(7L, "a".repeat(64), "parser-v1", .95,
                 Instant.parse("2026-01-01T00:00:00Z"), 2, List.of(

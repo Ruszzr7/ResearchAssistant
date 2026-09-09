@@ -137,24 +137,24 @@ public class AiCapabilityService {
 
     private void probeRequired(AiModelCapabilityRecord record, ChatModel model) {
         ToolSpecification tool = ToolSpecification.fromJson("""
-                {"name":"capability_echo","description":"Return the supplied value",
+                {"name":"capability_echo","description":"返回给定的值",
                 "parameters":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}}
                 """);
         var first = model.chat(ChatRequest.builder().messages(
-                        SystemMessage.from("Call capability_echo once with value READY."),
-                        UserMessage.from("Run the capability test."))
+                        SystemMessage.from("请使用值 READY 调用一次 capability_echo。"),
+                        UserMessage.from("执行能力测试。"))
                 .toolSpecifications(tool).toolChoice(ToolChoice.AUTO).build());
         if (!first.aiMessage().hasToolExecutionRequests()) {
             throw new IllegalStateException("MODEL_DID_NOT_CALL_TOOL");
         }
         ToolExecutionRequest call = first.aiMessage().toolExecutionRequests().get(0);
         var visualMessage = UserMessage.from(List.of(
-                TextContent.from("Read the code in this image. Reply only as JSON with tool and image fields."),
+                TextContent.from("读取图像中的代码。只返回包含 tool 和 image 字段的 JSON。"),
                 ImageContent.from(TEST_IMAGE, "image/png")));
         var second = model.chat(ChatRequest.builder().messages(
-                        SystemMessage.from("After the tool result and image, reply exactly as JSON. "
-                                + "The tool field must be READY and image must be the visible image code."),
-                        UserMessage.from("Run the capability test."),
+                        SystemMessage.from("收到工具结果和图像后，严格只返回 JSON。"
+                                + "tool 字段必须为 READY，image 字段必须为图像中可见的代码。"),
+                        UserMessage.from("执行能力测试。"),
                         AiMessage.from(List.of(call)),
                         ToolExecutionResultMessage.from(call, "READY"),
                         visualMessage)
@@ -177,7 +177,7 @@ public class AiCapabilityService {
     private boolean probePdf(ChatModel model) {
         try {
             var result = model.chat(ChatRequest.builder().messages(UserMessage.from(List.of(
-                    TextContent.from("Return only the visible code from this PDF."),
+                    TextContent.from("只返回此 PDF 中可见的代码。"),
                     PdfFileContent.from(TEST_PDF, "application/pdf")))).build());
             return result.aiMessage().text() != null
                     && result.aiMessage().text().toUpperCase(java.util.Locale.ROOT).contains("PDF_7");

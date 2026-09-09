@@ -42,6 +42,78 @@ class GroundEvidenceServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void collapsesPhysicallyIdenticalSourcesButKeepsSameTextOnAnotherPage() {
+        SourceObject first = object("source-first", "The same complete sentence is evidence.");
+        SourceObject duplicate = object("source-duplicate", "The same complete sentence is evidence.");
+        SourceObject repeated = object("source-repeated", "The same complete sentence is evidence.");
+        SourceLocator firstLocator = locator("locator-first", first.sourceObjectId(), 3);
+        SourceLocator duplicateLocator = locator("locator-duplicate", duplicate.sourceObjectId(), 3);
+        SourceLocator repeatedLocator = locator("locator-repeated", repeated.sourceObjectId(), 4);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(7, "a".repeat(64), "parser-v1", 4,
+                Map.of(first.sourceObjectId(), first, duplicate.sourceObjectId(), duplicate,
+                        repeated.sourceObjectId(), repeated),
+                Map.of(first.sourceObjectId(), List.of(firstLocator),
+                        duplicate.sourceObjectId(), List.of(duplicateLocator),
+                        repeated.sourceObjectId(), List.of(repeatedLocator)));
+
+        GroundedAnswer grounded = service.ground("one two three", List.of(
+                new CitationRequest(0, 3, first.sourceObjectId(), "", List.of()),
+                new CitationRequest(3, 7, duplicate.sourceObjectId(), "", List.of()),
+                new CitationRequest(7, 11, repeated.sourceObjectId(), "", List.of())), catalog);
+
+        assertThat(grounded.bindings()).extracting(CitationBinding::citationNumber)
+                .containsExactly(1, 1, 2);
+        assertThat(grounded.bindings()).extracting(CitationBinding::sourceObjectId)
+                .containsExactly(first.sourceObjectId(), first.sourceObjectId(), repeated.sourceObjectId());
+        assertThat(grounded.evidenceEntries()).hasSize(2);
+    }
+
+    @Test
+    void mergesLocatorSubsetsForTheSameSourceObject() {
+        SourceObject source = object("source-split",
+                "The complete source text remains one logical evidence unit.");
+        SourceLocator first = locator("locator-left", source.sourceObjectId(), 3);
+        SourceLocator second = locator("locator-right", source.sourceObjectId(), 3);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(7, "a".repeat(64), "parser-v1", 3,
+                Map.of(source.sourceObjectId(), source),
+                Map.of(source.sourceObjectId(), List.of(first, second)));
+
+        GroundedAnswer grounded = service.ground("one two", List.of(
+                new CitationRequest(0, 3, source.sourceObjectId(), "", List.of(first.locatorId())),
+                new CitationRequest(4, 7, source.sourceObjectId(), "", List.of(second.locatorId()))), catalog);
+
+        assertThat(grounded.bindings()).extracting(CitationBinding::citationNumber)
+                .containsExactly(1, 1);
+        assertThat(grounded.evidenceEntries()).singleElement()
+                .extracting(CitationBinding::locatorIds)
+                .isEqualTo(List.of(first.locatorId(), second.locatorId()));
+    }
+
+    @Test
+    void removesExactlyRepeatedCitationBindingsButKeepsDifferentAnswerRanges() {
+        PaperSourceCatalog catalog = catalog();
+        String answer = "方法先估计信道。随后再次使用信道估计。";
+        CitationRequest first = new CitationRequest(0, 8, "source-method",
+                "channel estimation", List.of());
+
+        GroundedAnswer grounded = service.ground(answer, List.of(
+                first,
+                first,
+                new CitationRequest(9, answer.length(), "source-method",
+                        "channel estimation", List.of())
+        ), catalog);
+
+        assertThat(grounded.bindings()).extracting(
+                        CitationBinding::answerStart,
+                        CitationBinding::answerEnd,
+                        CitationBinding::citationNumber)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(0, 8, 1),
+                        org.assertj.core.groups.Tuple.tuple(9, answer.length(), 1));
+        assertThat(grounded.evidenceEntries()).hasSize(1);
+    }
+
     private PaperSourceCatalog catalog() {
         SourceObject method = object("source-method", "We perform channel estimation before decoding.");
         SourceObject result = object("source-result", "The method improves accuracy by ten percent.");

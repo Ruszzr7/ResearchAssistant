@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @EnabledIfEnvironmentVariable(named = "RUN_PAPER_SPAN_REAL_EVAL", matches = "true")
 class PaperSemanticSpanFourPaperEvalTest {
 
-    private static final List<Long> PAPER_IDS = List.of(184L, 185L, 190L, 191L);
+    private static final List<Long> PAPER_IDS = List.of(184L, 185L, 191L, 204L);
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final PaperSemanticSpanBuilder builder = new PaperSemanticSpanBuilder();
 

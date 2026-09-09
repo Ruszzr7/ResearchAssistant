@@ -585,6 +585,7 @@ import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
 import { copyPdfSelectionText, normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
 import { isTextSelectionDrag } from '@/utils/pdfTextSelection.js'
 import { formulaNumberCandidates, formulaNumberSearchQueries } from '@/utils/formulaEvidence.js'
+import { evidenceLocators, unionBoundingBoxes } from '@/utils/evidenceViewModel.js'
 import {
   invalidatePageRenderSurface,
   pageRenderSurfaceIsUsable,
@@ -1657,6 +1658,7 @@ async function jumpToEvidence(item) {
     return
   }
   await goToPage(page)
+  await waitForEvidencePage(page)
   const formulaRegion = item?.locator?.precision === 'FORMULA_REGION'
   const formulaLabels = formulaRegion ? formulaNumberCandidates(item) : []
   const formulaNumberBoxes = formulaLabels.length
@@ -1688,7 +1690,10 @@ async function jumpToEvidence(item) {
   }
 
   const exactBoxes = await locateEvidenceText(item)
-  const locatorBoxes = validEvidenceBoxes(item?.locator?.targetBoxes)
+  const pageLocators = evidenceLocators(item).filter(locator => Number(locator.pageNumber || locator.page) === page)
+  const locatorBoxes = validEvidenceBoxes(pageLocators.flatMap(locator => (
+    locator.targetBoxes || locator.rects || []
+  )))
   const focusBoxes = exactBoxes.length ? exactBoxes : locatorBoxes.length ? locatorBoxes : targetBox ? [targetBox] : []
   if (!focusBoxes.length) {
     evidenceFocus.value = null
@@ -1708,6 +1713,22 @@ async function jumpToEvidence(item) {
     ElMessage.info('已定位到来源段落；PDF 字符映射不足，无法进一步精确到句子')
   }
   scheduleEvidenceFocusClear()
+}
+
+async function waitForEvidencePage(page, timeoutMs = 2500) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() <= deadline) {
+    const pageState = renderedPages.value[page - 1]
+    if (pageState?.viewport && pageState.rendered && hasMountedRenderSurface(page)) return true
+    if (pageState?.renderFailed) return false
+    await nextTick()
+    await renderVisiblePages()
+    if (renderedPages.value[page - 1]?.viewport
+        && renderedPages.value[page - 1]?.rendered
+        && hasMountedRenderSurface(page)) return true
+    await new Promise(resolve => window.setTimeout(resolve, 16))
+  }
+  return false
 }
 
 function scheduleEvidenceFocusClear() {
@@ -1873,19 +1894,26 @@ async function executeTicketedAgentAction(action) {
 
 async function locateEvidenceText(item) {
   if (!pdfInteractionReady.value || !pdfInteractionEngine) return []
-  const targetBox = item?.locator?.targetBbox || item?.bbox
-  const targetText = item?.locator?.targetText || item?.text
   // Formula-region geometry is authoritative. Searching supporting prose and replacing the
   // region with that prose was the cause of correct citations jumping to the wrong sentence.
   if (item?.locator?.precision === 'FORMULA_REGION') return []
-  const fragments = String(targetText || '').split(/\r?\n/)
-    .map(value => value.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
+  const targets = evidenceLocators(item)
+    .filter(locator => Number(locator.pageNumber || locator.page) === Number(item.page))
+    .map(locator => ({
+      text: locator.targetText || (evidenceLocators(item).length === 1 ? item?.text : ''),
+      box: locator.targetBbox || unionBoundingBoxes(locator.targetBoxes || locator.rects || []),
+    }))
+    .filter(target => String(target.text || '').trim())
+  if (!targets.length) return []
   const located = []
-  for (const fragment of fragments.length ? fragments : [String(targetText || '')]) {
-    const boxes = await locateEvidenceFragment(item.page, fragment, targetBox)
-    if (!boxes.length) return []
-    located.push(...boxes)
+  for (const target of targets) {
+    const fragments = String(target.text || '').split(/\r?\n/)
+      .map(value => value.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+    for (const fragment of fragments) {
+      const boxes = await locateEvidenceFragment(item.page, fragment, target.box)
+      if (boxes.length) located.push(...boxes)
+    }
   }
   return dedupeEvidenceBoxes(located)
 }
@@ -1895,14 +1923,22 @@ async function locateFormulaNumberBoxes(page, labels, targetBox) {
   const found = []
   for (const label of labels) {
     let labelMatches = []
-    for (const query of formulaNumberSearchQueries(label)) {
-      let matches
-      try { matches = await pdfInteractionEngine.search(query) }
-      catch { matches = [] }
-      labelMatches = (matches || []).filter(candidate => (
-        candidate.pageIndex + 1 === page && candidate.rects?.length
-      ))
-      if (labelMatches.length) break
+    // PDFium may finish opening the target page just after the first global search. A short
+    // retry makes the first cross-page formula click deterministic instead of requiring a
+    // second user click to warm the search index.
+    for (let attempt = 0; attempt < 2 && !labelMatches.length; attempt += 1) {
+      for (const query of formulaNumberSearchQueries(label)) {
+        let matches
+        try { matches = await pdfInteractionEngine.search(query) }
+        catch { matches = [] }
+        labelMatches = (matches || []).filter(candidate => (
+          candidate.pageIndex + 1 === page && candidate.rects?.length
+        ))
+        if (labelMatches.length) break
+      }
+      if (!labelMatches.length && attempt === 0) {
+        await new Promise(resolve => window.setTimeout(resolve, 60))
+      }
     }
     if (!labelMatches.length) continue
     const selected = targetBox && labelMatches.length > 1

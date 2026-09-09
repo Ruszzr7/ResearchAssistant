@@ -46,19 +46,22 @@ public class PaperReadToolRegistry {
             Pattern.CASE_INSENSITIVE);
     private static final String EVIDENCE_SCHEMA = """
             {"type":"object","properties":{
-            "needs":{"type":"array","maxItems":4,"items":{"type":"object","properties":{
-            "id":{"type":"string","maxLength":40},"query":{"type":"string","maxLength":400,"description":"Search text for this need. Provide query or sourceObjectIds."},
-            "keywords":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":120}},
-            "targets":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":120}},
-            "sectionHint":{"type":"string","maxLength":120},
-            "pageHints":{"type":"array","maxItems":2,"items":{"type":"integer","minimum":1}},
-            "profileClaimRefs":{"type":"array","maxItems":4,"items":{"type":"string","maxLength":40}},
-            "contentTypes":{"type":"array","items":{"type":"string","enum":["TEXT","FORMULA","TABLE","FIGURE","ALGORITHM"]}},
-            "sourceObjectIds":{"type":"array","maxItems":4,"items":{"type":"string","maxLength":160},"description":"Known trusted source IDs to read directly without searching again. Provide sourceObjectIds or query."},
-            "includeVisual":{"type":"boolean","description":"Attach a source-linked crop when visual inspection is needed."}},
-            "additionalProperties":false}},
-            "pageRanges":{"type":"array","maxItems":2,"items":{"type":"object","properties":{"startPage":{"type":"integer","minimum":1},"endPage":{"type":"integer","minimum":1}},"required":["startPage","endPage"],"additionalProperties":false}},
-            "maxEvidence":{"type":"integer","minimum":1,"maximum":8}},"additionalProperties":false}
+            "needs":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{
+            "id":{"type":"string","minLength":1,"maxLength":40,"description":"本条证据需求的稳定唯一 ID；补检索同一事实时保持不变。"},
+            "objective":{"type":"string","minLength":1,"maxLength":240,"description":"用中文、中立地说明要确认的一个独立事实；补检索时原样保留。"},
+            "query":{"type":"string","minLength":1,"maxLength":400,"description":"使用论文原文术语、变量名、指标名、数值或公式编号的检索表达。"},
+            "keywords":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":120,"description":"首次检索无结果时使用的少量论文原文核心词。"}},
+            "targets":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":120,"description":"可在论文原文中做词面核对的术语、变量、数值、公式或基线；不要填写中文语义结论。"}},
+            "sectionHint":{"type":"string","minLength":1,"maxLength":120,"description":"有明确依据时填写论文原文章节名称。"},
+            "pageHints":{"type":"array","minItems":1,"maxItems":2,"uniqueItems":true,"items":{"type":"integer","minimum":1},"description":"有明确依据时填写可能所在的页码或连续页码范围。"},
+            "profileClaimRefs":{"type":"array","minItems":1,"maxItems":4,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":40},"description":"画像返回的可信 claimRef；直接复用其已绑定来源。"},
+            "contentTypes":{"type":"array","minItems":1,"maxItems":5,"uniqueItems":true,"items":{"type":"string","enum":["TEXT","FORMULA","TABLE","FIGURE","ALGORITHM"]},"description":"有明确依据时限制来源内容类型。"},
+            "sourceObjectIds":{"type":"array","minItems":1,"maxItems":4,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":160},"description":"已知可信来源 ID；直接读取，不要重新搜索。"},
+            "includeVisual":{"type":"boolean","description":"只有需要检查页面二维布局时才附加来源关联的局部图像。"},
+            "refinementReason":{"type":"string","minLength":1,"maxLength":240,"description":"补检索时说明上一批来源还缺少什么，以及为何新条件可能得到不同证据；首次调用省略。"}},
+            "required":["id","objective"],"additionalProperties":false}},
+            "pageRanges":{"type":"array","minItems":1,"maxItems":2,"description":"需要直接读取的连续页码范围，每个范围最多两页。","items":{"type":"object","properties":{"startPage":{"type":"integer","minimum":1},"endPage":{"type":"integer","minimum":1}},"required":["startPage","endPage"],"additionalProperties":false}},
+            "maxEvidence":{"type":"integer","minimum":1,"maximum":8,"description":"希望返回的最大来源数；服务端仍会按来源类型和负载上限裁剪。"}},"additionalProperties":false}
             """;
 
     private final PaperSourceCatalogService sourceService;
@@ -79,7 +82,7 @@ public class PaperReadToolRegistry {
 
     public List<AgentToolDefinition> definitions() {
         return List.of(new AgentToolDefinition("retrieve_paper_evidence",
-                "Retrieve citable page-level evidence from the current paper before composing paper-dependent factual answers. Put all currently known evidence needs in one needs array and use targets for explicit formulas, figures, metrics, sections, methods, or other items that must all be covered. Set includeVisual only when the formula, figure, table, or algorithm must be inspected as an image; up to two source-linked crops are returned to the same Agent. Known sourceObjectIds can be read directly without searching again. One call performs focused retrieval with at most one fallback per need, expands structurally related formula parts, and reports per-need coverage. After receiving sources, judge their sufficiency and answer; call again only for a specific unresolved fact with a genuinely different query. If no new source is returned or exhausted is true, stop searching and state the limitation instead of inventing evidence.", EVIDENCE_SCHEMA));
+                "从当前论文检索可引用的原文证据。先把最终答案需要成立的独立事实拆成 1～4 个 needs，并在首次调用中一次提交；首次有效检索后 Need ID 集合冻结。每个 Need 都要提供稳定唯一的 id、中文中立的 objective，以及 query、sourceObjectIds 或 profileClaimRefs 中至少一种检索锚点。query、keywords 和 targets 使用论文原文术语、变量、数值或公式编号；targets 只做词面核对。收到来源后由 Agent 阅读并判断语义充分性；只对未解决 Need 保持原 id 和 objective、填写 refinementReason 并改变有效检索条件。收到 stop 或 need_stopped 后立即使用 submit_answer，不要重复请求、新建同方向 Need，或把检索状态当成论文结论。", EVIDENCE_SCHEMA));
     }
 
     /** Compatibility entry point; model-facing tools no longer vary by message keywords. */
@@ -104,29 +107,33 @@ public class PaperReadToolRegistry {
             return switch (name) {
                 case "retrieve_paper_evidence" -> retrieveEvidence(catalog, args, evidenceFocus);
                 case "read_pages" -> readPages(catalog, args);
-                default -> throw new IllegalArgumentException("unknown read-only tool: " + name);
+                default -> throw new IllegalArgumentException("未知的只读工具：" + name);
             };
+        } catch (com.fasterxml.jackson.core.JsonProcessingException error) {
+            if ("retrieve_paper_evidence".equals(name)) {
+                return invalidRequest(List.of(issue(null, "request", "MALFORMED_JSON",
+                        "证据检索参数必须是有效的 JSON 对象")));
+            }
+            throw new IllegalArgumentException("工具参数无效：" + name, error);
         } catch (IllegalArgumentException error) {
             throw error;
         } catch (Exception error) {
-            throw new IllegalArgumentException("invalid arguments for tool " + name, error);
+            throw new IllegalArgumentException("工具参数无效：" + name, error);
         }
     }
 
     private AgentToolExecution retrieveEvidence(PaperSourceCatalog catalog, JsonNode args,
                                                  String evidenceFocus) throws Exception {
-        JsonNode searches = args.path("needs");
-        if (!searches.isArray() || searches.isEmpty()) searches = args.path("searches");
-        JsonNode requestedNeeds = searches;
+        List<Map<String, Object>> validationIssues = validateEvidenceRequest(args);
+        if (!validationIssues.isEmpty()) return invalidRequest(validationIssues);
+        JsonNode requestedNeeds = args.path("needs");
         JsonNode pageRanges = args.path("pageRanges");
         boolean hasSearches = requestedNeeds.isArray() && !requestedNeeds.isEmpty();
         boolean hasPages = pageRanges.isArray() && !pageRanges.isEmpty();
-        if (!hasSearches && !hasPages) {
-            throw new IllegalArgumentException("at least one search or page range is required");
-        }
-
         Map<String, MergedHit> merged = new LinkedHashMap<>();
         Map<Integer, List<MergedHit>> hitsBySearch = new LinkedHashMap<>();
+        Map<Integer, List<String>> invalidSourceIdsBySearch = new LinkedHashMap<>();
+        Map<Integer, List<String>> invalidClaimRefsBySearch = new LinkedHashMap<>();
         ProfileClaimIndex claimIndex = profileClaimIndex(catalog);
         Set<String> matchedProfileClaimRefs = new LinkedHashSet<>();
         int searchCount = hasSearches ? Math.min(requestedNeeds.size(), MAX_SEARCHES_PER_REQUEST) : 0;
@@ -139,12 +146,32 @@ public class PaperReadToolRegistry {
             for (JsonNode sourceIdNode : search.path("sourceObjectIds")) {
                 if (directCount++ >= 4) break;
                 String sourceId = sourceIdNode.asText("").trim();
-                if (!catalog.objects().containsKey(sourceId)) continue;
+                if (!catalog.objects().containsKey(sourceId)) {
+                    invalidSourceIdsBySearch.computeIfAbsent(index, ignored -> new ArrayList<>()).add(sourceId);
+                    continue;
+                }
                 MergedHit direct = merged.computeIfAbsent(sourceId,
                         id -> new MergedHit(id, 1.10, new LinkedHashSet<>()));
                 direct.score = Math.max(direct.score, 1.10);
                 direct.searchIndexes.add(index);
                 searchHits.put(sourceId, direct);
+            }
+            int refCount = 0;
+            for (JsonNode ref : search.path("profileClaimRefs")) {
+                if (refCount++ >= 4) break;
+                String claimRef = ref.asText("").trim();
+                if (!claimIndex.sources().containsKey(claimRef)) {
+                    invalidClaimRefsBySearch.computeIfAbsent(index, ignored -> new ArrayList<>()).add(claimRef);
+                    continue;
+                }
+                matchedProfileClaimRefs.add(claimRef);
+                for (String sourceId : claimIndex.sources().getOrDefault(claimRef, Set.of())) {
+                    MergedHit claimHit = merged.computeIfAbsent(sourceId,
+                            id -> new MergedHit(id, 1.05, new LinkedHashSet<>()));
+                    claimHit.score = Math.max(claimHit.score, 1.05);
+                    claimHit.searchIndexes.add(index);
+                    searchHits.put(sourceId, claimHit);
+                }
             }
             if (query.isEmpty()) {
                 hitsBySearch.put(index, new ArrayList<>(searchHits.values()));
@@ -153,17 +180,6 @@ public class PaperReadToolRegistry {
             PageHint pageHint = pageHint(search);
             PaperSearchRequest request = new PaperSearchRequest(query, types, pageHint.start(), pageHint.end(),
                     MAX_SEARCH_RESULTS);
-            int refCount = 0;
-            for (JsonNode ref : search.path("profileClaimRefs")) {
-                if (refCount++ >= 4) break;
-                for (String sourceId : claimIndex.sources().getOrDefault(ref.asText(""), Set.of())) {
-                    MergedHit claimHit = merged.computeIfAbsent(sourceId,
-                            id -> new MergedHit(id, 1.05, new LinkedHashSet<>()));
-                    claimHit.score = Math.max(claimHit.score, 1.05);
-                    claimHit.searchIndexes.add(index);
-                    searchHits.put(sourceId, claimHit);
-                }
-            }
             String inferredClaimRef = evidenceFocus == null || evidenceFocus.isBlank()
                     ? "" : bestAnyClaimRef(evidenceFocus, claimIndex.statements(), 0.18);
             if (inferredClaimRef.isBlank()) inferredClaimRef = bestClaimRef(query, claimIndex.statements());
@@ -254,36 +270,18 @@ public class PaperReadToolRegistry {
             try {
                 String status = compact.isEmpty() ? "not_found" : "found";
                 List<Map<String, Object>> evidenceNeeds = buildEvidenceNeeds(catalog, requestedNeeds,
-                        hitsBySearch, selectedById);
-                long foundNeeds = evidenceNeeds.stream()
-                        .filter(need -> !"not_found".equals(need.get("status"))).count();
-                boolean hasUnresolvedTargets = evidenceNeeds.stream().anyMatch(need -> {
-                    Object unresolved = need.get("unresolvedTargets");
-                    return unresolved instanceof List<?> values && !values.isEmpty();
-                });
-                String coverage = searchCount == 0 ? (compact.isEmpty() ? "not_found" : "found")
-                        : foundNeeds == 0 ? "not_found" : hasUnresolvedTargets ? "partial"
-                        : hasExplicitTargets && foundNeeds == searchCount ? "complete" : "found";
-                List<String> unresolvedTargets = evidenceNeeds.stream().flatMap(need -> {
-                    Object value = need.get("unresolvedTargets");
-                    return value instanceof List<?> values
-                            ? values.stream().map(String.class::cast) : java.util.stream.Stream.empty();
-                }).distinct().toList();
+                        hitsBySearch, selectedById, invalidSourceIdsBySearch, invalidClaimRefsBySearch);
                 Map<String, Object> payload = new LinkedHashMap<>();
                 payload.put("status", status);
-                payload.put("coverage", coverage);
                 payload.put("untrustedPaperContent", true);
                 payload.put("sources", compact);
                 payload.put("evidenceNeeds", evidenceNeeds);
                 payload.put("matchedProfileClaimRefs", List.copyOf(matchedProfileClaimRefs));
-                payload.put("unresolvedTargets", unresolvedTargets);
-                payload.put("exhausted", compact.isEmpty());
-                payload.put("requestedSearches", searchCount);
                 payload.put("requestedNeeds", searchCount);
                 payload.put("requestedPageRanges", hasPages ? Math.min(pageRanges.size(), 2) : 0);
                 payload.put("usage", compact.isEmpty()
-                        ? "No supporting source was found. Stop searching this need, use other valid context, or state that the paper does not provide the evidence."
-                        : "Judge whether the returned original sources support the answer. Search again only for a specific missing fact represented by unresolvedTargets and use a genuinely different query. If newSourceCount is 0 or exhausted is true, stop.");
+                        ? "当前确定性检索没有返回候选来源。请依据每个 Need 的 progress 决定是否进行一次有明确缺口的补检索。"
+                        : "请阅读返回的原文判断是否支持答案。targetCoverage 只表示论文原文中的词面匹配；只针对仍未解决的 Need 补检索，不要把 retrievalStatus 当成语义结论。");
                 return result(payload, sourceIds);
             } catch (IllegalStateException oversized) {
                 if (perSource <= 240) throw oversized;
@@ -335,7 +333,9 @@ public class PaperReadToolRegistry {
     private List<Map<String, Object>> buildEvidenceNeeds(PaperSourceCatalog catalog,
                                                           JsonNode requestedNeeds,
                                                           Map<Integer, List<MergedHit>> hitsBySearch,
-                                                          Map<String, MergedHit> selectedById) {
+                                                          Map<String, MergedHit> selectedById,
+                                                          Map<Integer, List<String>> invalidSourceIdsBySearch,
+                                                          Map<Integer, List<String>> invalidClaimRefsBySearch) {
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map.Entry<Integer, List<MergedHit>> entry : hitsBySearch.entrySet()) {
             JsonNode need = requestedNeeds.get(entry.getKey());
@@ -343,22 +343,23 @@ public class PaperReadToolRegistry {
             List<String> returnedIds = entry.getValue().stream().map(hit -> hit.sourceObjectId)
                     .filter(selectedById::containsKey).toList();
             List<String> targets = targets(need);
-            List<String> coveredTargets = targets.stream().filter(target -> returnedIds.stream()
+            List<String> matchedTargets = targets.stream().filter(target -> returnedIds.stream()
                     .map(catalog::requireObject).anyMatch(source -> targetMatches(source, target))).toList();
-            List<String> unresolvedTargets = targets.stream()
-                    .filter(target -> !coveredTargets.contains(target)).toList();
-            String needStatus = returnedIds.isEmpty() ? "not_found"
-                    : unresolvedTargets.isEmpty() ? "found" : "partial";
+            List<String> missingTargets = targets.stream()
+                    .filter(target -> !matchedTargets.contains(target)).toList();
             Map<String, Object> value = new LinkedHashMap<>();
             value.put("needId", id);
+            value.put("objective", need.path("objective").asText(""));
             value.put("searchIndex", entry.getKey());
-            value.put("status", needStatus);
+            value.put("retrievalStatus", returnedIds.isEmpty() ? "not_found" : "found");
             value.put("sourceObjectIds", returnedIds);
-            value.put("targets", targets);
-            value.put("coveredTargets", coveredTargets);
-            value.put("unresolvedTargets", unresolvedTargets);
-            value.put("missing", returnedIds.isEmpty()
-                    ? List.of("no matching source returned") : unresolvedTargets);
+            value.put("targetCoverage", Map.of(
+                    "matchedTargets", matchedTargets,
+                    "missingTargets", missingTargets));
+            value.put("invalidSourceObjectIds",
+                    invalidSourceIdsBySearch.getOrDefault(entry.getKey(), List.of()));
+            value.put("invalidProfileClaimRefs",
+                    invalidClaimRefsBySearch.getOrDefault(entry.getKey(), List.of()));
             result.add(value);
         }
         return result;
@@ -408,6 +409,212 @@ public class PaperReadToolRegistry {
     private static String needId(JsonNode need, int index) {
         String id = need == null ? "" : need.path("id").asText("").trim();
         return id.isBlank() ? "need-" + index : id;
+    }
+
+    private List<Map<String, Object>> validateEvidenceRequest(JsonNode args) {
+        List<Map<String, Object>> issues = new ArrayList<>();
+        if (args == null || !args.isObject()) {
+            issues.add(issue(null, "request", "INVALID_REQUEST_OBJECT", "证据检索参数必须是 JSON 对象"));
+            return issues;
+        }
+        Set<String> rootFields = Set.of("needs", "pageRanges", "maxEvidence", "_evidenceFocus");
+        args.fieldNames().forEachRemaining(field -> {
+            if (!rootFields.contains(field)) {
+                issues.add(issue(null, field, "UNKNOWN_FIELD", "证据检索请求包含未知字段：" + field));
+            }
+        });
+
+        JsonNode needs = args.get("needs");
+        JsonNode pageRanges = args.get("pageRanges");
+        boolean hasNeeds = needs != null && needs.isArray() && !needs.isEmpty();
+        boolean hasPages = pageRanges != null && pageRanges.isArray() && !pageRanges.isEmpty();
+        if (!hasNeeds && !hasPages) {
+            issues.add(issue(null, "request", "MISSING_REQUEST_CONTENT", "至少需要一个证据需求或页码范围"));
+        }
+        if (needs != null) {
+            if (!needs.isArray()) {
+                issues.add(issue(null, "needs", "INVALID_ARRAY", "needs 必须是数组"));
+            } else if (needs.size() > MAX_SEARCHES_PER_REQUEST) {
+                issues.add(issue(null, "needs", "TOO_MANY_NEEDS",
+                        "一次最多允许 " + MAX_SEARCHES_PER_REQUEST + " 个证据需求"));
+            } else {
+                validateNeeds(needs, issues);
+            }
+        }
+        if (pageRanges != null) validatePageRanges(pageRanges, issues);
+        if (args.has("maxEvidence") && (!args.path("maxEvidence").isIntegralNumber()
+                || args.path("maxEvidence").asInt() < 1 || args.path("maxEvidence").asInt() > 8)) {
+            issues.add(issue(null, "maxEvidence", "INVALID_RANGE", "maxEvidence 必须是 1～8 的整数"));
+        }
+        return issues;
+    }
+
+    private void validateNeeds(JsonNode needs, List<Map<String, Object>> issues) {
+        Set<String> ids = new LinkedHashSet<>();
+        Set<String> allowedFields = Set.of("id", "objective", "query", "keywords", "targets",
+                "sectionHint", "pageHints", "profileClaimRefs", "contentTypes", "sourceObjectIds",
+                "includeVisual", "refinementReason");
+        for (int index = 0; index < needs.size(); index++) {
+            JsonNode need = needs.get(index);
+            String fallbackId = "need-" + index;
+            if (need == null || !need.isObject()) {
+                issues.add(issue(fallbackId, "need", "INVALID_NEED_OBJECT", "每个证据需求都必须是 JSON 对象"));
+                continue;
+            }
+            need.fieldNames().forEachRemaining(field -> {
+                if (!allowedFields.contains(field)) {
+                    issues.add(issue(fallbackId, field, "UNKNOWN_FIELD", "证据需求包含未知字段：" + field));
+                }
+            });
+            String id = requiredText(need, "id", 40, fallbackId, issues);
+            String needId = id.isBlank() ? fallbackId : id;
+            if (!id.isBlank() && !ids.add(id)) {
+                issues.add(issue(needId, "id", "DUPLICATE_NEED_ID", "证据需求的 id 必须唯一"));
+            }
+            requiredText(need, "objective", 240, needId, issues);
+            String query = optionalText(need, "query", MAX_QUERY_CHARACTERS, needId, issues);
+            optionalText(need, "sectionHint", 120, needId, issues);
+            optionalText(need, "refinementReason", 240, needId, issues);
+            stringArray(need, "keywords", 8, 120, needId, issues, null);
+            stringArray(need, "targets", 8, 120, needId, issues, null);
+            List<String> claimRefs = stringArray(need, "profileClaimRefs", 4, 40, needId, issues, null);
+            List<String> sourceIds = stringArray(need, "sourceObjectIds", 4, 160, needId, issues, null);
+            stringArray(need, "contentTypes", 5, 20, needId, issues,
+                    Set.of("TEXT", "FORMULA", "TABLE", "FIGURE", "ALGORITHM"));
+            validatePageHints(need, needId, issues);
+            if (need.has("includeVisual") && !need.path("includeVisual").isBoolean()) {
+                issues.add(issue(needId, "includeVisual", "INVALID_BOOLEAN", "includeVisual 必须是布尔值"));
+            }
+            if (query.isBlank() && claimRefs.isEmpty() && sourceIds.isEmpty()) {
+                issues.add(issue(needId, "query", "MISSING_RETRIEVAL_ANCHOR",
+                        "该证据需求至少需要 query、sourceObjectIds 或 profileClaimRefs 之一"));
+            }
+        }
+    }
+
+    private void validatePageRanges(JsonNode ranges, List<Map<String, Object>> issues) {
+        if (!ranges.isArray()) {
+            issues.add(issue(null, "pageRanges", "INVALID_ARRAY", "pageRanges 必须是数组"));
+            return;
+        }
+        if (ranges.isEmpty() || ranges.size() > 2) {
+            issues.add(issue(null, "pageRanges", "INVALID_ARRAY_SIZE", "pageRanges 必须包含 1～2 个范围"));
+        }
+        for (int index = 0; index < ranges.size(); index++) {
+            JsonNode range = ranges.get(index);
+            if (!range.isObject()) {
+                issues.add(issue(null, "pageRanges", "INVALID_PAGE_RANGE", "每个页码范围都必须是 JSON 对象"));
+                continue;
+            }
+            int start = range.path("startPage").asInt(0);
+            int end = range.path("endPage").asInt(0);
+            if (start < 1 || end < start || end - start + 1 > MAX_PAGE_SPAN) {
+                issues.add(issue(null, "pageRanges", "INVALID_PAGE_RANGE", "每个页码范围必须是最多连续两页的正整数范围"));
+            }
+        }
+    }
+
+    private void validatePageHints(JsonNode need, String needId, List<Map<String, Object>> issues) {
+        if (!need.has("pageHints")) return;
+        JsonNode hints = need.path("pageHints");
+        if (!hints.isArray() || hints.isEmpty() || hints.size() > 2) {
+            issues.add(issue(needId, "pageHints", "INVALID_ARRAY_SIZE", "pageHints 必须包含 1～2 个正整数页码"));
+            return;
+        }
+        Set<Integer> seen = new LinkedHashSet<>();
+        for (JsonNode hint : hints) {
+            if (!hint.canConvertToInt() || hint.asInt() < 1 || !seen.add(hint.asInt())) {
+                issues.add(issue(needId, "pageHints", "INVALID_PAGE_HINT", "pageHints 必须是互不重复的正整数页码"));
+                return;
+            }
+        }
+    }
+
+    private String requiredText(JsonNode node, String field, int maxLength, String needId,
+                                List<Map<String, Object>> issues) {
+        if (!node.has(field)) {
+            issues.add(issue(needId, field, "MISSING_REQUIRED_FIELD", field + " 为必填字段"));
+            return "";
+        }
+        return optionalText(node, field, maxLength, needId, issues);
+    }
+
+    private String optionalText(JsonNode node, String field, int maxLength, String needId,
+                                List<Map<String, Object>> issues) {
+        if (!node.has(field)) return "";
+        JsonNode valueNode = node.get(field);
+        if (!valueNode.isTextual()) {
+            issues.add(issue(needId, field, "INVALID_TEXT", field + " 必须是字符串"));
+            return "";
+        }
+        String value = valueNode.asText().trim();
+        if (value.isBlank()) {
+            issues.add(issue(needId, field, "BLANK_TEXT", field + " 不能为空"));
+        } else if (value.length() > maxLength) {
+            issues.add(issue(needId, field, "TEXT_TOO_LONG", field + " 超过最大长度 " + maxLength));
+        }
+        return value;
+    }
+
+    private List<String> stringArray(JsonNode node, String field, int maxItems, int maxLength,
+                                     String needId, List<Map<String, Object>> issues,
+                                     Set<String> allowedValues) {
+        if (!node.has(field)) return List.of();
+        JsonNode values = node.path(field);
+        if (!values.isArray()) {
+            issues.add(issue(needId, field, "INVALID_ARRAY", field + " 必须是数组"));
+            return List.of();
+        }
+        if (values.isEmpty() || values.size() > maxItems) {
+            issues.add(issue(needId, field, "INVALID_ARRAY_SIZE",
+                    field + " 必须包含 1～" + maxItems + " 个元素"));
+        }
+        List<String> result = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (JsonNode item : values) {
+            if (!item.isTextual()) {
+                issues.add(issue(needId, field, "INVALID_ARRAY_ITEM", field + " 的元素必须是字符串"));
+                continue;
+            }
+            String value = item.asText().trim();
+            String comparison = allowedValues == null ? value.toLowerCase(Locale.ROOT)
+                    : value.toUpperCase(Locale.ROOT);
+            if (value.isBlank()) {
+                issues.add(issue(needId, field, "BLANK_ARRAY_ITEM", field + " 不能包含空字符串"));
+            } else if (value.length() > maxLength) {
+                issues.add(issue(needId, field, "ARRAY_ITEM_TOO_LONG", field + " 的元素超过最大长度 " + maxLength));
+            } else if (allowedValues != null && !allowedValues.contains(comparison)) {
+                issues.add(issue(needId, field, "INVALID_ENUM_VALUE", field + " 包含不支持的值：" + value));
+            } else if (!seen.add(comparison)) {
+                issues.add(issue(needId, field, "DUPLICATE_ARRAY_ITEM", field + " 不能包含重复元素"));
+            } else {
+                result.add(value);
+            }
+        }
+        return result;
+    }
+
+    private AgentToolExecution invalidRequest(List<Map<String, Object>> issues) {
+        try {
+            return result(Map.of(
+                    "status", "invalid_request",
+                    "sources", List.of(),
+                    "evidenceNeeds", List.of(),
+                    "issues", issues,
+                    "usage", "请根据 issues 修正证据需求后再调用；不要把输入错误解释为论文没有证据。"
+            ), Set.of());
+        } catch (Exception error) {
+            throw new IllegalStateException("无法生成证据检索输入错误", error);
+        }
+    }
+
+    private static Map<String, Object> issue(String needId, String field, String code, String message) {
+        Map<String, Object> issue = new LinkedHashMap<>();
+        if (needId != null && !needId.isBlank()) issue.put("needId", needId);
+        issue.put("field", field);
+        issue.put("code", code);
+        issue.put("message", message);
+        return issue;
     }
 
     private static boolean hasTargets(JsonNode needs, int count) {
@@ -591,7 +798,7 @@ public class PaperReadToolRegistry {
         int startPage = args.path("startPage").asInt();
         int endPage = args.path("endPage").asInt();
         if (endPage - startPage + 1 > MAX_PAGE_SPAN) {
-            throw new IllegalArgumentException("read_pages accepts at most two consecutive pages");
+            throw new IllegalArgumentException("read_pages 最多接受连续两页");
         }
         List<SourceObject> sources = sourceService.readPages(catalog, startPage,
                 endPage, Math.min(MAX_CONTENT_CHARACTERS,
@@ -613,7 +820,7 @@ public class PaperReadToolRegistry {
     private AgentToolExecution result(Object value, Set<String> ids) throws Exception {
         String json = objectMapper.writeValueAsString(value);
         if (json.getBytes(StandardCharsets.UTF_8).length > MAX_RESULT_BYTES) {
-            throw new IllegalStateException("tool result exceeded the model payload limit");
+            throw new IllegalStateException("工具结果超过模型负载上限");
         }
         return new AgentToolExecution(json, ids);
     }

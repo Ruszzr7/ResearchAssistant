@@ -2,6 +2,7 @@ package com.research.assistant.service.ai;
 
 import com.research.assistant.service.SettingsService;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,6 +65,28 @@ class LangChain4jModelFactoryTest {
 
         assertThat(agentSecond).isSameAs(agentFirst);
         assertThat(regular).isNotSameAs(agentFirst);
+    }
+
+    @Test
+    void paperUnderstandingDisablesThinkingForKimiCoding() {
+        givenSettings("https://api.kimi.com/coding/v1", "kimi-for-coding", "sk-key");
+
+        ChatModel model = factory.createPaperUnderstandingModel();
+
+        assertThat(model).isInstanceOf(OpenAiChatModel.class);
+        OpenAiChatModel openAi = (OpenAiChatModel) model;
+        assertThat(openAi.defaultRequestParameters().customParameters())
+                .containsEntry("thinking", java.util.Map.of("type", "disabled"));
+    }
+
+    @Test
+    void paperUnderstandingDisablesThinkingForKimiK2() {
+        givenSettings("https://api.moonshot.cn/v1", "kimi-k2.6", "sk-key");
+
+        ChatModel model = factory.createPaperUnderstandingModel();
+
+        assertThat(((OpenAiChatModel) model).defaultRequestParameters().customParameters())
+                .containsEntry("thinking", java.util.Map.of("type", "disabled"));
     }
 
     @Test

@@ -112,7 +112,7 @@ public class PaperMemoryModelService {
 
     private String wholePaperRequest(PaperStructure structure) {
         String sourceInstruction = "论文原文将作为同一用户消息中的按页结构化文本和页面视觉内容提供；请结合这些内容理解全文。";
-        String sourceIds = "allowedSourceIds: use only span IDs shown in the structured paper text";
+        String sourceIds = "可用来源 ID：只能使用结构化论文文本中显示的 span ID";
         String prompt = """
                 promptVersion: %s
                 paperId: %d
@@ -389,7 +389,7 @@ public class PaperMemoryModelService {
         return new PaperChunkSummary(
                 chunk.id(), chunk.sourceFingerprint(), chunk.ordinal(), chunk.sectionId(),
                 chunk.headingPath(), chunk.pageStart(), chunk.pageEnd(), chunk.blockIds(),
-                "whole paper source", List.of(), List.of(), List.of(), List.of(), List.of(),
+                "整篇论文来源", List.of(), List.of(), List.of(), List.of(), List.of(),
                 PaperChunkSummary.READY, List.of(), 0, 0, "", Instant.now());
     }
 

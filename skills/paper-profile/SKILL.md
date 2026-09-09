@@ -3,12 +3,14 @@ name: paper-profile
 description: 当对话缺少对当前论文研究问题、方法、贡献、实验、结论或局限的整体认识时，加载已生成的全文画像；结果会进入上下文，并可能包含关联原文来源的证据。
 ---
 
-# Whole-paper profile
+# 论文整体画像
 
-Activate this Skill when a question needs a whole-paper view and that view is not already present in the current context.
+当问题需要全文视角，而当前上下文中还没有这份画像时，激活本 Skill。
 
-After activation, call `read_paper_profile` to load the prepared profile. The returned profile is paper context and remains available to the Agent in the conversation; reuse it instead of activating or reading it again merely for confirmation. If context compaction removes the profile, activate this Skill again.
+激活后调用 `read_paper_profile` 加载已经生成的论文画像。返回结果属于当前论文上下文，会保留在本次对话中；不要仅为确认内容而重复激活或读取。如果上下文压缩移除了画像，再次激活本 Skill。
 
-The profile can contain sourceObjectIds attached to claims and benchmark results. Cite one only when it directly supports the answer. For exact wording, local facts, formulas, figures, tables, algorithms, or page-linked visual inspection, activate `paper-evidence` and retrieve original sources. Do not retrieve evidence or perform page actions from this Skill.
+画像中的 claim 和基准结果可能附带 `sourceObjectIds`。只有在来源直接支持答案时才引用。若用户需要精确原文、局部事实、公式、图、表、算法或页面关联的视觉检查，应激活 `paper-evidence` 获取原始来源。本 Skill 不负责检索证据，也不执行页面操作。
 
-If the profile is unavailable or stale, state that limitation and use original evidence where appropriate.
+画像只能提供全文方向，不能证明某个术语、方法、实验或结论在论文中“没有出现”。用户询问论文是否讨论、比较或包含某内容时，必须激活 `paper-evidence` 检索原文；检索未命中时只能说明当前未找到足够证据，不能断言该内容不存在。
+
+如果画像不可用或已经过期，应说明这一限制，并在适当时改用原始证据。

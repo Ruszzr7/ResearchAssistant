@@ -3,7 +3,7 @@
     {
       "paperId": 184,
       "name": "small-blocklength-operability",
-      "searches": [{"query": "NOMA SDMA unworkable small blocklength", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "operability", "objective": "确认短块长条件下 NOMA 和 SDMA 为何不可行", "query": "NOMA SDMA unworkable small blocklength", "contentTypes": ["TEXT"]}],
       "requiredBlockIds": ["p4-b0040"],
       "requiredTermGroups": [["NOMA"], ["SDMA"], ["unworkable"], ["small blocklength"]],
       "expectedPage": 4
@@ -11,9 +11,9 @@
     {
       "paperId": 184,
       "name": "high-mobility-robustness",
-      "searches": [
-        {"query": "SDMA drops sharply vehicle speed", "contentTypes": ["TEXT"]},
-        {"query": "RSMA limits performance degradation high mobility", "contentTypes": ["TEXT"]}
+      "needs": [
+        {"id": "sdma-degradation", "objective": "确认高速移动下 SDMA 的性能变化", "query": "SDMA drops sharply vehicle speed", "contentTypes": ["TEXT"]},
+        {"id": "rsma-robustness", "objective": "确认高速移动下 RSMA 的鲁棒性", "query": "RSMA limits performance degradation high mobility", "contentTypes": ["TEXT"]}
       ],
       "requiredBlockIds": ["p4-b0049", "p4-b0050"],
       "requiredTermGroups": [["SDMA drops sharply"], ["vehicle speed"], ["RSMA limits"], ["robustness"]],
@@ -22,7 +22,7 @@
     {
       "paperId": 184,
       "name": "closed-form-sum-rate-scope",
-      "searches": [{"query": "closed-form ergodic sum-rate arbitrary number transmit antennas vehicles speeds blocklengths BLERs", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "sum-rate-scope", "objective": "确认闭式遍历和速率表达式的适用范围", "query": "closed-form ergodic sum-rate arbitrary number transmit antennas vehicles speeds blocklengths BLERs", "contentTypes": ["TEXT"]}],
       "requiredBlockIds": ["p1-b0092"],
       "requiredTermGroups": [["closed-form ergodic sum-rate"], ["transmit antennas"], ["vehicle speeds"], ["blocklengths"], ["BLERs"]],
       "expectedPage": 1
@@ -30,7 +30,7 @@
     {
       "paperId": 185,
       "name": "aspa-pso-fixed-allocation",
-      "searches": [{"query": "ASPA PSO much lower AAoI fixed parameters", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "aspa-pso", "objective": "确认 ASPA with PSO 相对固定参数方法的 AAoI 结果", "query": "ASPA PSO much lower AAoI fixed parameters", "contentTypes": ["TEXT"]}],
       "requiredBlockIds": ["p5-b0058", "p5-b0059", "p5-b0061", "p5-b0062"],
       "requiredTermGroups": [["ASPA with PSO"], ["much lower AAoI"], ["fixed parameters"]],
       "expectedPage": 5
@@ -38,7 +38,7 @@
     {
       "paperId": 185,
       "name": "td3-lowest-aoi",
-      "searches": [{"query": "ADPA TD3 lowest AAoI SNR lower than 14 dB", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "td3-aoi", "objective": "确认低于 14 dB 时 TD3 的 AAoI 表现", "query": "ADPA TD3 lowest AAoI SNR lower than 14 dB", "contentTypes": ["TEXT"]}],
       "requiredBlockIds": ["p5-b0066"],
       "requiredTermGroups": [["TD3"], ["lowest AAoI"], ["lower than 14 dB"], ["significant improvement"]],
       "expectedPage": 5
@@ -46,49 +46,49 @@
     {
       "paperId": 185,
       "name": "shadowed-rician-closed-form",
-      "searches": [{"query": "shadowed-Rician BLER AAoI closed-form", "contentTypes": ["TEXT"]}],
-      "requiredBlockIds": ["p1-b0083"],
+      "needs": [{"id": "shadowed-rician", "objective": "确认 shadowed-Rician 信道下 BLER 和 AAoI 的闭式结果", "query": "shadowed-Rician BLER AAoI closed-form", "contentTypes": ["TEXT"]}],
+      "requiredBlockIds": ["p1-b0085"],
       "requiredTermGroups": [["shadowed-Rician"], ["BLER"], ["AAoI"], ["closed-form"]],
       "expectedPage": 1
     },
     {
-      "paperId": 190,
+      "paperId": 204,
       "name": "shorter-blocklength-lower-error",
-      "searches": [{"query": "shorter blocklengths lower bit error rates without compromising transmission rate", "contentTypes": ["TEXT"]}],
-      "requiredBlockIds": ["p12-b0114"],
+      "needs": [{"id": "shorter-blocklength", "objective": "确认较短块长、较低错误率与传输速率之间的关系", "query": "shorter blocklengths lower bit error rates without compromising transmission rate", "contentTypes": ["TEXT"]}],
+      "requiredBlockIds": ["p12-b0115"],
       "requiredTermGroups": [["shorter blocklengths"], ["lower bit error rates"], ["without compromising the transmission rate"]],
       "expectedPage": 12
     },
     {
-      "paperId": 190,
+      "paperId": 204,
       "name": "shorter-blocklength-chinese-agent-query",
-      "searches": [{"query": "较短码长与较低错误率之间的关系 shorter blocklength lower BLER block error rate relationship finite blocklength transmission FBL impact on rate and error rate tradeoff optimal blocklength and BLER under URLLC constraints in RSMA autonomous driving scenario numerical results simulation analysis", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "shorter-blocklength-chinese", "objective": "确认较短块长、较低错误率与传输速率之间的关系", "query": "shorter blocklengths lower bit error rates without compromising the transmission rate", "contentTypes": ["TEXT"]}],
       "evidenceFocus": "论文怎样描述较短码长与较低错误率之间的关系？",
-      "requiredBlockIds": ["p12-b0114"],
+      "requiredBlockIds": ["p12-b0115"],
       "requiredTermGroups": [["shorter blocklengths"], ["lower bit error rates"], ["without compromising the transmission rate"]],
       "expectedPage": 12
     },
     {
-      "paperId": 190,
+      "paperId": 204,
       "name": "poorest-user-fairness",
-      "searches": [{"query": "poorest channel conditions enhancing fairness", "contentTypes": ["TEXT"]}],
-      "requiredBlockIds": ["p1-b0008"],
-      "requiredTermGroups": [["poorest channel conditions"], ["enhancing fairness"]],
-      "expectedPage": 1
+      "needs": [{"id": "poorest-fairness", "objective": "确认方案如何改善最差用户的公平性", "query": "more equitable distribution common stream rate fairness min-rate", "contentTypes": ["TEXT"]}],
+      "requiredBlockIds": ["p12-b0011"],
+      "requiredTermGroups": [["ensuring fairness", "fairness"], ["more equitable distribution"], ["min-rate"]],
+      "expectedPage": 12
     },
     {
-      "paperId": 190,
+      "paperId": 204,
       "name": "poorest-user-fairness-chinese-agent-query",
-      "searches": [{"query": "最差信道用户性能 公平性 最小时延速率 min delay throughput RSMA SDMA NOMA 比较 优化私有功率 公共速率分割 提升公平性 worst user performance fairness improvement", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "poorest-fairness-chinese", "objective": "确认方案如何改善最差用户的公平性", "query": "more equitable distribution common stream rate fairness min-rate", "contentTypes": ["TEXT"]}],
       "evidenceFocus": "所提方案如何改善最差信道用户的性能与公平性？",
-      "requiredBlockIds": ["p1-b0008"],
-      "requiredTermGroups": [["poorest channel conditions"], ["enhancing fairness"]],
-      "expectedPage": 1
+      "requiredBlockIds": ["p12-b0011"],
+      "requiredTermGroups": [["ensuring fairness", "fairness"], ["more equitable distribution"], ["min-rate"]],
+      "expectedPage": 12
     },
     {
-      "paperId": 190,
+      "paperId": 204,
       "name": "formula-21",
-      "searches": [{"query": "Equation (21)", "contentTypes": ["FORMULA"]}],
+      "needs": [{"id": "formula-21", "objective": "读取并确认公式（21）", "query": "Equation (21)", "contentTypes": ["FORMULA"]}],
       "requiredBlockIds": [],
       "requiredTermGroups": [],
       "expectedFormulaNumber": "21"
@@ -96,7 +96,7 @@
     {
       "paperId": 191,
       "name": "rsma-91.48-percent",
-      "searches": [{"query": "RSMA 91.48% higher NOMA K = 4 epsilon 10^-5", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "rsma-91-48", "objective": "确认 RSMA 相对 NOMA 的 91.48% 提升条件", "query": "RSMA 91.48% higher NOMA K = 4 epsilon 10^-5", "contentTypes": ["TEXT"]}],
       "requiredBlockIds": ["p9-b0111", "p9-b0112", "p9-b0115", "p9-b0116", "p9-b0120", "p9-b0121"],
       "requiredTermGroups": [["91.48% higher"], ["NOMA"], ["K = 4"], ["10"], ["-5", "−5"]],
       "expectedPage": 9
@@ -104,7 +104,7 @@
     {
       "paperId": 191,
       "name": "rsma-91.48-percent-chinese-agent-query",
-      "searches": [{"query": "论文报告的91.48%性能提升具体指什么，有效吞吐量", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "rsma-91-48-chinese", "objective": "确认论文报告的 91.48% 性能提升具体含义", "query": "RSMA 91.48% higher NOMA effective throughput", "contentTypes": ["TEXT"]}],
       "evidenceFocus": "论文报告的91.48%性能提升具体指什么？",
       "requiredBlockIds": ["p9-b0111", "p9-b0112", "p9-b0115", "p9-b0116", "p9-b0120", "p9-b0121"],
       "requiredTermGroups": [["91.48% higher"], ["NOMA"], ["K = 4"], ["10"], ["-5", "−5"]],
@@ -113,7 +113,7 @@
     {
       "paperId": 191,
       "name": "multi-antenna-gain",
-      "searches": [{"query": "multi-antenna gain MC-RSMA 72.56% MC-NOMA 14.53%", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "multi-antenna-gain", "objective": "确认 MC-RSMA 和 MC-NOMA 的多天线增益", "query": "multi-antenna gain MC-RSMA 72.56% MC-NOMA 14.53%", "contentTypes": ["TEXT"]}],
       "requiredBlockIds": ["p12-b0028"],
       "requiredTermGroups": [["multi-antenna gain"], ["MC-RSMA"], ["72.56%"], ["MC-NOMA"], ["14.53%"]],
       "expectedPage": 12
@@ -121,7 +121,7 @@
     {
       "paperId": 191,
       "name": "rpa-beats-css-pa",
-      "searches": [{"query": "RPA achieves better performance CSS-PA MC-RSMA", "contentTypes": ["TEXT"]}],
+      "needs": [{"id": "rpa-beats-css-pa", "objective": "确认 RPA 相对 CSS-PA 的性能结论", "query": "RPA achieves better performance CSS-PA MC-RSMA", "contentTypes": ["TEXT"]}],
       "requiredBlockIds": ["p12-b0032"],
       "requiredTermGroups": [["RPA achieves better performance"], ["CSS-PA"], ["MC-RSMA"]],
       "expectedPage": 12

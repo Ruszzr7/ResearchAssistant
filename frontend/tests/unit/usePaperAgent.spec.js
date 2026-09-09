@@ -2,6 +2,7 @@ import { h } from 'vue'
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePaperAgent, unionBoundingBoxes } from '@/composables/usePaperAgent.js'
+import { mapAgentEvidenceItem } from '@/utils/evidenceViewModel.js'
 
 const mocks = vi.hoisted(() => ({
   executeAgentTurn: vi.fn(),
@@ -28,6 +29,44 @@ describe('usePaperAgent', () => {
       { x: 0.2, y: 0.1, width: 0.2, height: 0.05 },
       { x: 0.1, y: 0.15, width: 0.6, height: 0.08 },
     ])).toEqual({ x: 0.1, y: 0.1, width: 0.6, height: 0.13 })
+  })
+
+  it('keeps the complete evidence text and every physical locator', () => {
+    const fullText = '完整证据内容。'.repeat(80)
+    const mapped = mapAgentEvidenceItem({
+      sourceObjectId: 'source-1', paperId: 7, quote: fullText.slice(0, 319) + '…', fullText,
+      evidenceKey: 'ev-1', contentType: 'TEXT', textFormat: 'PLAIN_TEXT', textReliable: true,
+      locators: [
+        { locatorId: 'loc-1', pageNumber: 3, rects: [{ x: .1, y: .2, width: .3, height: .04 }] },
+        { locatorId: 'loc-2', pageNumber: 3, rects: [{ x: .55, y: .08, width: .3, height: .04 }] },
+      ],
+    })
+
+    expect(mapped.fullText).toBe(fullText)
+    expect(mapped.fullTextAvailable).toBe(true)
+    expect(mapped.text).toBe(fullText)
+    expect(mapped.locators).toHaveLength(2)
+    expect(mapped.pages).toEqual([3])
+    expect(mapped.locator.targetBoxes).toHaveLength(1)
+  })
+
+  it('identifies legacy physical duplicates without pretending their preview is complete', () => {
+    const locator = {
+      pageNumber: 11,
+      targetText: 'The paragraph ends infor-',
+      rects: [{ x: .08, y: .87, width: .41, height: .06 }],
+    }
+    const first = mapAgentEvidenceItem({
+      sourceObjectId: 'legacy-a', paperId: 204,
+      quote: 'The paragraph ends infor-', locators: [locator],
+    })
+    const duplicate = mapAgentEvidenceItem({
+      sourceObjectId: 'legacy-b', paperId: 204,
+      quote: 'The paragraph ends infor-', locators: [locator],
+    })
+
+    expect(first.fullTextAvailable).toBe(false)
+    expect(first.evidenceKey).toBe(duplicate.evidenceKey)
   })
 
   it('uploads stable attachments before executing the unified turn', async () => {

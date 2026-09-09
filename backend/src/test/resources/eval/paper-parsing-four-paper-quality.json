@@ -1,5 +1,5 @@
 {
-  "pipelineVersion": "paper-understanding-v5-semantic-spans",
+  "pipelineVersion": "paper-understanding-v7-visual-fallback",
   "papers": [
     {
       "paperId": 184,
@@ -52,7 +52,7 @@
       ]
     },
     {
-      "paperId": 190,
+      "paperId": 204,
       "roleCases": [
         { "blockId": "p12-b0114", "expectedRole": "BODY" }
       ],

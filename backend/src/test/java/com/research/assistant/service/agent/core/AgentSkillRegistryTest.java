@@ -91,7 +91,7 @@ class AgentSkillRegistryTest {
         assertThat(schema.at("/properties/actionType/enum").toString())
                 .contains("HIGHLIGHT", "JUMP", "NOTE");
         assertThat(schema.at("/properties/sourceObjectId/description").asText())
-                .contains("Trusted sourceObjectId", "never invent");
+                .contains("当前选区或论文读取结果中的可信 sourceObjectId", "绝不要编造");
         assertThat(schema.at("/properties/content/maxLength").asInt()).isEqualTo(2000);
         assertThat(schema.at("/required").toString()).contains("actionType", "sourceObjectId");
     }

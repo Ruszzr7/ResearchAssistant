@@ -48,11 +48,11 @@ class AgentContextAssemblerTest {
 
         assertThat(result.messages()).extracting(AgentChatEntry::content).contains("only-session-seven");
         assertThat(result.messages().get(0).content())
-                .contains("GitHub-flavored Markdown", "$...$", "$$...$$", "###")
-                .contains("never use bracketed headings", "Do not emit unwrapped pseudo-LaTeX")
-                .contains("capability descriptions are the authoritative usage contract")
-                .contains("Ground paper-dependent factual claims in validated paper context")
-                .contains("If available paper context is insufficient, state the limitation plainly");
+                .contains("GitHub 风格 Markdown", "$...$", "$$...$$", "###")
+                .contains("不要使用【标题】这类方括号标题", "不要输出未包裹的伪 LaTeX")
+                .contains("能力描述是使用规则的权威来源")
+                .contains("依赖论文的事实性陈述必须建立在已验证的论文上下文上")
+                .contains("如果现有论文上下文不足，明确说明限制");
         verify(messages).selectFinalAfter(7L, 0);
     }
 
@@ -75,7 +75,7 @@ class AgentContextAssemblerTest {
         AgentToolCallRecord historical = new AgentToolCallRecord();
         historical.setToolCallId("tool-1");
         historical.setToolName("retrieve_paper_evidence");
-        historical.setArgumentsJson("{\"searches\":[{\"query\":\"准确率\"}]}");
+        historical.setArgumentsJson("{\"needs\":[{\"id\":\"accuracy\",\"query\":\"准确率\"}]}");
         historical.setResultJson("{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\",\"content\":\"论文原文证据\"}]}");
         when(toolCalls.selectRecentCompletedPaperReads(7L, "hash", "parser", 8))
                 .thenReturn(List.of(historical));
@@ -86,7 +86,7 @@ class AgentContextAssemblerTest {
         AgentContextSnapshot result = assembler.assemble(input(7L, null));
 
         assertThat(result.messages()).extracting(AgentChatEntry::content)
-                .anyMatch(content -> content.contains("Historical paper capability result")
+                .anyMatch(content -> content.contains("历史论文能力结果")
                         && content.contains("论文原文证据"));
         assertThat(result.preReadSourceIds()).containsExactly("src-1");
         assertThat(result.snapshotJson()).contains("\"rehydratedPaperReadCount\":1",

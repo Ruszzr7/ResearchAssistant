@@ -64,7 +64,8 @@ public class PaperSemanticSpanBuilder {
                 currentPage = block.page();
                 pageOrdinal = 0;
             }
-            if (current != null && canMerge(current, block, role)) {
+            if (current != null && (canMerge(current, block, role)
+                    || canMergeAcrossColumns(current, block, role))) {
                 current.add(block, content(block));
                 continue;
             }
@@ -73,7 +74,7 @@ public class PaperSemanticSpanBuilder {
             current = new Draft(id, block, role, content(block));
         }
         if (current != null) result.add(current.finish());
-        return List.copyOf(result);
+        return mergeCrossColumnContinuations(result);
     }
 
     private boolean canContinueAcrossPage(Draft previous,
@@ -179,6 +180,120 @@ public class PaperSemanticSpanBuilder {
         boolean sameColumn = overlap / smallerWidth >= 0.55
                 || Math.abs(first.x() - second.x()) <= 0.06;
         return sameColumn;
+    }
+
+    /**
+     * Handles the one unambiguous body-text split that PDF layout extraction can
+     * create at a two-column boundary: a hyphenated word ends at the bottom of
+     * the left column and continues with a lower-case token at the top of the
+     * right column.  The guard is intentionally strict so independent columns
+     * are never flattened merely because they are adjacent in reading order.
+     */
+    private boolean canMergeAcrossColumns(Draft previous,
+                                          DocumentBlock current,
+                                          DocumentBlockRole currentRole) {
+        if (previous.role != currentRole
+                || (currentRole != DocumentBlockRole.BODY
+                && currentRole != DocumentBlockRole.ABSTRACT)
+                || previous.blocks.size() >= MAX_BLOCKS_PER_SPAN
+                || previous.text.length() + content(current).length() > MAX_CHARACTERS_PER_SPAN
+                || !previous.sectionPath.equals(current.sectionPath())) return false;
+        DocumentBlock prior = previous.last();
+        if (prior.page() != current.page()) return false;
+        String before = previous.text.stripTrailing();
+        String after = content(current).stripLeading();
+        if (before.isBlank() || after.isBlank()
+                || !before.endsWith("-") || before.endsWith("--")
+                || !Character.isLowerCase(after.codePointAt(0))
+                || after.indexOf('=') >= 0
+                || LIST_ITEM.matcher(after).matches()
+                || containsReferenceEntry(after)
+                || FIGURE_REFERENCE_SENTENCE.matcher(after).matches()) return false;
+        if (!proseBoundary(prior, before, true) || !proseBoundary(current, after, true)) return false;
+
+        NormalizedBoundingBox first = prior.bbox();
+        NormalizedBoundingBox second = current.bbox();
+        // LTR reading order: the previous fragment is on the left and ends near
+        // the column bottom; the continuation begins near the top of the right.
+        if (first.x() >= second.x() || first.right() > second.x() + .08) return false;
+        return first.bottom() >= .68 && second.y() <= .72
+                && second.y() < first.y() - .10;
+    }
+
+    private List<PaperSemanticSpan> mergeCrossColumnContinuations(List<PaperSemanticSpan> spans) {
+        if (spans.size() < 2) return List.copyOf(spans);
+        List<PaperSemanticSpan> merged = new ArrayList<>(spans);
+        java.util.Set<Integer> removed = new java.util.HashSet<>();
+        for (int firstIndex = 0; firstIndex < spans.size(); firstIndex++) {
+            if (removed.contains(firstIndex)) continue;
+            PaperSemanticSpan first = merged.get(firstIndex);
+            for (int nextIndex = firstIndex + 1; nextIndex < spans.size(); nextIndex++) {
+                if (removed.contains(nextIndex)) continue;
+                PaperSemanticSpan next = spans.get(nextIndex);
+                if (!canMergeAcrossColumns(first, next)
+                        || !interveningBlocksAreLayoutNoise(spans, firstIndex, nextIndex)) continue;
+                List<DocumentBlock> blocks = new ArrayList<>(first.blocks());
+                blocks.addAll(next.blocks());
+                merged.set(firstIndex, new PaperSemanticSpan(first.id(), first.page(), first.role(),
+                        first.sectionPath(), join(first.text(), next.text()), blocks));
+                removed.add(nextIndex);
+                break;
+            }
+        }
+        return java.util.stream.IntStream.range(0, merged.size())
+                .filter(index -> !removed.contains(index))
+                .mapToObj(merged::get)
+                .sorted(Comparator.comparingInt(span -> span.blocks().get(0).readingOrder()))
+                .toList();
+    }
+
+    private boolean canMergeAcrossColumns(PaperSemanticSpan previous, PaperSemanticSpan current) {
+        if (previous.role() != current.role()
+                || (current.role() != DocumentBlockRole.BODY
+                && current.role() != DocumentBlockRole.ABSTRACT)
+                || !previous.sectionPath().equals(current.sectionPath())) return false;
+        DocumentBlock prior = previous.blocks().get(previous.blocks().size() - 1);
+        DocumentBlock next = current.blocks().get(0);
+        if (prior.page() != next.page()) return false;
+        String before = previous.text().stripTrailing();
+        String after = content(next).stripLeading();
+        if (before.isBlank() || after.isBlank() || !before.endsWith("-") || before.endsWith("--")
+                || !Character.isLowerCase(after.codePointAt(0)) || after.indexOf('=') >= 0
+                || LIST_ITEM.matcher(after).matches() || containsReferenceEntry(after)
+                || FIGURE_REFERENCE_SENTENCE.matcher(after).matches()) return false;
+        if (!proseBoundary(prior, before, true) || !proseBoundary(next, after, true)) return false;
+        NormalizedBoundingBox first = prior.bbox();
+        NormalizedBoundingBox second = next.bbox();
+        if (first.x() >= second.x() || first.right() > second.x() + .08) return false;
+        return first.bottom() >= .68 && second.y() <= .72 && second.y() < first.y() - .10;
+    }
+
+    private boolean interveningBlocksAreLayoutNoise(List<PaperSemanticSpan> spans,
+                                                    int firstIndex,
+                                                    int nextIndex) {
+        for (int index = firstIndex + 1; index < nextIndex; index++) {
+            for (DocumentBlock block : spans.get(index).blocks()) {
+                if (block.role() == DocumentBlockRole.FIGURE
+                        || block.role() == DocumentBlockRole.CAPTION
+                        || block.role() == DocumentBlockRole.HEADER
+                        || block.role() == DocumentBlockRole.FOOTER
+                        || block.role() == DocumentBlockRole.MARGIN_METADATA) continue;
+                if (block.role() != DocumentBlockRole.BODY || !looksLikeLayoutNoise(content(block))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean looksLikeLayoutNoise(String text) {
+        String value = text == null ? "" : text.replaceAll("\\s+", " ").strip();
+        if (value.isBlank()) return true;
+        long digits = value.codePoints().filter(Character::isDigit).count();
+        long letters = value.codePoints().filter(Character::isLetter).count();
+        double digitRatio = (double) digits / Math.max(1, digits + letters);
+        return value.indexOf('=') >= 0 || digits >= 3 && digitRatio >= .10
+                || value.length() <= 24 && digits >= 1;
     }
 
     private boolean containsReferenceEntry(String text) {

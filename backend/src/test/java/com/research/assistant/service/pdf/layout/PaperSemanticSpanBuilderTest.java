@@ -31,6 +31,33 @@ class PaperSemanticSpanBuilderTest {
     }
 
     @Test
+    void reconstructsOnlyHyphenatedTextAcrossAColumnBoundary() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                block("left-tail", DocumentBlockRole.BODY, 1,
+                        .08, .72, .38, .025, "The proposed receiver jointly de-"),
+                block("right-head", DocumentBlockRole.BODY, 2,
+                        .55, .08, .38, .025, "codes both streams.")));
+
+        List<PaperSemanticSpan> spans = builder.build(artifact);
+
+        assertThat(spans).hasSize(1);
+        assertThat(spans.get(0).text()).isEqualTo(
+                "The proposed receiver jointly decodes both streams.");
+        assertThat(spans.get(0).blockIds()).containsExactly("left-tail", "right-head");
+    }
+
+    @Test
+    void doesNotFlattenIndependentColumnSentences() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                block("left-tail", DocumentBlockRole.BODY, 1,
+                        .08, .72, .38, .025, "The left column ends a complete sentence."),
+                block("right-head", DocumentBlockRole.BODY, 2,
+                        .55, .08, .38, .025, "The right column starts another sentence.")));
+
+        assertThat(builder.build(artifact)).hasSize(2);
+    }
+
+    @Test
     void correctsOnlyObviousFormulaAndCaptionMisclassifications() {
         DocumentBlock prose = block("mail", DocumentBlockRole.FORMULA, 1,
                 .10, .20, .80, .03, "Corresponding author email is author@example.org");

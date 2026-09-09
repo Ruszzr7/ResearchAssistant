@@ -20,6 +20,8 @@ import com.research.assistant.service.agent.runtime.AgentAttachmentService;
 import com.research.assistant.service.agent.source.CitationRequest;
 import com.research.assistant.service.agent.source.GroundEvidenceService;
 import com.research.assistant.service.agent.source.GroundedAnswer;
+import com.research.assistant.service.agent.source.SourceEvidenceIdentity;
+import com.research.assistant.service.agent.source.SourceObject;
 import com.research.assistant.service.agent.action.ActionTicketService;
 import com.research.assistant.service.agent.action.PaperActionResolver;
 import com.research.assistant.service.agent.capability.AiCapabilityService;
@@ -30,6 +32,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,13 +48,13 @@ public class AgentLoopService {
     private static final String ANSWER_SCHEMA = """
             {"type":"object","properties":{
             "answerBlocks":{"type":"array","items":{"type":"object","properties":{
-            "text":{"type":"string","description":"Complete GitHub-flavored Markdown. Use $...$ or $$...$$ for LaTeX math; do not add numeric citation markers."},"sourceObjectIds":{"type":"array","items":{"type":"string"}}},
+            "text":{"type":"string","description":"完整的 GitHub 风格 Markdown。数学使用 $...$ 或 $$...$$；不要添加数字引用标记。对论文未提供某内容的判断，只能在实际检索后表述为未找到足够证据。"},"sourceObjectIds":{"type":"array","description":"支持本答案块的、且已在本轮实际读取的来源 ID；一般解释或检索后的证据限制可填写空数组。","items":{"type":"string"}}},
             "required":["text","sourceObjectIds"],"additionalProperties":false}},
-            "clarification":{"type":"string","description":"One concise natural-language question when the request is genuinely ambiguous; leave answerBlocks empty or omit it."}},
+            "clarification":{"type":"string","description":"仅当请求确实存在歧义时提出一个简短的中文澄清问题；此时留空或省略 answerBlocks。"}},
             "required":[],"additionalProperties":false}
             """;
     private static final String CLARIFICATION_SCHEMA = """
-            {"type":"object","properties":{"question":{"type":"string"}},
+            {"type":"object","properties":{"question":{"type":"string","description":"需要用户补充的简短中文问题。"}},
             "required":["question"],"additionalProperties":false}
             """;
 
@@ -164,9 +167,9 @@ public class AgentLoopService {
         List<AgentToolDefinition> definitions = new ArrayList<>();
         List<AgentSkillBinding> skills = skillRegistry.bindings(context, input.userMessage());
         definitions.add(new AgentToolDefinition("submit_answer",
-                "Submit the final answer as ordered answerBlocks. For a paper-dependent answer, this is the required final step after reading paper evidence so the server can create clickable citations. Each block is complete GitHub-flavored Markdown; keep one factual claim or one tightly related claim group per block, use $...$ for inline LaTeX and $$...$$ for display LaTeX, and do not add numeric citation markers. Attach only sourceObjectIds that were actually read and support that block; general explanation or an explicit statement that the paper does not provide evidence may remain uncited. If no paper evidence was needed, this tool is also valid for a direct structured answer.", ANSWER_SCHEMA));
+                "使用有序的 answerBlocks 提交最终答案。对于依赖论文的回答，读取论文证据后必须使用本工具，以便服务器生成可点击引用。每个块都应是完整的 GitHub 风格 Markdown；每个块只放一个事实性陈述或一组紧密相关的陈述，行内 LaTeX 使用 $...$，独立 LaTeX 使用 $$...$$，不要添加数字引用标记。只能附上实际读取且支持该块的 sourceObjectIds；一般解释可以不引用。画像、摘要或一次未命中都不能证明论文未讨论某内容；只有实际执行原文证据检索后，才能谨慎表述“当前未找到足够证据”，不得把未找到改写为确定不存在。如果不需要论文证据，本工具也可用于直接提交结构化答案。", ANSWER_SCHEMA));
         definitions.add(new AgentToolDefinition("ask_clarification",
-                "Ask one concise natural-language clarification question only when a requested page operation or answer materially depends on missing or ambiguous user intent. Do not use it for ordinary solvable questions.",
+                "仅当页面操作或答案实质依赖缺失或含糊的用户意图时，提出一个简短的自然语言澄清问题。普通可解问题不要使用。",
                 CLARIFICATION_SCHEMA));
         List<AgentChatEntry> messages = context.messages();
         try {
@@ -184,17 +187,17 @@ public class AgentLoopService {
                     if (isStoredResult(structured, run.getRunId())) return structured;
                 } catch (com.fasterxml.jackson.core.JsonProcessingException notStructured) {
                     if (evidenceReadState.hasUsableEvidence()) {
-                        throw new IllegalStateException("GROUNDING_SUBMISSION_REQUIRED: paper evidence was read; final answer must use submit_answer");
+                        throw new IllegalStateException("GROUNDING_SUBMISSION_REQUIRED：已读取论文证据，最终答案必须使用 submit_answer");
                     }
                     // A direct Markdown answer remains valid when no usable paper evidence
                     // was loaded in this run.
                 }
                 if (evidenceReadState.hasUsableEvidence()) {
-                    throw new IllegalStateException("GROUNDING_SUBMISSION_REQUIRED: paper evidence was read; final answer must use submit_answer");
+                    throw new IllegalStateException("GROUNDING_SUBMISSION_REQUIRED：已读取论文证据，最终答案必须使用 submit_answer");
                 }
                 return completeDirectAnswer(turn, run.getRunId(), frameworkResult.content());
             }
-            throw new IllegalStateException("model returned an empty response");
+            throw new IllegalStateException("模型返回了空响应");
         } catch (Exception error) {
             AgentRunRecord current = runtimeService.getRun(run.getRunId());
             if (AgentRunStatus.RUNNING.name().equals(current.getStatus())) {
@@ -286,7 +289,7 @@ public class AgentLoopService {
             }
             if (profileSkillTool != null && profileSkillTool.supports(request.name())) {
                 if (context.paperId() == null) {
-                    throw new IllegalArgumentException("paper overview is not available");
+                    throw new IllegalArgumentException("论文画像不可用");
                 }
                 AgentToolExecution overview = profileSkillTool.execute(context.paperId(), context.sourceCatalog());
                 readSources.addAll(overview.sourceObjectIds());
@@ -294,28 +297,30 @@ public class AgentLoopService {
                         overview.resultJson(), null, null);
                 return overview;
             }
-            if (context.sourceCatalog() == null) throw new IllegalArgumentException("paper source is not ready");
+            if (context.sourceCatalog() == null) throw new IllegalArgumentException("论文来源尚未就绪");
             AgentToolExecution result;
             // Cache is a local execution optimization for an identical read request. It is
             // not a semantic rule: a changed query remains fully available to the Agent.
             String effectiveArguments = evidenceArguments(request.name(), request.argumentsJson(), evidenceFocus);
             String cacheKey = request.name() + "\n" + canonicalArguments(effectiveArguments);
-            boolean reused;
-            synchronized (readToolCache) {
-                result = readToolCache.get(cacheKey);
-                reused = result != null;
-                if (result == null) {
-                    result = evidenceSkillTool.execute(context.sourceCatalog(), request.name(), effectiveArguments);
-                    readToolCache.put(cacheKey, result);
+            AgentToolExecution continuationError = "retrieve_paper_evidence".equals(request.name())
+                    ? validateEvidenceContinuation(effectiveArguments, evidenceReadState) : null;
+            if (continuationError != null) {
+                result = continuationError;
+            } else {
+                synchronized (readToolCache) {
+                    result = readToolCache.get(cacheKey);
+                    if (result == null) {
+                        result = evidenceSkillTool.execute(context.sourceCatalog(), request.name(), effectiveArguments);
+                        readToolCache.put(cacheKey, result);
+                    }
                 }
             }
-            Set<String> newSourceIds = new LinkedHashSet<>(result.sourceObjectIds());
-            newSourceIds.removeAll(readSources);
             if (evidenceSkillTool.supports(request.name())) {
                 if (!result.sourceObjectIds().isEmpty()) {
                     evidenceReadState.markUsableEvidence();
                 }
-                result = addEvidenceProgress(result, newSourceIds, reused);
+                result = addEvidenceProgress(result, effectiveArguments, evidenceReadState);
             }
             readSources.addAll(result.sourceObjectIds());
             runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED,
@@ -372,7 +377,7 @@ public class AgentLoopService {
 
     private AgentTurnResult completeDirectAnswer(AgentTurnRecord turn, String runId, String content) {
         String answer = stripModelCitationMarkers(content == null ? "" : content.trim());
-        if (answer.isBlank()) throw new IllegalStateException("agent returned an empty direct answer");
+        if (answer.isBlank()) throw new IllegalStateException("助手返回了空的直接答案");
         AgentTurnResult completed = new AgentTurnResult(turn.getTurnId(), runId,
                 AgentRunStatus.COMPLETED.name(), answer, List.of(), List.of());
         String resultJson = writeResult(completed);
@@ -383,27 +388,285 @@ public class AgentLoopService {
         return completed;
     }
 
+    private AgentToolExecution validateEvidenceContinuation(String argumentsJson, EvidenceReadState state) {
+        try {
+            JsonNode needs = objectMapper.readTree(argumentsJson).path("needs");
+            if (!needs.isArray()) return null;
+            List<Map<String, Object>> issues = new ArrayList<>();
+            List<String> requestedNeedIds = new ArrayList<>();
+            for (int index = 0; index < needs.size(); index++) {
+                JsonNode need = needs.get(index);
+                if (!need.isObject()) continue;
+                String id = need.path("id").asText("").trim();
+                String objective = normalizedText(need.path("objective").asText(""));
+                if (id.isBlank() || objective.isBlank()) continue;
+                requestedNeedIds.add(id);
+                if (state.stoppedNeedIds.contains(id)) continue;
+                String previousObjective = state.objectiveByNeed.get(id);
+                if (previousObjective == null) continue;
+                if (!previousObjective.equals(objective)) {
+                    issues.add(evidenceIssue(id, "objective", "NEED_OBJECTIVE_CHANGED",
+                            "同一 Need ID 的 objective 必须保持不变；新的事实需求请使用新的 ID。"));
+                    continue;
+                }
+                String fingerprint = evidenceNeedFingerprint(need);
+                String previousFingerprint = state.lastFingerprintByNeed.get(id);
+                if (previousFingerprint != null && !previousFingerprint.equals(fingerprint)
+                        && need.path("refinementReason").asText("").trim().isBlank()) {
+                    issues.add(evidenceIssue(id, "refinementReason", "MISSING_REFINEMENT_REASON",
+                            "补检索必须说明上一批来源还缺少什么，以及新条件为何可能得到不同证据。"));
+                } else {
+                    state.validationFailureCountsByNeed.put(id, 0);
+                }
+            }
+            List<String> newNeedIds = requestedNeedIds.stream()
+                    .filter(id -> !state.plannedNeedIds.isEmpty() && !state.plannedNeedIds.contains(id))
+                    .distinct()
+                    .toList();
+            if (!newNeedIds.isEmpty()) {
+                return stoppedEvidenceResult(newNeedIds,
+                        "首次有效检索后 Need 集合已冻结；本次未执行底层检索。",
+                        newNeedIds.stream().map(id -> evidenceIssue(id, "id", "NEW_NEED_NOT_ALLOWED",
+                                "首次有效检索后不得用新 ID 重述原需求；请基于已读证据回答，或沿用原 ID 做一次有效补检索。"))
+                                .toList());
+            }
+            List<String> repeatedlyInvalidNeedIds = requestedNeedIds.stream()
+                    .filter(id -> state.validationFailureCountsByNeed.getOrDefault(id, 0) >= 2)
+                    .distinct()
+                    .toList();
+            if (!repeatedlyInvalidNeedIds.isEmpty()) {
+                state.stoppedNeedIds.addAll(repeatedlyInvalidNeedIds);
+                return stoppedEvidenceResult(repeatedlyInvalidNeedIds,
+                        "该 Need 连续两次违反补检索契约；本次未执行底层检索。", issues);
+            }
+            if (issues.isEmpty() && !requestedNeedIds.isEmpty()
+                    && requestedNeedIds.stream().allMatch(state.stoppedNeedIds::contains)) {
+                return stoppedEvidenceResult(requestedNeedIds,
+                        "该 Need 已收到停止信号；本次未再次执行检索，请基于已读证据回答并说明限制。",
+                        List.of());
+            }
+            if (issues.isEmpty()) return null;
+            return toolResult(objectMapper.writeValueAsString(Map.of(
+                    "status", "invalid_request",
+                    "sources", List.of(),
+                    "evidenceNeeds", List.of(),
+                    "issues", issues,
+                    "usage", "请根据 issues 修正证据需求后再调用；不要把输入错误解释为论文没有证据。"
+            )));
+        } catch (Exception ignored) {
+            // Static request validation in PaperReadToolRegistry owns malformed JSON and fields.
+            return null;
+        }
+    }
+
+    private Map<String, Object> evidenceIssue(String needId, String field, String code, String message) {
+        Map<String, Object> issue = new LinkedHashMap<>();
+        issue.put("needId", needId);
+        issue.put("field", field);
+        issue.put("code", code);
+        issue.put("message", message);
+        return issue;
+    }
+
+    private AgentToolExecution stoppedEvidenceResult(List<String> needIds, String reason,
+                                                      List<Map<String, Object>> issues) throws Exception {
+        List<Map<String, Object>> stoppedNeeds = needIds.stream().distinct()
+                .map(id -> Map.<String, Object>of(
+                        "needId", id,
+                        "retrievalStatus", "stopped",
+                        "sourceObjectIds", List.of(),
+                        "progress", Map.of(
+                                "outcome", "need_stopped",
+                                "recommendedAction", "answer",
+                                "reason", reason
+                        )))
+                .toList();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", "need_stopped");
+        payload.put("sources", List.of());
+        payload.put("evidenceNeeds", stoppedNeeds);
+        if (!issues.isEmpty()) payload.put("issues", issues);
+        payload.put("usage", "不得继续改写或新建同方向 Need；现在使用 submit_answer 回答，并如实说明证据限制。");
+        return toolResult(objectMapper.writeValueAsString(payload));
+    }
+
+    private String evidenceNeedFingerprint(JsonNode need) {
+        try {
+            com.fasterxml.jackson.databind.node.ObjectNode normalized = objectMapper.createObjectNode();
+            putNormalizedText(normalized, need, "query", true);
+            putNormalizedTextArray(normalized, need, "keywords", true);
+            putNormalizedTextArray(normalized, need, "targets", true);
+            putNormalizedText(normalized, need, "sectionHint", true);
+            putSortedIntegers(normalized, need, "pageHints");
+            putNormalizedTextArray(normalized, need, "profileClaimRefs", false);
+            putNormalizedTextArray(normalized, need, "contentTypes", true);
+            putNormalizedTextArray(normalized, need, "sourceObjectIds", false);
+            if (need.has("includeVisual")) {
+                normalized.put("includeVisual", need.path("includeVisual").asBoolean(false));
+            }
+            return objectMapper.writeValueAsString(normalized);
+        } catch (Exception ignored) {
+            return canonicalArguments(need == null ? "" : need.toString());
+        }
+    }
+
+    private void putNormalizedText(com.fasterxml.jackson.databind.node.ObjectNode target, JsonNode source,
+                                   String field, boolean lowerCase) {
+        if (!source.has(field)) return;
+        String value = normalizedText(source.path(field).asText(""));
+        target.put(field, lowerCase ? value.toLowerCase(java.util.Locale.ROOT) : value);
+    }
+
+    private void putNormalizedTextArray(com.fasterxml.jackson.databind.node.ObjectNode target, JsonNode source,
+                                        String field, boolean lowerCase) {
+        if (!source.path(field).isArray()) return;
+        List<String> values = new ArrayList<>();
+        for (JsonNode item : source.path(field)) {
+            String value = normalizedText(item.asText(""));
+            if (value.isBlank()) continue;
+            values.add(lowerCase ? value.toLowerCase(java.util.Locale.ROOT) : value);
+        }
+        values = values.stream().distinct().sorted().toList();
+        target.set(field, objectMapper.valueToTree(values));
+    }
+
+    private void putSortedIntegers(com.fasterxml.jackson.databind.node.ObjectNode target, JsonNode source,
+                                   String field) {
+        if (!source.path(field).isArray()) return;
+        List<Integer> values = new ArrayList<>();
+        source.path(field).forEach(value -> values.add(value.asInt()));
+        target.set(field, objectMapper.valueToTree(values.stream().distinct().sorted().toList()));
+    }
+
+    private static String normalizedText(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim();
+    }
+
     /**
-     * Report objective progress for a repeated read request. This is a generic
-     * liveness hint for the model, not a paper workflow gate: different requests
-     * remain available and the runtime never decides whether the answer is complete.
+     * Report objective progress for each requested evidence need. This is a
+     * liveness hint for the model, not a paper workflow gate: the Agent still
+     * reads the returned sources and decides whether they support the answer.
      */
     private AgentToolExecution addEvidenceProgress(AgentToolExecution execution,
-                                                   Set<String> newSourceIds, boolean reused) {
+                                                   String argumentsJson,
+                                                   EvidenceReadState state) {
         try {
             JsonNode parsed = objectMapper.readTree(execution.resultJson());
             if (!parsed.isObject()) return execution;
             com.fasterxml.jackson.databind.node.ObjectNode payload =
                     (com.fasterxml.jackson.databind.node.ObjectNode) parsed;
-            payload.put("reused", reused);
-            payload.put("newSourceCount", newSourceIds.size());
-            payload.set("newSourceObjectIds", objectMapper.valueToTree(newSourceIds));
-            boolean noProgress = newSourceIds.isEmpty();
-            payload.put("noProgress", noProgress);
-            if (noProgress) {
-                payload.put("exhausted", true);
-                payload.put("stopReason", execution.sourceObjectIds().isEmpty()
-                        ? "no_matching_evidence" : "no_new_evidence");
+            String resultStatus = payload.path("status").asText("");
+            JsonNode requestedNeeds = objectMapper.readTree(argumentsJson).path("needs");
+            if ("invalid_request".equals(resultStatus)) {
+                Set<String> invalidNeedIds = new LinkedHashSet<>();
+                for (JsonNode issue : payload.path("issues")) {
+                    String needId = issue.path("needId").asText("").trim();
+                    if (!needId.isBlank()) invalidNeedIds.add(needId);
+                }
+                if (invalidNeedIds.isEmpty() && requestedNeeds.isArray()) {
+                    for (JsonNode need : requestedNeeds) {
+                        String id = need.path("id").asText("").trim();
+                        if (!id.isBlank()) invalidNeedIds.add(id);
+                    }
+                }
+                invalidNeedIds.forEach(id -> state.validationFailureCountsByNeed.merge(id, 1, Integer::sum));
+                List<String> repeatedlyInvalid = invalidNeedIds.stream()
+                        .filter(id -> state.validationFailureCountsByNeed.getOrDefault(id, 0) >= 2)
+                        .toList();
+                if (!repeatedlyInvalid.isEmpty()) {
+                    state.stoppedNeedIds.addAll(repeatedlyInvalid);
+                    List<Map<String, Object>> issues = new ArrayList<>();
+                    for (JsonNode issue : payload.path("issues")) {
+                        issues.add(objectMapper.convertValue(issue,
+                                new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { }));
+                    }
+                    return stoppedEvidenceResult(repeatedlyInvalid,
+                            "该 Need 连续两次未通过输入契约；本次未执行底层检索。", issues);
+                }
+                return execution;
+            }
+            if ("unavailable".equals(resultStatus) || "need_stopped".equals(resultStatus)) {
+                return execution;
+            }
+            JsonNode returnedNeeds = payload.path("evidenceNeeds");
+            if (requestedNeeds.isArray() && !requestedNeeds.isEmpty() && returnedNeeds.isArray()) {
+                if (state.plannedNeedIds.isEmpty()) {
+                    for (JsonNode need : requestedNeeds) {
+                        String id = need.path("id").asText("").trim();
+                        if (!id.isBlank()) state.plannedNeedIds.add(id);
+                    }
+                }
+                Map<String, JsonNode> returnedById = new LinkedHashMap<>();
+                for (JsonNode returned : returnedNeeds) {
+                    String id = returned.path("needId").asText("").trim();
+                    if (!id.isBlank()) returnedById.putIfAbsent(id, returned);
+                }
+                for (int index = 0; index < requestedNeeds.size(); index++) {
+                    JsonNode need = requestedNeeds.get(index);
+                    String id = need.path("id").asText("").trim();
+                    if (id.isBlank()) id = "need-" + index;
+                    JsonNode returned = returnedById.get(id);
+                    if (returned == null || !returned.isObject()) continue;
+                    String fingerprint = evidenceNeedFingerprint(need);
+                    String previousFingerprint = state.lastFingerprintByNeed.get(id);
+                    boolean sameRequest = fingerprint.equals(previousFingerprint);
+                    int requestCount = state.requestCountsByNeed.getOrDefault(id, 0);
+                    if (!sameRequest) {
+                        requestCount++;
+                        state.requestCountsByNeed.put(id, requestCount);
+                        state.lastFingerprintByNeed.put(id, fingerprint);
+                        if (requestCount > 1) {
+                            state.refinementCountsByNeed.merge(id, 1, Integer::sum);
+                        }
+                    }
+                    state.objectiveByNeed.putIfAbsent(id, normalizedText(need.path("objective").asText("")));
+                    Set<String> sourceIds = new LinkedHashSet<>();
+                    for (JsonNode sourceId : returned.path("sourceObjectIds")) {
+                        String value = sourceId.asText("").trim();
+                        if (!value.isBlank()) sourceIds.add(value);
+                    }
+                    Set<String> seen = state.seenSourceIdsByNeed
+                            .computeIfAbsent(id, ignored -> new LinkedHashSet<>());
+                    Set<String> newForNeed = new LinkedHashSet<>(sourceIds);
+                    newForNeed.removeAll(seen);
+                    seen.addAll(sourceIds);
+
+                    String progressState;
+                    String nextAction;
+                    String reason;
+                    if (!newForNeed.isEmpty()) {
+                        progressState = "new_sources";
+                        nextAction = "judge";
+                        reason = "返回了该 Need 尚未读取的候选来源；请阅读原文并判断语义充分性。";
+                    } else if (sameRequest) {
+                        progressState = "duplicate_request";
+                        nextAction = "stop";
+                        reason = "本次请求与该 Need 的上一请求在检索意义上相同。";
+                    } else if (requestCount == 1) {
+                        progressState = "no_match";
+                        nextAction = "refine_once";
+                        reason = "第一次请求没有返回候选来源；可针对明确缺口有效改写一次。";
+                    } else {
+                        progressState = sourceIds.isEmpty() ? "no_match" : "same_sources";
+                        nextAction = "stop";
+                        reason = sourceIds.isEmpty()
+                                ? "补检索仍未返回候选来源，请停止该检索方向并说明证据限制。"
+                                : "补检索只返回该 Need 已读来源，请停止该检索方向并说明证据限制。";
+                    }
+                    com.fasterxml.jackson.databind.node.ObjectNode progress =
+                            objectMapper.createObjectNode();
+                    progress.put("outcome", progressState);
+                    progress.put("attempt", requestCount);
+                    progress.put("refinementCount", state.refinementCountsByNeed.getOrDefault(id, 0));
+                    progress.set("newSourceObjectIds", objectMapper.valueToTree(newForNeed));
+                    progress.put("recommendedAction", nextAction);
+                    progress.put("reason", reason);
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) returned)
+                            .set("progress", progress);
+                    if ("stop".equals(nextAction)) {
+                        state.stoppedNeedIds.add(id);
+                    }
+                }
             }
             return new AgentToolExecution(objectMapper.writeValueAsString(payload),
                     execution.sourceObjectIds(), execution.visuals());
@@ -456,7 +719,7 @@ public class AgentLoopService {
             return objectMapper.writeValueAsString(Map.of(
                     "status", "unavailable",
                     "sources", List.of(),
-                    "message", "The requested paper capability is unavailable in this turn. Continue from the conversation, selection, and any successfully loaded paper context. Do not invent citations, page numbers, formula numbers, or exact values."
+                    "message", "本轮无法读取请求的论文能力。请基于对话、当前选区和已经成功加载的论文上下文继续；不要编造引用、页码、公式编号或精确数值。"
             ));
         } catch (com.fasterxml.jackson.core.JsonProcessingException error) {
             return "{\"status\":\"unavailable\",\"sources\":[]}";
@@ -475,6 +738,14 @@ public class AgentLoopService {
 
     private static final class EvidenceReadState {
         private boolean usableEvidence;
+        private final Map<String, Set<String>> seenSourceIdsByNeed = new LinkedHashMap<>();
+        private final Map<String, String> objectiveByNeed = new LinkedHashMap<>();
+        private final Map<String, String> lastFingerprintByNeed = new LinkedHashMap<>();
+        private final Map<String, Integer> requestCountsByNeed = new LinkedHashMap<>();
+        private final Map<String, Integer> refinementCountsByNeed = new LinkedHashMap<>();
+        private final Map<String, Integer> validationFailureCountsByNeed = new LinkedHashMap<>();
+        private final Set<String> plannedNeedIds = new LinkedHashSet<>();
+        private final Set<String> stoppedNeedIds = new LinkedHashSet<>();
 
         private void markUsableEvidence() {
             usableEvidence = true;
@@ -504,7 +775,7 @@ public class AgentLoopService {
             try {
                 return readResult(run.getResultJson());
             } catch (Exception error) {
-                throw new IllegalStateException("stored agent result is invalid", error);
+                throw new IllegalStateException("已保存的 Agent 结果格式无效", error);
             }
         }
         ResearchMessage message = messageMapper.selectLatestAssistantByRun(runId);
@@ -520,7 +791,7 @@ public class AgentLoopService {
     private GroundedAnswer parseAndGround(String json, AgentContextSnapshot context, Set<String> readSources) throws Exception {
         JsonNode root = objectMapper.readTree(json);
         JsonNode blocks = root.path("answerBlocks");
-        if (!blocks.isArray() || blocks.isEmpty()) throw new IllegalArgumentException("answerBlocks must not be empty");
+        if (!blocks.isArray() || blocks.isEmpty()) throw new IllegalArgumentException("answerBlocks 不能为空");
         StringBuilder answer = new StringBuilder();
         List<CitationRequest> requests = new ArrayList<>();
         for (JsonNode block : blocks) {
@@ -530,18 +801,18 @@ public class AgentLoopService {
             answer.append(text);
             int end = answer.length();
             JsonNode sourceIds = block.path("sourceObjectIds");
-            if (!sourceIds.isArray()) throw new IllegalArgumentException("sourceObjectIds must be an array");
+            if (!sourceIds.isArray()) throw new IllegalArgumentException("sourceObjectIds 必须是数组");
             for (JsonNode sourceNode : sourceIds) {
                 String sourceId = sourceNode.asText("").trim();
-                if (sourceId.isEmpty()) throw new IllegalArgumentException("sourceObjectId is required");
+                if (sourceId.isEmpty()) throw new IllegalArgumentException("sourceObjectId 不能为空");
                 if (!readSources.contains(sourceId)) {
-                    throw new IllegalArgumentException("citation source was not read: " + sourceId);
+                    throw new IllegalArgumentException("引用来源尚未在本轮读取：" + sourceId);
                 }
                 requests.add(new CitationRequest(start, end, sourceId, null, List.of()));
             }
         }
         if (requests.isEmpty()) return new GroundedAnswer(answer.toString(), List.of(), List.of());
-        if (context.sourceCatalog() == null) throw new IllegalArgumentException("paper sources are unavailable");
+        if (context.sourceCatalog() == null) throw new IllegalArgumentException("论文来源不可用");
         return evidenceService.ground(answer.toString(), requests, context.sourceCatalog());
     }
 
@@ -632,7 +903,7 @@ public class AgentLoopService {
                 input.explicitAction().type(), sourceId, content, color);
         String arguments;
         try { arguments = objectMapper.writeValueAsString(input.explicitAction().parameters()); }
-        catch (Exception error) { throw new IllegalArgumentException("explicit action parameters are invalid", error); }
+        catch (Exception error) { throw new IllegalArgumentException("显式页面操作参数无效", error); }
         AgentToolCallRecord call = runtimeService.registerToolCall(run.getRunId(),
                 "explicit_" + preparedAction.type().name().toLowerCase(), arguments, false,
                 run.getRunId() + ":explicit:" + preparedAction.type() + ":" + sourceId);
@@ -662,7 +933,7 @@ public class AgentLoopService {
         try {
             return objectMapper.copy().findAndRegisterModules().writeValueAsString(result);
         } catch (Exception error) {
-            throw new IllegalStateException("failed to serialize agent result", error);
+            throw new IllegalStateException("Agent 结果序列化失败", error);
         }
     }
 
@@ -675,7 +946,7 @@ public class AgentLoopService {
         message.setMessageKey("agent-user-" + input.clientRequestId());
         if (input.selectedContent() != null) {
             try { message.setSelectionAnchorJson(objectMapper.writeValueAsString(input.selectedContent())); }
-            catch (Exception error) { throw new IllegalStateException("failed to serialize selection", error); }
+            catch (Exception error) { throw new IllegalStateException("选区序列化失败", error); }
         }
         List<String> attachmentIds = new ArrayList<>(input.attachmentIds());
         attachmentIds.addAll(input.formulaAttachmentIds());
@@ -692,7 +963,7 @@ public class AgentLoopService {
                 message.setEvidenceJson(objectMapper.writeValueAsString(java.util.Map.of("attachments", metadata)));
                 message.setEvidenceSchemaVersion("agent-input-v1");
             } catch (Exception error) {
-                throw new IllegalStateException("failed to serialize attachment metadata", error);
+                throw new IllegalStateException("附件元数据序列化失败", error);
             }
         }
         messageMapper.insert(message);
@@ -703,7 +974,7 @@ public class AgentLoopService {
         ResearchMessage message = baseMessage(turn.getSessionId(), "ASSISTANT", type, content, turn, runId);
         message.setMessageKey("agent-assistant-" + UUID.randomUUID());
         message.setEvidenceJson(evidenceJson);
-        message.setEvidenceSchemaVersion(evidenceJson == null ? null : "ground-evidence-v1");
+        message.setEvidenceSchemaVersion(evidenceJson == null ? null : "ground-evidence-v2");
         messageMapper.insert(message);
         if (!"CLARIFICATION".equals(type)) runtimeService.bindFinalMessage(turn.getTurnId(), message.getMessageKey());
     }
@@ -723,24 +994,57 @@ public class AgentLoopService {
 
     private static String requiredText(JsonNode root, String name) {
         String value = root.path(name).asText("").trim();
-        if (value.isEmpty()) throw new IllegalArgumentException(name + " is required");
+        if (value.isEmpty()) throw new IllegalArgumentException(name + " 不能为空");
         return value;
     }
 
     private static List<AgentEvidenceView> evidenceViews(GroundedAnswer grounded, AgentContextSnapshot context) {
         if (context.sourceCatalog() == null) return List.of();
-        return grounded.evidenceEntries().stream().map(binding -> new AgentEvidenceView(binding.citationNumber(),
-                binding.sourceObjectId(), context.paperId(), binding.quote(),
-                context.sourceCatalog().requireObject(binding.sourceObjectId()).formulaNumber(),
-                context.sourceCatalog().requireLocators(binding.sourceObjectId()))).toList();
+        return grounded.evidenceEntries().stream().map(binding -> {
+            SourceObject source = context.sourceCatalog().requireObject(binding.sourceObjectId());
+            List<com.research.assistant.service.agent.source.SourceLocator> locators =
+                    context.sourceCatalog().requireLocators(binding.sourceObjectId());
+            String evidenceKey = SourceEvidenceIdentity.key(source, locators);
+            String textFormat = source.provenance().getOrDefault("textFormat",
+                    source.contentType() == com.research.assistant.service.agent.source.SourceContentType.FORMULA
+                            ? "PLAIN_TEXT" : "PLAIN_TEXT");
+            boolean textReliable = Boolean.parseBoolean(source.provenance().getOrDefault("textReliable",
+                    source.contentType() != com.research.assistant.service.agent.source.SourceContentType.FORMULA
+                            && !"VISUAL_FALLBACK".equals(source.provenance().get("recoveryMode"))
+                            ? "true" : "false"));
+            String fullText = source.rawContent();
+            if (!textReliable && source.contentType()
+                    == com.research.assistant.service.agent.source.SourceContentType.FORMULA) {
+                String label = source.formulaNumber().isBlank()
+                        ? "公式区域" : "公式 (" + source.formulaNumber() + ")";
+                fullText = label + "的文本提取不可靠，请查看原始页面区域。";
+            }
+            return new AgentEvidenceView(binding.citationNumber(), binding.sourceObjectId(), context.paperId(),
+                    binding.quote(), fullText, evidenceKey, source.contentType().name(), textFormat,
+                    textReliable, source.formulaNumber(), locators);
+        }).toList();
     }
 
     private String canonicalArguments(String argumentsJson) {
         try {
-            return objectMapper.writeValueAsString(objectMapper.readTree(argumentsJson));
+            return objectMapper.writeValueAsString(canonicalNode(objectMapper.readTree(argumentsJson)));
         } catch (Exception ignored) {
             return argumentsJson == null ? "" : argumentsJson.trim();
         }
+    }
+
+    private JsonNode canonicalNode(JsonNode node) {
+        if (node == null || node.isNull() || node.isValueNode()) return node;
+        if (node.isArray()) {
+            com.fasterxml.jackson.databind.node.ArrayNode result = objectMapper.createArrayNode();
+            node.forEach(value -> result.add(canonicalNode(value)));
+            return result;
+        }
+        com.fasterxml.jackson.databind.node.ObjectNode result = objectMapper.createObjectNode();
+        List<String> fields = new ArrayList<>();
+        node.fieldNames().forEachRemaining(fields::add);
+        fields.stream().sorted().forEach(field -> result.set(field, canonicalNode(node.get(field))));
+        return result;
     }
 
     private static String safeError(Exception error) {

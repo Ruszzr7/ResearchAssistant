@@ -21,10 +21,10 @@ public class PaperActionSkillTool {
     public static final String TOOL_NAME = "paper_action";
     private static final String ACTION_SCHEMA = """
             {"type":"object","properties":{
-            "actionType":{"type":"string","enum":["JUMP","HIGHLIGHT","UNDERLINE","NOTE","COMMENT"],"description":"The single page operation explicitly requested by the user."},
-            "sourceObjectId":{"type":"string","minLength":1,"maxLength":160,"description":"Trusted sourceObjectId from the current selection or a paper read result; never invent one."},
-            "content":{"type":"string","maxLength":2000,"description":"Required only for NOTE or COMMENT; the note or comment text requested by the user."},
-            "color":{"type":"string","maxLength":16,"description":"Optional annotation color, preferably a six-digit CSS hex color such as #ffee58."}},
+            "actionType":{"type":"string","enum":["JUMP","HIGHLIGHT","UNDERLINE","NOTE","COMMENT"],"description":"用户明确要求执行的一次页面操作。"},
+            "sourceObjectId":{"type":"string","minLength":1,"maxLength":160,"description":"当前选区或论文读取结果中的可信 sourceObjectId；绝不要编造。"},
+            "content":{"type":"string","maxLength":2000,"description":"仅 NOTE 或 COMMENT 需要；填写用户要求保存的笔记或评论内容。"},
+            "color":{"type":"string","maxLength":16,"description":"可选的标注颜色，建议使用六位 CSS 十六进制颜色，例如 #ffee58。"}},
             "required":["actionType","sourceObjectId"],"additionalProperties":false}
             """;
 
@@ -36,7 +36,7 @@ public class PaperActionSkillTool {
 
     public List<AgentToolDefinition> definitions() {
         return List.of(new AgentToolDefinition(TOOL_NAME,
-                "Perform one validated page action after the applicable paper-action Skill is loaded.", ACTION_SCHEMA));
+                "在加载适用的 paper-action Skill 后，执行一次经过校验的页面操作。", ACTION_SCHEMA));
     }
 
     public boolean supports(String toolName) {
@@ -45,21 +45,21 @@ public class PaperActionSkillTool {
 
     public PreparedAction prepare(PaperSourceCatalog catalog, Set<String> readableSourceIds,
                                   String argumentsJson, ObjectMapper objectMapper) {
-        if (catalog == null) throw new IllegalArgumentException("paper source is not ready");
-        if (actionResolver == null) throw new IllegalStateException("paper actions are unavailable");
+        if (catalog == null) throw new IllegalArgumentException("论文来源尚未就绪");
+        if (actionResolver == null) throw new IllegalStateException("页面操作能力不可用");
         try {
             JsonNode args = objectMapper.readTree(argumentsJson);
             PaperActionType type = actionType(requiredText(args, "actionType"));
             String sourceId = requiredText(args, "sourceObjectId");
             if (!readableSourceIds.contains(sourceId)) {
-                throw new IllegalArgumentException("action source was not read or selected: " + sourceId);
+                throw new IllegalArgumentException("操作目标来源尚未读取或未在当前选区中：" + sourceId);
             }
             return prepareTrusted(catalog, type, sourceId, optionalText(args.path("content").asText(null)),
                     optionalText(args.path("color").asText(null)));
         } catch (IllegalArgumentException error) {
             throw error;
         } catch (Exception error) {
-            throw new IllegalArgumentException("invalid arguments for paper action", error);
+            throw new IllegalArgumentException("论文操作参数无效", error);
         }
     }
 
@@ -71,29 +71,29 @@ public class PaperActionSkillTool {
 
     private PreparedAction prepareTrusted(PaperSourceCatalog catalog, PaperActionType type, String sourceId,
                                           String content, String color) {
-        if (catalog == null) throw new IllegalArgumentException("paper source is not ready");
-        if (actionResolver == null) throw new IllegalStateException("paper actions are unavailable");
+        if (catalog == null) throw new IllegalArgumentException("论文来源尚未就绪");
+        if (actionResolver == null) throw new IllegalStateException("页面操作能力不可用");
         if (sourceId == null || sourceId.isBlank()) {
-            throw new IllegalArgumentException("explicit action requires a trusted sourceObjectId");
+            throw new IllegalArgumentException("显式页面操作需要可信的 sourceObjectId");
         }
         if ((type == PaperActionType.NOTE || type == PaperActionType.COMMENT) && content == null) {
-            throw new IllegalArgumentException("note/comment content is required");
+            throw new IllegalArgumentException("NOTE 或 COMMENT 操作需要填写内容");
         }
         return new PreparedAction(type, actionResolver.resolve(catalog, sourceId), content, color);
     }
 
     private static PaperActionType actionType(String value) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException("actionType is required");
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("actionType 参数不能为空");
         try {
             return PaperActionType.valueOf(value.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException error) {
-            throw new IllegalArgumentException("unsupported paper action: " + value);
+            throw new IllegalArgumentException("不支持的论文页面操作：" + value);
         }
     }
 
     private static String requiredText(JsonNode args, String name) {
         String value = optionalText(args.path(name).asText(null));
-        if (value == null) throw new IllegalArgumentException(name + " is required");
+        if (value == null) throw new IllegalArgumentException("缺少参数：" + name);
         return value;
     }
 

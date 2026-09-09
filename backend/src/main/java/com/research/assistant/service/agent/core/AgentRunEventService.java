@@ -117,15 +117,50 @@ public class AgentRunEventService {
             JsonNode needs = result.path("evidenceNeeds");
             if (needs.isArray()) {
                 int found = 0;
-                for (JsonNode need : needs) if ("found".equals(need.path("status").asText())) found++;
+                List<Map<String, Object>> progress = new ArrayList<>();
+                for (JsonNode need : needs) {
+                    if ("found".equals(need.path("retrievalStatus").asText())) found++;
+                }
+                for (JsonNode need : needs) {
+                    JsonNode state = need.path("progress");
+                    if (!state.isObject()) continue;
+                    Map<String, Object> value = new LinkedHashMap<>();
+                    String needId = need.path("needId").asText("");
+                    if (!needId.isBlank()) value.put("needId", needId);
+                    value.put("outcome", state.path("outcome").asText(""));
+                    value.put("attempt", state.path("attempt").asInt(0));
+                    value.put("refinementCount", state.path("refinementCount").asInt(0));
+                    value.put("newSourceObjectIds", sourceIds(state.path("newSourceObjectIds")));
+                    value.put("recommendedAction", state.path("recommendedAction").asText(""));
+                    value.put("reason", state.path("reason").asText(""));
+                    progress.add(value);
+                }
                 data.put("evidenceNeedCount", needs.size());
                 data.put("evidenceNeedFoundCount", found);
+                if (!progress.isEmpty()) data.put("evidenceNeedProgress", progress);
             }
-            if (result.has("coverage")) data.put("coverage", result.path("coverage").asText());
-            if (result.has("newSourceCount")) data.put("newSourceCount", result.path("newSourceCount").asInt());
-            if (result.has("exhausted")) data.put("exhausted", result.path("exhausted").asBoolean());
+            JsonNode issues = result.path("issues");
+            if (issues.isArray()) {
+                data.put("validationIssueCount", issues.size());
+                List<String> issueCodes = new ArrayList<>();
+                issues.forEach(issue -> {
+                    String code = issue.path("code").asText("");
+                    if (!code.isBlank()) issueCodes.add(code);
+                });
+                data.put("validationIssueCodes", issueCodes);
+            }
         } catch (Exception ignored) {
             // Tool results are heterogeneous. Missing diagnostics must never break event delivery.
         }
+    }
+
+    private List<String> sourceIds(JsonNode values) {
+        if (!values.isArray()) return List.of();
+        List<String> ids = new ArrayList<>();
+        values.forEach(value -> {
+            String id = value.asText("").trim();
+            if (!id.isBlank()) ids.add(id);
+        });
+        return ids;
     }
 }

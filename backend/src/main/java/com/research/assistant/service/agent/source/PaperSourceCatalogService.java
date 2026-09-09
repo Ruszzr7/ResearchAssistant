@@ -79,7 +79,7 @@ public class PaperSourceCatalogService {
 
     public PaperSourceCatalog latest(long paperId) {
         PaperLayoutArtifact artifact = artifactService.latestArtifact(paperId);
-        if (artifact == null) throw new IllegalStateException("LOCAL_SOURCE_NOT_READY");
+        if (artifact == null) throw new IllegalStateException("本地论文来源尚未就绪（LOCAL_SOURCE_NOT_READY）");
         return cached(artifact);
     }
 
@@ -94,7 +94,7 @@ public class PaperSourceCatalogService {
 
     private PaperSourceCatalog cached(PaperLayoutArtifact artifact) {
         if (artifact == null || artifact.paperId() == null || artifact.paperId() <= 0) {
-            throw new IllegalArgumentException("a versioned paper layout artifact is required");
+            throw new IllegalArgumentException("需要提供带版本的论文版面解析产物");
         }
         List<PaperLayoutRecovery> recoveries = recoveryStore == null ? List.of() : recoveryStore.read(artifact);
         CatalogKey key = new CatalogKey(artifact.paperId(), artifact.documentHash(), artifact.parserVersion(),
@@ -129,13 +129,17 @@ public class PaperSourceCatalogService {
                             .filter(text -> !text.isBlank())
                             .collect(java.util.stream.Collectors.joining("\n"));
             if (raw.isBlank()) continue;
+            SourceContentType sourceType = contentType(span.role());
+            Map<String, String> spanProvenance = new LinkedHashMap<>();
+            spanProvenance.put("spanId", span.id());
+            spanProvenance.put("blockIds", sourceBlocks.stream().map(DocumentBlock::id)
+                    .collect(java.util.stream.Collectors.joining(",")));
+            spanProvenance.put("role", span.role().name());
+            spanProvenance.put("readingOrder", Integer.toString(sourceBlocks.get(0).readingOrder()));
+            addTextMetadata(spanProvenance, sourceType, sourceBlocks, raw);
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
-                    artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, contentType(span.role()), raw,
-                    SourceObject.normalize(raw), span.sectionPath(), "",
-                    Map.of("spanId", span.id(), "blockIds", sourceBlocks.stream()
-                                    .map(DocumentBlock::id).collect(java.util.stream.Collectors.joining(",")),
-                             "role", span.role().name(), "readingOrder",
-                            Integer.toString(sourceBlocks.get(0).readingOrder())));
+                    artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, sourceType, raw,
+                    SourceObject.normalize(raw), span.sectionPath(), "", spanProvenance);
             List<SourceLocator> spanLocators = sourceBlocks.stream().map(block -> {
                 SourceAnchor anchor = textAnchorByBlock.get(block.id());
                 if (anchor != null && span.role() == block.role()) {
@@ -154,15 +158,20 @@ public class PaperSourceCatalogService {
             if (recoveredBlockIds.contains(definition.blockId())) continue;
             DocumentBlock block = blockById.get(definition.blockId());
             List<String> sectionPath = new ArrayList<>(block == null ? List.of() : block.sectionPath());
-            sectionPath.add("Equation (" + equation.number() + ")");
+            sectionPath.add("公式 (" + equation.number() + ")");
             if (!equation.statementLabel().isBlank()) sectionPath.add(equation.statementLabel());
-            String raw = definition.targetText();
+            String latex = block == null ? "" : block.latex();
+            String raw = latex == null || latex.isBlank() ? definition.targetText() : latex.strip();
             if (raw.isBlank() && block != null) raw = rawContent(block);
+            Map<String, String> formulaProvenance = new LinkedHashMap<>();
+            formulaProvenance.put("blockId", definition.blockId());
+            formulaProvenance.put("relation", equation.relation().name());
+            formulaProvenance.put("textFormat", latex == null || latex.isBlank() ? "PLAIN_TEXT" : "LATEX");
+            formulaProvenance.put("textReliable", Boolean.toString(latex != null && !latex.isBlank()));
             SourceObject object = new SourceObject(equation.entityId(), artifact.paperId(),
                     artifact.documentHash(), artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION,
                     SourceContentType.FORMULA, raw, SourceObject.normalize(raw), sectionPath,
-                    equation.number(), Map.of("blockId", definition.blockId(),
-                    "relation", equation.relation().name()));
+                    equation.number(), formulaProvenance);
             objects.put(equation.entityId(), object);
             locators.put(equation.entityId(), List.of(
                     locator(equation.entityId(), definition, definition.blockId())));
@@ -172,13 +181,17 @@ public class PaperSourceCatalogService {
             String sourceId = stableId(artifact, "unit:" + unit.id());
             List<String> sectionPath = new ArrayList<>(unit.sectionPath());
             sectionPath.add(unit.label());
+            SourceContentType sourceType = contentType(unit.kind());
+            Map<String, String> unitProvenance = new LinkedHashMap<>();
+            unitProvenance.put("sourceUnitId", unit.id());
+            unitProvenance.put("sourceUnitKind", unit.kind().name());
+            unitProvenance.put("blockIds", unit.blocks().stream().map(DocumentBlock::id)
+                    .collect(java.util.stream.Collectors.joining(",")));
+            unitProvenance.put("readingOrder", Integer.toString(unit.blocks().get(0).readingOrder()));
+            addTextMetadata(unitProvenance, sourceType, unit.blocks(), unit.text());
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
-                    artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, contentType(unit.kind()),
-                    unit.text(), SourceObject.normalize(unit.text()), sectionPath, "",
-                    Map.of("sourceUnitId", unit.id(), "sourceUnitKind", unit.kind().name(),
-                            "blockIds", unit.blocks().stream().map(DocumentBlock::id)
-                                    .collect(java.util.stream.Collectors.joining(",")),
-                            "readingOrder", Integer.toString(unit.blocks().get(0).readingOrder())));
+                    artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, sourceType,
+                    unit.text(), SourceObject.normalize(unit.text()), sectionPath, "", unitProvenance);
             SourceLocator sourceLocator = new SourceLocator(
                     locatorId(sourceId, unit.page(), unit.id()), sourceId, unit.page(),
                     "PDF_NORMALIZED", unit.boxes(), unit.text(), precision(unit));
@@ -192,15 +205,20 @@ public class PaperSourceCatalogService {
             PaperSourceUnit first = continuation.parts().get(0);
             List<String> sectionPath = new ArrayList<>(first.sectionPath());
             sectionPath.add(continuation.label());
+            SourceContentType sourceType = contentType(continuation.kind());
+            Map<String, String> continuationProvenance = new LinkedHashMap<>();
+            continuationProvenance.put("continuationId", continuation.id());
+            continuationProvenance.put("sourceUnitKind", continuation.kind().name());
+            continuationProvenance.put("pages", continuation.parts().stream()
+                    .map(part -> Integer.toString(part.page()))
+                    .collect(java.util.stream.Collectors.joining(",")));
+            continuationProvenance.put("readingOrder", Integer.toString(first.blocks().get(0).readingOrder()));
+            addTextMetadata(continuationProvenance, sourceType,
+                    continuation.parts().stream().flatMap(part -> part.blocks().stream()).toList(),
+                    continuation.text());
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
-                    artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION,
-                    contentType(continuation.kind()), continuation.text(),
-                    SourceObject.normalize(continuation.text()), sectionPath, "",
-                    Map.of("continuationId", continuation.id(),
-                            "sourceUnitKind", continuation.kind().name(),
-                            "pages", continuation.parts().stream().map(part -> Integer.toString(part.page()))
-                                    .collect(java.util.stream.Collectors.joining(",")),
-                            "readingOrder", Integer.toString(first.blocks().get(0).readingOrder())));
+                    artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, sourceType, continuation.text(),
+                    SourceObject.normalize(continuation.text()), sectionPath, "", continuationProvenance);
             List<SourceLocator> continuationLocators = continuation.parts().stream()
                     .map(part -> new SourceLocator(locatorId(sourceId, part.page(), part.id()),
                             sourceId, part.page(), "PDF_NORMALIZED", part.boxes(),
@@ -215,7 +233,7 @@ public class PaperSourceCatalogService {
                     .filter(java.util.Objects::nonNull).findFirst().orElse(null);
             List<String> sectionPath = new ArrayList<>(first == null ? List.of() : first.sectionPath());
             boolean corrected = recovery.corrected();
-            sectionPath.add(corrected ? "Recovered layout region" : "Visual source region");
+            sectionPath.add(corrected ? "已恢复版面区域" : "视觉来源区域");
             SourceContentType type = recoveryContentType(recovery, blockById);
             String sourceText = corrected ? recovery.correctedText()
                     : visualFallbackText(recovery, artifact.blocks(), blockById, type);
@@ -229,6 +247,8 @@ public class PaperSourceCatalogService {
             provenance.put("readingOrder", Integer.toString(
                     first == null ? Integer.MAX_VALUE : first.readingOrder()));
             provenance.put("recoveryMode", corrected ? "TEXT_RECOVERY" : "VISUAL_FALLBACK");
+            provenance.put("textFormat", corrected ? "PLAIN_TEXT" : "VISUAL_FALLBACK");
+            provenance.put("textReliable", Boolean.toString(corrected));
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
                     artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, type,
                     sourceText, SourceObject.normalize(sourceText), sectionPath, formulaNumber, provenance);
@@ -376,7 +396,7 @@ public class PaperSourceCatalogService {
 
     public List<SourceObject> readPages(PaperSourceCatalog catalog, int startPage, int endPage, int maxCharacters) {
         if (startPage < 1 || endPage < startPage || endPage > catalog.pageCount()) {
-            throw new IllegalArgumentException("invalid page range");
+            throw new IllegalArgumentException("页码范围无效");
         }
         return bounded(catalog, catalog.objects().values().stream()
                 .filter(object -> catalog.requireLocators(object.sourceObjectId()).stream()
@@ -386,7 +406,7 @@ public class PaperSourceCatalogService {
     }
 
     public List<SourceObject> readSection(PaperSourceCatalog catalog, String section, int maxCharacters) {
-        if (section == null || section.isBlank()) throw new IllegalArgumentException("section is required");
+        if (section == null || section.isBlank()) throw new IllegalArgumentException("章节名称不能为空");
         String normalized = SourceObject.normalize(section).toLowerCase(Locale.ROOT);
         List<SourceObject> matched = catalog.objects().values().stream()
                 .filter(object -> SourceObject.normalize(String.join(" ", object.sectionPath()))
@@ -437,13 +457,28 @@ public class PaperSourceCatalogService {
     private static String rawContent(DocumentBlock block) {
         if (block.contentMode() == DocumentBlockContentMode.STRUCTURED) {
             if (block.role() == DocumentBlockRole.FORMULA && block.latex() != null && !block.latex().isBlank()) {
-                return block.text().isBlank() ? block.latex() : block.text() + "\nLaTeX: " + block.latex();
+                return block.text().isBlank() ? block.latex() : block.text() + "\nLaTeX：" + block.latex();
             }
             if (block.role() == DocumentBlockRole.TABLE && block.tableText() != null && !block.tableText().isBlank()) {
                 return block.text().isBlank() ? block.tableText() : block.text() + "\n" + block.tableText();
             }
         }
         return block.text();
+    }
+
+    private static void addTextMetadata(Map<String, String> provenance,
+                                        SourceContentType type,
+                                        List<DocumentBlock> blocks,
+                                        String raw) {
+        if (type == SourceContentType.FORMULA) {
+            boolean latex = blocks != null && blocks.stream()
+                    .anyMatch(block -> block.latex() != null && !block.latex().isBlank());
+            provenance.put("textFormat", latex ? "LATEX" : "PLAIN_TEXT");
+            provenance.put("textReliable", Boolean.toString(latex));
+            return;
+        }
+        provenance.put("textFormat", "PLAIN_TEXT");
+        provenance.put("textReliable", Boolean.toString(raw != null && !raw.isBlank()));
     }
 
     private static SourceContentType contentType(DocumentBlockRole role) {

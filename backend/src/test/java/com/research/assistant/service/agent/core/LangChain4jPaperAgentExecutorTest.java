@@ -28,7 +28,7 @@ class LangChain4jPaperAgentExecutorTest {
             public ChatResponse doChat(ChatRequest request) {
                 requests.add(request);
                 if (requests.size() == 1) {
-                    return response("retrieve-1", "retrieve_paper_evidence", "{\"searches\":[{\"query\":\"question\"}]}");
+                    return response("retrieve-1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"question\",\"query\":\"question\"}]}");
                 }
                 return response("submit-1", "submit_answer",
                         "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"回答\",\"sourceObjectIds\":[]}]}");
@@ -41,7 +41,7 @@ class LangChain4jPaperAgentExecutorTest {
         AgentFrameworkResult result = executor.execute(model,
                 List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
                 List.of(
-                        new AgentToolDefinition("retrieve_paper_evidence", "retrieve", objectSchema("searches")),
+                        new AgentToolDefinition("retrieve_paper_evidence", "retrieve", objectSchema("needs")),
                         new AgentToolDefinition("submit_answer", "finish", objectSchema("groundingMode"))),
                 request -> {
                     executed.add(request.name());
@@ -119,7 +119,7 @@ class LangChain4jPaperAgentExecutorTest {
                 int call = modelCalls.incrementAndGet();
                 if (call <= 3) {
                     return response("retrieve-" + call, "retrieve_paper_evidence",
-                            "{\"searches\":[{\"query\":\"question " + call + "\"}]}");
+                            "{\"needs\":[{\"id\":\"question-" + call + "\",\"query\":\"question " + call + "\"}]}");
                 }
                 return response("submit-final", "submit_answer",
                         "{\"answerBlocks\":[{\"text\":\"最终回答\",\"sourceObjectIds\":[]}]}" );
@@ -131,7 +131,7 @@ class LangChain4jPaperAgentExecutorTest {
         AgentFrameworkResult result = executor.execute(model,
                 List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
                 List.of(
-                        new AgentToolDefinition("retrieve_paper_evidence", "retrieve", objectSchema("searches")),
+                        new AgentToolDefinition("retrieve_paper_evidence", "retrieve", objectSchema("needs")),
                         new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
                 request -> {
                     executed.add(request.name());
@@ -179,7 +179,7 @@ class LangChain4jPaperAgentExecutorTest {
                 requests.add(request);
                 if (requests.size() == 1) {
                     return response("visual-1", "retrieve_paper_evidence",
-                            "{\"needs\":[{\"query\":\"figure\",\"includeVisual\":true}]}");
+                            "{\"needs\":[{\"id\":\"figure\",\"query\":\"figure\",\"includeVisual\":true}]}");
                 }
                 return ChatResponse.builder().aiMessage(AiMessage.from("看到了图像证据")).build();
             }
@@ -221,7 +221,7 @@ class LangChain4jPaperAgentExecutorTest {
                 }
                 if (modelCalls.get() == 2) {
                     return response("evidence-1", "retrieve_paper_evidence",
-                            "{\"needs\":[{\"query\":\"method\"}]}");
+                            "{\"needs\":[{\"id\":\"method\",\"query\":\"method\"}]}");
                 }
                 return ChatResponse.builder().aiMessage(AiMessage.from("完成")).build();
             }

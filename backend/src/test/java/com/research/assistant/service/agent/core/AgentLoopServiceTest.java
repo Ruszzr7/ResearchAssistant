@@ -163,7 +163,7 @@ class AgentLoopServiceTest {
     void paperAnswerRequiresReadSourceAndGroundsExactQuote() throws Exception {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
-        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"searches\":[{\"query\":\"accuracy\"}]}"));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"accuracy\",\"query\":\"accuracy\"}]}"));
         gateway.add(decisionTool("m2", "submit_answer", """
                 {"groundingMode":"PAPER","answerBlocks":[
                 {"text":"该方法达到 95% accuracy。","sourceObjectIds":["src-1"]}]}
@@ -184,7 +184,7 @@ class AgentLoopServiceTest {
     void paperAnswerRemovesModelAuthoredCitationNumbersBeforePersistence() throws Exception {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
-        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"searches\":[{\"query\":\"accuracy\"}]}"));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"accuracy\",\"query\":\"accuracy\"}]}"));
         gateway.add(decisionTool("m2", "submit_answer", """
                 {"groundingMode":"PAPER","answerBlocks":[
                 {"text":"该方法达到 95% accuracy [1]。","sourceObjectIds":["src-1"]}]}
@@ -212,7 +212,7 @@ class AgentLoopServiceTest {
     void paperCitationBindsTheWholeAnswerBlockWithoutClaimMatching() throws Exception {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
-        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"searches\":[{\"query\":\"accuracy\"}]}"));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"accuracy\",\"query\":\"accuracy\"}]}"));
         gateway.add(decisionTool("m2", "submit_answer", """
                 {"groundingMode":"PAPER","answerBlocks":[
                 {"text":"核心结论是**该方法达到 95% accuracy**。","sourceObjectIds":["src-1"]}]}
@@ -232,7 +232,7 @@ class AgentLoopServiceTest {
     void paperCitationCanBindAClaimThatSummarizesTwoAdjacentSentences() throws Exception {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
-        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"searches\":[{\"query\":\"accuracy\"}]}"));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"accuracy\",\"query\":\"accuracy\"}]}"));
         gateway.add(decisionTool("m2", "submit_answer", """
                 {"groundingMode":"PAPER","answerBlocks":[
                 {"text":"核心结论是该方法的准确率下界。该下界达到 95% accuracy。","sourceObjectIds":["src-1"]}]}
@@ -252,7 +252,7 @@ class AgentLoopServiceTest {
     void answerMayMixUncitedGeneralExplanationWithCitedPaperClaim() throws Exception {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
-        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"searches\":[{\"query\":\"accuracy\"}]}"));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"accuracy\",\"query\":\"accuracy\"}]}"));
         gateway.add(decisionTool("m2", "submit_answer", """
                 {"answerBlocks":[
                   {"text":"一般而言，准确率越高通常越好。","sourceObjectIds":[]},
@@ -339,7 +339,7 @@ class AgentLoopServiceTest {
     void paperReadFailureIsReturnedAsNonBlockingUnavailableContext() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
-        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"searches\":[{\"query\":\"missing\"}]}"));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"missing\",\"query\":\"missing\"}]}"));
         gateway.add(new ScriptedDecision("根据论文画像，当前仍可概括其主要思路。", List.of()));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString())).thenThrow(new IllegalArgumentException("source not found"));
 
@@ -357,7 +357,7 @@ class AgentLoopServiceTest {
     void plainMarkdownAfterSuccessfulEvidenceReadFailsTheGroundingContract() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
-        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"searches\":[{\"query\":\"accuracy\"}]}"));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"accuracy\",\"query\":\"accuracy\"}]}"));
         gateway.add(new ScriptedDecision("论文报告的方法准确率为 95%。", List.of()));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-1\"}]}", Set.of("src-1")));
@@ -369,32 +369,36 @@ class AgentLoopServiceTest {
     }
 
     @Test
-    void repeatedChangedEvidenceRequestReportsNoNewSourcesAndExhaustion() {
+    void repeatedChangedEvidenceRequestReportsNoNewSourcesWithoutClaimingExhaustion() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
-                "{\"searches\":[{\"query\":\"accuracy\"}]}"));
+                "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"accuracy\"}]}"));
         gateway.add(decisionTool("m2", "retrieve_paper_evidence",
-                "{\"searches\":[{\"query\":\"performance result\"}]}"));
+                "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"performance result\","
+                        + "\"refinementReason\":\"首次来源尚未给出准确率结果\"}]}"));
         gateway.add(decisionTool("m3", "submit_answer",
                 "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
-                .thenReturn(new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-1\"}]}", Set.of("src-1")));
+                .thenReturn(
+                        new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-1\"}],\"evidenceNeeds\":[{\"needId\":\"accuracy\",\"sourceObjectIds\":[\"src-1\"]}]}", Set.of("src-1")),
+                        new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-1\"}],\"evidenceNeeds\":[{\"needId\":\"accuracy\",\"sourceObjectIds\":[\"src-1\"]}]}", Set.of("src-1")));
 
         AgentTurnResult result = service.execute(input("论文准确率是多少？"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
         assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("\"newSourceCount\":0")
-                        && entry.content().contains("\"exhausted\":true"));
+                        && entry.content().contains("\"outcome\":\"same_sources\"")
+                        && entry.content().contains("\"recommendedAction\":\"stop\"")
+                        && !entry.content().contains("\"exhausted\""));
     }
 
     @Test
     void identicalEvidenceRequestsReuseOnlyTheExactRequest() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
-        String request = "{\"searches\":[{\"query\":\"accuracy\"}]}";
+        String request = "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"accuracy\"}]}";
         gateway.add(decisionTool("m1", "retrieve_paper_evidence", request));
         gateway.add(decisionTool("m2", "retrieve_paper_evidence", request));
         gateway.add(decisionTool("m3", "submit_answer", "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
@@ -410,23 +414,227 @@ class AgentLoopServiceTest {
     }
 
     @Test
-    void changedEvidenceRequestRemainsAvailableToTheAgent() {
+    void normalizedEquivalentNeedRequestsAreReportedAsDuplicates() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", """
+                {"needs":[{"id":"accuracy","objective":"确认准确率", "query":"Accuracy   result",
+                "keywords":["Beta","Alpha"]}]}
+                """));
+        gateway.add(decisionTool("m2", "retrieve_paper_evidence", """
+                {"needs":[{"keywords":["alpha","BETA"],"query":" accuracy result ",
+                "objective":"确认准确率","id":"accuracy"}]}
+                """));
+        gateway.add(decisionTool("m3", "submit_answer",
+                "{\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(new AgentToolExecution(
+                        "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
+                                + "\"evidenceNeeds\":[{\"needId\":\"accuracy\",\"retrievalStatus\":\"found\",\"sourceObjectIds\":[\"src-1\"]}]}",
+                        Set.of("src-1")));
+
+        AgentTurnResult result = service.execute(input("论文准确率是多少？"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        assertThat(gateway.requests).anySatisfy(request -> assertThat(request.messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("\"outcome\":\"duplicate_request\"")
+                        && entry.content().contains("\"recommendedAction\":\"stop\"")));
+    }
+
+    @Test
+    void stoppedNeedsDoNotExecuteRetrievalAgain() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        String request = "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"accuracy\"}]}";
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", request));
+        gateway.add(decisionTool("m2", "retrieve_paper_evidence", request));
+        gateway.add(decisionTool("m3", "retrieve_paper_evidence", request));
+        gateway.add(decisionTool("m4", "submit_answer",
+                "{\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(new AgentToolExecution(
+                        "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
+                                + "\"evidenceNeeds\":[{\"needId\":\"accuracy\",\"retrievalStatus\":\"found\",\"sourceObjectIds\":[\"src-1\"]}]}",
+                        Set.of("src-1")));
+
+        AgentTurnResult result = service.execute(input("论文准确率是多少？"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        verify(tools, times(1)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        assertThat(gateway.requests.get(3).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("\"status\":\"need_stopped\"")
+                        && entry.content().contains("\"recommendedAction\":\"answer\""));
+    }
+
+    @Test
+    void repeatedStaticValidationFailureStopsTheNeed() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        String request = "{\"needs\":[{\"id\":\"missing\",\"objective\":\"确认目标\"}]}";
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", request));
+        gateway.add(decisionTool("m2", "retrieve_paper_evidence", request));
+        gateway.add(decisionTool("m3", "submit_answer",
+                "{\"answerBlocks\":[{\"text\":\"当前未找到足够证据。\",\"sourceObjectIds\":[]}]}"));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(new AgentToolExecution(
+                        "{\"status\":\"invalid_request\",\"sources\":[],\"evidenceNeeds\":[],"
+                                + "\"issues\":[{\"needId\":\"missing\",\"field\":\"query\","
+                                + "\"code\":\"MISSING_RETRIEVAL_ANCHOR\",\"message\":\"缺少锚点\"}]}",
+                        Set.of()));
+
+        AgentTurnResult result = service.execute(input("论文是否讨论了目标？"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        verify(tools, times(1)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("\"status\":\"need_stopped\"")
+                        && entry.content().contains("连续两次未通过输入契约"));
+    }
+
+    @Test
+    void invalidContinuationExplainsObjectiveAndRefinementContractWithoutCallingSearchAgain() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
-                "{\"searches\":[{\"query\":\"accuracy\"}]}"));
+                "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"accuracy\"}]}"));
         gateway.add(decisionTool("m2", "retrieve_paper_evidence",
-                "{\"searches\":[{\"query\":\"dataset\"}]}"));
+                "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认数据集\",\"query\":\"dataset\"}]}"));
+        gateway.add(decisionTool("m3", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"performance\"}]}"));
+        gateway.add(decisionTool("m4", "submit_answer",
+                "{\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(new AgentToolExecution(
+                        "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
+                                + "\"evidenceNeeds\":[{\"needId\":\"accuracy\",\"retrievalStatus\":\"found\",\"sourceObjectIds\":[\"src-1\"]}]}",
+                        Set.of("src-1")));
+
+        AgentTurnResult result = service.execute(input("论文准确率是多少？"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        verify(tools, times(1)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        assertThat(gateway.requests).anySatisfy(request -> assertThat(request.messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("NEED_OBJECTIVE_CHANGED")));
+        assertThat(gateway.requests).anySatisfy(request -> assertThat(request.messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("MISSING_REFINEMENT_REASON")));
+    }
+
+    @Test
+    void newNeedAfterTheInitialPlanIsBlockedWithoutAnotherRetrieval() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"accuracy\"}]}"));
+        gateway.add(decisionTool("m2", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"dataset\",\"objective\":\"确认数据集\",\"query\":\"dataset\"}]}"));
         gateway.add(decisionTool("m3", "submit_answer", "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
-                .thenReturn(new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-1\"}]}", Set.of("src-1")));
+                .thenReturn(new AgentToolExecution(
+                        "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
+                                + "\"evidenceNeeds\":[{\"needId\":\"accuracy\",\"sourceObjectIds\":[\"src-1\"]}]}",
+                        Set.of("src-1")));
 
         AgentTurnResult result = service.execute(input("论文准确率和数据集是什么？"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
-        verify(tools, times(2)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        verify(tools, times(1)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
         assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
-                entry.role() == AgentChatEntry.Role.TOOL && entry.content().contains("src-1"));
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("NEW_NEED_NOT_ALLOWED")
+                        && entry.content().contains("\"status\":\"need_stopped\""));
+    }
+
+    @Test
+    void reportsProgressPerNeedAcrossRefinementRequests() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"mechanism\",\"objective\":\"确认论文机制\",\"query\":\"mechanism\"}]}"));
+        gateway.add(decisionTool("m2", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"mechanism\",\"objective\":\"确认论文机制\",\"query\":\"mechanism result\","
+                        + "\"refinementReason\":\"首批来源缺少机制结果\"}]}"));
+        gateway.add(decisionTool("m3", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"mechanism\",\"objective\":\"确认论文机制\",\"query\":\"mechanism conclusion\","
+                        + "\"refinementReason\":\"第二批来源仍缺少机制结论\"}]}"));
+        gateway.add(decisionTool("m4", "submit_answer",
+                "{\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(
+                        new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-1\"}],\"evidenceNeeds\":[{\"needId\":\"mechanism\",\"sourceObjectIds\":[\"src-1\"]}]}", Set.of("src-1")),
+                        new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-1\"},{\"sourceObjectId\":\"src-2\"}],\"evidenceNeeds\":[{\"needId\":\"mechanism\",\"sourceObjectIds\":[\"src-1\",\"src-2\"]}]}", Set.of("src-1", "src-2")),
+                        new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-2\"}],\"evidenceNeeds\":[{\"needId\":\"mechanism\",\"sourceObjectIds\":[\"src-2\"]}]}", Set.of("src-2")));
+
+        AgentTurnResult result = service.execute(input("论文中的机制是什么？"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        assertThat(gateway.requests.get(3).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("\"outcome\":\"same_sources\"")
+                        && entry.content().contains("\"recommendedAction\":\"stop\""));
+    }
+
+    @Test
+    void mixedBatchReportsIndependentNeedProgressWithoutTopLevelDecisionFlags() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence", """
+                {"needs":[
+                {"id":"mechanism","objective":"确认机制","query":"mechanism"},
+                {"id":"result","objective":"确认结果","query":"missing result"}]}
+                """));
+        gateway.add(decisionTool("m2", "submit_answer",
+                "{\"answerBlocks\":[{\"text\":\"机制结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(new AgentToolExecution(
+                        "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
+                                + "\"evidenceNeeds\":["
+                                + "{\"needId\":\"mechanism\",\"retrievalStatus\":\"found\",\"sourceObjectIds\":[\"src-1\"]},"
+                                + "{\"needId\":\"result\",\"retrievalStatus\":\"not_found\",\"sourceObjectIds\":[]}]}",
+                        Set.of("src-1")));
+
+        AgentTurnResult result = service.execute(input("论文的机制和结果是什么？"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        assertThat(gateway.requests.get(1).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("\"outcome\":\"new_sources\"")
+                        && entry.content().contains("\"outcome\":\"no_match\"")
+                        && entry.content().contains("\"recommendedAction\":\"refine_once\"")
+                        && !entry.content().contains("\"noProgress\"")
+                        && !entry.content().contains("\"stopRecommended\""));
+    }
+
+    @Test
+    void reportsFirstNoMatchBeforeStoppingAnUnproductiveRefinement() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"missing\",\"objective\":\"确认缺失概念\",\"query\":\"missing concept\"}]}"));
+        gateway.add(decisionTool("m2", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"missing\",\"objective\":\"确认缺失概念\",\"query\":\"missing result\","
+                        + "\"refinementReason\":\"首次没有命中，改用结果术语\"}]}"));
+        gateway.add(new ScriptedDecision("当前来源中没有找到该事实。", List.of()));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(
+                        new AgentToolExecution("{\"status\":\"not_found\",\"sources\":[],\"evidenceNeeds\":[{\"needId\":\"missing\",\"status\":\"not_found\",\"sourceObjectIds\":[]}]}", Set.of()),
+                        new AgentToolExecution("{\"status\":\"not_found\",\"sources\":[],\"evidenceNeeds\":[{\"needId\":\"missing\",\"status\":\"not_found\",\"sourceObjectIds\":[]}]}", Set.of()));
+
+        AgentTurnResult result = service.execute(input("论文是否给出了该不存在概念的结果？"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("\"outcome\":\"no_match\"")
+                        && entry.content().contains("\"recommendedAction\":\"refine_once\""));
+        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("\"outcome\":\"no_match\"")
+                        && entry.content().contains("\"recommendedAction\":\"stop\""));
     }
 
     @Test

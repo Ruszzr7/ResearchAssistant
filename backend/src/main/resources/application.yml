@@ -55,6 +55,9 @@ app:
     # Only used to split an individual oversized source block for transport;
     # paper understanding itself remains one whole-paper model call.
     source-max-chars: ${PAPER_MEMORY_SOURCE_MAX_CHARS:36000}
+  ai:
+    # Long-paper understanding uses a separate request deadline from chat.
+    paper-request-timeout-seconds: ${APP_AI_PAPER_REQUEST_TIMEOUT_SECONDS:150}
   rag:
     index-retention: ${RAG_INDEX_RETENTION:7d}
     index-cleanup-cron: ${RAG_INDEX_CLEANUP_CRON:0 45 3 * * *}

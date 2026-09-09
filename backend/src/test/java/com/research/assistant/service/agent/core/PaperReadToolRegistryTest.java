@@ -43,12 +43,13 @@ class PaperReadToolRegistryTest {
         assertThat(schema.at("/properties/needs").isObject()).isTrue();
         assertThat(schema.at("/properties/searches").isMissingNode()).isTrue();
         assertThat(registry.definitions().get(0).description())
-                .contains("all currently known", "one fallback", "coverage");
+                .contains("独立事实", "objective", "词面核对");
         assertThat(schema.at("/properties/needs/items/properties/targets").isObject()).isTrue();
         assertThat(schema.at("/properties/needs/items/properties/includeVisual/type").asText())
                 .isEqualTo("boolean");
         assertThat(schema.at("/properties/needs/items/properties/sourceObjectIds").isObject()).isTrue();
         assertThat(schema.at("/properties/needs/items/anyOf").isMissingNode()).isTrue();
+        assertThat(schema.at("/properties/needs/items/required").toString()).contains("id", "objective");
         assertThat(schema.at("/properties/maxEvidence/maximum").asInt()).isEqualTo(8);
         assertThat(registry.definitions("请总结第 5 页")).extracting(AgentToolDefinition::name)
                 .containsExactly("retrieve_paper_evidence");
@@ -69,9 +70,9 @@ class PaperReadToolRegistryTest {
         PaperReadToolRegistry registry = new PaperReadToolRegistry(sourceService, objectMapper);
 
         AgentToolExecution execution = registry.execute(catalog, "retrieve_paper_evidence", """
-                {"searches":[
-                  {"query":"最重要公式","contentTypes":["FORMULA"]},
-                  {"query":"公式对应定理","contentTypes":["TEXT"]}
+                {"needs":[
+                  {"id":"formula","objective":"确认最重要公式","query":"最重要公式","contentTypes":["FORMULA"]},
+                  {"id":"theorem","objective":"确认公式对应定理","query":"公式对应定理","contentTypes":["TEXT"]}
                 ],"maxEvidence":4}
                 """);
         JsonNode json = objectMapper.readTree(execution.resultJson());
@@ -93,12 +94,77 @@ class PaperReadToolRegistryTest {
 
         AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper).execute(
                 catalog, "retrieve_paper_evidence",
-                "{\"needs\":[{\"sourceObjectIds\":[\"src-1\"],\"includeVisual\":true}]}");
+                "{\"needs\":[{\"id\":\"direct-source\",\"objective\":\"读取已知来源\",\"sourceObjectIds\":[\"src-1\"],\"includeVisual\":true}]}");
 
         assertThat(execution.sourceObjectIds()).containsExactly("src-1");
         assertThat(objectMapper.readTree(execution.resultJson())
                 .at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-1");
         verify(sourceService, times(0)).search(eq(catalog), any());
+    }
+
+    @Test
+    void returnsStructuredIssuesForInvalidNeedContracts() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        PaperSourceCatalog catalog = catalog(5, "formula", "context");
+        PaperReadToolRegistry registry = new PaperReadToolRegistry(sourceService, objectMapper);
+
+        JsonNode missing = objectMapper.readTree(registry.execute(catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"query\":\"formula\"}]}").resultJson());
+        assertThat(missing.path("status").asText()).isEqualTo("invalid_request");
+        assertThat(missing.path("issues").toString())
+                .contains("MISSING_REQUIRED_FIELD", "id", "objective");
+
+        JsonNode duplicate = objectMapper.readTree(registry.execute(catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"same\",\"objective\":\"公式\",\"query\":\"formula\"},"
+                        + "{\"id\":\"same\",\"objective\":\"上下文\",\"query\":\"context\"}]}"
+        ).resultJson());
+        assertThat(duplicate.path("status").asText()).isEqualTo("invalid_request");
+        assertThat(duplicate.path("issues").toString()).contains("DUPLICATE_NEED_ID");
+
+        JsonNode noAnchor = objectMapper.readTree(registry.execute(catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"empty\",\"objective\":\"确认一个事实\"}]}"
+        ).resultJson());
+        assertThat(noAnchor.path("issues").toString()).contains("MISSING_RETRIEVAL_ANCHOR");
+    }
+
+    @Test
+    void reportsMalformedJsonAndUnknownAnchorsWithoutClaimingServiceFailure() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        PaperSourceCatalog catalog = catalog(5, "formula", "context");
+        PaperReadToolRegistry registry = new PaperReadToolRegistry(sourceService, objectMapper);
+
+        JsonNode malformed = objectMapper.readTree(
+                registry.execute(catalog, "retrieve_paper_evidence", "{not-json").resultJson());
+        assertThat(malformed.path("status").asText()).isEqualTo("invalid_request");
+        assertThat(malformed.path("issues").toString()).contains("MALFORMED_JSON");
+
+        JsonNode unknown = objectMapper.readTree(registry.execute(catalog, "retrieve_paper_evidence", """
+                {"needs":[{"id":"known-anchor","objective":"读取给定证据锚点",
+                "sourceObjectIds":["missing-source"],"profileClaimRefs":["finding:99"]}]}
+                """).resultJson());
+        assertThat(unknown.path("status").asText()).isEqualTo("not_found");
+        assertThat(unknown.at("/evidenceNeeds/0/invalidSourceObjectIds").toString())
+                .contains("missing-source");
+        assertThat(unknown.at("/evidenceNeeds/0/invalidProfileClaimRefs").toString())
+                .contains("finding:99");
+        verify(sourceService, times(0)).search(eq(catalog), any());
+    }
+
+    @Test
+    void allowsPageRangeOnlyReadsWithoutInventingANeed() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        PaperSourceCatalog catalog = catalog(5, "formula", "context");
+        when(sourceService.readPages(catalog, 1, 2, PaperReadToolRegistry.MAX_CONTENT_CHARACTERS))
+                .thenReturn(List.of(catalog.requireObject("src-1")));
+        when(sourceService.readSource(catalog, "src-1")).thenReturn(catalog.requireObject("src-1"));
+
+        AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence", "{\"pageRanges\":[{\"startPage\":1,\"endPage\":2}]}");
+        JsonNode json = objectMapper.readTree(execution.resultJson());
+
+        assertThat(json.path("status").asText()).isEqualTo("found");
+        assertThat(json.path("evidenceNeeds")).isEmpty();
+        assertThat(execution.sourceObjectIds()).containsExactly("src-1");
     }
 
     @Test
@@ -115,16 +181,16 @@ class PaperReadToolRegistryTest {
 
         AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper).execute(
                 catalog, "retrieve_paper_evidence",
-                "{\"needs\":[{\"id\":\"formula\",\"query\":\"formula\"},{\"id\":\"context\",\"query\":\"context\"}],\"maxEvidence\":2}");
+                "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认公式\",\"query\":\"formula\"},{\"id\":\"context\",\"objective\":\"确认上下文\",\"query\":\"context\"}],\"maxEvidence\":2}");
         JsonNode json = objectMapper.readTree(execution.resultJson());
 
         assertThat(execution.sourceObjectIds()).containsExactlyInAnyOrder("src-1", "src-3");
         assertThat(json.path("sources").findValues("matchedSearches").toString()).contains("0", "1");
-        assertThat(json.at("/evidenceNeeds/0/status").asText()).isEqualTo("found");
-        assertThat(json.at("/evidenceNeeds/1/status").asText()).isEqualTo("found");
+        assertThat(json.at("/evidenceNeeds/0/retrievalStatus").asText()).isEqualTo("found");
+        assertThat(json.at("/evidenceNeeds/1/retrievalStatus").asText()).isEqualTo("found");
         assertThat(json.at("/evidenceNeeds/0/needId").asText()).isEqualTo("formula");
         assertThat(json.at("/evidenceNeeds/1/needId").asText()).isEqualTo("context");
-        assertThat(json.at("/coverage").asText()).isEqualTo("found");
+        assertThat(json.has("coverage")).isFalse();
         assertThat(json.has("candidateCount")).isFalse();
     }
 
@@ -138,13 +204,12 @@ class PaperReadToolRegistryTest {
 
         AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper).execute(
                 catalog, "retrieve_paper_evidence", """
-                        {"needs":[{"id":"fallback","query":"long query without a hit",
+                        {"needs":[{"id":"fallback","objective":"确认 fallback 证据","query":"long query without a hit",
                         "keywords":["fallback evidence"]}],"maxEvidence":1}
                         """);
         JsonNode json = objectMapper.readTree(execution.resultJson());
 
-        assertThat(json.at("/coverage").asText()).isEqualTo("found");
-        assertThat(json.at("/evidenceNeeds/0/status").asText()).isEqualTo("found");
+        assertThat(json.at("/evidenceNeeds/0/retrievalStatus").asText()).isEqualTo("found");
         assertThat(json.at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-1");
         verify(sourceService, times(2)).search(eq(catalog), any());
     }
@@ -161,7 +226,7 @@ class PaperReadToolRegistryTest {
         PaperReadToolRegistry registry = new PaperReadToolRegistry(sourceService, objectMapper);
 
         AgentToolExecution execution = registry.execute(catalog, "retrieve_paper_evidence",
-                "{\"searches\":[{\"query\":\"test\"}],\"maxEvidence\":8}");
+                "{\"needs\":[{\"id\":\"payload\",\"objective\":\"确认测试内容\",\"query\":\"test\"}],\"maxEvidence\":8}");
         JsonNode json = objectMapper.readTree(execution.resultJson());
 
         assertThat(execution.resultJson().getBytes(StandardCharsets.UTF_8).length)
@@ -173,28 +238,36 @@ class PaperReadToolRegistryTest {
     }
 
     @Test
-    void boundsModelGeneratedSearchesWithoutFailingTheEvidenceBatch() throws Exception {
+    void rejectsOversizedFieldsAndBatchesWithoutExecutingSearch() throws Exception {
         PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
         when(sourceService.search(any(), any())).thenReturn(List.of());
         PaperReadToolRegistry registry = new PaperReadToolRegistry(sourceService, objectMapper);
         PaperSourceCatalog catalog = catalog(5, "text", "more text");
 
         String longQuery = "important ".repeat(1_000);
-        String arguments = objectMapper.writeValueAsString(Map.of("searches", List.of(
-                Map.of("query", longQuery, "contentTypes", List.of("TEXT", "UNKNOWN")),
-                Map.of("query", "2"), Map.of("query", "3"), Map.of("query", "4"), Map.of("query", "5"))));
+        String arguments = objectMapper.writeValueAsString(Map.of("needs", List.of(
+                Map.of("id", "long-query", "objective", "确认长查询输入", "query", longQuery,
+                        "contentTypes", List.of("TEXT", "UNKNOWN")))));
         AgentToolExecution execution = registry.execute(catalog, "retrieve_paper_evidence", arguments);
 
-        assertThat(objectMapper.readTree(execution.resultJson()).path("requestedSearches").asInt()).isEqualTo(4);
-        var captor = org.mockito.ArgumentCaptor.forClass(
-                com.research.assistant.service.agent.source.PaperSearchRequest.class);
-        verify(sourceService, times(5)).search(eq(catalog), captor.capture());
-        assertThat(captor.getAllValues()).allSatisfy(request ->
-                assertThat(request.query().length()).isLessThanOrEqualTo(PaperReadToolRegistry.MAX_QUERY_CHARACTERS));
+        JsonNode invalid = objectMapper.readTree(execution.resultJson());
+        assertThat(invalid.path("status").asText()).isEqualTo("invalid_request");
+        assertThat(invalid.path("issues").toString()).contains("TEXT_TOO_LONG", "INVALID_ENUM_VALUE");
+        verify(sourceService, times(0)).search(eq(catalog), any());
+
+        String oversized = objectMapper.writeValueAsString(Map.of("needs", List.of(
+                Map.of("id", "one", "objective", "一", "query", "1"),
+                Map.of("id", "two", "objective", "二", "query", "2"),
+                Map.of("id", "three", "objective", "三", "query", "3"),
+                Map.of("id", "four", "objective", "四", "query", "4"),
+                Map.of("id", "five", "objective", "五", "query", "5"))));
+        JsonNode oversizedResult = objectMapper.readTree(
+                registry.execute(catalog, "retrieve_paper_evidence", oversized).resultJson());
+        assertThat(oversizedResult.path("issues").toString()).contains("TOO_MANY_NEEDS");
 
         assertThatThrownBy(() -> registry.execute(catalog, "read_pages", "{\"startPage\":1,\"endPage\":3}"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("at most two");
+                .hasMessageContaining("最多接受连续两页");
     }
 
     @Test
@@ -215,12 +288,14 @@ class PaperReadToolRegistryTest {
 
         AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper, memoryMapper)
                 .execute(catalog, "retrieve_paper_evidence", """
-                        {"searches":[{"query":"结论"}],"maxEvidence":1}
+                        {"needs":[{"id":"claim","objective":"确认画像结论",
+                        "profileClaimRefs":["finding:0"]}],"maxEvidence":1}
                         """);
 
         assertThat(execution.sourceObjectIds()).containsExactly("src-1");
         assertThat(objectMapper.readTree(execution.resultJson()).at("/sources/0/content").asText())
                 .isEqualTo("direct supporting statement");
+        verify(sourceService, times(0)).search(eq(catalog), any());
     }
 
     @Test
@@ -244,7 +319,7 @@ class PaperReadToolRegistryTest {
 
         AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper, memoryMapper)
                 .execute(catalog, "retrieve_paper_evidence",
-                        "{\"searches\":[{\"query\":\"rate\"}],\"maxEvidence\":1}",
+                        "{\"needs\":[{\"id\":\"rate\",\"objective\":\"确认速率与块长关系\",\"query\":\"rate\"}],\"maxEvidence\":1}",
                         "较短码长与较低错误率之间的关系");
         JsonNode json = objectMapper.readTree(execution.resultJson());
 
@@ -252,7 +327,7 @@ class PaperReadToolRegistryTest {
         assertThat(json.has("evidenceBatchComplete")).isFalse();
         assertThat(json.has("nextStep")).isFalse();
         assertThat(json.has("additionalEvidenceAllowed")).isFalse();
-        assertThat(json.path("usage").asText()).contains("unresolvedTargets", "newSourceCount");
+        assertThat(json.path("usage").asText()).contains("targetCoverage", "补检索");
     }
 
     @Test
@@ -265,17 +340,16 @@ class PaperReadToolRegistryTest {
 
         AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper).execute(
                 catalog, "retrieve_paper_evidence", """
-                        {"needs":[{"id":"formulas","query":"rate bound",
+                        {"needs":[{"id":"formulas","objective":"确认公式编号","query":"rate bound",
                         "targets":["21","22"]}],"maxEvidence":8}
                         """);
         JsonNode json = objectMapper.readTree(execution.resultJson());
 
-        assertThat(json.at("/coverage").asText()).isEqualTo("partial");
-        assertThat(json.at("/evidenceNeeds/0/status").asText()).isEqualTo("partial");
-        assertThat(json.at("/evidenceNeeds/0/coveredTargets").toString()).contains("21");
-        assertThat(json.at("/evidenceNeeds/0/unresolvedTargets").toString()).contains("22");
-        assertThat(json.at("/unresolvedTargets").toString()).contains("22");
-        assertThat(json.at("/exhausted").asBoolean()).isFalse();
+        assertThat(json.has("coverage")).isFalse();
+        assertThat(json.at("/evidenceNeeds/0/retrievalStatus").asText()).isEqualTo("found");
+        assertThat(json.at("/evidenceNeeds/0/targetCoverage/matchedTargets").toString()).contains("21");
+        assertThat(json.at("/evidenceNeeds/0/targetCoverage/missingTargets").toString()).contains("22");
+        assertThat(json.has("exhausted")).isFalse();
     }
 
     @Test
@@ -289,7 +363,7 @@ class PaperReadToolRegistryTest {
 
         AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper).execute(
                 catalog, "retrieve_paper_evidence",
-                "{\"needs\":[{\"id\":\"formula\",\"query\":\"complete formula 35\"}]}");
+                "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认完整公式 35\",\"query\":\"complete formula 35\"}]}");
         JsonNode json = objectMapper.readTree(execution.resultJson());
 
         assertThat(execution.sourceObjectIds()).hasSize(7)
