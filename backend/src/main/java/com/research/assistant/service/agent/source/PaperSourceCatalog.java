@@ -21,6 +21,22 @@ public record PaperSourceCatalog(
             locators.forEach((key, value) -> copied.put(key, value == null ? List.of() : List.copyOf(value)));
             locators = Map.copyOf(copied);
         }
+        for (Map.Entry<String, SourceObject> entry : objects.entrySet()) {
+            String id = entry.getKey();
+            SourceObject object = entry.getValue();
+            if (object == null || !id.equals(object.sourceObjectId())) {
+                throw new IllegalArgumentException("证据目录包含无效来源对象：" + id);
+            }
+        }
+        for (Map.Entry<String, List<SourceLocator>> entry : locators.entrySet()) {
+            if (!objects.containsKey(entry.getKey())) {
+                throw new IllegalArgumentException("证据目录定位没有对应来源对象：" + entry.getKey());
+            }
+            if (entry.getValue().stream().anyMatch(locator ->
+                    locator == null || !entry.getKey().equals(locator.sourceObjectId()))) {
+                throw new IllegalArgumentException("证据目录定位与来源对象不匹配：" + entry.getKey());
+            }
+        }
     }
 
     public SourceObject requireObject(String sourceObjectId) {

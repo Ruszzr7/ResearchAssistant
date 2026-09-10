@@ -31,6 +31,9 @@ public class GroundEvidenceService {
             }
             SourceObject source = catalog.requireObject(request.sourceObjectId());
             validateVersion(source, catalog);
+            if (!SourceEvidenceQuality.usableForCitation(source)) {
+                throw new IllegalArgumentException("引用来源文本质量不足，不能作为独立证据");
+            }
             List<SourceLocator> available = catalog.requireLocators(request.sourceObjectId());
             Set<String> availableIds = available.stream().map(SourceLocator::locatorId)
                     .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
@@ -47,9 +50,13 @@ public class GroundEvidenceService {
                     .filter(candidate -> candidate.source.sourceObjectId().equals(source.sourceObjectId())
                             || SourceEvidenceIdentity.key(candidate.source, candidate.locators)
                             .equals(SourceEvidenceIdentity.key(source, selectedLocators))
+                            || SourceEvidenceIdentity.formulaEquivalent(candidate.source,
+                            candidate.locators, source, selectedLocators)
                             || SourceEvidenceIdentity.equivalent(candidate.source,
                             candidate.locators, source, selectedLocators))
                     .findFirst().orElse(null);
+            boolean sameFormula = match != null && SourceEvidenceIdentity.formulaEquivalent(
+                    match.source, match.locators, source, selectedLocators);
             if (match == null) {
                 match = new CanonicalEvidence(canonical.size() + 1, source, selectedLocators,
                         List.copyOf(locatorIds));
@@ -57,7 +64,8 @@ public class GroundEvidenceService {
             } else if (match.source.sourceObjectId().equals(source.sourceObjectId())) {
                 match.locators = mergeLocators(match.locators, selectedLocators);
                 match.locatorIds = match.locators.stream().map(SourceLocator::locatorId).toList();
-            } else if (source.rawContent().length() > match.source.rawContent().length()) {
+            } else if ((sameFormula && preferredFormula(source, match.source))
+                    || (!sameFormula && source.rawContent().length() > match.source.rawContent().length())) {
                 match.source = source;
                 match.locators = selectedLocators;
                 match.locatorIds = List.copyOf(locatorIds);
@@ -90,12 +98,32 @@ public class GroundEvidenceService {
     private static String evidencePreview(SourceObject source) {
         if (source.contentType() == SourceContentType.FORMULA
                 && !Boolean.parseBoolean(source.provenance().getOrDefault("textReliable", "false"))) {
-            String label = source.formulaNumber().isBlank() ? "公式区域" : "公式 (" + source.formulaNumber() + ")";
-            return label + "的文本提取不可靠，请查看原始页面区域。";
+            return formulaLabel(source);
         }
         String value = source.rawContent().strip();
         if (value.length() <= 320) return value;
         return value.substring(0, 319) + "…";
+    }
+
+    private static String formulaLabel(SourceObject source) {
+        return source.formulaNumber().isBlank() ? "公式区域" : "公式 (" + source.formulaNumber() + ")";
+    }
+
+    private static boolean preferredFormula(SourceObject candidate, SourceObject current) {
+        return formulaQuality(candidate) > formulaQuality(current)
+                || formulaQuality(candidate) == formulaQuality(current)
+                && candidate.rawContent().strip().length() > current.rawContent().strip().length();
+    }
+
+    private static int formulaQuality(SourceObject source) {
+        boolean reliable = Boolean.parseBoolean(source.provenance().getOrDefault("textReliable", "false"));
+        String format = source.provenance().getOrDefault("textFormat", "");
+        String recovery = source.provenance().getOrDefault("recoveryMode", "");
+        int score = reliable ? 1_000 : 0;
+        score += "LATEX".equalsIgnoreCase(format) ? 300
+                : "PLAIN_TEXT".equalsIgnoreCase(format) ? 100 : 0;
+        if ("VISUAL_FALLBACK".equalsIgnoreCase(recovery)) score -= 100;
+        return score;
     }
 
     private static List<SourceLocator> mergeLocators(List<SourceLocator> first,

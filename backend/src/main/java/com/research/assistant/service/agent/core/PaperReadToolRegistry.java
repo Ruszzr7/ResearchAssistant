@@ -9,6 +9,7 @@ import com.research.assistant.service.agent.source.PaperSourceCatalog;
 import com.research.assistant.service.agent.source.PaperSourceCatalogService;
 import com.research.assistant.service.agent.source.RetrievalHit;
 import com.research.assistant.service.agent.source.SourceContentType;
+import com.research.assistant.service.agent.source.SourceEvidenceQuality;
 import com.research.assistant.service.agent.source.SourceObject;
 import com.research.assistant.service.memory.PaperGlobalProfile;
 import com.research.assistant.service.memory.PaperMemoryClaim;
@@ -34,7 +35,10 @@ public class PaperReadToolRegistry {
     // call/round limit. The Agent may submit another request when needed.
     static final int MAX_SEARCHES_PER_REQUEST = 4;
     static final int MAX_QUERY_CHARACTERS = 400;
-    static final int MAX_SEARCH_RESULTS = 8;
+    // Keep a larger deterministic candidate page internally; only a small,
+    // payload-bounded subset is returned to the model. Remaining candidates
+    // are exposed through nextCursor instead of being silently dropped.
+    static final int MAX_SEARCH_RESULTS = 50;
     static final int MAX_PAGE_SPAN = 2;
     // Keep each read compact enough for the next model turn. The Agent may request
     // another read when it needs a different or missing part of the paper.
@@ -54,6 +58,7 @@ public class PaperReadToolRegistry {
             "targets":{"type":"array","minItems":1,"maxItems":8,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":120,"description":"可在论文原文中做词面核对的术语、变量、数值、公式或基线；不要填写中文语义结论。"}},
             "sectionHint":{"type":"string","minLength":1,"maxLength":120,"description":"有明确依据时填写论文原文章节名称。"},
             "pageHints":{"type":"array","minItems":1,"maxItems":2,"uniqueItems":true,"items":{"type":"integer","minimum":1},"description":"有明确依据时填写可能所在的页码或连续页码范围。"},
+            "cursor":{"type":"integer","minimum":0,"maximum":10000,"description":"仅使用上一次返回的 nextCursor 继续读取该 Need 的候选页。"},
             "profileClaimRefs":{"type":"array","minItems":1,"maxItems":4,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":40},"description":"画像返回的可信 claimRef；直接复用其已绑定来源。"},
             "contentTypes":{"type":"array","minItems":1,"maxItems":5,"uniqueItems":true,"items":{"type":"string","enum":["TEXT","FORMULA","TABLE","FIGURE","ALGORITHM"]},"description":"有明确依据时限制来源内容类型。"},
             "sourceObjectIds":{"type":"array","minItems":1,"maxItems":4,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":160},"description":"已知可信来源 ID；直接读取，不要重新搜索。"},
@@ -82,7 +87,7 @@ public class PaperReadToolRegistry {
 
     public List<AgentToolDefinition> definitions() {
         return List.of(new AgentToolDefinition("retrieve_paper_evidence",
-                "从当前论文检索可引用的原文证据。先把最终答案需要成立的独立事实拆成 1～4 个 needs，并在首次调用中一次提交；首次有效检索后 Need ID 集合冻结。每个 Need 都要提供稳定唯一的 id、中文中立的 objective，以及 query、sourceObjectIds 或 profileClaimRefs 中至少一种检索锚点。query、keywords 和 targets 使用论文原文术语、变量、数值或公式编号；targets 只做词面核对。收到来源后由 Agent 阅读并判断语义充分性；只对未解决 Need 保持原 id 和 objective、填写 refinementReason 并改变有效检索条件。收到 stop 或 need_stopped 后立即使用 submit_answer，不要重复请求、新建同方向 Need，或把检索状态当成论文结论。", EVIDENCE_SCHEMA));
+                "从当前论文检索可引用的原文证据。先把最终答案需要成立的独立事实拆成 1～4 个 needs，并在首次调用中一次提交；首次有效检索后 Need ID 集合冻结。每个 Need 都要提供稳定唯一的 id、中文中立的 objective，以及 query、sourceObjectIds 或 profileClaimRefs 中至少一种检索锚点。query、keywords 和 targets 使用论文原文术语、变量、数值或公式编号；targets 只做词面核对。收到来源后由 Agent 阅读并判断语义充分性；只对未解决 Need 保持原 id 和 objective，补检索时填写 refinementReason 并改变有效检索条件。若返回 hasMore=true，使用同一 Need 的 nextCursor 继续读取候选页；若没有新来源、游标已耗尽或 stopRecommended=true，停止该 Need 并使用 submit_answer。不要重复请求、新建同方向 Need，或把检索状态当成论文结论。", EVIDENCE_SCHEMA));
     }
 
     /** Compatibility entry point; model-facing tools no longer vary by message keywords. */
@@ -207,6 +212,20 @@ public class PaperReadToolRegistry {
         }
 
         FormulaExpansion formulaExpansion = expandFormulaFamilies(catalog, merged, hitsBySearch);
+        Map<Integer, List<MergedHit>> candidatePages = new LinkedHashMap<>();
+        Map<Integer, List<MergedHit>> eligibleHitsBySearch = new LinkedHashMap<>();
+        Map<String, MergedHit> eligibleMerged = new LinkedHashMap<>();
+        for (Map.Entry<Integer, List<MergedHit>> entry : hitsBySearch.entrySet()) {
+            JsonNode need = requestedNeeds.get(entry.getKey());
+            List<MergedHit> eligibleHits = entry.getValue().stream()
+                    .filter(hit -> SourceEvidenceQuality.usableForCitation(
+                            catalog.objects().get(hit.sourceObjectId)))
+                    .toList();
+            eligibleHitsBySearch.put(entry.getKey(), eligibleHits);
+            List<MergedHit> page = candidatePage(eligibleHits, need);
+            candidatePages.put(entry.getKey(), page);
+            page.forEach(hit -> eligibleMerged.putIfAbsent(hit.sourceObjectId, hit));
+        }
         boolean hasExplicitTargets = hasSearches && hasTargets(requestedNeeds, searchCount);
         int sourceLimit = hasExplicitTargets || formulaExpansion.expanded()
                 ? MAX_TARGETED_SOURCES_PER_RESULT : MAX_SOURCES_PER_RESULT;
@@ -215,7 +234,25 @@ public class PaperReadToolRegistry {
         requested = Math.min(sourceLimit, Math.max(requested, searchCount));
         if (formulaExpansion.expanded()) requested = sourceLimit;
         LinkedHashMap<String, MergedHit> selectedById = new LinkedHashMap<>();
-        if (hasPages) {
+        // Reserve the first available result for each independent evidence need before filling
+        // the remaining slots globally. This prevents a high-scoring query from starving all
+        // other searches in one batch response. Pagination is applied before this step, so a
+        // continuation request cannot return the same first-page candidates again.
+        for (List<MergedHit> searchHits : candidatePages.values()) {
+            if (selectedById.size() >= requested) break;
+            searchHits.stream()
+                    .findFirst()
+                    .ifPresent(hit -> selectedById.putIfAbsent(hit.sourceObjectId, hit));
+        }
+        eligibleMerged.values().stream()
+                .filter(hit -> !selectedById.containsKey(hit.sourceObjectId))
+                .limit(Math.max(0, requested - selectedById.size()))
+                .forEach(hit -> selectedById.putIfAbsent(hit.sourceObjectId, hit));
+
+        // Page-range reads fill only the slots left after Need coverage. A broad page request
+        // must not consume the slots needed to expose the first candidate for an explicit Need;
+        // otherwise the Need would report hasMore=true without a usable cursor continuation.
+        if (hasPages && selectedById.size() < requested) {
             for (int rangeIndex = 0; rangeIndex < Math.min(pageRanges.size(), 2); rangeIndex++) {
                 JsonNode range = pageRanges.get(rangeIndex);
                 int startPage = range.path("startPage").asInt();
@@ -225,6 +262,7 @@ public class PaperReadToolRegistry {
                 }
                 for (SourceObject source : sourceService.readPages(
                         catalog, startPage, endPage, MAX_CONTENT_CHARACTERS)) {
+                    if (!SourceEvidenceQuality.usableForCitation(source)) continue;
                     MergedHit hit = merged.computeIfAbsent(source.sourceObjectId(),
                             id -> new MergedHit(id, 0.85, new LinkedHashSet<>()));
                     selectedById.putIfAbsent(source.sourceObjectId(), hit);
@@ -233,27 +271,15 @@ public class PaperReadToolRegistry {
                 if (selectedById.size() >= requested) break;
             }
         }
-        // Reserve the first available result for each independent evidence need before filling
-        // the remaining slots globally. This prevents a high-scoring query from starving all
-        // other searches in one batch response.
-        for (List<MergedHit> searchHits : hitsBySearch.values()) {
-            if (selectedById.size() >= requested) break;
-            searchHits.stream()
-                    .sorted(Comparator.comparingDouble((MergedHit hit) -> hit.score).reversed()
-                            .thenComparing(hit -> hit.sourceObjectId))
-                    .findFirst()
-                    .ifPresent(hit -> selectedById.putIfAbsent(hit.sourceObjectId, hit));
-        }
-        merged.values().stream()
-                .sorted(Comparator.comparingDouble((MergedHit hit) -> hit.score).reversed()
-                        .thenComparing(hit -> hit.sourceObjectId))
-                .filter(hit -> !selectedById.containsKey(hit.sourceObjectId))
-                .limit(Math.max(0, requested - selectedById.size()))
-                .forEach(hit -> selectedById.putIfAbsent(hit.sourceObjectId, hit));
 
-        List<MergedHit> selected = List.copyOf(selectedById.values());
+        List<MergedHit> selected = new ArrayList<>();
         List<SourceObject> sources = new ArrayList<>();
-        for (MergedHit hit : selected) sources.add(sourceService.readSource(catalog, hit.sourceObjectId));
+        for (MergedHit hit : selectedById.values()) {
+            SourceObject source = sourceService.readSource(catalog, hit.sourceObjectId);
+            if (!SourceEvidenceQuality.usableForCitation(source)) continue;
+            selected.add(hit);
+            sources.add(source);
+        }
         int perSource = Math.max(240, MAX_CONTENT_CHARACTERS / Math.max(1, sources.size()));
         Set<String> sourceIds = selected.stream().map(hit -> hit.sourceObjectId)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
@@ -270,7 +296,8 @@ public class PaperReadToolRegistry {
             try {
                 String status = compact.isEmpty() ? "not_found" : "found";
                 List<Map<String, Object>> evidenceNeeds = buildEvidenceNeeds(catalog, requestedNeeds,
-                        hitsBySearch, selectedById, invalidSourceIdsBySearch, invalidClaimRefsBySearch);
+                        hitsBySearch, candidatePages, eligibleHitsBySearch, selectedById,
+                        invalidSourceIdsBySearch, invalidClaimRefsBySearch);
                 Map<String, Object> payload = new LinkedHashMap<>();
                 payload.put("status", status);
                 payload.put("untrustedPaperContent", true);
@@ -330,18 +357,35 @@ public class PaperReadToolRegistry {
         return matcher.matches() ? matcher.group(1) : null;
     }
 
+    private List<MergedHit> candidatePage(List<MergedHit> hits, JsonNode need) {
+        if (hits == null || hits.isEmpty()) return List.of();
+        int offset = need == null ? 0 : Math.max(0, need.path("cursor").asInt(0));
+        List<MergedHit> ordered = hits.stream()
+                .sorted(Comparator.comparingDouble((MergedHit hit) -> hit.score).reversed()
+                        .thenComparing(hit -> hit.sourceObjectId))
+                .toList();
+        if (offset >= ordered.size()) return List.of();
+        int end = Math.min(ordered.size(), offset + MAX_SEARCH_RESULTS);
+        return ordered.subList(offset, end);
+    }
+
     private List<Map<String, Object>> buildEvidenceNeeds(PaperSourceCatalog catalog,
-                                                          JsonNode requestedNeeds,
-                                                          Map<Integer, List<MergedHit>> hitsBySearch,
-                                                          Map<String, MergedHit> selectedById,
-                                                          Map<Integer, List<String>> invalidSourceIdsBySearch,
-                                                          Map<Integer, List<String>> invalidClaimRefsBySearch) {
+                                                           JsonNode requestedNeeds,
+                                                           Map<Integer, List<MergedHit>> hitsBySearch,
+                                                           Map<Integer, List<MergedHit>> candidatePages,
+                                                           Map<Integer, List<MergedHit>> eligibleHitsBySearch,
+                                                           Map<String, MergedHit> selectedById,
+                                                           Map<Integer, List<String>> invalidSourceIdsBySearch,
+                                                           Map<Integer, List<String>> invalidClaimRefsBySearch) {
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map.Entry<Integer, List<MergedHit>> entry : hitsBySearch.entrySet()) {
             JsonNode need = requestedNeeds.get(entry.getKey());
             String id = needId(need, entry.getKey());
-            List<String> returnedIds = entry.getValue().stream().map(hit -> hit.sourceObjectId)
+            List<MergedHit> candidatePage = candidatePages.getOrDefault(entry.getKey(), List.of());
+            List<String> returnedIds = candidatePage.stream().map(hit -> hit.sourceObjectId)
                     .filter(selectedById::containsKey).toList();
+            int candidateOffset = need == null ? 0 : Math.max(0, need.path("cursor").asInt(0));
+            List<MergedHit> eligibleHits = eligibleHitsBySearch.getOrDefault(entry.getKey(), List.of());
             List<String> targets = targets(need);
             List<String> matchedTargets = targets.stream().filter(target -> returnedIds.stream()
                     .map(catalog::requireObject).anyMatch(source -> targetMatches(source, target))).toList();
@@ -351,8 +395,22 @@ public class PaperReadToolRegistry {
             value.put("needId", id);
             value.put("objective", need.path("objective").asText(""));
             value.put("searchIndex", entry.getKey());
-            value.put("retrievalStatus", returnedIds.isEmpty() ? "not_found" : "found");
+            value.put("retrievalStatus", returnedIds.isEmpty()
+                    ? candidatePage.isEmpty() ? "not_found" : "deferred"
+                    : "found");
             value.put("sourceObjectIds", returnedIds);
+            value.put("candidateCount", eligibleHits.size());
+            value.put("returnedCount", returnedIds.size());
+            // Advance to the first candidate in this page that was not exposed. A global
+            // maxEvidence cap can select non-contiguous candidates shared with another Need;
+            // counting returned IDs would then skip an unseen candidate in the middle.
+            int nextCandidate = nextCandidateCursor(candidatePage, selectedById.keySet(),
+                    candidateOffset);
+            boolean hasMore = nextCandidate < eligibleHits.size();
+            value.put("hasMore", hasMore);
+            if (hasMore) {
+                value.put("nextCursor", nextCandidate);
+            }
             value.put("targetCoverage", Map.of(
                     "matchedTargets", matchedTargets,
                     "missingTargets", missingTargets));
@@ -363,6 +421,15 @@ public class PaperReadToolRegistry {
             result.add(value);
         }
         return result;
+    }
+
+    private int nextCandidateCursor(List<MergedHit> page, Set<String> selectedIds, int offset) {
+        int cursor = offset;
+        for (MergedHit hit : page) {
+            if (!selectedIds.contains(hit.sourceObjectId)) return cursor;
+            cursor++;
+        }
+        return offset + page.size();
     }
 
     private void mergeRetrievedHits(List<RetrievalHit> hits, int searchIndex,
@@ -452,7 +519,7 @@ public class PaperReadToolRegistry {
     private void validateNeeds(JsonNode needs, List<Map<String, Object>> issues) {
         Set<String> ids = new LinkedHashSet<>();
         Set<String> allowedFields = Set.of("id", "objective", "query", "keywords", "targets",
-                "sectionHint", "pageHints", "profileClaimRefs", "contentTypes", "sourceObjectIds",
+                "sectionHint", "pageHints", "cursor", "profileClaimRefs", "contentTypes", "sourceObjectIds",
                 "includeVisual", "refinementReason");
         for (int index = 0; index < needs.size(); index++) {
             JsonNode need = needs.get(index);
@@ -475,6 +542,7 @@ public class PaperReadToolRegistry {
             String query = optionalText(need, "query", MAX_QUERY_CHARACTERS, needId, issues);
             optionalText(need, "sectionHint", 120, needId, issues);
             optionalText(need, "refinementReason", 240, needId, issues);
+            validateCursor(need, needId, issues);
             stringArray(need, "keywords", 8, 120, needId, issues, null);
             stringArray(need, "targets", 8, 120, needId, issues, null);
             List<String> claimRefs = stringArray(need, "profileClaimRefs", 4, 40, needId, issues, null);
@@ -489,6 +557,15 @@ public class PaperReadToolRegistry {
                 issues.add(issue(needId, "query", "MISSING_RETRIEVAL_ANCHOR",
                         "该证据需求至少需要 query、sourceObjectIds 或 profileClaimRefs 之一"));
             }
+        }
+    }
+
+    private void validateCursor(JsonNode need, String needId, List<Map<String, Object>> issues) {
+        if (!need.has("cursor")) return;
+        JsonNode cursor = need.path("cursor");
+        if (!cursor.isIntegralNumber() || cursor.asInt() < 0 || cursor.asInt() > 10_000) {
+            issues.add(issue(needId, "cursor", "INVALID_CURSOR",
+                    "cursor 必须是 0～10000 的非负整数，并且只能使用上一次返回的 nextCursor"));
         }
     }
 
@@ -807,14 +884,16 @@ public class PaperReadToolRegistry {
     }
 
     private AgentToolExecution sourcesResult(PaperSourceCatalog catalog, List<SourceObject> sources) throws Exception {
-        List<SourceObject> bounded = sources.stream().limit(MAX_SOURCES_PER_RESULT).toList();
+        List<SourceObject> usable = sources.stream()
+                .filter(SourceEvidenceQuality::usableForCitation).toList();
+        List<SourceObject> bounded = usable.stream().limit(MAX_SOURCES_PER_RESULT).toList();
         Set<String> ids = bounded.stream().map(SourceObject::sourceObjectId)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         int perSource = Math.max(240, MAX_CONTENT_CHARACTERS / Math.max(1, bounded.size()));
         List<Map<String, Object>> compact = bounded.stream()
                 .map(source -> compactSource(catalog, source, perSource)).toList();
         return result(Map.of("untrustedPaperContent", true, "sources", compact,
-                "truncated", sources.size() > bounded.size()), ids);
+                "truncated", usable.size() > bounded.size()), ids);
     }
 
     private AgentToolExecution result(Object value, Set<String> ids) throws Exception {
@@ -829,6 +908,8 @@ public class PaperReadToolRegistry {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("sourceObjectId", source.sourceObjectId());
         value.put("contentType", source.contentType());
+        value.put("evidenceQuality", SourceEvidenceQuality.status(source));
+        value.put("citable", SourceEvidenceQuality.usableForCitation(source));
         Object sourceRole = source.provenance().get("role");
         if (sourceRole != null && !sourceRole.toString().isBlank()) value.put("sourceRole", sourceRole);
         if (catalog != null) {
@@ -836,9 +917,26 @@ public class PaperReadToolRegistry {
         }
         value.put("sectionPath", source.sectionPath());
         if (!source.formulaNumber().isBlank()) value.put("formulaNumber", source.formulaNumber());
-        value.put("content", truncate(source.rawContent(), maxCharacters));
-        value.put("truncated", source.rawContent().length() > maxCharacters);
+        String textFormat = source.provenance().getOrDefault("textFormat", "PLAIN_TEXT");
+        boolean textReliable = Boolean.parseBoolean(source.provenance().getOrDefault("textReliable",
+                Boolean.toString(source.contentType() != SourceContentType.FORMULA)));
+        value.put("textFormat", textFormat);
+        value.put("textReliable", textReliable);
+        String content = !textReliable && source.contentType() == SourceContentType.FORMULA
+                ? formulaLabel(source) : truncate(source.rawContent(), maxCharacters);
+        // Keep `content` as the compact compatibility field, but expose the
+        // contract name used by the Skill explicitly.  A source unit is never
+        // silently presented as complete when the response had to truncate it.
+        value.put("fullText", content);
+        value.put("content", content);
+        boolean truncated = textReliable && source.rawContent().length() > maxCharacters;
+        value.put("contentComplete", !truncated);
+        value.put("truncated", truncated);
         return value;
+    }
+
+    private static String formulaLabel(SourceObject source) {
+        return source.formulaNumber().isBlank() ? "公式区域" : "公式 (" + source.formulaNumber() + ")";
     }
 
     private static String truncate(String value, int maxCharacters) {

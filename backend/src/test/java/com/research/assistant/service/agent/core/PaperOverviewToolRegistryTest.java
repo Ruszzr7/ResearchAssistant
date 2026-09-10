@@ -53,8 +53,10 @@ class PaperOverviewToolRegistryTest {
 
         assertThat(json.at("/profile/coreContributions/0/statement").asText()).isEqualTo("A contribution");
         assertThat(json.at("/profile/coreContributions/0/claimRef").asText()).isEqualTo("contribution:0");
-        assertThat(json.at("/profile/coreContributions/0/sourceObjectIds").toString()).contains("span-p1");
-        assertThat(execution.sourceObjectIds()).contains("span-p1");
+        assertThat(json.at("/profile/coreContributions/0/candidateSourceObjectIds").toString()).contains("span-p1");
+        assertThat(json.at("/profile/coreContributions/0/sourceObjectIds").isMissingNode()).isTrue();
+        assertThat(json.at("/candidateSourceObjectIds").toString()).contains("span-p1");
+        assertThat(execution.sourceObjectIds()).isEmpty();
         assertThat(json.at("/profile/keyFindings/0/statement").asText()).isEqualTo("A finding");
         assertThat(json.at("/profile/keyFindings/0/claimRef").asText()).isEqualTo("finding:0");
         assertThat(json.at("/profile/benchmarkResults/0/value").asText()).isEqualTo("91%");

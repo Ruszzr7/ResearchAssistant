@@ -140,20 +140,56 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
                 skillSet, visualBuffer, activationHandler);
 
         Result<String> result = assistant.chat(current.content());
-        TokenUsage usage = result.tokenUsage();
-        int resultModelCalls = result.intermediateResponses() == null ? 1 : result.intermediateResponses().size() + 1;
-        int modelCalls = resultModelCalls;
-        int resultToolCalls = result.toolExecutions() == null ? 0 : result.toolExecutions().size();
-        int toolCalls = resultToolCalls;
+        int modelCalls = result.intermediateResponses() == null ? 1 : result.intermediateResponses().size() + 1;
+        int toolCalls = result.toolExecutions() == null ? 0 : result.toolExecutions().size();
+        int promptTokens = tokenCount(result.tokenUsage() == null ? null : result.tokenUsage().inputTokenCount());
+        int completionTokens = tokenCount(result.tokenUsage() == null ? null : result.tokenUsage().outputTokenCount());
+
+        // Some OpenAI-compatible providers return a final prose message instead of
+        // calling the terminal answer tool.  A structured terminal is required for
+        // every normal Agent answer: paper answers need source bindings, while
+        // general-knowledge answers simply submit empty sourceObjectIds.  Reuse the
+        // same chat memory for one constrained continuation.  This is protocol
+        // recovery, not another evidence search and does not add a second model or
+        // a second Skill.
+        boolean answerToolAvailable = tools.stream().anyMatch(tool -> "submit_answer".equals(tool.name()));
+        if (requiresStructuredSubmission(result, answerToolAvailable)) {
+            Result<String> submission = assistant.chat(
+                    "请不要直接输出普通文本；现在立即调用 submit_answer，按工具 Schema 提交最终答案。依赖论文的事实只能绑定实际读取且确实支持它的 sourceObjectIds；不需要论文证据的回答使用空数组。若证据不足，请在 answerBlocks 中如实说明限制。"
+            );
+            if (!hasTerminalTool(submission)) {
+                throw new IllegalStateException("ANSWER_SUBMISSION_REQUIRED：最终答案必须通过 submit_answer 提交");
+            }
+            result = submission;
+            modelCalls += submission.intermediateResponses() == null
+                    ? 1 : submission.intermediateResponses().size() + 1;
+            toolCalls += submission.toolExecutions() == null ? 0 : submission.toolExecutions().size();
+            promptTokens += tokenCount(submission.tokenUsage() == null
+                    ? null : submission.tokenUsage().inputTokenCount());
+            completionTokens += tokenCount(submission.tokenUsage() == null
+                    ? null : submission.tokenUsage().outputTokenCount());
+        }
         String content = result.content();
         if ((content == null || content.isBlank()) && result.toolExecutions() != null
                 && !result.toolExecutions().isEmpty()) {
             var last = result.toolExecutions().get(result.toolExecutions().size() - 1);
             if (isTerminal(last.request().name())) content = last.result();
         }
-        return new AgentFrameworkResult(content, modelCalls, toolCalls,
-                usage == null || usage.inputTokenCount() == null ? 0 : usage.inputTokenCount(),
-                usage == null || usage.outputTokenCount() == null ? 0 : usage.outputTokenCount());
+        return new AgentFrameworkResult(content, modelCalls, toolCalls, promptTokens, completionTokens);
+    }
+
+    private static boolean requiresStructuredSubmission(Result<String> result, boolean answerToolAvailable) {
+        return answerToolAvailable && !hasTerminalTool(result);
+    }
+
+    private static boolean hasTerminalTool(Result<String> result) {
+        if (result == null || result.toolExecutions() == null) return false;
+        return result.toolExecutions().stream()
+                .anyMatch(execution -> isTerminal(execution.request().name()));
+    }
+
+    private static int tokenCount(Integer value) {
+        return value == null ? 0 : value;
     }
 
     private static ChatModel observed(ChatModel delegate, ModelCallObserver observer) {

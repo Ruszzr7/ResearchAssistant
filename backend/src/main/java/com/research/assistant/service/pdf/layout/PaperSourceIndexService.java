@@ -26,6 +26,9 @@ public class PaperSourceIndexService {
     private static final Pattern MENTION_AT_END = Pattern.compile(
             "(?i).*(?:in|from|using|by|see|shown\\s+in|calculated\\s+by|given\\s+in|"
                     + "equation|eq\\.)\\s*\\(\\d{1,4}[a-z]?\\)\\s*[.,;:]?\\s*$");
+    private static final Pattern FORMULA_REFERENCE = Pattern.compile(
+            "(?i)\\b(?:in|from|using|by|see|shown\\s+in|calculated\\s+by|given\\s+in|"
+                    + "equation|eq(?:uation)?\\.?)\\s*\\(\\d{1,4}[a-z]?\\)");
     private final PaperSourceUnitBuilder sourceUnitBuilder = new PaperSourceUnitBuilder();
     private final FormulaContextBuilder formulaContextBuilder = new FormulaContextBuilder();
 
@@ -153,7 +156,9 @@ public class PaperSourceIndexService {
 
     private boolean isDefinition(List<DocumentBlock> blocks, DocumentBlock block, int labelOffset) {
         String text = block.text().replaceAll("\\s+", " ").trim();
-        if (MENTION_AT_END.matcher(text).matches()) return false;
+        if (MENTION_AT_END.matcher(text).matches()
+                || FORMULA_REFERENCE.matcher(text.substring(0, Math.min(labelOffset + 16, text.length())))
+                .find()) return false;
         if (text.matches("^\\(\\d{1,4}[a-z]?\\)$")) {
             return blocks.stream()
                     .filter(candidate -> candidate.page() == block.page())
@@ -163,6 +168,13 @@ public class PaperSourceIndexService {
                     .filter(candidate -> sameColumn(block.bbox(), candidate.bbox()))
                     .anyMatch(candidate -> verticalGap(block.bbox(), candidate.bbox()) <= .075);
         }
+        // A body block can contain an equals sign and a parenthesized reference
+        // without being a displayed equation.  Only short, math-dense body
+        // blocks are eligible for physical equation definitions; narrative
+        // sentences remain mentions even when they contain operators.
+        if (block.role() != DocumentBlockRole.FORMULA
+                && block.contentMode() == DocumentBlockContentMode.TEXT
+                && !formulaComponent(block)) return false;
         String before = text.substring(0, Math.min(labelOffset, text.length()));
         boolean operator = before.matches("(?s).*[=≈≃≤≥<>∑∏√+−].*")
                 || before.toLowerCase(Locale.ROOT).matches("(?s).*\\b(max|min|argmax|argmin)\\b.*");
@@ -244,9 +256,13 @@ public class PaperSourceIndexService {
                                              String theorem,
                                              List<String> context) {
         if (current == null) current = new MutableEquation(number);
-        if (current.definition == null
-                || relation == EquationEntity.Relation.THEOREM_RESULT
-                && current.relation != EquationEntity.Relation.THEOREM_RESULT) {
+        // The physical display candidate is authoritative.  Semantic ownership
+        // (theorem result/proof step) is metadata only and must never move a
+        // formula to a later prose mention.  If extraction yields more than one
+        // display candidate, prefer the stronger geometry/confidence and then
+        // the earlier physical occurrence.
+        if (current.definition == null || betterPhysicalDefinition(definition, current.definition)) {
+            if (current.definition != null) current.mentions.add(current.definition);
             current.definition = definition;
             current.relation = relation;
             current.statementKind = statementKind;
@@ -256,6 +272,18 @@ public class PaperSourceIndexService {
             current.mentions.add(definition);
         }
         return current;
+    }
+
+    private boolean betterPhysicalDefinition(SourceAnchor candidate, SourceAnchor current) {
+        if (candidate == null) return false;
+        if (current == null) return true;
+        if (candidate.confidence() > current.confidence() + .08) return true;
+        if (current.confidence() > candidate.confidence() + .08) return false;
+        if (candidate.page() != current.page()) return candidate.page() < current.page();
+        if (Math.abs(candidate.bbox().y() - current.bbox().y()) > .01) {
+            return candidate.bbox().y() < current.bbox().y();
+        }
+        return candidate.bbox().x() < current.bbox().x();
     }
 
     private List<String> nearbyContext(List<DocumentBlock> blocks, DocumentBlock equation) {

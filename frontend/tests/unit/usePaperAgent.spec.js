@@ -2,7 +2,7 @@ import { h } from 'vue'
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePaperAgent, unionBoundingBoxes } from '@/composables/usePaperAgent.js'
-import { mapAgentEvidenceItem } from '@/utils/evidenceViewModel.js'
+import { mapAgentEvidenceItem, selectEvidenceFocusBoxes } from '@/utils/evidenceViewModel.js'
 
 const mocks = vi.hoisted(() => ({
   executeAgentTurn: vi.fn(),
@@ -48,6 +48,34 @@ describe('usePaperAgent', () => {
     expect(mapped.locators).toHaveLength(2)
     expect(mapped.pages).toEqual([3])
     expect(mapped.locator.targetBoxes).toHaveLength(1)
+  })
+
+  it('keeps separate complete and focus geometry when the backend provides it', () => {
+    const mapped = mapAgentEvidenceItem({
+      sourceObjectId: 'formula-12', paperId: 197, quote: '公式 (12)',
+      fullText: 'G = ...', contentType: 'FORMULA',
+      locators: [{
+        pageNumber: 3,
+        rects: [{ x: .2, y: .3, width: .55, height: .08 }],
+        focusRects: [{ x: .68, y: .32, width: .07, height: .02 }],
+        precision: 'FORMULA_REGION',
+      }],
+    })
+
+    expect(mapped.locator.targetBoxes).toEqual([{ x: .2, y: .3, width: .55, height: .08 }])
+    expect(mapped.locator.focusBoxes).toEqual([{ x: .68, y: .32, width: .07, height: .02 }])
+    expect(mapped.locator.focusBbox).toEqual({ x: .68, y: .32, width: .07, height: .02 })
+  })
+
+  it('prefers every authoritative locator box over a partial PDFium text match', () => {
+    const locatorBoxes = [
+      { x: .1, y: .2, width: .8, height: .03 },
+      { x: .1, y: .24, width: .3, height: .03 },
+    ]
+    const partialSearch = [{ x: .1, y: .2, width: .8, height: .012 }]
+
+    expect(selectEvidenceFocusBoxes({ locatorBoxes, exactBoxes: partialSearch }))
+      .toEqual(locatorBoxes)
   })
 
   it('identifies legacy physical duplicates without pretending their preview is complete', () => {

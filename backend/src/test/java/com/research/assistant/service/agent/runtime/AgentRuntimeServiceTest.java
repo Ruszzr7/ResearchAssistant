@@ -46,6 +46,10 @@ class AgentRuntimeServiceTest {
                         "{\"provider\":\"test\",\"model\":\"fake\"}"),
                 new AgentRunBudget(4, 6, 1000, 30_000),
                 "agent-context-v1", "{}", "b".repeat(64), "parser-v1");
+        assertThat(run.getStatus()).isEqualTo("QUEUED");
+        assertThat(turnMapper.selectByTurnId(turn.getTurnId()).getStatus()).isEqualTo("QUEUED");
+
+        service.transitionRun(run.getRunId(), AgentRunStatus.RUNNING, null, null, null);
         assertThat(turnMapper.selectByTurnId(turn.getTurnId()).getStatus()).isEqualTo("RUNNING");
 
         service.transitionRun(run.getRunId(), AgentRunStatus.WAITING_USER, null, null, null);

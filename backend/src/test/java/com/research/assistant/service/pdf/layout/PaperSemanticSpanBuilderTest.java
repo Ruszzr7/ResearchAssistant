@@ -152,6 +152,23 @@ class PaperSemanticSpanBuilderTest {
                 .allSatisfy(span -> assertThat(span.blocks()).hasSize(1));
     }
 
+    @Test
+    void dropsStandaloneGlyphsAndShortLayoutTokensFromSemanticSpans() {
+        DocumentBlock radical = new DocumentBlock("radical", 1,
+                new NormalizedBoundingBox(.24, .08, .02, .03), DocumentBlockRole.BODY, 1,
+                List.of("Theorem 1"), "√", null, null, .9,
+                DocumentBlockContentMode.TEXT,
+                new MathContentProfile(MathContentLevel.LIGHT, .8, 1, List.of(), "test"));
+        DocumentBlock prose = block("prose", DocumentBlockRole.BODY, 2,
+                .10, .20, .80, .03, "The proposed method improves the achievable rate.");
+
+        List<PaperSemanticSpan> spans = builder.build(artifact(List.of(radical, prose)));
+
+        assertThat(spans).extracting(PaperSemanticSpan::text)
+                .containsExactly("The proposed method improves the achievable rate.")
+                .doesNotContain("√");
+    }
+
     private PaperLayoutArtifact artifact(List<DocumentBlock> blocks) {
         return new PaperLayoutArtifact(7L, "a".repeat(64), "parser", .9,
                 Instant.parse("2026-01-01T00:00:00Z"), 1, blocks);

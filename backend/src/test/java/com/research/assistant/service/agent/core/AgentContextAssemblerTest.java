@@ -130,7 +130,7 @@ class AgentContextAssemblerTest {
     }
 
     @Test
-    void restoresProfileSourceIdsToTheCurrentCitationSet() {
+    void doesNotRestoreProfileCandidateIdsToTheCitationSet() {
         ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
         ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
         AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
@@ -146,7 +146,7 @@ class AgentContextAssemblerTest {
         when(sources.latest(9L)).thenReturn(catalog);
         AgentToolCallRecord profile = new AgentToolCallRecord();
         profile.setToolName("read_paper_profile");
-        profile.setResultJson("{\"sourceObjectIds\":[\"p1-b1\",\"stale\"]}");
+        profile.setResultJson("{\"candidateSourceObjectIds\":[\"p1-b1\",\"stale\"]}");
         when(toolCalls.selectRecentCompletedPaperReads(7L, "hash", "parser", 8))
                 .thenReturn(List.of(profile));
 
@@ -155,7 +155,7 @@ class AgentContextAssemblerTest {
 
         AgentContextSnapshot result = assembler.assemble(input(7L, null));
 
-        assertThat(result.preReadSourceIds()).containsExactly("p1-b1");
+        assertThat(result.preReadSourceIds()).isEmpty();
     }
 
     @Test

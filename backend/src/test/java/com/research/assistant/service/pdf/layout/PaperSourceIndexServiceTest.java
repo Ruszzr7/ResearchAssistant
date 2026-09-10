@@ -42,6 +42,21 @@ class PaperSourceIndexServiceTest {
     }
 
     @Test
+    void keepsTheActualDisplayEquationWhenLaterProseMentionsTheSameNumberWithAnOperator() {
+        PaperLayoutArtifact artifact = artifact(List.of(
+                block("eq12", 3, 10, DocumentBlockRole.FORMULA,
+                        "G = (1 - m) r_i (1 - epsilon). (12)"),
+                block("mention12", 5, 20, DocumentBlockRole.BODY,
+                        "r_i = 2 tau / (m - nE) as epsilon is small in (12).")));
+
+        EquationEntity equation = service.build(artifact).equations().stream()
+                .filter(item -> item.number().equals("12")).findFirst().orElseThrow();
+
+        assertThat(equation.definition().blockId()).isEqualTo("eq12");
+        assertThat(equation.mentions()).extracting(SourceAnchor::blockId).contains("mention12");
+    }
+
+    @Test
     void formulaAnchorPublishesOneOuterBoxForNearbyFragmentsButNotOtherColumn() {
         PaperLayoutArtifact artifact = artifact(List.of(
                 block("eq", 4, 10, DocumentBlockRole.FORMULA, "Gamma = x / y (4)"),

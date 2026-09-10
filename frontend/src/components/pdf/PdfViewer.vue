@@ -585,7 +585,11 @@ import { segmentPdfSelection } from '@/utils/pdfContentSegments.js'
 import { copyPdfSelectionText, normalizePdfSelectionText } from '@/utils/pdfSelectionText.js'
 import { isTextSelectionDrag } from '@/utils/pdfTextSelection.js'
 import { formulaNumberCandidates, formulaNumberSearchQueries } from '@/utils/formulaEvidence.js'
-import { evidenceLocators, unionBoundingBoxes } from '@/utils/evidenceViewModel.js'
+import {
+  evidenceLocators,
+  selectEvidenceFocusBoxes,
+  unionBoundingBoxes,
+} from '@/utils/evidenceViewModel.js'
 import {
   invalidatePageRenderSurface,
   pageRenderSurfaceIsUsable,
@@ -1652,14 +1656,16 @@ function openComparisonPaperInterface() {
 async function jumpToEvidence(item) {
   const page = Number(item?.page)
   if (!Number.isInteger(page) || page < 1) return
-  const targetBox = item?.locator?.targetBbox || item?.bbox
+  const formulaRegion = item?.locator?.precision === 'FORMULA_REGION'
+  const targetBox = formulaRegion
+    ? (item?.locator?.focusBbox || item?.locator?.targetBbox || item?.bbox)
+    : (item?.locator?.targetBbox || item?.bbox)
   if (item.paperId != null && Number(item.paperId) !== Number(props.paper.id)) {
     emit('open-paper-evidence', item)
     return
   }
   await goToPage(page)
   await waitForEvidencePage(page)
-  const formulaRegion = item?.locator?.precision === 'FORMULA_REGION'
   const formulaLabels = formulaRegion ? formulaNumberCandidates(item) : []
   const formulaNumberBoxes = formulaLabels.length
     ? await locateFormulaNumberBoxes(page, formulaLabels, targetBox)
@@ -1677,11 +1683,16 @@ async function jumpToEvidence(item) {
     return
   }
 
-  // Formula-region geometry is only a scroll fallback. It is intentionally never painted as
-  // an evidence rectangle because the parser cannot reliably separate math glyph fragments.
+  // Formula-region geometry is only a fallback when the printed number cannot be found.
+  // Paint the small focus region in that case; do not replace it with a text-search hit.
   if (formulaRegion) {
     evidenceFocus.value = null
-    if (targetBox) scrollEvidenceIntoView(page, [targetBox])
+    const focusBoxes = validEvidenceBoxes(item?.locator?.focusBoxes || [])
+    if (focusBoxes.length) {
+      evidenceFocus.value = { page, boxes: focusBoxes, mode: 'FORMULA_REGION' }
+      await nextTick()
+      scrollEvidenceIntoView(page, focusBoxes)
+    } else if (targetBox) scrollEvidenceIntoView(page, [targetBox])
     ElMessage.info(formulaLabels.length
       ? `已定位到式 (${formulaLabels.join('、')}) 所在区域，但未找到可高亮的公式编号`
       : '已定位到公式所在区域；该公式没有可识别的编号')
@@ -1689,12 +1700,15 @@ async function jumpToEvidence(item) {
     return
   }
 
-  const exactBoxes = await locateEvidenceText(item)
   const pageLocators = evidenceLocators(item).filter(locator => Number(locator.pageNumber || locator.page) === page)
   const locatorBoxes = validEvidenceBoxes(pageLocators.flatMap(locator => (
     locator.targetBoxes || locator.rects || []
   )))
-  const focusBoxes = exactBoxes.length ? exactBoxes : locatorBoxes.length ? locatorBoxes : targetBox ? [targetBox] : []
+  const exactBoxes = locatorBoxes.length ? [] : await locateEvidenceText(item)
+  // targetBoxes are the parser's complete physical block geometry. A PDFium
+  // search may match only a prefix of a long locator, so it must never replace
+  // these boxes with an apparently more precise but incomplete match.
+  const focusBoxes = selectEvidenceFocusBoxes({ locatorBoxes, exactBoxes, fallbackBox: targetBox })
   if (!focusBoxes.length) {
     evidenceFocus.value = null
     ElMessage.info(`已定位到第 ${page} 页，但当前 PDF 没有可绘制的字符位置`)
@@ -1779,15 +1793,24 @@ async function executeAgentActions(actions) {
       continue
     }
     await goToPage(target.page)
-    const exactBoxes = await locateEvidenceText(target)
     const fallbackBox = target.locator?.targetBbox || target.bbox
     const formulaFallback = target.locator?.precision === 'FORMULA_REGION' && fallbackBox
-      ? [fallbackBox] : []
+      ? validEvidenceBoxes(target.locator?.focusBoxes || [fallbackBox]) : []
     const trustedSelectionBoxes = validEvidenceBoxes(
       action.targetBoxes?.length ? action.targetBoxes : target.locator?.targetBoxes,
     )
-    const boxes = trustedSelectionBoxes.length
-      ? trustedSelectionBoxes : exactBoxes.length ? exactBoxes : formulaFallback
+    const locatorBoxes = validEvidenceBoxes(evidenceLocators(target)
+      .filter(locator => Number(locator.pageNumber || locator.page) === Number(target.page))
+      .flatMap(locator => locator.targetBoxes || locator.rects || []))
+    const exactBoxes = locatorBoxes.length ? [] : await locateEvidenceText(target)
+    const formulaLocatorBoxes = target.locator?.precision === 'FORMULA_REGION'
+      && !trustedSelectionBoxes.length ? formulaFallback : []
+    const boxes = selectEvidenceFocusBoxes({
+      locatorBoxes: trustedSelectionBoxes.length
+        ? trustedSelectionBoxes : formulaLocatorBoxes.length ? formulaLocatorBoxes : locatorBoxes,
+      exactBoxes,
+      fallbackBox: formulaFallback[0] || null,
+    })
     if (!boxes.length) {
       ElMessage.warning(`已找到“${action.query}”的来源，但无法建立精确字符位置，因此未执行${actionLabel}`)
       continue

@@ -63,9 +63,22 @@ public class AgentRunEventService {
         } else if ("COMPLETED".equals(state.status())) {
             events.add(new AgentRunEvent(++id, "message.final", state));
         } else if ("FAILED".equals(state.status()) || "CANCELLED".equals(state.status())) {
-            events.add(new AgentRunEvent(++id, "run.failed", state));
+            events.add(new AgentRunEvent(++id, "run.failed", failedEventData(runId, state)));
         }
         return events.stream().filter(event -> event.id() > afterId).toList();
+    }
+
+    private Object failedEventData(String runId, AgentTurnResult state) {
+        if (runMapper == null) return state;
+        AgentRunRecord run = runMapper.selectByRunId(runId);
+        if (run == null) return state;
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("runId", runId);
+        data.put("status", state.status());
+        data.put("message", state.message());
+        if (run.getErrorCode() != null) data.put("errorCode", run.getErrorCode());
+        if (run.getErrorMessage() != null) data.put("errorMessage", run.getErrorMessage());
+        return data;
     }
 
     private Object modelDiagnostics(String runId) {

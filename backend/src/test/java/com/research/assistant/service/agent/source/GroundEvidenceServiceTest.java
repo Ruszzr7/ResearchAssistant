@@ -43,6 +43,35 @@ class GroundEvidenceServiceTest {
     }
 
     @Test
+    void rejectsStandaloneGlyphAsCitationEvidence() {
+        SourceObject source = object("source-glyph", "√");
+        SourceLocator locator = locator("locator-glyph", source.sourceObjectId(), 6);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(7, "a".repeat(64), "parser-v1", 6,
+                Map.of(source.sourceObjectId(), source),
+                Map.of(source.sourceObjectId(), List.of(locator)));
+
+        assertThatThrownBy(() -> service.ground("核心创新点", List.of(
+                new CitationRequest(0, 5, source.sourceObjectId(), "√", List.of())), catalog))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("文本质量不足");
+    }
+
+    @Test
+    void rejectsUnnumberedStandaloneFormulaGlyphAsCitationEvidence() {
+        SourceObject source = new SourceObject("formula-glyph", 7, "a".repeat(64), "parser-v1", 3,
+                SourceContentType.FORMULA, "√", null, List.of(), "",
+                Map.of("textFormat", "PLAIN_TEXT", "textReliable", "false"));
+        SourceLocator locator = locator("locator-formula-glyph", source.sourceObjectId(), 6);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(7, "a".repeat(64), "parser-v1", 6,
+                Map.of(source.sourceObjectId(), source), Map.of(source.sourceObjectId(), List.of(locator)));
+
+        assertThatThrownBy(() -> service.ground("核心创新点", List.of(
+                new CitationRequest(0, 5, source.sourceObjectId(), "√", List.of())), catalog))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("文本质量不足");
+    }
+
+    @Test
     void collapsesPhysicallyIdenticalSourcesButKeepsSameTextOnAnotherPage() {
         SourceObject first = object("source-first", "The same complete sentence is evidence.");
         SourceObject duplicate = object("source-duplicate", "The same complete sentence is evidence.");
@@ -67,6 +96,37 @@ class GroundEvidenceServiceTest {
         assertThat(grounded.bindings()).extracting(CitationBinding::sourceObjectId)
                 .containsExactly(first.sourceObjectId(), first.sourceObjectId(), repeated.sourceObjectId());
         assertThat(grounded.evidenceEntries()).hasSize(2);
+    }
+
+    @Test
+    void collapsesFormulaEntityAndVisualFallbackByNumberAndOverlap() {
+        SourceObject entity = new SourceObject("formula-entity", 7, "a".repeat(64), "parser-v1", 3,
+                SourceContentType.FORMULA, "sqrt x (18)", null, List.of(), "18",
+                Map.of("textFormat", "PLAIN_TEXT", "textReliable", "false"));
+        SourceObject fallback = new SourceObject("formula-fallback", 7, "a".repeat(64), "parser-v1", 3,
+                SourceContentType.FORMULA, "公式 (18)的文本提取不可靠", null, List.of(), "18",
+                Map.of("textFormat", "VISUAL_FALLBACK", "textReliable", "false",
+                        "recoveryMode", "VISUAL_FALLBACK"));
+        SourceLocator entityLocator = new SourceLocator("locator-entity", entity.sourceObjectId(), 3,
+                "PDF_NORMALIZED", List.of(new NormalizedBoundingBox(.30, .40, .30, .05)), "",
+                EvidenceLocator.Precision.FORMULA_REGION);
+        SourceLocator fallbackLocator = new SourceLocator("locator-fallback", fallback.sourceObjectId(), 3,
+                "PDF_NORMALIZED", List.of(new NormalizedBoundingBox(.28, .38, .36, .09)), "",
+                EvidenceLocator.Precision.FORMULA_REGION);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(7, "a".repeat(64), "parser-v1", 3,
+                Map.of(entity.sourceObjectId(), entity, fallback.sourceObjectId(), fallback),
+                Map.of(entity.sourceObjectId(), List.of(entityLocator),
+                        fallback.sourceObjectId(), List.of(fallbackLocator)));
+
+        String answer = "最核心公式见式（18）。";
+        GroundedAnswer grounded = service.ground(answer, List.of(
+                new CitationRequest(0, 6, entity.sourceObjectId(), "公式 (18)", List.of()),
+                new CitationRequest(6, answer.length(), fallback.sourceObjectId(), "公式 (18)", List.of())), catalog);
+
+        assertThat(grounded.evidenceEntries()).singleElement()
+                .extracting(CitationBinding::sourceObjectId).isEqualTo(entity.sourceObjectId());
+        assertThat(grounded.bindings()).extracting(CitationBinding::citationNumber)
+                .containsExactly(1, 1);
     }
 
     @Test

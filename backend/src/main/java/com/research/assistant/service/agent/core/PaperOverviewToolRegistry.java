@@ -67,9 +67,11 @@ public class PaperOverviewToolRegistry {
             payload.put("untrustedPaperContent", true);
             payload.put("paperId", paperId);
             payload.put("profile", compactProfile(profile, catalog));
-            payload.put("sourceObjectIds", profileSourceIds(profile, catalog));
-            payload.put("usage", "使用该画像建立全文方向。只有 sourceObjectIds 直接支持某项陈述时才可以引用。画像不能证明某内容未出现；涉及论文是否讨论、比较或包含某内容，以及精确引文、公式、图、表或页面级视觉检查时，请使用 paper-evidence 检索原文。不要为了确认上下文中已有的信息再次调用本 Skill；只有其说明或画像上下文在压缩后缺失时才重新激活。");
-            return result(payload, profileSourceIds(profile, catalog));
+            payload.put("candidateSourceObjectIds", profileSourceIds(profile, catalog));
+            payload.put("usage", "使用该画像建立全文方向。candidateSourceObjectIds 只是画像 claim 的候选锚点，不能直接作为引用；需要引用时必须把 claimRef 或候选来源 ID 交给 paper-evidence 读取原文，再将实际读取的来源绑定到答案。画像不能证明某内容未出现；涉及论文是否讨论、比较或包含某内容，以及精确引文、公式、图、表或页面级视觉检查时，请使用 paper-evidence 检索原文。不要为了确认上下文中已有的信息再次调用本 Skill；只有其说明或画像上下文在压缩后缺失时才重新激活。");
+            // Profile context is not a read operation. Keeping the execution set empty
+            // prevents these candidate IDs from entering the citation allow-list.
+            return result(payload);
         } catch (Exception error) {
             throw new IllegalStateException("已保存的论文画像格式无效", error);
         }
@@ -94,7 +96,7 @@ public class PaperOverviewToolRegistry {
             return Map.of("claimRef", "benchmark:" + index,
                     "metric", result.metric(), "value", result.value(),
                     "baseline", result.baseline(), "dataset", result.dataset(),
-                    "sourceObjectIds", validSourceIds(result.evidenceBlockIds(), catalog));
+                    "candidateSourceObjectIds", validSourceIds(result.evidenceBlockIds(), catalog));
         }).toList());
         value.put("openQuestions", profile.openQuestions());
         return value;
@@ -105,10 +107,11 @@ public class PaperOverviewToolRegistry {
         return IntStream.range(0, claims.size())
                 .mapToObj(index -> Map.of("claimRef", prefix + ":" + index,
                         "statement", claims.get(index).statement(),
-                        "sourceObjectIds", validSourceIds(claims.get(index).evidenceBlockIds(), catalog)))
+                        "candidateSourceObjectIds", validSourceIds(claims.get(index).evidenceBlockIds(), catalog)))
                 .toList();
     }
 
+    /** Returns candidate anchors for the evidence Skill, never a citation allow-list. */
     private Set<String> profileSourceIds(PaperGlobalProfile profile, PaperSourceCatalog catalog) {
         LinkedHashSet<String> result = new LinkedHashSet<>();
         profile.coreContributions().forEach(claim -> result.addAll(validSourceIds(claim.evidenceBlockIds(), catalog)));

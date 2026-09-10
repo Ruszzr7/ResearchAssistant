@@ -13,7 +13,12 @@ export function mapAgentEvidenceItem(item = {}) {
     ? item.locators
     : item.locator ? [item.locator] : []
   const locators = rawLocators.map((raw, index) => {
-    const rects = validBoxes(raw?.rects)
+    const rawContentRects = Array.isArray(raw?.contentRects) && raw.contentRects.length
+      ? raw.contentRects : raw?.rects
+    const rawFocusRects = Array.isArray(raw?.focusRects) && raw.focusRects.length
+      ? raw.focusRects : raw?.rects
+    const rects = validBoxes(rawContentRects)
+    const focusRects = validBoxes(rawFocusRects?.length ? rawFocusRects : rects)
     const pageNumber = Number(raw?.pageNumber ?? raw?.page ?? item.page)
     const targetText = String(raw?.targetText ?? '').trim() || fullText
     return {
@@ -23,13 +28,17 @@ export function mapAgentEvidenceItem(item = {}) {
       page: Number.isInteger(pageNumber) ? pageNumber : null,
       targetText,
       targetBoxes: rects,
+      contentBoxes: rects,
+      focusBoxes: focusRects,
       rects,
       targetBbox: unionBoundingBoxes(rects),
+      focusBbox: unionBoundingBoxes(focusRects),
       precision: raw?.precision || 'BLOCK',
     }
   }).filter(locator => Number.isInteger(locator.pageNumber) && locator.pageNumber > 0)
   const first = locators[0] || {}
   const primaryBoxes = first.targetBoxes || []
+  const primaryFocusBoxes = first.focusBoxes || primaryBoxes
   const contentType = String(item.contentType || 'TEXT').toUpperCase()
   const textFormat = String(item.textFormat || 'PLAIN_TEXT').toUpperCase()
   const evidenceKey = item.evidenceKey || physicalEvidenceKey(item, locators, quote || fullText)
@@ -56,7 +65,10 @@ export function mapAgentEvidenceItem(item = {}) {
       pageNumber: first.pageNumber,
       targetText: first.targetText || fullText || quote,
       targetBoxes: primaryBoxes,
+      contentBoxes: first.contentBoxes || primaryBoxes,
+      focusBoxes: primaryFocusBoxes,
       targetBbox: first.targetBbox || unionBoundingBoxes(primaryBoxes),
+      focusBbox: first.focusBbox || unionBoundingBoxes(primaryFocusBoxes),
       precision: first.precision || item.locator?.precision,
       formulaNumber: item.formulaNumber || '',
       formulaNumbers: Array.isArray(item.formulaNumbers) ? item.formulaNumbers : [],
@@ -90,6 +102,19 @@ export function evidenceLocators(item = {}) {
 export function validBoxes(boxes) {
   return (boxes || []).filter(box => Number.isFinite(Number(box?.x))
     && Number.isFinite(Number(box?.y)) && Number(box?.width) > 0 && Number(box?.height) > 0)
+}
+
+/**
+ * 选择证据框时，版面解析器返回的 locator 几何是唯一的完整性来源。
+ * PDFium 的文本搜索可能只命中长证据的前缀或其中一行，因此搜索框只能
+ * 作为没有可靠 locator 时的降级路径，不能覆盖完整 locator。
+ */
+export function selectEvidenceFocusBoxes({ locatorBoxes = [], exactBoxes = [], fallbackBox = null } = {}) {
+  const complete = validBoxes(locatorBoxes)
+  if (complete.length) return complete
+  const exact = validBoxes(exactBoxes)
+  if (exact.length) return exact
+  return validBoxes(fallbackBox ? [fallbackBox] : [])
 }
 
 export function unionBoundingBoxes(boxes) {

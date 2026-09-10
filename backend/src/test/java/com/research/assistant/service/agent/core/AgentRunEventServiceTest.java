@@ -2,8 +2,10 @@ package com.research.assistant.service.agent.core;
 
 import com.research.assistant.dto.agent.AgentRunEvent;
 import com.research.assistant.dto.agent.AgentTurnResult;
+import com.research.assistant.entity.AgentRunRecord;
 import com.research.assistant.entity.AgentToolCallRecord;
 import com.research.assistant.mapper.AgentToolCallMapper;
+import com.research.assistant.mapper.AgentRunMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -101,5 +103,30 @@ class AgentRunEventServiceTest {
                 .containsEntry("validationIssueCount", 1);
         assertThat(data.get("validationIssueCodes")).isEqualTo(List.of("MISSING_RETRIEVAL_ANCHOR"));
         assertThat(data.toString()).doesNotContain("secret prompt");
+    }
+
+    @Test
+    void exposesDurableFailureCodeForTimeoutDiagnostics() {
+        AgentLoopService loop = mock(AgentLoopService.class);
+        AgentToolCallMapper calls = mock(AgentToolCallMapper.class);
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        when(loop.currentResult("run-5")).thenReturn(new AgentTurnResult("turn-5", "run-5", "FAILED",
+                "论文助手排队时间过长，请稍后重试", List.of(), List.of()));
+        when(calls.selectByRunId("run-5")).thenReturn(List.of());
+        AgentRunRecord run = new AgentRunRecord();
+        run.setRunId("run-5");
+        run.setStatus("FAILED");
+        run.setErrorCode("QUEUE_TIMEOUT");
+        run.setErrorMessage("agent run queue exceeded 90000 ms");
+        when(runs.selectByRunId("run-5")).thenReturn(run);
+
+        AgentRunEvent event = new AgentRunEventService(loop, calls, new ObjectMapper(), runs)
+                .events("run-5", 0).stream()
+                .filter(value -> "run.failed".equals(value.type())).findFirst().orElseThrow();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) event.data();
+        assertThat(data).containsEntry("errorCode", "QUEUE_TIMEOUT")
+                .containsEntry("errorMessage", "agent run queue exceeded 90000 ms");
     }
 }

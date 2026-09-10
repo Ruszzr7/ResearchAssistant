@@ -47,6 +47,8 @@ class PaperReadToolRegistryTest {
         assertThat(schema.at("/properties/needs/items/properties/targets").isObject()).isTrue();
         assertThat(schema.at("/properties/needs/items/properties/includeVisual/type").asText())
                 .isEqualTo("boolean");
+        assertThat(schema.at("/properties/needs/items/properties/cursor/type").asText())
+                .isEqualTo("integer");
         assertThat(schema.at("/properties/needs/items/properties/sourceObjectIds").isObject()).isTrue();
         assertThat(schema.at("/properties/needs/items/anyOf").isMissingNode()).isTrue();
         assertThat(schema.at("/properties/needs/items/required").toString()).contains("id", "objective");
@@ -81,6 +83,8 @@ class PaperReadToolRegistryTest {
         assertThat(json.at("/sources/0/sourceObjectId").asText()).isEqualTo("src-1");
         assertThat(json.at("/sources/0/sourceRole").asText()).isEqualTo("BODY_TEXT");
         assertThat(json.at("/sources/0/matchedSearches").toString()).contains("0", "1");
+        assertThat(json.at("/sources/0/fullText").asText()).isEqualTo(formula.rawContent());
+        assertThat(json.at("/sources/0/contentComplete").asBoolean()).isTrue();
         assertThat(execution.sourceObjectIds()).containsExactlyInAnyOrder("src-1", "src-2");
         verify(sourceService).readSource(catalog, "src-1");
         verify(sourceService).readSource(catalog, "src-2");
@@ -100,6 +104,54 @@ class PaperReadToolRegistryTest {
         assertThat(objectMapper.readTree(execution.resultJson())
                 .at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-1");
         verify(sourceService, times(0)).search(eq(catalog), any());
+    }
+
+    @Test
+    void excludesAnIsolatedFormulaGlyphEvenWhenItHasANumber() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        SourceObject formula = new SourceObject("formula-noisy", 9, "h".repeat(64), "parser", 1,
+                SourceContentType.FORMULA, "√", null, List.of("Method"), "18",
+                Map.of("textFormat", "PLAIN_TEXT", "textReliable", "false"));
+        SourceLocator locator = new SourceLocator("loc-formula-noisy", formula.sourceObjectId(), 3,
+                "PDF_NORMALIZED", List.of(new NormalizedBoundingBox(.2, .3, .4, .05)), "",
+                EvidenceLocator.Precision.FORMULA_REGION);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(9, "h".repeat(64), "parser", 3,
+                Map.of(formula.sourceObjectId(), formula),
+                Map.of(formula.sourceObjectId(), List.of(locator)));
+        when(sourceService.readSource(catalog, formula.sourceObjectId())).thenReturn(formula);
+
+        JsonNode json = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认公式\","
+                        + "\"sourceObjectIds\":[\"formula-noisy\"]}]}" ).resultJson());
+
+        assertThat(json.path("status").asText()).isEqualTo("not_found");
+        assertThat(json.path("sources")).isEmpty();
+        assertThat(json.at("/evidenceNeeds/0/sourceObjectIds")).isEmpty();
+        assertThat(json.toString()).doesNotContain("文本提取不可靠", "√");
+    }
+
+    @Test
+    void omitsUnnumberedStandaloneFormulaGlyphFromEvidence() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        SourceObject glyph = new SourceObject("formula-glyph", 9, "h".repeat(64), "parser", 1,
+                SourceContentType.FORMULA, "√", null, List.of("Method"), "",
+                Map.of("textFormat", "PLAIN_TEXT", "textReliable", "false"));
+        SourceLocator locator = new SourceLocator("loc-formula-glyph", glyph.sourceObjectId(), 6,
+                "PDF_NORMALIZED", List.of(new NormalizedBoundingBox(.2, .3, .02, .03)), "",
+                EvidenceLocator.Precision.FORMULA_REGION);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(9, "h".repeat(64), "parser", 6,
+                Map.of(glyph.sourceObjectId(), glyph), Map.of(glyph.sourceObjectId(), List.of(locator)));
+        when(sourceService.readSource(catalog, glyph.sourceObjectId())).thenReturn(glyph);
+
+        JsonNode json = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"glyph\",\"objective\":\"确认公式\","
+                        + "\"sourceObjectIds\":[\"formula-glyph\"]}]}" ).resultJson());
+
+        assertThat(json.path("status").asText()).isEqualTo("not_found");
+        assertThat(json.path("sources")).isEmpty();
+        assertThat(json.at("/evidenceNeeds/0/sourceObjectIds")).isEmpty();
     }
 
     @Test
@@ -212,6 +264,66 @@ class PaperReadToolRegistryTest {
         assertThat(json.at("/evidenceNeeds/0/retrievalStatus").asText()).isEqualTo("found");
         assertThat(json.at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-1");
         verify(sourceService, times(2)).search(eq(catalog), any());
+    }
+
+    @Test
+    void exposesAStableNextCursorInsteadOfSilentlyDroppingCandidateSources() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        PaperSourceCatalog catalog = catalogWithThreeSources();
+        when(sourceService.search(eq(catalog), any())).thenReturn(List.of(
+                new RetrievalHit("src-1", .95, List.of("TOKEN")),
+                new RetrievalHit("src-2", .90, List.of("TOKEN")),
+                new RetrievalHit("src-3", .85, List.of("TOKEN"))));
+        when(sourceService.readSource(eq(catalog), any())).thenAnswer(invocation ->
+                catalog.requireObject(invocation.getArgument(1)));
+
+        JsonNode first = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"need\",\"objective\":\"确认事实\",\"query\":\"fact\"}],\"maxEvidence\":1}")
+                .resultJson());
+        assertThat(first.at("/evidenceNeeds/0/candidateCount").asInt()).isEqualTo(3);
+        assertThat(first.at("/evidenceNeeds/0/hasMore").asBoolean()).isTrue();
+        assertThat(first.at("/evidenceNeeds/0/nextCursor").asInt()).isEqualTo(1);
+
+        JsonNode next = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"need\",\"objective\":\"确认事实\",\"query\":\"fact\",\"cursor\":1}],\"maxEvidence\":1}")
+                .resultJson());
+        assertThat(next.at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-2");
+        assertThat(next.at("/evidenceNeeds/0/hasMore").asBoolean()).isTrue();
+    }
+
+    @Test
+    void nextCursorDoesNotSkipAnUnexposedCandidateSharedWithAnotherNeed() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        PaperSourceCatalog catalog = catalogWithThreeSources();
+        when(sourceService.search(eq(catalog), any())).thenReturn(
+                List.of(new RetrievalHit("src-1", .95, List.of("TOKEN")),
+                        new RetrievalHit("src-2", .90, List.of("TOKEN")),
+                        new RetrievalHit("src-3", .85, List.of("TOKEN"))),
+                List.of(new RetrievalHit("src-3", .10, List.of("TOKEN"))));
+        when(sourceService.readSource(eq(catalog), any())).thenAnswer(invocation ->
+                catalog.requireObject(invocation.getArgument(1)));
+
+        JsonNode first = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"first\",\"objective\":\"确认第一事实\",\"query\":\"first\"},"
+                        + "{\"id\":\"shared\",\"objective\":\"确认共享事实\",\"query\":\"shared\"}],"
+                        + "\"maxEvidence\":2}").resultJson());
+
+        assertThat(first.at("/evidenceNeeds/0/sourceObjectIds").toString())
+                .contains("src-1", "src-3");
+        assertThat(first.at("/evidenceNeeds/0/nextCursor").asInt()).isEqualTo(1);
+
+        when(sourceService.search(eq(catalog), any())).thenReturn(
+                List.of(new RetrievalHit("src-1", .95, List.of("TOKEN")),
+                        new RetrievalHit("src-2", .90, List.of("TOKEN")),
+                        new RetrievalHit("src-3", .85, List.of("TOKEN"))));
+        JsonNode next = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"first\",\"objective\":\"确认第一事实\",\"query\":\"first\",\"cursor\":1}],"
+                        + "\"maxEvidence\":1}").resultJson());
+        assertThat(next.at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-2");
     }
 
     @Test
@@ -375,7 +487,8 @@ class PaperReadToolRegistryTest {
     private PaperSourceCatalog catalog(int pageCount, String firstContent, String secondContent) {
         SourceObject first = new SourceObject("src-1", 9, "h".repeat(64), "parser", 1,
                 SourceContentType.FORMULA, firstContent, null, List.of("Results"), "21",
-                Map.of("role", "BODY_TEXT", "blockIds", "p1-b1"));
+                Map.of("role", "BODY_TEXT", "blockIds", "p1-b1",
+                        "textFormat", "PLAIN_TEXT", "textReliable", "true"));
         SourceObject second = new SourceObject("src-2", 9, "h".repeat(64), "parser", 1,
                 SourceContentType.TEXT, secondContent, null, List.of("Theorem 1"), "", Map.of());
         SourceLocator firstLocator = new SourceLocator("loc-1", "src-1", 1, "PDF_NORMALIZED",

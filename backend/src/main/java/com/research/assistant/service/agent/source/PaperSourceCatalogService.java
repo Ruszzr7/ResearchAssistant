@@ -130,6 +130,7 @@ public class PaperSourceCatalogService {
                             .collect(java.util.stream.Collectors.joining("\n"));
             if (raw.isBlank()) continue;
             SourceContentType sourceType = contentType(span.role());
+            if (sourceType == SourceContentType.TEXT && !SourceEvidenceQuality.usableText(raw)) continue;
             Map<String, String> spanProvenance = new LinkedHashMap<>();
             spanProvenance.put("spanId", span.id());
             spanProvenance.put("blockIds", sourceBlocks.stream().map(DocumentBlock::id)
@@ -140,6 +141,7 @@ public class PaperSourceCatalogService {
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
                     artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, sourceType, raw,
                     SourceObject.normalize(raw), span.sectionPath(), "", spanProvenance);
+            if (!SourceEvidenceQuality.usableForCitation(object)) continue;
             List<SourceLocator> spanLocators = sourceBlocks.stream().map(block -> {
                 SourceAnchor anchor = textAnchorByBlock.get(block.id());
                 if (anchor != null && span.role() == block.role()) {
@@ -172,9 +174,10 @@ public class PaperSourceCatalogService {
                     artifact.documentHash(), artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION,
                     SourceContentType.FORMULA, raw, SourceObject.normalize(raw), sectionPath,
                     equation.number(), formulaProvenance);
+            if (!SourceEvidenceQuality.usableForCitation(object)) continue;
             objects.put(equation.entityId(), object);
             locators.put(equation.entityId(), List.of(
-                    locator(equation.entityId(), definition, definition.blockId())));
+                    formulaLocator(equation.entityId(), definition, block)));
         }
         for (PaperSourceUnit unit : index.sourceUnits()) {
             if (unit.blocks().stream().map(DocumentBlock::id).anyMatch(recoveredBlockIds::contains)) continue;
@@ -192,6 +195,7 @@ public class PaperSourceCatalogService {
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
                     artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, sourceType,
                     unit.text(), SourceObject.normalize(unit.text()), sectionPath, "", unitProvenance);
+            if (!SourceEvidenceQuality.usableForCitation(object)) continue;
             SourceLocator sourceLocator = new SourceLocator(
                     locatorId(sourceId, unit.page(), unit.id()), sourceId, unit.page(),
                     "PDF_NORMALIZED", unit.boxes(), unit.text(), precision(unit));
@@ -219,6 +223,7 @@ public class PaperSourceCatalogService {
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
                     artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, sourceType, continuation.text(),
                     SourceObject.normalize(continuation.text()), sectionPath, "", continuationProvenance);
+            if (!SourceEvidenceQuality.usableForCitation(object)) continue;
             List<SourceLocator> continuationLocators = continuation.parts().stream()
                     .map(part -> new SourceLocator(locatorId(sourceId, part.page(), part.id()),
                             sourceId, part.page(), "PDF_NORMALIZED", part.boxes(),
@@ -237,6 +242,7 @@ public class PaperSourceCatalogService {
             SourceContentType type = recoveryContentType(recovery, blockById);
             String sourceText = corrected ? recovery.correctedText()
                     : visualFallbackText(recovery, artifact.blocks(), blockById, type);
+            if (type == SourceContentType.TEXT && !SourceEvidenceQuality.usableText(sourceText)) continue;
             String formulaNumber = type == SourceContentType.FORMULA
                     ? String.join(",", formulaNumbers(sourceText)) : "";
             Map<String, String> provenance = new LinkedHashMap<>();
@@ -252,6 +258,7 @@ public class PaperSourceCatalogService {
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
                     artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, type,
                     sourceText, SourceObject.normalize(sourceText), sectionPath, formulaNumber, provenance);
+            if (!SourceEvidenceQuality.usableForCitation(object)) continue;
             List<SourceLocator> recoveryLocators = recovery.pageAreas().stream()
                     .map(area -> new SourceLocator(locatorId(sourceId, area.page(), recovery.regionId()),
                             sourceId, area.page(), "PDF_NORMALIZED", area.boxes(),
@@ -264,8 +271,75 @@ public class PaperSourceCatalogService {
                 locators.put(sourceId, recoveryLocators);
             }
         }
+        deduplicatePhysicalSources(objects, locators);
         return new PaperSourceCatalog(artifact.paperId(), artifact.documentHash(), artifact.parserVersion(),
                 artifact.pageCount(), objects, locators);
+    }
+
+    /**
+     * A single printed formula can be published once by the equation index and again by an
+     * unresolved visual recovery.  Keep one canonical source before retrieval so the Agent
+     * cannot cite the same physical evidence twice.  Exact overlapping text duplicates use
+     * the same guard; repeated text on another page remains independent.
+     */
+    private void deduplicatePhysicalSources(Map<String, SourceObject> objects,
+                                            Map<String, List<SourceLocator>> locators) {
+        List<String> ids = new ArrayList<>(objects.keySet());
+        for (int leftIndex = 0; leftIndex < ids.size(); leftIndex++) {
+            String leftId = ids.get(leftIndex);
+            SourceObject left = objects.get(leftId);
+            if (left == null) continue;
+            for (int rightIndex = leftIndex + 1; rightIndex < ids.size(); rightIndex++) {
+                String rightId = ids.get(rightIndex);
+                SourceObject right = objects.get(rightId);
+                if (right == null) continue;
+                List<SourceLocator> leftLocators = locators.get(leftId);
+                List<SourceLocator> rightLocators = locators.get(rightId);
+                boolean formulaDuplicate = SourceEvidenceIdentity.formulaEquivalent(
+                        left, leftLocators, right, rightLocators);
+                boolean textDuplicate = SourceEvidenceIdentity.textEquivalent(
+                        left, leftLocators, right, rightLocators)
+                        || SourceEvidenceIdentity.equivalent(left, leftLocators, right, rightLocators);
+                if (!formulaDuplicate && !textDuplicate) continue;
+                String keepId = formulaDuplicate
+                        ? preferredFormula(left, right).sourceObjectId()
+                        : preferredText(left, right).sourceObjectId();
+                String dropId = keepId.equals(leftId) ? rightId : leftId;
+                objects.remove(dropId);
+                locators.remove(dropId);
+                if (dropId.equals(leftId)) {
+                    left = null;
+                    break;
+                }
+                right = null;
+            }
+        }
+    }
+
+    private SourceObject preferredFormula(SourceObject first, SourceObject second) {
+        int firstScore = formulaQuality(first);
+        int secondScore = formulaQuality(second);
+        if (firstScore != secondScore) return firstScore > secondScore ? first : second;
+        int firstLength = first.rawContent().strip().length();
+        int secondLength = second.rawContent().strip().length();
+        return firstLength >= secondLength ? first : second;
+    }
+
+    private SourceObject preferredText(SourceObject first, SourceObject second) {
+        int firstLength = first.rawContent().strip().length();
+        int secondLength = second.rawContent().strip().length();
+        return firstLength >= secondLength ? first : second;
+    }
+
+    private int formulaQuality(SourceObject source) {
+        boolean reliable = Boolean.parseBoolean(source.provenance().getOrDefault("textReliable", "false"));
+        String format = source.provenance().getOrDefault("textFormat", "");
+        String recovery = source.provenance().getOrDefault("recoveryMode", "");
+        int score = reliable ? 1_000 : 0;
+        score += "LATEX".equalsIgnoreCase(format) ? 300
+                : "PLAIN_TEXT".equalsIgnoreCase(format) ? 100 : 0;
+        if ("VISUAL_FALLBACK".equalsIgnoreCase(recovery)) score -= 100;
+        return score;
     }
 
     private SourceContentType recoveredContentType(String value) {
@@ -452,6 +526,31 @@ public class PaperSourceCatalogService {
         };
         return new SourceLocator(locatorId(sourceId, anchor.page(), blockId), sourceId, anchor.page(),
                 "PDF_NORMALIZED", anchor.boxes(), anchor.targetText(), precision);
+    }
+
+    /**
+     * Formula evidence has two independent UI geometries: the complete equation
+     * region and a small focus region used for the printed equation number.  The
+     * PDF viewer may still refine the number to glyph-level coordinates, but it
+     * must never replace the complete content region with a partial text match.
+     */
+    private SourceLocator formulaLocator(String sourceId, SourceAnchor anchor, DocumentBlock label) {
+        List<com.research.assistant.service.pdf.layout.NormalizedBoundingBox> focus = label == null
+                ? anchor.boxes() : List.of(formulaLabelBox(label));
+        return new SourceLocator(locatorId(sourceId, anchor.page(), anchor.blockId()), sourceId,
+                anchor.page(), "PDF_NORMALIZED", anchor.boxes(), focus, anchor.targetText(),
+                EvidenceLocator.Precision.FORMULA_REGION);
+    }
+
+    private com.research.assistant.service.pdf.layout.NormalizedBoundingBox formulaLabelBox(DocumentBlock label) {
+        var box = label.bbox();
+        if (box.width() >= .68 && FORMULA_NUMBER.matcher(label.text()).find()
+                && label.text().trim().matches("(?s).*\\(\\d{1,4}[a-z]?\\)\\s*$")) {
+            double left = Math.max(.505, box.x());
+            return new com.research.assistant.service.pdf.layout.NormalizedBoundingBox(left, box.y(),
+                    Math.max(.01, box.right() - left), box.height());
+        }
+        return box;
     }
 
     private static String rawContent(DocumentBlock block) {

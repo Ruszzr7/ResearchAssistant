@@ -345,7 +345,7 @@ function mergedTextDescriptor(values) {
   const targetBbox = unionBoundingBoxes(targetBoxes)
   const quote = quotes.join(' ').replace(/\s+/g, ' ').trim()
   const fullText = items.map(item => item.fullText || item.text || '')
-    .filter(Boolean).join('\n').trim()
+    .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
   const first = items[0]
   const key = `span:${first.paperId || ''}:${first.page || ''}:${items.map(item => item.blockId).join('|')}:${normalize(quote)}`
   return {
@@ -452,10 +452,20 @@ function sourceView(number, key, item, target, quote, completeText = '') {
   const formula = isFormulaRegion(target)
   const candidateText = String(completeText || item?.fullText || item?.text || '').trim()
   const quotedText = String(quote || '').trim()
-  const fullText = isEvidencePlaceholder(candidateText) && quotedText && !isEvidencePlaceholder(quotedText)
-    ? quotedText : candidateText || quotedText
-  const excerptText = quotedText || fullText
-  const displayText = fullText || String(quote || '').trim()
+  const unreliableFormula = formula && (item?.textReliable === false
+    || /文本提取不可靠|latex.*噪声|解析.*噪声/i.test(`${candidateText} ${quotedText}`))
+  const formulaLabel = formulaCitationLabel(item, target)
+  const safeQuote = unreliableFormula ? formulaLabel : quotedText
+  const fullText = unreliableFormula
+    ? formulaLabel
+    : isEvidencePlaceholder(candidateText) && safeQuote && !isEvidencePlaceholder(safeQuote)
+    ? safeQuote : candidateText || safeQuote
+  // The evidence panel must show the complete source unit whenever it is
+  // available.  quote is only the short marker attached to the answer; using
+  // it as the preview made a multi-line paragraph look truncated even though
+  // the backend had returned all of its text.
+  const excerptText = fullText || safeQuote
+  const displayText = fullText || safeQuote
   return {
     number,
     key,
@@ -463,17 +473,22 @@ function sourceView(number, key, item, target, quote, completeText = '') {
     page: target?.page || item?.page,
     formulaNumber: target?.formulaNumber || item?.formulaNumber || '',
     formulaNumbers: target?.formulaNumbers || item?.formulaNumbers || [],
-    quote: String(quote || displayText).trim(),
+    quote: String(safeQuote || displayText).trim(),
     fullText,
     fullTextAvailable: item?.fullTextAvailable !== false,
     excerpt: sourceExcerpt(excerptText, target || item),
     excerptTruncated: item?.fullTextAvailable !== false && fullText.length > 220,
     textFormat: item?.textFormat || '',
-    textReliable: item?.textReliable !== false,
+    textReliable: !unreliableFormula,
     title: displayText || String(target?.text || item?.text || '').trim(),
     kind: formula ? '公式' : '正文',
     target,
   }
+}
+
+function formulaCitationLabel(item, target) {
+  const number = target?.formulaNumber || item?.formulaNumber || ''
+  return number ? `公式 (${number})` : '公式区域'
 }
 
 function isEvidencePlaceholder(value) {

@@ -21,6 +21,7 @@ class AgentRunTimeoutServiceTest {
         AgentRunRecord expired = run("expired", LocalDateTime.now().minusSeconds(130), 120_000L);
         AgentRunRecord active = run("active", LocalDateTime.now().minusSeconds(10), 120_000L);
         when(mapper.selectRunning()).thenReturn(List.of(expired, active));
+        when(mapper.selectQueued()).thenReturn(List.of());
 
         new AgentRunTimeoutService(mapper, runtime).timeoutExpiredRuns();
 
@@ -39,6 +40,7 @@ class AgentRunTimeoutServiceTest {
         AgentRunRecord completed = run("expired", LocalDateTime.now().minusSeconds(130), 120_000L);
         completed.setStatus(AgentRunStatus.COMPLETED.name());
         when(mapper.selectRunning()).thenReturn(List.of(expired));
+        when(mapper.selectQueued()).thenReturn(List.of());
         when(runtime.getRun("expired")).thenReturn(completed);
         org.mockito.Mockito.doThrow(new IllegalStateException("invalid AgentRun transition"))
                 .when(runtime).transitionRun("expired", AgentRunStatus.FAILED, null,
@@ -47,6 +49,22 @@ class AgentRunTimeoutServiceTest {
         new AgentRunTimeoutService(mapper, runtime).timeoutExpiredRuns();
 
         verify(runtime).getRun("expired");
+    }
+
+    @Test
+    void expiresQueuedRunsUsingCreationTimeAndKeepsRunDeadlineSeparate() {
+        AgentRunMapper mapper = mock(AgentRunMapper.class);
+        AgentRuntimeService runtime = mock(AgentRuntimeService.class);
+        AgentRunRecord queued = run("queued", null, 120_000L);
+        queued.setStatus(AgentRunStatus.QUEUED.name());
+        queued.setCreatedAt(LocalDateTime.now().minusSeconds(130));
+        when(mapper.selectQueued()).thenReturn(List.of(queued));
+        when(mapper.selectRunning()).thenReturn(List.of());
+
+        new AgentRunTimeoutService(mapper, runtime).timeoutExpiredRuns();
+
+        verify(runtime).transitionRun("queued", AgentRunStatus.FAILED, null,
+                "QUEUE_TIMEOUT", "agent run queue exceeded 120000 ms");
     }
 
     private AgentRunRecord run(String id, LocalDateTime startedAt, long timeoutMs) {

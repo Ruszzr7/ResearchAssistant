@@ -37,6 +37,7 @@ public class PaperSemanticSpanBuilder {
     private static final Pattern INLINE_BIBLIOGRAPHY_ENTRY = Pattern.compile(
             "\\[\\d{1,4}[a-z]?\\]\\s+(?:(?:[A-Z]\\.)\\s*){1,3}[\\p{L}][\\p{L}'’\\-]+",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern WORD_TOKEN = Pattern.compile("[\\p{L}]{2,}");
 
     public List<PaperSemanticSpan> build(PaperLayoutArtifact artifact) {
         if (artifact == null) throw new IllegalArgumentException("layout artifact is required");
@@ -149,9 +150,31 @@ public class PaperSemanticSpanBuilder {
     private boolean isMeaningfulBlock(DocumentBlock block) {
         if (block.role() == DocumentBlockRole.FORMULA
                 || block.role() == DocumentBlockRole.TABLE
-                || block.role() == DocumentBlockRole.FIGURE
-                || block.mathProfile().signalCount() > 0) return true;
-        return content(block).codePoints().anyMatch(Character::isLetterOrDigit);
+                || block.role() == DocumentBlockRole.FIGURE) return true;
+        String text = content(block);
+        if (!hasReadableToken(text)) return false;
+        // Inline-math enrichment is useful for locating a surrounding equation, but
+        // a body block that contains only a glyph/token (for example “√”, “BS” or
+        // “tot”) is not a standalone semantic span and must not become evidence.
+        if (block.mathProfile().signalCount() > 0 && !naturalLanguageLike(text)) return false;
+        return true;
+    }
+
+    private boolean hasReadableToken(String text) {
+        return text != null && text.codePoints().anyMatch(Character::isLetterOrDigit);
+    }
+
+    private boolean naturalLanguageLike(String text) {
+        if (text == null || text.isBlank()) return false;
+        String normalized = text.replaceAll("\\s+", " ").strip();
+        long cjk = normalized.codePoints().filter(codePoint ->
+                Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN).count();
+        if (cjk >= 3) return true;
+        long letters = normalized.codePoints().filter(Character::isLetter).count();
+        Matcher words = WORD_TOKEN.matcher(normalized);
+        int wordCount = 0;
+        while (words.find() && wordCount < 3) wordCount++;
+        return normalized.length() >= 12 && letters >= 8 && wordCount >= 2;
     }
 
     private boolean canMerge(Draft previous, DocumentBlock current, DocumentBlockRole currentRole) {

@@ -14,6 +14,18 @@ describe('answer citations', () => {
     expect(cited).not.toContain('missing')
   })
 
+  it('shows the complete source unit in the evidence preview instead of only the quote', () => {
+    const fullText = '第一行完整内容。第二行完整内容。'
+    const [source] = buildCitationSources([
+      { text: '论文事实', evidenceIds: ['source-a'] },
+    ], [{
+      evidenceId: 'source-a', page: 3, quote: '第一行完整内容。', fullText,
+    }])
+
+    expect(source.excerpt).toBe(fullText)
+    expect(source.fullText).toBe(fullText)
+  })
+
   it('removes model-authored numeric markers before adding grounded clickable citations', () => {
     const cited = buildCitedAnswer(
       '方法填补了研究空白 [1]，并提高了速率 [3]。',
@@ -417,5 +429,22 @@ describe('answer citations', () => {
 
     expect(sources).toHaveLength(1)
     expect(sources[0]).toMatchObject({ kind: '公式', fullText: '\\hat{R}_c(t)=\\Psi(D)', textFormat: 'LATEX', textReliable: true })
+  })
+
+  it('shows only the formula label when persisted formula text is unreliable', () => {
+    const evidence = [{
+      evidenceId: 'eq-noisy', paperId: 204, page: 6, formulaNumber: '18',
+      quote: '公式 (18)的文本提取不可靠，请查看原始页面区域。',
+      fullText: '公式 (18)的文本提取不可靠，请查看原始页面区域。',
+      contentType: 'FORMULA', textFormat: 'PLAIN_TEXT', textReliable: false,
+      locator: { precision: 'FORMULA_REGION', targetBbox: { x: .2, y: .3, width: .4, height: .05 } },
+    }]
+
+    const [source] = buildCitationSources([
+      { text: '核心公式见式 (18)', evidenceIds: ['eq-noisy'] },
+    ], evidence)
+
+    expect(source).toMatchObject({ kind: '公式', fullText: '公式 (18)', excerpt: '公式 (18)', textReliable: false })
+    expect(source.fullText).not.toContain('文本提取不可靠')
   })
 })

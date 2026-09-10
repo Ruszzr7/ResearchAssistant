@@ -26,6 +26,9 @@ public final class AgentRunFailureClassifier {
         if (combined.contains("payload limit") || combined.contains("result exceeded")) {
             return new Failure("TOOL_OUTPUT_OVERSIZE", "论文读取结果过大，请缩小页码或问题范围");
         }
+        if (combined.contains("answer_submission_required")) {
+            return new Failure("ANSWER_SUBMISSION_REQUIRED", "模型未通过结构化答案提交，请重试");
+        }
         if (combined.contains("grounding_submission_required")) {
             return new Failure("EVIDENCE_SUBMISSION_REQUIRED", "论文证据已读取，但回答未完成证据绑定，请重试");
         }
@@ -48,10 +51,12 @@ public final class AgentRunFailureClassifier {
     public static String userMessage(String code) {
         if (code == null) return "论文助手执行失败，请稍后重试";
         return switch (code) {
+            case "QUEUE_TIMEOUT" -> "论文助手排队时间过长，请稍后重试";
             case "RUN_TIMEOUT", "MODEL_TIMEOUT" -> "模型响应超时，请稍后重试";
             case "MODEL_OVERLOADED" -> "模型服务当前繁忙，请稍后重试";
             case "TOOL_ROUND_LIMIT" -> "模型工具调用进入异常循环，请缩小问题范围后重试";
             case "TOOL_OUTPUT_OVERSIZE" -> "论文读取结果过大，请缩小页码或问题范围";
+            case "ANSWER_SUBMISSION_REQUIRED" -> "模型未通过结构化答案提交，请重试";
             case "EVIDENCE_SUBMISSION_REQUIRED" -> "论文证据已读取，但回答未完成证据绑定，请重试";
             case "EVIDENCE_VALIDATION_FAILED" -> "回答证据校验未通过，请重试";
             case "MODEL_TOOL_CALLING_UNAVAILABLE" -> "当前对话模型未通过Agent工具调用测试";

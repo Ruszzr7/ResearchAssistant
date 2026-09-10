@@ -11,7 +11,8 @@ public record PaperSourceIndex(int schemaVersion,
                                List<EquationEntity> equations,
                                List<PaperSourceUnit> sourceUnits,
                                List<PaperSourceContinuation> continuations) {
-    public static final int SCHEMA_VERSION = 5;
+    /** Physical evidence anchors and formula ownership were separated in v6. */
+    public static final int SCHEMA_VERSION = 6;
 
     public PaperSourceIndex {
         documentHash = documentHash == null ? "" : documentHash;

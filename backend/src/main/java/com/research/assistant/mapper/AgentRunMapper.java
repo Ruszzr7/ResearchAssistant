@@ -21,6 +21,9 @@ public interface AgentRunMapper extends BaseMapper<AgentRunRecord> {
     @Select("SELECT * FROM agent_run WHERE status = 'RUNNING'")
     List<AgentRunRecord> selectRunning();
 
+    @Select("SELECT * FROM agent_run WHERE status = 'QUEUED'")
+    List<AgentRunRecord> selectQueued();
+
     @Update("UPDATE agent_run SET status = #{target}, version = version + 1, "
             + "started_at = CASE WHEN #{target} = 'RUNNING' AND started_at IS NULL THEN CURRENT_TIMESTAMP(6) ELSE started_at END, "
             + "completed_at = CASE WHEN #{terminal} THEN CURRENT_TIMESTAMP(6) ELSE completed_at END, "

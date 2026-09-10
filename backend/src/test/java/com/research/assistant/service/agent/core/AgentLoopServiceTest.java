@@ -579,7 +579,7 @@ class AgentLoopServiceTest {
     }
 
     @Test
-    void mixedBatchReportsIndependentNeedProgressWithoutTopLevelDecisionFlags() {
+    void mixedBatchReportsIndependentNeedProgressWithTopLevelScope() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence", """
@@ -605,8 +605,9 @@ class AgentLoopServiceTest {
                         && entry.content().contains("\"outcome\":\"new_sources\"")
                         && entry.content().contains("\"outcome\":\"no_match\"")
                         && entry.content().contains("\"recommendedAction\":\"refine_once\"")
-                        && !entry.content().contains("\"noProgress\"")
-                        && !entry.content().contains("\"stopRecommended\""));
+                        && entry.content().contains("\"noProgress\":false")
+                        && entry.content().contains("\"stopRecommended\":false")
+                        && entry.content().contains("\"stopScope\":\"individual_need\""));
     }
 
     @Test

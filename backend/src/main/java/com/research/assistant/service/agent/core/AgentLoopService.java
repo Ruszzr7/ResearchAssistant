@@ -48,7 +48,7 @@ public class AgentLoopService {
     private static final String ANSWER_SCHEMA = """
             {"type":"object","properties":{
             "answerBlocks":{"type":"array","items":{"type":"object","properties":{
-            "text":{"type":"string","description":"完整的 GitHub 风格 Markdown。数学使用 $...$ 或 $$...$$；不要添加数字引用标记。对论文未提供某内容的判断，只能在实际检索后表述为未找到足够证据。"},"sourceObjectIds":{"type":"array","description":"支持本答案块的、且已在本轮实际读取的来源 ID；一般解释或检索后的证据限制可填写空数组。","items":{"type":"string"}}},
+            "text":{"type":"string","description":"完整的 GitHub 风格 Markdown。数学使用 $...$ 或 $$...$$；不要添加数字引用标记。对论文未提供某内容的判断，只能在实际检索后表述为未找到足够证据。"},"sourceObjectIds":{"type":"array","description":"支持本答案块的、且已在当前论文版本上下文中实际读取的来源 ID；一般解释或检索后的证据限制可填写空数组。","items":{"type":"string"}}},
             "required":["text","sourceObjectIds"],"additionalProperties":false}},
             "clarification":{"type":"string","description":"仅当请求确实存在歧义时提出一个简短的中文澄清问题；此时留空或省略 answerBlocks。"}},
             "required":[],"additionalProperties":false}
@@ -154,7 +154,14 @@ public class AgentLoopService {
         AgentTurnInput input = prepared.input();
         AgentContextSnapshot context = prepared.context();
         AgentTurnRecord turn = prepared.turn();
-        AgentRunRecord run = prepared.run();
+        AgentRunRecord currentRun = prepared.run();
+        if (AgentRunStatus.QUEUED.name().equals(currentRun.getStatus())) {
+            // started_at is set by this transition, after the executor has begun work.
+            // This keeps queue latency out of the model run deadline.
+            currentRun = runtimeService.transitionRun(currentRun.getRunId(), AgentRunStatus.RUNNING,
+                    null, null, null);
+        }
+        AgentRunRecord run = currentRun;
         if (input.explicitAction() != null) {
             return executeExplicitAction(input, context, turn, run);
         }
@@ -167,7 +174,7 @@ public class AgentLoopService {
         List<AgentToolDefinition> definitions = new ArrayList<>();
         List<AgentSkillBinding> skills = skillRegistry.bindings(context, input.userMessage());
         definitions.add(new AgentToolDefinition("submit_answer",
-                "使用有序的 answerBlocks 提交最终答案。对于依赖论文的回答，读取论文证据后必须使用本工具，以便服务器生成可点击引用。每个块都应是完整的 GitHub 风格 Markdown；每个块只放一个事实性陈述或一组紧密相关的陈述，行内 LaTeX 使用 $...$，独立 LaTeX 使用 $$...$$，不要添加数字引用标记。只能附上实际读取且支持该块的 sourceObjectIds；一般解释可以不引用。画像、摘要或一次未命中都不能证明论文未讨论某内容；只有实际执行原文证据检索后，才能谨慎表述“当前未找到足够证据”，不得把未找到改写为确定不存在。如果不需要论文证据，本工具也可用于直接提交结构化答案。", ANSWER_SCHEMA));
+                "所有正常回答都必须使用本工具提交。使用有序的 answerBlocks 提交最终答案；依赖论文的回答只能绑定实际读取且支持该块的 sourceObjectIds，一般解释使用空数组。每个块都应是完整的 GitHub 风格 Markdown；每个块只放一个事实性陈述或一组紧密相关的陈述，行内 LaTeX 使用 $...$，独立 LaTeX 使用 $$...$$，不要添加数字引用标记。画像、摘要或一次未命中都不能证明论文未讨论某内容；只有实际执行原文证据检索后，才能谨慎表述“当前未找到足够证据”，不得把未找到改写为确定不存在。", ANSWER_SCHEMA));
         definitions.add(new AgentToolDefinition("ask_clarification",
                 "仅当页面操作或答案实质依赖缺失或含糊的用户意图时，提出一个简短的自然语言澄清问题。普通可解问题不要使用。",
                 CLARIFICATION_SCHEMA));
@@ -292,7 +299,8 @@ public class AgentLoopService {
                     throw new IllegalArgumentException("论文画像不可用");
                 }
                 AgentToolExecution overview = profileSkillTool.execute(context.paperId(), context.sourceCatalog());
-                readSources.addAll(overview.sourceObjectIds());
+                // 画像返回的来源只是后续证据检索的候选锚点；只有 paper-evidence
+                // 的读取结果才能进入本轮可引用来源集合。
                 runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED,
                         overview.resultJson(), null, null);
                 return overview;
@@ -504,6 +512,9 @@ public class AgentLoopService {
             if (need.has("includeVisual")) {
                 normalized.put("includeVisual", need.path("includeVisual").asBoolean(false));
             }
+            if (need.has("cursor") && need.path("cursor").isIntegralNumber()) {
+                normalized.put("cursor", need.path("cursor").asInt());
+            }
             return objectMapper.writeValueAsString(normalized);
         } catch (Exception ignored) {
             return canonicalArguments(need == null ? "" : need.toString());
@@ -601,12 +612,18 @@ public class AgentLoopService {
                     String id = returned.path("needId").asText("").trim();
                     if (!id.isBlank()) returnedById.putIfAbsent(id, returned);
                 }
+                boolean anyNewSources = false;
+                boolean allNeedsStopped = true;
+                boolean sawNeedProgress = false;
                 for (int index = 0; index < requestedNeeds.size(); index++) {
                     JsonNode need = requestedNeeds.get(index);
                     String id = need.path("id").asText("").trim();
                     if (id.isBlank()) id = "need-" + index;
                     JsonNode returned = returnedById.get(id);
-                    if (returned == null || !returned.isObject()) continue;
+                    if (returned == null || !returned.isObject()) {
+                        allNeedsStopped = false;
+                        continue;
+                    }
                     String fingerprint = evidenceNeedFingerprint(need);
                     String previousFingerprint = state.lastFingerprintByNeed.get(id);
                     boolean sameRequest = fingerprint.equals(previousFingerprint);
@@ -630,10 +647,13 @@ public class AgentLoopService {
                     Set<String> newForNeed = new LinkedHashSet<>(sourceIds);
                     newForNeed.removeAll(seen);
                     seen.addAll(sourceIds);
+                    anyNewSources |= !newForNeed.isEmpty();
+                    sawNeedProgress = true;
 
                     String progressState;
                     String nextAction;
                     String reason;
+                    boolean hasMore = returned.path("hasMore").asBoolean(false);
                     if (!newForNeed.isEmpty()) {
                         progressState = "new_sources";
                         nextAction = "judge";
@@ -642,6 +662,10 @@ public class AgentLoopService {
                         progressState = "duplicate_request";
                         nextAction = "stop";
                         reason = "本次请求与该 Need 的上一请求在检索意义上相同。";
+                    } else if (hasMore) {
+                        progressState = "more_candidates";
+                        nextAction = "continue";
+                        reason = "当前候选页未返回完；如仍缺少具体事实，请使用返回的 nextCursor 继续读取。";
                     } else if (requestCount == 1) {
                         progressState = "no_match";
                         nextAction = "refine_once";
@@ -665,7 +689,18 @@ public class AgentLoopService {
                             .set("progress", progress);
                     if ("stop".equals(nextAction)) {
                         state.stoppedNeedIds.add(id);
+                    } else {
+                        allNeedsStopped = false;
                     }
+                }
+                if (sawNeedProgress) {
+                    payload.put("noProgress", !anyNewSources);
+                    payload.put("stopRecommended", allNeedsStopped);
+                    payload.put("stopScope", allNeedsStopped ? "all_needs" : "individual_need");
+                    payload.put("stopReason", allNeedsStopped
+                            ? "所有当前 Need 都没有新的可用候选，或已完成明确的补检索。"
+                            : "至少有一个 Need 仍有新来源或可通过 nextCursor 继续读取。"
+                    );
                 }
             }
             return new AgentToolExecution(objectMapper.writeValueAsString(payload),
@@ -758,7 +793,8 @@ public class AgentLoopService {
 
     void rejectPrepared(PreparedTurn prepared, RuntimeException error) {
         AgentRunRecord current = runtimeService.getRun(prepared.run().getRunId());
-        if (AgentRunStatus.RUNNING.name().equals(current.getStatus())) {
+        if (AgentRunStatus.QUEUED.name().equals(current.getStatus())
+                || AgentRunStatus.RUNNING.name().equals(current.getStatus())) {
             runtimeService.transitionRun(current.getRunId(), AgentRunStatus.FAILED, null,
                     "AGENT_DISPATCH_FAILED", safeError(error));
         }
@@ -806,7 +842,7 @@ public class AgentLoopService {
                 String sourceId = sourceNode.asText("").trim();
                 if (sourceId.isEmpty()) throw new IllegalArgumentException("sourceObjectId 不能为空");
                 if (!readSources.contains(sourceId)) {
-                    throw new IllegalArgumentException("引用来源尚未在本轮读取：" + sourceId);
+                    throw new IllegalArgumentException("引用来源尚未在当前论文版本上下文中读取：" + sourceId);
                 }
                 requests.add(new CitationRequest(start, end, sourceId, null, List.of()));
             }
@@ -1015,9 +1051,8 @@ public class AgentLoopService {
             String fullText = source.rawContent();
             if (!textReliable && source.contentType()
                     == com.research.assistant.service.agent.source.SourceContentType.FORMULA) {
-                String label = source.formulaNumber().isBlank()
+                fullText = source.formulaNumber().isBlank()
                         ? "公式区域" : "公式 (" + source.formulaNumber() + ")";
-                fullText = label + "的文本提取不可靠，请查看原始页面区域。";
             }
             return new AgentEvidenceView(binding.citationNumber(), binding.sourceObjectId(), context.paperId(),
                     binding.quote(), fullText, evidenceKey, source.contentType().name(), textFormat,

@@ -82,7 +82,10 @@ public class AgentRuntimeService {
         run.setRunId(UUID.randomUUID().toString());
         run.setTurnId(turn.getId());
         run.setAttemptNo(1);
-        run.setStatus(AgentRunStatus.RUNNING.name());
+        // Persist the run before dispatching it.  The worker owns the QUEUED -> RUNNING
+        // transition, so started_at measures actual model execution rather than executor
+        // queue wait time.
+        run.setStatus(AgentRunStatus.QUEUED.name());
         run.setModelConfigVersion(model.configVersion());
         run.setModelCapabilitySignature(model.capabilitySignature().toLowerCase());
         run.setModelSnapshotJson(model.snapshotJson());
@@ -100,10 +103,6 @@ public class AgentRuntimeService {
         run.setCompletionTokens(0);
         run.setVersion(0);
         runMapper.insert(run);
-
-        int updated = turnMapper.transition(turn.getId(), AgentRunStatus.QUEUED.name(),
-                AgentRunStatus.RUNNING.name(), value(turn.getVersion()), false, null, null);
-        requireSingleUpdate(updated, "turn was concurrently changed while starting");
         return run;
     }
 

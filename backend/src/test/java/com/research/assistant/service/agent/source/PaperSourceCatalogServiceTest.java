@@ -116,6 +116,9 @@ class PaperSourceCatalogServiceTest {
         assertThat(formula.rawContent()).isEqualTo("\\hat{x}=\\frac{a}{b}");
         assertThat(formula.provenance()).containsEntry("textFormat", "LATEX")
                 .containsEntry("textReliable", "true");
+        SourceLocator locator = catalog.requireLocators(formula.sourceObjectId()).get(0);
+        assertThat(locator.contentRects()).isEqualTo(locator.rects());
+        assertThat(locator.focusRects()).isNotEmpty();
     }
 
     @Test
@@ -196,22 +199,45 @@ class PaperSourceCatalogServiceTest {
 
         PaperSourceCatalog catalog = recoveredService.build(artifact);
         SourceObject source = catalog.objects().values().stream()
-                .filter(object -> "lr-p1-001".equals(object.provenance().get("recoveryRegionId")))
+                .filter(object -> object.contentType() == SourceContentType.FORMULA)
+                .filter(object -> "7".equals(object.formulaNumber()))
                 .findFirst().orElseThrow();
         RetrievalHit hit = recoveredService.search(catalog,
                         new PaperSearchRequest("Equation (7)", Set.of(SourceContentType.FORMULA), 1, 1, 5))
                 .stream().filter(candidate -> candidate.sourceObjectId().equals(source.sourceObjectId()))
                 .findFirst().orElseThrow();
 
-        assertThat(source.provenance().get("source")).isEqualTo("VISUAL_FALLBACK");
-        assertThat(source.rawContent()).contains("公式 (7)", "文本提取不可靠",
-                "optimization objective", "guarantees feasibility");
+        assertThat(source.provenance().get("textReliable")).isEqualTo("false");
+        assertThat(catalog.objects().values()).noneMatch(object ->
+                "lr-p1-001".equals(object.provenance().get("recoveryRegionId")));
         assertThat(hit.retrievalRoutes()).contains("FORMULA_NUMBER");
         assertThat(catalog.requireLocators(source.sourceObjectId())).singleElement()
-                .satisfies(locator -> assertThat(locator.rects())
-                        .containsExactly(box(.2, .3, .5, .08)));
+                .satisfies(locator -> assertThat(locator.rects()).hasSize(1));
         assertThat(catalog.objects().values()).anySatisfy(object ->
                 assertThat(object.rawContent()).contains("x ? y (7)"));
+    }
+
+    @Test
+    void excludesStandaloneMathGlyphAndTinyOcrTokenFromTextSources() {
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(7L, "c".repeat(64), "parser-v1", .95,
+                Instant.parse("2026-01-01T00:00:00Z"), 1, List.of(
+                new DocumentBlock("radical", 1, box(.24, .08, .02, .03), DocumentBlockRole.BODY,
+                        1, List.of("Theorem 1"), "√", null, null, .9,
+                        com.research.assistant.service.pdf.layout.DocumentBlockContentMode.TEXT,
+                        new com.research.assistant.service.pdf.layout.MathContentProfile(
+                                com.research.assistant.service.pdf.layout.MathContentLevel.LIGHT,
+                                .8, 1, List.of(), "test")),
+                new DocumentBlock("token", 1, box(.24, .12, .04, .02), DocumentBlockRole.BODY,
+                        2, List.of("Theorem 1"), "tot", null, null, .9),
+                new DocumentBlock("prose", 1, box(.1, .20, .8, .04), DocumentBlockRole.BODY,
+                        3, List.of("Theorem 1"), "The proposed method improves the achievable rate.",
+                        null, null, .9)));
+
+        PaperSourceCatalog catalog = service.build(artifact);
+
+        assertThat(catalog.objects().values()).extracting(SourceObject::rawContent)
+                .containsExactly("The proposed method improves the achievable rate.")
+                .doesNotContain("√", "tot");
     }
 
     private PaperLayoutArtifact artifact() {

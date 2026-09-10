@@ -59,10 +59,49 @@ class LangChain4jPaperAgentExecutorTest {
     }
 
     @Test
-    void allowsModelToAnswerDirectlyWithoutCallingAResearchTool() {
+    void recoversWhenProviderReturnsProseAfterReadingEvidence() {
+        List<ChatRequest> requests = new ArrayList<>();
         ChatModel model = new ChatModel() {
             @Override
             public ChatResponse doChat(ChatRequest request) {
+                requests.add(request);
+                if (requests.size() == 1) {
+                    return response("retrieve-1", "retrieve_paper_evidence",
+                            "{\"needs\":[{\"id\":\"question\",\"query\":\"question\"}]}");
+                }
+                if (requests.size() == 2) {
+                    return ChatResponse.builder().aiMessage(AiMessage.from("普通文本回答" )).build();
+                }
+                return response("submit-1", "submit_answer",
+                        "{\"answerBlocks\":[{\"text\":\"结构化回答\",\"sourceObjectIds\":[\"src-1\"]}]}" );
+            }
+        };
+        LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
+                mock(com.research.assistant.service.ai.LangChain4jModelFactory.class), new ObjectMapper());
+
+        AgentFrameworkResult result = executor.execute(model,
+                List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
+                List.of(
+                        new AgentToolDefinition("retrieve_paper_evidence", "retrieve", objectSchema("needs")),
+                        new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
+                request -> new AgentToolExecution(
+                        "submit_answer".equals(request.name()) ? "FINAL" : "{\"sources\":[{\"sourceObjectId\":\"src-1\"}]}",
+                        "submit_answer".equals(request.name()) ? Set.of("src-1") : Set.of("src-1")));
+
+        assertThat(result.content()).isEqualTo("FINAL");
+        assertThat(requests).hasSize(3);
+    }
+
+    @Test
+    void convertsDirectProseToStructuredSubmission() {
+        List<ChatRequest> requests = new ArrayList<>();
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                requests.add(request);
+                if (requests.size() > 1) {
+                    return response("submit-1", "submit_answer", "{\"answerBlocks\":[]}");
+                }
                 return ChatResponse.builder()
                         .aiMessage(AiMessage.from("冒泡排序平均时间复杂度为 O(n^2)。"))
                         .build();
@@ -74,10 +113,12 @@ class LangChain4jPaperAgentExecutorTest {
         AgentFrameworkResult result = executor.execute(model,
                 List.of(AgentChatEntry.system("system"), AgentChatEntry.user("复杂度？")),
                 List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
-                request -> new AgentToolExecution("unexpected", Set.of()));
+                request -> new AgentToolExecution("FINAL", Set.of()));
 
-        assertThat(result.content()).contains("冒泡排序");
-        assertThat(result.toolCalls()).isZero();
+        assertThat(result.content()).isEqualTo("FINAL");
+        assertThat(result.toolCalls()).isEqualTo(1);
+        assertThat(requests).hasSize(2);
+        assertThat(requests.get(1).messages().toString()).contains("submit_answer");
     }
 
     @Test
@@ -151,7 +192,8 @@ class LangChain4jPaperAgentExecutorTest {
         ChatModel model = new ChatModel() {
             @Override
             public ChatResponse doChat(ChatRequest request) {
-                return ChatResponse.builder().aiMessage(AiMessage.from("done")).build();
+                calls.incrementAndGet();
+                return response("submit-1", "submit_answer", "{\"answerBlocks\":[]}");
             }
         };
         LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
@@ -167,7 +209,7 @@ class LangChain4jPaperAgentExecutorTest {
         assertThat(traces.get(0).status()).isEqualTo("COMPLETED");
         assertThat(traces.get(0).messageCount()).isEqualTo(2);
         assertThat(traces.toString()).doesNotContain("secret", "question", "done");
-        assertThat(calls).hasValue(0);
+        assertThat(calls).hasValue(1);
     }
 
     @Test
@@ -223,7 +265,7 @@ class LangChain4jPaperAgentExecutorTest {
                     return response("evidence-1", "retrieve_paper_evidence",
                             "{\"needs\":[{\"id\":\"method\",\"query\":\"method\"}]}");
                 }
-                return ChatResponse.builder().aiMessage(AiMessage.from("完成")).build();
+                return response("submit-1", "submit_answer", "{\"answerBlocks\":[]}");
             }
         };
         AgentSkillBinding evidence = new AgentSkillBinding(
@@ -241,7 +283,8 @@ class LangChain4jPaperAgentExecutorTest {
                 List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
                 List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
                 List.of(evidence),
-                request -> new AgentToolExecution("{\"sources\":[]}", Set.of()),
+                request -> new AgentToolExecution(
+                        "submit_answer".equals(request.name()) ? "完成" : "{\"sources\":[]}", Set.of()),
                 (id, name, arguments, instructions) -> activations.add(name),
                 trace -> { });
 
@@ -262,7 +305,10 @@ class LangChain4jPaperAgentExecutorTest {
             @Override
             public ChatResponse doChat(ChatRequest request) {
                 requests.add(request);
-                return ChatResponse.builder().aiMessage(AiMessage.from("继续使用已有能力")).build();
+                if (requests.size() == 1) {
+                    return ChatResponse.builder().aiMessage(AiMessage.from("继续使用已有能力")).build();
+                }
+                return response("submit-1", "submit_answer", "{\"answerBlocks\":[]}");
             }
         };
         AgentSkillBinding evidence = new AgentSkillBinding(
@@ -291,7 +337,7 @@ class LangChain4jPaperAgentExecutorTest {
                 (id, name, arguments, instructions) -> { },
                 trace -> { });
 
-        assertThat(requests).hasSize(1);
+        assertThat(requests).hasSize(2);
         assertThat(toolNames(requests.get(0))).contains("activate_skill", "retrieve_paper_evidence");
     }
 
