@@ -26,6 +26,7 @@ scripts/local-config.cmd
 # MCP test artifacts
 .playwright-mcp/
 playwright-mcp-output/
+test-results/
 tmp/
 
 # OS

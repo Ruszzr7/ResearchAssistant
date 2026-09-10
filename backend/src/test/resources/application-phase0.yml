@@ -1,0 +1,30 @@
+spring:
+  flyway:
+    enabled: false
+  datasource:
+    # 阶段 0 只使用独立的 H2 内存库，绝不连接本机 MySQL。
+    url: jdbc:h2:mem:research_assistant_phase0;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=VALUE,YEAR
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:test-schema.sql
+
+server:
+  port: 0
+
+app:
+  agent:
+    skills-dir: ../skills
+  encryption:
+    fail-closed: false
+  async:
+    mark-orphaned-on-startup: false
+    dispatch-enabled: false
+  # 测试派生文件全部落到临时目录，不触碰 data/papers 等正式目录。
+  storage:
+    pdf-dir: ${java.io.tmpdir}/research-assistant-phase0/papers
+    figures-dir: ${java.io.tmpdir}/research-assistant-phase0/figures
+    agent-attachments-dir: ${java.io.tmpdir}/research-assistant-phase0/agent-attachments

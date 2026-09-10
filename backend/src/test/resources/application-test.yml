@@ -14,6 +14,11 @@ spring:
 app:
   encryption:
     fail-closed: false
+  # 所有 Spring 测试的派生文件都落到临时目录，避免误写正式 data/ 目录。
+  storage:
+    pdf-dir: ${java.io.tmpdir}/research-assistant-test/papers
+    figures-dir: ${java.io.tmpdir}/research-assistant-test/figures
+    agent-attachments-dir: ${java.io.tmpdir}/research-assistant-test/agent-attachments
   rag:
     index-retention: 7d
   async:
