@@ -22,6 +22,17 @@
       <el-tab-pane label="已归档" name="archived" />
     </el-tabs>
 
+    <el-alert
+      v-if="loadError"
+      class="archive-load-error"
+      type="error"
+      show-icon
+      :closable="false"
+      :title="loadError"
+    >
+      <template #default><el-button size="small" type="primary" @click="loadSessions">重试</el-button></template>
+    </el-alert>
+
     <div v-loading="loading" class="archive-browser">
       <aside class="paper-column" aria-label="论文列表">
         <button
@@ -69,7 +80,12 @@
     <el-empty v-if="!loading && !paperGroups.length" :description="activeTab === 'active' ? '暂无研究档案' : '暂无已归档档案'" />
 
     <el-drawer v-model="detailVisible" :title="detail?.session?.title || '研究档案'" size="520px" destroy-on-close>
-      <div v-if="detail" class="archive-detail">
+      <el-result v-if="detailError" icon="error" title="档案详情加载失败" :sub-title="detailError">
+        <template #extra>
+          <el-button type="primary" @click="openDetail(detailSession)">重试</el-button>
+        </template>
+      </el-result>
+      <div v-else-if="detail" class="archive-detail">
         <section class="detail-summary">
           <div>
             <span>关联论文</span>
@@ -141,10 +157,13 @@ defineOptions({ name: 'ResearchArchiveView' })
 const router = useRouter()
 const sessions = ref([])
 const loading = ref(false)
+const loadError = ref('')
 const keyword = ref('')
 const activeTab = ref('active')
 const detailVisible = ref(false)
 const detail = ref(null)
+const detailError = ref('')
+const detailSession = ref(null)
 const detailTab = ref('messages')
 const selectedPaperId = ref(null)
 
@@ -182,6 +201,7 @@ onMounted(loadSessions)
 
 async function loadSessions() {
   loading.value = true
+  loadError.value = ''
   try {
     sessions.value = await listResearchSessions({
       archived: activeTab.value === 'archived',
@@ -189,19 +209,25 @@ async function loadSessions() {
       limit: 100,
     })
   } catch (reason) {
-    ElMessage.error(reason?.response?.data?.message || reason?.message || '研究档案加载失败')
+    sessions.value = []
+    loadError.value = reason?.response?.data?.message || reason?.message || '研究档案加载失败'
+    ElMessage.error(loadError.value)
   } finally {
     loading.value = false
   }
 }
 
 async function openDetail(session) {
+  if (!session) return
   detailVisible.value = true
   detailTab.value = 'messages'
+  detailSession.value = session
+  detail.value = null
+  detailError.value = ''
   try { detail.value = await getResearchSession(session.id) }
   catch (reason) {
-    detailVisible.value = false
-    ElMessage.error(reason?.response?.data?.message || reason?.message || '档案详情加载失败')
+    detailError.value = reason?.response?.data?.message || reason?.message || '档案详情加载失败'
+    ElMessage.error(detailError.value)
   }
 }
 
@@ -292,6 +318,7 @@ function formatTime(value) {
 .archive-actions :deep(.el-input__wrapper), .archive-actions :deep(.el-button) { border-radius:10px; }
 .research-archive-page :deep(.el-tabs__header) { margin-bottom:12px; }
 .research-archive-page :deep(.el-tabs__nav-wrap::after) { height:1px; background:var(--ra-border-light); }
+.archive-load-error { margin: 0 0 12px; }
 .archive-browser { display: grid; min-height: 570px; grid-template-columns: 272px 1px minmax(0, 1fr); overflow:hidden; gap:0; border:1px solid var(--ra-border-light); border-radius:15px; background:var(--ra-panel-bg); box-shadow:0 5px 22px rgba(0,0,0,.035); }
 .paper-column { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding:20px 12px; background:color-mix(in srgb, var(--ra-bg) 72%, var(--ra-panel-bg)); }
 .paper-column::before { content:'论文'; padding:0 5px 8px; color:var(--ra-text-tertiary); font-size:10px; }

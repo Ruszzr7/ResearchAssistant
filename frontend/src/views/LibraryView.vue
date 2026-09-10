@@ -97,6 +97,18 @@
 
     <!-- ==================== 中栏 ==================== -->
     <div class="center-panel">
+      <el-alert
+        v-if="libraryError"
+        class="library-load-error"
+        type="error"
+        show-icon
+        :closable="false"
+        :title="libraryError"
+      >
+        <template #default>
+          <el-button size="small" type="primary" @click="initLibrary">重试</el-button>
+        </template>
+      </el-alert>
       <div class="toolbar">
         <div class="toolbar-left">
           <div class="table-leading-tools">
@@ -134,7 +146,19 @@
 
       <!-- 表格 -->
       <div class="table-wrapper">
+        <el-result
+          v-if="tableError && !tableLoading"
+          icon="error"
+          title="论文列表加载失败"
+          :sub-title="tableError"
+          class="library-table-error"
+        >
+          <template #extra>
+            <el-button type="primary" @click="loadPapers">重试</el-button>
+          </template>
+        </el-result>
         <PaperTable
+          v-else
           :papers="papers"
           :loading="tableLoading"
           :total="pagination.total"
@@ -229,6 +253,13 @@
         <el-select v-model="currentPaper.readingStatus" size="small" @change="setPaperStatus(currentPaper, $event)" style="flex:1">
           <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
+        <el-button
+          v-if="currentPaper.readingStatus !== 'READ'"
+          size="small"
+          text
+          type="primary"
+          @click="setPaperStatus(currentPaper, 'READ')"
+        >标记为已读</el-button>
       </div>
       <div class="detail-item">
         <span class="label">标签</span>
@@ -543,6 +574,7 @@ import { useGlobalTask } from '@/composables/useGlobalTask.js'
 import { usePaperImportRecommendations } from '@/composables/usePaperImportRecommendations.js'
 import LibraryBatchSelectionBar from '@/components/library/LibraryBatchSelectionBar.vue'
 import { openPaperStorageDirectory } from '@/api/paper.js'
+import { updateReadingStatus } from '@/api/readingProgress.js'
 import { researchRouteLocation } from '@/router/workbenchRoute.js'
 
 defineOptions({ name: 'LibraryView' })
@@ -568,6 +600,8 @@ const allTags = ref([])
 const paperSearchKeyword = ref('')
 const showFolderSearch = ref(false)
 const tableLoading = ref(false)
+const tableError = ref('')
+const libraryError = ref('')
 const folderSearchRef = ref(null)
 const folderSearchWrapRef = ref(null)
 const pagination = ref({ page: 1, size: 20, total: 0 })
@@ -772,9 +806,12 @@ async function loadFolders() { const r=await api.get('/folders'); folders.value=
 async function loadAllTags() { const r=await api.get('/tags'); allTags.value=r.data || [] }
 async function loadPapers() {
   tableLoading.value = true
+  tableError.value = ''
   try {
     const r = await api.get('/papers', { params: { folder: currentFolder.value, keyword: paperSearchKeyword.value || null, tag: filterTag.value || null, status: filterStatus.value || null, sortBy: sortBy.value, sortDir: sortDir.value, page: pagination.value.page, size: pagination.value.size } })
     const d = r.data; papers.value = d.records; pagination.value.total = d.total; pagination.value.page = d.current
+  } catch (e) {
+    tableError.value = e.response?.data?.message || e.message || '论文列表加载失败'
   } finally {
     tableLoading.value = false
   }
@@ -867,17 +904,8 @@ async function setPaperStatus(paper, status) {
     currentPaper.value.readingStatus = status
   }
   try {
-    // 状态变更只提交必要字段，避免把 PDF 提取文本等大字段一并提交。
-    const response = await api.put(`/papers/${paper.id}`, {
-      title: paper.title,
-      readingStatus: status
-    })
-    const saved = response?.data || response
-    if (saved && typeof saved === 'object') {
-      Object.assign(paper, saved)
-      if (currentPaper.value?.id === paper.id) Object.assign(currentPaper.value, saved)
-      syncPaperInList(paper)
-    }
+    await updateReadingStatus(paper.id, status)
+    await loadPapers()
     ElMessage.success('状态已更新')
   } catch (e) {
     paper.readingStatus = previousStatus
@@ -1682,7 +1710,12 @@ async function confirmImportFolderRecommendation() {
 }
 
 async function initLibrary() {
-  await Promise.all([loadFolders(), loadAllTags(), loadPapers()])
+  libraryError.value = ''
+  try {
+    await Promise.all([loadFolders(), loadAllTags(), loadPapers()])
+  } catch (e) {
+    libraryError.value = e.response?.data?.message || e.message || '文库加载失败'
+  }
 }
 function handleDocClick(e) {
   if (showFolderSearch.value && folderSearchWrapRef.value && !folderSearchWrapRef.value.contains(e.target)) {
@@ -1690,6 +1723,7 @@ function handleDocClick(e) {
   }
 }
 let libraryEventsAttached = false
+let libraryInitialized = false
 function attachLibraryEvents() {
   if (libraryEventsAttached) return
   libraryEventsAttached = true
@@ -1703,12 +1737,16 @@ function detachLibraryEvents() {
 onMounted(async () => {
   try {
     await initLibrary()
+    libraryInitialized = true
   } finally {
     attachLibraryEvents()
   }
 })
 onActivated(() => {
   attachLibraryEvents()
+  // 文库页会被 KeepAlive 缓存；从论文阅读页返回时重新读取状态，
+  // 确保首次打开 PDF 后的“正读”及时反映到表格和筛选结果。
+  if (libraryInitialized && !libraryError.value) void loadPapers()
 })
 onDeactivated(detachLibraryEvents)
 onUnmounted(detachLibraryEvents)
@@ -1716,6 +1754,8 @@ onUnmounted(detachLibraryEvents)
 
 <style scoped>
 .library { display:flex; height:100vh; background:var(--ra-panel-bg); }
+.library-load-error { margin: 10px 14px 0; width: auto; }
+.library-table-error { min-height: 300px; }
 .library.is-resizing { user-select:none; }
 
 /* ===== 三栏配色 ===== */

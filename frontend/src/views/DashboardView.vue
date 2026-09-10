@@ -13,6 +13,17 @@
 
     <el-skeleton v-if="loading" :rows="8" animated />
 
+    <el-result
+      v-else-if="error"
+      icon="error"
+      title="看板加载失败"
+      :sub-title="error"
+    >
+      <template #extra>
+        <el-button type="primary" @click="load">重试</el-button>
+      </template>
+    </el-result>
+
     <template v-else-if="data">
       <!-- 论文统计 -->
       <div class="stat-row">
@@ -60,6 +71,9 @@
               <div class="task-chip processing">处理中 {{ processingTaskCount }}</div>
               <div class="task-chip completed">已完成 {{ data.taskStats.completed || 0 }}</div>
               <div class="task-chip failed">失败 {{ failedTaskCount }}</div>
+              <div v-if="data.taskStats.historicalFailed" class="task-chip historical-failed">
+                历史失败 {{ data.taskStats.historicalFailed }}
+              </div>
             </div>
             <div class="recent-tasks">
               <div class="recent-title">最近任务</div>
@@ -86,6 +100,7 @@ import { taskStatusMeta } from '@/utils/taskStatus.js'
 
 const loading = ref(true)
 const data = ref(null)
+const error = ref('')
 
 const paperStatList = computed(() => {
   const ps = data.value?.paperStats || {}
@@ -94,6 +109,7 @@ const paperStatList = computed(() => {
     { key: 'unread', label: '未读', value: ps.unread || 0 },
     { key: 'reading', label: '正读', value: ps.reading || 0 },
     { key: 'read', label: '已读', value: ps.read || 0 },
+    { key: 'uncategorized', label: '未分类', value: ps.uncategorized || 0 },
     { key: 'pinned', label: '置顶', value: ps.pinned || 0 },
     { key: 'thisMonth', label: '本月新增', value: ps.thisMonth || 0 },
   ]
@@ -116,10 +132,12 @@ const failedTaskCount = computed(() => {
 
 async function load() {
   loading.value = true
+  error.value = ''
   try {
     data.value = await getDashboard()
   } catch (e) {
-    ElMessage.error('加载看板失败')
+    error.value = e.response?.data?.message || e.message || '加载看板失败'
+    ElMessage.error(error.value)
   } finally {
     loading.value = false
   }
@@ -170,7 +188,7 @@ onMounted(load)
   font-size: 13px;
   color: var(--ra-text-secondary);
 }
-.stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.stat-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
 .stat-cell { min-width: 0; }
 .stat-card {
   height: 92px;
@@ -249,6 +267,7 @@ onMounted(load)
 .task-chip.processing { color: var(--el-color-primary); }
 .task-chip.completed { color: #67c23a; }
 .task-chip.failed { color: #f56c6c; }
+.task-chip.historical-failed { color: #909399; }
 .task-chip.cancelled { color: #909399; }
 .recent-tasks {
   display: flex;
@@ -283,7 +302,7 @@ onMounted(load)
 }
 
 @media (max-width: 1180px) {
-  .stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stat-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 800px) {
   .dashboard-view { padding: 22px 18px 36px; }

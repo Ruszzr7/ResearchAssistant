@@ -36,6 +36,7 @@ public class DashboardDto {
         private long unread;
         private long reading;
         private long read;
+        private long uncategorized;
         private long pinned;
         private long thisMonth;
 
@@ -47,6 +48,8 @@ public class DashboardDto {
         public void setReading(long reading) { this.reading = reading; }
         public long getRead() { return read; }
         public void setRead(long read) { this.read = read; }
+        public long getUncategorized() { return uncategorized; }
+        public void setUncategorized(long uncategorized) { this.uncategorized = uncategorized; }
         public long getPinned() { return pinned; }
         public void setPinned(long pinned) { this.pinned = pinned; }
         public long getThisMonth() { return thisMonth; }
@@ -84,6 +87,7 @@ public class DashboardDto {
         private long pendingUser;
         private long expired;
         private long deadLetter;
+        private long historicalFailed;
         private long total;
         private List<RecentTask> recent;
 
@@ -105,6 +109,8 @@ public class DashboardDto {
         public void setExpired(long expired) { this.expired = expired; }
         public long getDeadLetter() { return deadLetter; }
         public void setDeadLetter(long deadLetter) { this.deadLetter = deadLetter; }
+        public long getHistoricalFailed() { return historicalFailed; }
+        public void setHistoricalFailed(long historicalFailed) { this.historicalFailed = historicalFailed; }
         public long getTotal() { return total; }
         public void setTotal(long total) { this.total = total; }
         public List<RecentTask> getRecent() { return recent; }

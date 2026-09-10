@@ -606,7 +606,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
-  'close', 'open-paper-evidence', 'research-session-change', 'page-change',
+      'close', 'open-paper-evidence', 'research-session-change', 'page-change', 'pdf-ready',
 ])
 
 const containerRef = ref(null)
@@ -1123,6 +1123,9 @@ async function loadDocument() {
     visiblePageStart.value = Math.max(1, requestedPage - 1)
     visiblePageEnd.value = Math.min(count, requestedPage + 1)
     currentPage.value = requestedPage
+    // 只有 PDF.js 文档和 PDFium 交互引擎都成功打开后才通知上层；
+    // 页面渲染或批注加载失败不会把论文误标为已读。
+    emit('pdf-ready', { pageCount: count, currentPage: requestedPage })
     await nextTick()
     if (containerRef.value) containerRef.value.scrollTop = pageOffset(requestedPage)
     updateVisiblePageRange()

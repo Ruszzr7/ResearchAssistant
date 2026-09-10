@@ -37,6 +37,10 @@ public interface AsyncTaskRecordMapper extends BaseMapper<AsyncTaskRecord> {
     @Select("SELECT COUNT(*) FROM async_task WHERE status = #{status}")
     long countByStatus(@Param("status") String status);
 
+    /** 旧版内存任务没有 task_type，只作为历史失败记录展示，不计入当前可处理失败。 */
+    @Select("SELECT COUNT(*) FROM async_task WHERE status = 'FAILED' AND task_type IS NULL")
+    long countHistoricalFailures();
+
     @Select("SELECT COUNT(*) FROM async_task WHERE task_type IS NOT NULL "
             + "AND status IN ('PENDING', 'PROCESSING', 'RETRY_WAIT')")
     long countRecoverableActive();

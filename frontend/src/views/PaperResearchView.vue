@@ -10,6 +10,7 @@
       :research-session-id="activeResearchSessionId"
       :assistant-entry-key="assistantEntryKey"
       @page-change="onPageChange"
+      @pdf-ready="onPdfReady"
       @close="returnToLibrary"
       @open-paper-evidence="openPaperEvidence"
       @research-session-change="onResearchSessionChange"
@@ -27,7 +28,10 @@
       :sub-title="error"
       class="research-state"
     >
-      <template #extra><el-button type="primary" @click="returnToLibrary">返回文库</el-button></template>
+      <template #extra>
+        <el-button type="primary" @click="retryLoad">重试</el-button>
+        <el-button @click="returnToLibrary">返回文库</el-button>
+      </template>
     </el-result>
     <el-empty v-else class="research-state" description="请先从文库选择一篇带 PDF 的论文">
       <el-button type="primary" @click="returnToLibrary">打开文库</el-button>
@@ -134,6 +138,25 @@ async function loadRoutePaper(id) {
     error.value = reason?.response?.data?.message || reason?.message || '论文加载失败'
   } finally {
     if (sequence === loadSequence) loading.value = false
+  }
+}
+
+async function retryLoad() {
+  await loadRoutePaper(routePaperId.value)
+}
+
+async function onPdfReady(payload) {
+  if (!paper.value) return
+  const page = positivePageNumber(payload?.currentPage) || currentPage.value || 1
+  currentPage.value = page
+  try {
+    await updateReadingProgress(paper.value.id, page)
+    lastPersistedPage = page
+    paper.value.currentPage = page
+    if (paper.value.readingStatus === 'UNREAD') paper.value.readingStatus = 'READING'
+  } catch (reason) {
+    // PDF 已经可以阅读；进度写入失败不应遮挡正文，离开或翻页时会再次尝试。
+    lastPersistedPage = null
   }
 }
 

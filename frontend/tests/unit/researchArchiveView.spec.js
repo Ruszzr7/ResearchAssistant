@@ -23,6 +23,10 @@ const buttonStub = {
   emits: ['click'],
   template: '<button @click="$emit(\'click\')"><slot /></button>',
 }
+const alertStub = {
+  props: ['title'],
+  template: '<div class="alert">{{ title }}<slot /></div>',
+}
 
 describe('ResearchArchiveView', () => {
   beforeEach(() => {
@@ -74,6 +78,7 @@ describe('ResearchArchiveView', () => {
           'el-tag': passthrough,
           'el-empty': passthrough,
           'el-drawer': passthrough,
+          'el-alert': alertStub,
         },
       },
     })
@@ -90,5 +95,27 @@ describe('ResearchArchiveView', () => {
     expect(wrapper.findAll('.conversation-card')).toHaveLength(1)
     expect(wrapper.find('.conversation-column').text()).toContain('结论讨论')
     expect(wrapper.find('.conversation-column').text()).not.toContain('方法讨论')
+  })
+
+  it('shows a retryable state when archive loading fails', async () => {
+    mocks.listResearchSessions.mockRejectedValueOnce(new Error('档案服务不可用'))
+    const wrapper = mount(ResearchArchiveView, {
+      global: {
+        directives: { loading: () => {} },
+        stubs: {
+          'el-button': buttonStub,
+          'el-input': passthrough,
+          'el-tabs': passthrough,
+          'el-tab-pane': passthrough,
+          'el-alert': alertStub,
+          'el-empty': passthrough,
+          'el-drawer': passthrough,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.alert').text()).toContain('档案服务不可用')
+    expect(wrapper.find('.alert button').text()).toContain('重试')
   })
 })

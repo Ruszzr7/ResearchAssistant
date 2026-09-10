@@ -53,6 +53,7 @@ public class DashboardServiceImpl implements DashboardService {
         stats.setUnread(paperMapper.countByReadingStatus("UNREAD"));
         stats.setReading(paperMapper.countByReadingStatus("READING"));
         stats.setRead(paperMapper.countByReadingStatus("READ"));
+        stats.setUncategorized(paperMapper.countUncategorized());
         stats.setPinned(paperMapper.countPinned());
 
         LocalDateTime monthStart = LocalDate.now().withDayOfMonth(1).atStartOfDay();
@@ -88,6 +89,10 @@ public class DashboardServiceImpl implements DashboardService {
         long pendingUser = asyncTaskRecordMapper.countByStatus("PENDING_USER");
         long expired = asyncTaskRecordMapper.countByStatus("EXPIRED");
         long deadLetter = asyncTaskRecordMapper.countByStatus("DEAD_LETTER");
+        long failedTotal = failed;
+        long historicalFailed = asyncTaskRecordMapper.countHistoricalFailures();
+        // FAILED 记录通常代表当前仍失败；旧版 task_type 为空的记录单独展示为历史失败。
+        failed = Math.max(0, failed - historicalFailed);
         stats.setPending(pending);
         stats.setProcessing(processing);
         stats.setRetryWait(retryWait);
@@ -97,7 +102,8 @@ public class DashboardServiceImpl implements DashboardService {
         stats.setPendingUser(pendingUser);
         stats.setExpired(expired);
         stats.setDeadLetter(deadLetter);
-        stats.setTotal(pending + processing + retryWait + completed + failed + cancelled + pendingUser + expired + deadLetter);
+        stats.setHistoricalFailed(historicalFailed);
+        stats.setTotal(pending + processing + retryWait + completed + failedTotal + cancelled + pendingUser + expired + deadLetter);
 
         List<AsyncTaskRecord> recent = asyncTaskRecordMapper.selectRecent(RECENT_LIMIT);
         stats.setRecent(recent.stream().map(this::toRecentTask).toList());

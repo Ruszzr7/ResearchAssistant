@@ -128,6 +128,7 @@ function sessionDetail(messages) {
 export async function installPaperFlowMock(page) {
   const state = {
     imported: false,
+    paper: { ...paper },
     messages: [],
     requests: [],
     blockedRequests: [],
@@ -152,13 +153,35 @@ export async function installPaperFlowMock(page) {
     if (path === '/folders' && request.method() === 'GET') return route.fulfill(response([]))
     if (path === '/tags' && request.method() === 'GET') return route.fulfill(response([]))
 
+    if (path === '/dashboard' && request.method() === 'GET') {
+      const p = state.imported ? state.paper : null
+      return route.fulfill(response({
+        paperStats: {
+          total: p ? 1 : 0,
+          unread: p?.readingStatus === 'UNREAD' ? 1 : 0,
+          reading: p?.readingStatus === 'READING' ? 1 : 0,
+          read: p?.readingStatus === 'READ' ? 1 : 0,
+          uncategorized: p && p.folderId == null ? 1 : 0,
+          pinned: 0,
+          thisMonth: p ? 1 : 0,
+        },
+        folderBacklog: [],
+        taskStats: {
+          pending: 0, processing: 0, retryWait: 0, completed: 0,
+          failed: 0, cancelled: 0, pendingUser: 0, expired: 0,
+          deadLetter: 0, historicalFailed: 0, recent: [],
+        },
+      }))
+    }
+
     if (path === '/papers' && request.method() === 'GET') {
-      const records = state.imported ? [{ ...paper }] : []
+      const records = state.imported ? [{ ...state.paper }] : []
       return route.fulfill(response({ records, total: records.length, current: 1, size: 20, pages: 1 }))
     }
     if (path === '/papers/upload' && request.method() === 'POST') {
       state.imported = true
-      return route.fulfill(response({ paper: { ...paper }, taskId: 'phase0-import-task' }))
+      state.paper = { ...paper }
+      return route.fulfill(response({ paper: { ...state.paper }, taskId: 'phase0-import-task' }))
     }
     if (path === '/research-automation/task/phase0-import-task' && request.method() === 'GET') {
       return route.fulfill(response({
@@ -169,7 +192,7 @@ export async function installPaperFlowMock(page) {
       }))
     }
     if (path === `/papers/${PAPER_ID}` && request.method() === 'GET') {
-      return route.fulfill(response({ ...paper }))
+      return route.fulfill(response({ ...state.paper }))
     }
     if (path === `/papers/${PAPER_ID}/pdf` && request.method() === 'GET') {
       return route.fulfill({
@@ -197,8 +220,19 @@ export async function installPaperFlowMock(page) {
         conversationReady: true,
       }))
     }
-    if (path === `/papers/${PAPER_ID}/reading-progress` && ['GET', 'POST'].includes(request.method())) {
-      return route.fulfill(response({ ...paper, currentPage: 1 }))
+    if (path === `/papers/${PAPER_ID}/reading-progress` && request.method() === 'GET') {
+      return route.fulfill(response({ ...state.paper }))
+    }
+    if (path === `/papers/${PAPER_ID}/reading-progress` && request.method() === 'POST') {
+      const body = request.postDataJSON() || {}
+      state.paper.currentPage = Number(body.currentPage) || state.paper.currentPage || 1
+      if (state.paper.readingStatus === 'UNREAD') state.paper.readingStatus = 'READING'
+      return route.fulfill(response({ ...state.paper }))
+    }
+    if (path === `/papers/${PAPER_ID}/reading-status` && request.method() === 'POST') {
+      const body = request.postDataJSON() || {}
+      state.paper.readingStatus = body.status || state.paper.readingStatus
+      return route.fulfill(response({ ...state.paper }))
     }
 
     if (path === '/research/sessions' && request.method() === 'GET') {
@@ -257,6 +291,10 @@ export async function installPaperFlowMock(page) {
     // Optional background persistence must not make the deterministic flow flaky.
     if (path.startsWith(`/papers/${PAPER_ID}/reading-time`)
       || path.startsWith(`/research/sessions/${SESSION_ID}`)) {
+      if (path.startsWith(`/papers/${PAPER_ID}/reading-time`) && request.method() === 'POST') {
+        const body = request.postDataJSON() || {}
+        state.paper.readSeconds = (state.paper.readSeconds || 0) + Math.max(0, Number(body.seconds) || 0)
+      }
       return route.fulfill(response({ ...session }))
     }
 

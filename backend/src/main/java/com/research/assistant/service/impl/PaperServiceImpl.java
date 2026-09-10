@@ -3,6 +3,7 @@ package com.research.assistant.service.impl;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.research.assistant.common.DuplicatePaperException;
+import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.Tag;
 import com.research.assistant.mapper.PaperMapper;
@@ -101,6 +102,9 @@ public class PaperServiceImpl implements PaperService {
     @Transactional
     public Paper create(Paper paper) {
         normalizeAuthors(paper);
+        if (paper.getReadingStatus() == null || paper.getReadingStatus().isBlank()) {
+            paper.setReadingStatus(ReadingStatus.UNREAD);
+        }
         paperMapper.insert(paper);
         return getById(paper.getId());   // 回查以填充 tags
     }

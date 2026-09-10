@@ -34,6 +34,7 @@ describe('ReadingTimePanel cached lifecycle', () => {
       template: '<KeepAlive include="ReaderHost"><component :is="active" /></KeepAlive>',
     }))
     await flushPromises()
+    expect(wrapper.text()).toContain('阅读时长')
     await vi.advanceTimersByTimeAsync(2000)
 
     active.value = OtherHost

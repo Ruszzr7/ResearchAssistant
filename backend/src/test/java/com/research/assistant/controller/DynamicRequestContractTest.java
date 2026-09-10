@@ -130,6 +130,17 @@ class DynamicRequestContractTest {
     }
 
     @Test
+    void readingStatusUsesDedicatedEndpoint() throws Exception {
+        paperMvc.perform(post("/api/papers/7/reading-status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"READ\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(readingProgressService).updateStatus(7L, "READ");
+    }
+
+    @Test
     void searchExecuteRequiresKeywords() throws Exception {
         searchMvc.perform(post("/api/search/execute")
                         .contentType(MediaType.APPLICATION_JSON)

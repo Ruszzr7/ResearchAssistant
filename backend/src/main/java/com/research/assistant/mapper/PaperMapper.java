@@ -85,6 +85,10 @@ public interface PaperMapper extends BaseMapper<Paper> {
     @Select("SELECT COUNT(*) FROM paper WHERE reading_status = #{status}")
     long countByReadingStatus(@Param("status") String status);
 
+    /** 统计未归入文件夹的论文数。 */
+    @Select("SELECT COUNT(*) FROM paper WHERE folder_id IS NULL")
+    long countUncategorized();
+
     /** 统计置顶论文数 */
     @Select("SELECT COUNT(*) FROM paper WHERE pinned = 1")
     long countPinned();

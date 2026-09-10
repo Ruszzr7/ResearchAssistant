@@ -62,7 +62,7 @@ class ReadingProgressServiceTest {
     }
 
     @Test
-    void shouldPersistLastPageWithoutChangingReadingStatus() {
+    void shouldEnterReadingWhenFirstProgressIsPersisted() {
         ReadingProgressService service = new ReadingProgressService(paperMapper, pdfExtractor);
         Paper paper = new Paper();
         paper.setId(1L);
@@ -73,10 +73,25 @@ class ReadingProgressServiceTest {
         service.updateProgress(1L, 3);
 
         verify(paperMapper).updateById(ArgumentMatchers.<Paper>argThat(p ->
-                p.getId().equals(1L)
+                        p.getId().equals(1L)
                         && p.getCurrentPage() == 3
-                        && p.getReadingStatus() == null
+                        && ReadingStatus.READING.equals(p.getReadingStatus())
                         && p.getLastReadAt() != null));
+    }
+
+    @Test
+    void shouldKeepReadWhenUpdatingLastPage() {
+        ReadingProgressService service = new ReadingProgressService(paperMapper, pdfExtractor);
+        Paper paper = new Paper();
+        paper.setId(1L);
+        paper.setPageCount(10);
+        paper.setReadingStatus(ReadingStatus.READ);
+        when(paperMapper.selectById(1L)).thenReturn(paper);
+
+        service.updateProgress(1L, 3);
+
+        verify(paperMapper).updateById(ArgumentMatchers.<Paper>argThat(p ->
+                p.getCurrentPage() == 3 && p.getReadingStatus() == null));
     }
 
     @Test
@@ -120,5 +135,20 @@ class ReadingProgressServiceTest {
 
         verify(paperMapper).updateById(ArgumentMatchers.<Paper>argThat(p ->
                 p.getReadSeconds() == 90 && p.getLastReadAt() != null));
+    }
+
+    @Test
+    void shouldAllowOnlyKnownReadingStatuses() {
+        ReadingProgressService service = new ReadingProgressService(paperMapper, pdfExtractor);
+        Paper paper = new Paper();
+        paper.setId(1L);
+        when(paperMapper.selectById(1L)).thenReturn(paper);
+
+        service.updateStatus(1L, ReadingStatus.READ);
+
+        verify(paperMapper).updateById(ArgumentMatchers.<Paper>argThat(p ->
+                p.getId().equals(1L) && ReadingStatus.READ.equals(p.getReadingStatus())));
+        assertThatThrownBy(() -> service.updateStatus(1L, "DONE"))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

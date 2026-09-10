@@ -1,5 +1,6 @@
 package com.research.assistant.service;
 
+import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.dto.ReadingProgressDto;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.mapper.PaperMapper;
@@ -44,7 +45,7 @@ public class ReadingProgressService {
     }
 
     /**
-     * 更新最后阅读页。阅读状态由用户显式维护，浏览到末页不会自动改成“已读”。
+     * 更新最后阅读页。首次成功写入阅读进度时，未读论文进入正读；浏览到末页不会自动改成“已读”。
      */
     @Transactional
     public void updateProgress(Long paperId, int currentPage) {
@@ -67,6 +68,29 @@ public class ReadingProgressService {
         update.setId(paperId);
         update.setCurrentPage(currentPage);
         update.setLastReadAt(LocalDateTime.now());
+        if (ReadingStatus.UNREAD.equals(paper.getReadingStatus())) {
+            update.setReadingStatus(ReadingStatus.READING);
+        }
+        paperMapper.updateById(update);
+    }
+
+    /**
+     * 用户显式切换阅读状态。状态接口与论文元数据更新分离，避免客户端顺带覆盖服务端管理字段。
+     */
+    @Transactional
+    public void updateStatus(Long paperId, String status) {
+        if (!ReadingStatus.UNREAD.equals(status)
+                && !ReadingStatus.READING.equals(status)
+                && !ReadingStatus.READ.equals(status)) {
+            throw new IllegalArgumentException("阅读状态必须是 UNREAD、READING 或 READ");
+        }
+        Paper paper = paperMapper.selectById(paperId);
+        if (paper == null) {
+            throw new RuntimeException("论文不存在: " + paperId);
+        }
+        Paper update = new Paper();
+        update.setId(paperId);
+        update.setReadingStatus(status);
         paperMapper.updateById(update);
     }
 

@@ -8,6 +8,7 @@ import com.research.assistant.entity.Paper;
 import com.research.assistant.dto.EnrichmentResult;
 import com.research.assistant.dto.ReadingProgressDto;
 import com.research.assistant.dto.ReadingProgressUpdateRequest;
+import com.research.assistant.dto.ReadingStatusUpdateRequest;
 import com.research.assistant.dto.ReadingTimeRequest;
 import com.research.assistant.dto.PaperBatchMoveRequest;
 import com.research.assistant.dto.PaperWriteRequest;
@@ -284,6 +285,14 @@ public class PaperController {
     public Result<Void> updateReadingProgress(@PathVariable Long id,
                                                 @RequestBody @Valid ReadingProgressUpdateRequest request) {
         readingProgressService.updateProgress(id, request.getCurrentPage());
+        return Result.ok();
+    }
+
+    /** POST /api/papers/{id}/reading-status — 用户显式切换阅读状态 */
+    @PostMapping("/{id}/reading-status")
+    public Result<Void> updateReadingStatus(@PathVariable Long id,
+                                             @RequestBody @Valid ReadingStatusUpdateRequest request) {
+        readingProgressService.updateStatus(id, request.getStatus());
         return Result.ok();
     }
 

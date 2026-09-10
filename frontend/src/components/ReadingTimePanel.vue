@@ -1,6 +1,6 @@
 <template>
   <div class="reading-time-panel">
-    <span class="reading-time">已读 {{ formatDuration(readSeconds) }}</span>
+    <span class="reading-time">阅读时长 {{ formatDuration(readSeconds) }}</span>
   </div>
 </template>
 

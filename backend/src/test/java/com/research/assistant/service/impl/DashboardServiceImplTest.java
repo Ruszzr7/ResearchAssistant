@@ -33,6 +33,7 @@ class DashboardServiceImplTest {
         when(paperMapper.countByReadingStatus("UNREAD")).thenReturn(3L);
         when(paperMapper.countByReadingStatus("READING")).thenReturn(2L);
         when(paperMapper.countByReadingStatus("READ")).thenReturn(5L);
+        when(paperMapper.countUncategorized()).thenReturn(4L);
         when(paperMapper.countPinned()).thenReturn(1L);
         when(paperMapper.countCreatedSince(any())).thenReturn(2L);
         stubEmptyOther();
@@ -41,6 +42,7 @@ class DashboardServiceImplTest {
 
         assertThat(dto.getPaperStats().getTotal()).isEqualTo(10L);
         assertThat(dto.getPaperStats().getUnread()).isEqualTo(3L);
+        assertThat(dto.getPaperStats().getUncategorized()).isEqualTo(4L);
         assertThat(dto.getPaperStats().getThisMonth()).isEqualTo(2L);
     }
 
@@ -81,6 +83,7 @@ class DashboardServiceImplTest {
         when(taskMapper.countByStatus("PROCESSING")).thenReturn(1L);
         when(taskMapper.countByStatus("COMPLETED")).thenReturn(4L);
         when(taskMapper.countByStatus("FAILED")).thenReturn(1L);
+        when(taskMapper.countHistoricalFailures()).thenReturn(0L);
         when(taskMapper.countByStatus("CANCELLED")).thenReturn(0L);
         when(taskMapper.selectRecent(5)).thenReturn(List.of(task));
 
@@ -92,9 +95,23 @@ class DashboardServiceImplTest {
         assertThat(dto.getTaskStats().getRecent().get(0).getTitle()).isEqualTo("Analyze");
     }
 
+    @Test
+    void separatesLegacyFailedTasksFromCurrentFailures() {
+        stubEmptyCountsExceptTasks();
+        when(taskMapper.countByStatus("FAILED")).thenReturn(3L);
+        when(taskMapper.countHistoricalFailures()).thenReturn(2L);
+
+        DashboardDto dto = service.aggregate();
+
+        assertThat(dto.getTaskStats().getFailed()).isEqualTo(1L);
+        assertThat(dto.getTaskStats().getHistoricalFailed()).isEqualTo(2L);
+        assertThat(dto.getTaskStats().getTotal()).isEqualTo(3L);
+    }
+
     private void stubEmptyCounts() {
         when(paperMapper.selectCount(null)).thenReturn(0L);
         when(paperMapper.countByReadingStatus(any())).thenReturn(0L);
+        when(paperMapper.countUncategorized()).thenReturn(0L);
         when(paperMapper.countPinned()).thenReturn(0L);
         when(paperMapper.countCreatedSince(any())).thenReturn(0L);
         when(folderService.getTree()).thenReturn(List.of());
@@ -105,6 +122,7 @@ class DashboardServiceImplTest {
     private void stubEmptyCountsExceptTasks() {
         when(paperMapper.selectCount(null)).thenReturn(0L);
         when(paperMapper.countByReadingStatus(any())).thenReturn(0L);
+        when(paperMapper.countUncategorized()).thenReturn(0L);
         when(paperMapper.countPinned()).thenReturn(0L);
         when(paperMapper.countCreatedSince(any())).thenReturn(0L);
         when(folderService.getTree()).thenReturn(List.of());
