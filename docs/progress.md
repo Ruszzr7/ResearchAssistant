@@ -181,7 +181,7 @@
 - Playwright 失败时保留 trace、截图、视频，并附加 API 轨迹和控制台错误；增加 `scripts/test-phase0.cmd`，可自动连续执行三次。
 - 增加 `scripts/test-phase0-headed.cmd`，并完成一次可见浏览器人工验收（1/1）。
 - 阶段 0 浏览器基线 3/3 通过；前端 139 项单测、生产构建通过；证据/Agent 相关后端定向 44 项通过。
-- 安装完整 Temurin JDK 17（含 `javac`、`freetype`、`javajpeg`）后完成后端全量回归：507 项执行、0 失败、0 错误、18 项按条件跳过；详见 `docs/phase0-acceptance.md`。
+- 安装完整 Temurin JDK 17（含 `javac`、`freetype`、`javajpeg`）后完成后端全量回归：507 项执行、0 失败、0 错误、18 项按条件跳过。
 
 ## 2026-09-11 阶段 1 阅读状态、看板和基础页面状态（已提交 `24fa652`）
 
