@@ -9,7 +9,7 @@ test.describe('阶段 2：研究档案证据复现', () => {
     await page.goto('/library', { waitUntil: 'domcontentloaded' })
     await page.locator('.toolbar-paper-actions .el-button').first().click()
     const dialog = page.locator('.el-dialog:visible').filter({ hasText: '导入论文' })
-    await dialog.locator('input[type="file"][accept=".pdf"]').setInputFiles({
+    await dialog.locator('input[type="file"]').setInputFiles({
       name: 'phase0-fixture.pdf', mimeType: 'application/pdf', buffer: state.pdf,
     })
     await page.locator('.el-dialog:visible .import-preview input').first().fill('阶段 0 固定论文')

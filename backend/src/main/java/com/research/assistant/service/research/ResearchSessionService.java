@@ -6,6 +6,7 @@ import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.ResearchMessage;
 import com.research.assistant.entity.ResearchSession;
 import com.research.assistant.mapper.*;
+import com.research.assistant.service.agent.runtime.AgentAttachmentService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,17 +25,20 @@ public class ResearchSessionService {
     private final ResearchMessageMapper messageMapper;
     private final PaperMapper paperMapper;
     private final AgentTurnMapper agentTurnMapper;
+    private final AgentAttachmentService attachmentService;
 
     public ResearchSessionService(ResearchSessionMapper sessionMapper,
                                   ResearchSessionPaperMapper sessionPaperMapper,
                                   ResearchMessageMapper messageMapper,
                                   PaperMapper paperMapper,
-                                  AgentTurnMapper agentTurnMapper) {
+                                  AgentTurnMapper agentTurnMapper,
+                                  AgentAttachmentService attachmentService) {
         this.sessionMapper = sessionMapper;
         this.sessionPaperMapper = sessionPaperMapper;
         this.messageMapper = messageMapper;
         this.paperMapper = paperMapper;
         this.agentTurnMapper = agentTurnMapper;
+        this.attachmentService = attachmentService;
     }
 
     public ResearchSessionPage page(boolean archived, String keyword, int page, int size) {
@@ -116,7 +120,10 @@ public class ResearchSessionService {
     @Transactional
     public void delete(long sessionId) {
         requireSession(sessionId);
-        sessionMapper.deleteById(sessionId);
+        attachmentService.deleteAfterCommitBySession(sessionId);
+        if (sessionMapper.deleteById(sessionId) != 1) {
+            throw new IllegalStateException("研究会话删除失败");
+        }
     }
 
     private void replacePapers(long sessionId, List<Long> paperIds) {

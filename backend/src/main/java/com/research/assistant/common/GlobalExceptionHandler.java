@@ -35,6 +35,12 @@ public class GlobalExceptionHandler {
         return response(HttpStatus.BAD_REQUEST, "请求参数不合法");
     }
 
+    @ExceptionHandler(PaperFileValidationException.class)
+    public ResponseEntity<Result<Void>> handlePaperFileValidation(PaperFileValidationException e) {
+        log.warn("paper_file_validation_failed");
+        return response(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
     @ExceptionHandler(AsyncTaskCapacityException.class)
     public ResponseEntity<Result<Void>> handleTaskCapacity(AsyncTaskCapacityException e) {
         log.warn("async_capacity_rejected type={}", typeOf(e));

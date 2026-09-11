@@ -95,6 +95,10 @@ function response(data, status = 200) {
   return { status, contentType: 'application/json', body: JSON.stringify({ code: status, data }) }
 }
 
+function errorResponse(status, message) {
+  return { status, contentType: 'application/json', body: JSON.stringify({ code: status, message }) }
+}
+
 function answerMessage() {
   return {
     id: 'phase0-assistant-message',
@@ -136,7 +140,7 @@ function archiveSessions(messages) {
  * It intercepts every /api request, so the test never touches the user's MySQL
  * database, PDF directory, model provider, or persisted browser storage.
  */
-export async function installPaperFlowMock(page) {
+export async function installPaperFlowMock(page, options = {}) {
   const state = {
     imported: false,
     paper: { ...paper },
@@ -144,6 +148,7 @@ export async function installPaperFlowMock(page) {
     requests: [],
     blockedRequests: [],
     agentTrajectory: [],
+    uploadAttempts: 0,
     pdf: createMinimalPdf(),
   }
 
@@ -190,9 +195,26 @@ export async function installPaperFlowMock(page) {
       return route.fulfill(response({ records, total: records.length, current: 1, size: 20, pages: 1 }))
     }
     if (path === '/papers/upload' && request.method() === 'POST') {
+      state.uploadAttempts += 1
+      const body = request.postData() || ''
+      const overwrite = /name="overwrite"[\s\S]*?\r?\n\r?\ntrue/.test(body)
+      if (options.invalidUploadOnce && state.uploadAttempts === 1) {
+        return route.fulfill(errorResponse(400, '文件不是有效的 PDF，或 PDF 无法打开'))
+      }
+      if (options.overwriteFailure && state.uploadAttempts === 2 && !overwrite) {
+        return route.fulfill(errorResponse(409, '文献已存在，是否覆盖？'))
+      }
+      if (options.overwriteFailure && state.uploadAttempts === 3 && overwrite) {
+        return route.fulfill(errorResponse(500, '数据库写入失败'))
+      }
       state.imported = true
       state.paper = { ...paper }
       return route.fulfill(response({ paper: { ...state.paper }, taskId: 'phase0-import-task' }))
+    }
+    if (path === `/papers/${PAPER_ID}` && request.method() === 'DELETE') {
+      state.imported = false
+      state.messages = []
+      return route.fulfill(response(null))
     }
     if (path === '/research-automation/task/phase0-import-task' && request.method() === 'GET') {
       return route.fulfill(response({

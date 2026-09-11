@@ -34,13 +34,15 @@ class MetadataEnrichmentServiceTest {
     @Mock private ArxivFetcher arxivFetcher;
     @Mock private CrossrefFetcher crossrefFetcher;
     @Mock private PaperMapper paperMapper;
+    @Mock private PaperDocumentReviewer paperDocumentReviewer;
 
     private MetadataEnrichmentService service;
 
     @BeforeEach
     void setUp() {
         service = new MetadataEnrichmentService(
-                pdfExtractor, identifierExtractor, arxivFetcher, crossrefFetcher, paperMapper);
+                pdfExtractor, identifierExtractor, arxivFetcher, crossrefFetcher, paperMapper,
+                paperDocumentReviewer);
     }
 
     @Test
@@ -54,6 +56,8 @@ class MetadataEnrichmentServiceTest {
         String metadataText = firstPage + "\n[15] Schulman et al., arXiv:1707.06347.";
         when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(5)))
                 .thenReturn(new PdfExtractor.MetadataTextExtraction(firstPage, metadataText));
+        when(paperDocumentReviewer.review(firstPage, metadataText))
+                .thenReturn(new PaperDocumentReviewer.Review(PaperDocumentReviewer.Status.PAPER, ""));
         when(identifierExtractor.extract(firstPage)).thenReturn(new IdentifierResult(null, "1707.06347"));
         when(arxivFetcher.getMetadata("1707.06347")).thenReturn(Map.of(
                 "title", "Proximal Policy Optimization Algorithms",
@@ -85,6 +89,8 @@ class MetadataEnrichmentServiceTest {
                 """.formatted(LOCAL_TITLE);
         when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(5)))
                 .thenReturn(new PdfExtractor.MetadataTextExtraction(firstPage, firstPage));
+        when(paperDocumentReviewer.review(firstPage, firstPage))
+                .thenReturn(new PaperDocumentReviewer.Review(PaperDocumentReviewer.Status.PAPER, ""));
         when(identifierExtractor.extract(firstPage))
                 .thenReturn(new IdentifierResult("10.1109/LWC.2024.3373826", null));
         when(crossrefFetcher.fetch("10.1109/LWC.2024.3373826")).thenReturn(Map.of(
@@ -102,6 +108,26 @@ class MetadataEnrichmentServiceTest {
         assertEquals("IEEE Wireless Communications Letters", result.getSource());
         assertEquals(2024, result.getYear());
         assertEquals("已从 Crossref 补全元数据", result.getMessage());
+        verify(arxivFetcher, never()).getMetadata(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void shouldStopMetadataLookupForClearlyNonPaperPdf() throws Exception {
+        MultipartFile file = mock(MultipartFile.class);
+        String diagram = "Time Slot (Duration T) Signal Transmission BS User Scheduling CSI Feedback";
+        when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(5)))
+                .thenReturn(new PdfExtractor.MetadataTextExtraction(diagram, diagram));
+        when(paperDocumentReviewer.review(diagram, diagram))
+                .thenReturn(new PaperDocumentReviewer.Review(
+                        PaperDocumentReviewer.Status.NOT_PAPER, "导入文件不是有效论文"));
+
+        EnrichmentResult result = service.enrichFromPdf(file);
+
+        assertEquals("NOT_PAPER", result.getDocumentType());
+        assertEquals("导入文件不是有效论文", result.getMessage());
+        assertNull(result.getTitle());
+        verify(identifierExtractor, never()).extract(org.mockito.ArgumentMatchers.anyString());
+        verify(crossrefFetcher, never()).fetch(org.mockito.ArgumentMatchers.anyString());
         verify(arxivFetcher, never()).getMetadata(org.mockito.ArgumentMatchers.anyString());
     }
 }

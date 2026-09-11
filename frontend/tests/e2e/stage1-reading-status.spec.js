@@ -5,7 +5,7 @@ async function importFixture(page, state) {
   await page.goto('/library', { waitUntil: 'domcontentloaded' })
   await page.locator('.toolbar-paper-actions .el-button').first().click()
   const dialog = page.locator('.el-dialog:visible').filter({ hasText: '导入论文' })
-  await dialog.locator('input[type="file"][accept=".pdf"]').setInputFiles({
+    await dialog.locator('input[type="file"]').setInputFiles({
     name: 'phase1-fixture.pdf',
     mimeType: 'application/pdf',
     buffer: state.pdf,

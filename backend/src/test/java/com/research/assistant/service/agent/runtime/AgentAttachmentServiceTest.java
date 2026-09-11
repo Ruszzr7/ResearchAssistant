@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -101,5 +102,22 @@ class AgentAttachmentServiceTest {
 
         assertThat(docx.getMediaType()).isEqualTo("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         assertThat(image.getMediaType()).isEqualTo("image/png");
+    }
+
+    @Test
+    void deletesSessionAttachmentsAfterSessionRemoval() throws Exception {
+        AgentAttachmentMapper attachmentMapper = mock(AgentAttachmentMapper.class);
+        AgentTurnMapper turnMapper = mock(AgentTurnMapper.class);
+        when(turnMapper.lockSession(3L)).thenReturn(3L);
+        AgentAttachmentService service = new AgentAttachmentService(
+                attachmentMapper, turnMapper, tempDir.toString());
+
+        AgentAttachmentRecord staged = service.stage(3L, "FORMULA_TEXT", "formula.tex",
+                "application/x-latex", "x^2".getBytes());
+        when(attachmentMapper.selectBySessionId(3L)).thenReturn(List.of(staged));
+
+        service.deleteAfterCommitBySession(3L);
+
+        assertThat(tempDir.resolve(staged.getStoragePath())).doesNotExist();
     }
 }

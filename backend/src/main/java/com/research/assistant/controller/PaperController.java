@@ -150,11 +150,6 @@ public class PaperController {
         paper.setKeywords(request.getKeywords());
         paper.setAcquisitionMethod(request.getAcquisitionMethod());
         paper.setFolderId(request.getFolderId());
-        paper.setReadingStatus(request.getReadingStatus());
-        paper.setPinned(request.getPinned());
-        paper.setPageCount(request.getPageCount());
-        paper.setCurrentPage(request.getCurrentPage());
-        paper.setReadSeconds(request.getReadSeconds());
         return paper;
     }
 

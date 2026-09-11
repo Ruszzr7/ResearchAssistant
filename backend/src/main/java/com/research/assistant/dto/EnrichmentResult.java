@@ -18,6 +18,8 @@ public class EnrichmentResult {
     private String sourceUrl;
     private String abstractText;
     private String keywords;
+    /** PDF 论文结构审查结果：PAPER、NOT_PAPER 或 UNCERTAIN。 */
+    private String documentType;
     private String message;
 
     public EnrichmentResult() {
@@ -117,6 +119,14 @@ public class EnrichmentResult {
 
     public void setKeywords(String keywords) {
         this.keywords = keywords;
+    }
+
+    public String getDocumentType() {
+        return documentType;
+    }
+
+    public void setDocumentType(String documentType) {
+        this.documentType = documentType;
     }
 
     public String getMessage() {

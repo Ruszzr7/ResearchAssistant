@@ -2,6 +2,7 @@ package com.research.assistant.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.research.assistant.entity.Tag;
+import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.TagMapper;
 import com.research.assistant.service.TagService;
 import org.slf4j.Logger;
@@ -21,9 +22,11 @@ public class TagServiceImpl implements TagService {
     private static final Logger log = LoggerFactory.getLogger(TagServiceImpl.class);
 
     private final TagMapper tagMapper;
+    private final PaperMapper paperMapper;
 
-    public TagServiceImpl(TagMapper tagMapper) {
+    public TagServiceImpl(TagMapper tagMapper, PaperMapper paperMapper) {
         this.tagMapper = tagMapper;
+        this.paperMapper = paperMapper;
     }
 
     @Override
@@ -90,20 +93,29 @@ public class TagServiceImpl implements TagService {
     @Override
     @Transactional
     public void setPaperTags(Long paperId, List<Long> tagIds) {
+        if (paperMapper.selectById(paperId) == null) throw new IllegalArgumentException("论文不存在");
+        List<Long> normalized = tagIds == null ? List.of() : tagIds.stream()
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        for (Long tagId : normalized) {
+            if (tagId <= 0 || tagMapper.selectById(tagId) == null) {
+                throw new IllegalArgumentException("标签不存在");
+            }
+        }
         tagMapper.deletePaperTagsByPaperId(paperId);
-        if (tagIds == null || tagIds.isEmpty()) {
+        if (normalized.isEmpty()) {
             return;
         }
-        for (Long tagId : tagIds) {
-            if (tagId != null) {
-                tagMapper.insertPaperTag(paperId, tagId);
-            }
+        for (Long tagId : normalized) {
+            tagMapper.insertPaperTag(paperId, tagId);
         }
     }
 
     @Override
     @Transactional
     public void addTagToPaper(Long paperId, String tagName) {
+        if (paperMapper.selectById(paperId) == null) throw new IllegalArgumentException("论文不存在");
         Tag tag = create(tagName);
         tagMapper.insertPaperTag(paperId, tag.getId());
     }
@@ -111,6 +123,7 @@ public class TagServiceImpl implements TagService {
     @Override
     @Transactional
     public void removeTagFromPaper(Long paperId, Long tagId) {
+        if (paperMapper.selectById(paperId) == null) throw new IllegalArgumentException("论文不存在");
         // 使用自定义 SQL 删除单条关联
         tagMapper.deletePaperTag(paperId, tagId);
     }

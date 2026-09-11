@@ -34,18 +34,21 @@ public class MetadataEnrichmentService {
     private final CrossrefFetcher crossrefFetcher;
     private final PaperMapper paperMapper;
     private final PdfMetadataHeuristics pdfMetadataHeuristics;
+    private final PaperDocumentReviewer paperDocumentReviewer;
 
     public MetadataEnrichmentService(PdfExtractor pdfExtractor,
                                      IdentifierExtractor identifierExtractor,
                                      ArxivFetcher arxivFetcher,
                                      CrossrefFetcher crossrefFetcher,
-                                     PaperMapper paperMapper) {
+                                     PaperMapper paperMapper,
+                                     PaperDocumentReviewer paperDocumentReviewer) {
         this.pdfExtractor = pdfExtractor;
         this.identifierExtractor = identifierExtractor;
         this.arxivFetcher = arxivFetcher;
         this.crossrefFetcher = crossrefFetcher;
         this.paperMapper = paperMapper;
         this.pdfMetadataHeuristics = new PdfMetadataHeuristics();
+        this.paperDocumentReviewer = paperDocumentReviewer;
     }
 
     /**
@@ -81,12 +84,19 @@ public class MetadataEnrichmentService {
 
     /**
      * 身份标识只来自首页；前几页文本仅用于本地标题、摘要、关键词等兜底信息。
-     * 这样参考文献中的 arXiv / DOI 不会覆盖当前 PDF 的元数据。
+    * 这样参考文献中的 arXiv / DOI 不会覆盖当前 PDF 的元数据。
      */
     private EnrichmentResult enrichFromText(String identityText, String metadataText) {
-        IdentifierResult ids = identifierExtractor.extract(identityText);
         EnrichmentResult result = new EnrichmentResult();
         PdfMetadataHeuristics.Metadata localMetadata = pdfMetadataHeuristics.extract(metadataText);
+        PaperDocumentReviewer.Review documentReview = paperDocumentReviewer.review(identityText, metadataText);
+        result.setDocumentType(documentReview.status().name());
+        if (documentReview.status() == PaperDocumentReviewer.Status.NOT_PAPER) {
+            result.setFound(false);
+            result.setMessage(documentReview.message());
+            return result;
+        }
+        IdentifierResult ids = identifierExtractor.extract(identityText);
 
         if (ids.getDoi() != null) {
             try {
@@ -99,7 +109,7 @@ public class MetadataEnrichmentService {
                 fillFromCrossref(result, meta);
                 fillFromPdfFallback(result, localMetadata);
                 result.setFound(true);
-                result.setMessage("已从 Crossref 补全元数据");
+                result.setMessage(withDocumentReviewMessage("已从 Crossref 补全元数据", documentReview));
             } catch (Exception e) {
                 log.warn("Crossref 元数据查询失败 doi={}: {}", ids.getDoi(), e.getMessage());
                 result.setFoundDoi(ids.getDoi());
@@ -107,9 +117,9 @@ public class MetadataEnrichmentService {
                 fillFromPdfFallback(result, localMetadata);
                 boolean localFound = hasUsableMetadata(result);
                 result.setFound(localFound);
-                result.setMessage(localFound
+                result.setMessage(withDocumentReviewMessage(localFound
                         ? "已识别 DOI，并从 PDF 提取可用元数据，请核对"
-                        : "识别到 DOI，但查询失败：" + e.getMessage());
+                        : "识别到 DOI，但查询失败：" + e.getMessage(), documentReview));
             }
             return result;
         }
@@ -124,16 +134,16 @@ public class MetadataEnrichmentService {
                 fillFromArxiv(result, meta);
                 fillFromPdfFallback(result, localMetadata);
                 result.setFound(true);
-                result.setMessage("已从 arXiv 补全元数据");
+                result.setMessage(withDocumentReviewMessage("已从 arXiv 补全元数据", documentReview));
             } catch (Exception e) {
                 log.warn("arXiv 元数据查询失败 arxivId={}: {}", ids.getArxivId(), e.getMessage());
                 result.setFoundArxivId(ids.getArxivId());
                 fillFromPdfFallback(result, localMetadata);
                 boolean localFound = hasUsableMetadata(result);
                 result.setFound(localFound);
-                result.setMessage(localFound
+                result.setMessage(withDocumentReviewMessage(localFound
                         ? "已识别 arXiv ID，并从 PDF 提取可用元数据，请核对"
-                        : "识别到 arXiv ID，但查询失败：" + e.getMessage());
+                        : "识别到 arXiv ID，但查询失败：" + e.getMessage(), documentReview));
             }
             return result;
         }
@@ -144,10 +154,15 @@ public class MetadataEnrichmentService {
                 || result.getAbstractText() != null
                 || result.getSource() != null;
         result.setFound(localFound);
-        result.setMessage(localFound
+        result.setMessage(withDocumentReviewMessage(localFound
                 ? "已从 PDF 提取标题和摘要，请核对其他元数据"
-                : "未识别到 DOI 或 arXiv ID");
+                : "未识别到 DOI 或 arXiv ID", documentReview));
         return result;
+    }
+
+    private String withDocumentReviewMessage(String message, PaperDocumentReviewer.Review review) {
+        if (review.status() != PaperDocumentReviewer.Status.UNCERTAIN) return message;
+        return review.message() + "；" + message;
     }
 
     /**

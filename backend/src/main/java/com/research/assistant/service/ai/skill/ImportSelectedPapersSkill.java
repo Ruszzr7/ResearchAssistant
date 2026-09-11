@@ -3,8 +3,10 @@ package com.research.assistant.service.ai.skill;
 import com.research.assistant.constant.AcquisitionMethod;
 import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.entity.Paper;
+import com.research.assistant.mapper.FolderMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.ArxivFetcher;
+import com.research.assistant.service.PaperAssetLifecycleService;
 import com.research.assistant.service.ai.skill.io.ImportSelectedPapersInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,14 +25,20 @@ public class ImportSelectedPapersSkill implements Skill<ImportSelectedPapersInpu
     private static final Logger log = LoggerFactory.getLogger(ImportSelectedPapersSkill.class);
 
     private final PaperMapper paperMapper;
+    private final FolderMapper folderMapper;
     private final ArxivFetcher arxivFetcher;
+    private final PaperAssetLifecycleService paperAssetLifecycleService;
 
     @Value("${app.storage.pdf-dir:../data/papers}")
     private String pdfStorageDir;
 
-    public ImportSelectedPapersSkill(PaperMapper paperMapper, ArxivFetcher arxivFetcher) {
+    public ImportSelectedPapersSkill(PaperMapper paperMapper, FolderMapper folderMapper,
+                                     ArxivFetcher arxivFetcher,
+                                     PaperAssetLifecycleService paperAssetLifecycleService) {
         this.paperMapper = paperMapper;
+        this.folderMapper = folderMapper;
         this.arxivFetcher = arxivFetcher;
+        this.paperAssetLifecycleService = paperAssetLifecycleService;
     }
 
     @Override
@@ -54,6 +62,10 @@ public class ImportSelectedPapersSkill implements Skill<ImportSelectedPapersInpu
         List<Map<String, Object>> selected = input.selected();
         if (selected == null || selected.isEmpty()) {
             return Map.of("importedIds", Collections.emptyList(), "failed", 0);
+        }
+        if (input.folderId() != null && (input.folderId() <= 0
+                || folderMapper.selectById(input.folderId()) == null)) {
+            throw new IllegalArgumentException("文件夹不存在");
         }
 
         List<Long> importedIds = new ArrayList<>();
@@ -90,7 +102,9 @@ public class ImportSelectedPapersSkill implements Skill<ImportSelectedPapersInpu
         paper.setReadingStatus(ReadingStatus.UNREAD);
         paper.setAcquisitionMethod(AcquisitionMethod.OA);
         paper.setPinned(false);
-        paperMapper.insert(paper);
+        if (paperMapper.insert(paper) != 1) {
+            throw new IllegalStateException("论文记录写入失败");
+        }
 
         String arxivId = paper.getArxivId();
         if (arxivId != null && !arxivId.isBlank()) {
@@ -101,10 +115,20 @@ public class ImportSelectedPapersSkill implements Skill<ImportSelectedPapersInpu
                 }
                 String fileName = arxivFetcher.downloadPdf(arxivId, dir.getAbsolutePath());
                 if (fileName != null) {
-                    Paper update = new Paper();
-                    update.setId(paper.getId());
-                    update.setPdfPath(fileName);
-                    paperMapper.updateById(update);
+                    try {
+                        if (paperAssetLifecycleService.resolveStoredPdf(fileName) == null) {
+                            throw new IllegalStateException("下载的 PDF 无法读取");
+                        }
+                        Paper update = new Paper();
+                        update.setId(paper.getId());
+                        update.setPdfPath(fileName);
+                        if (paperMapper.updateById(update) != 1) {
+                            throw new IllegalStateException("论文记录更新失败");
+                        }
+                    } catch (RuntimeException exception) {
+                        paperAssetLifecycleService.deleteImmediately(fileName);
+                        throw exception;
+                    }
                 }
             } catch (Exception e) {
                 log.warn("下载 PDF 失败 arxivId={}: {}", arxivId, e.getMessage());

@@ -32,6 +32,7 @@ public class AsyncTaskService {
     private final PaperUnderstandingTaskService paperUnderstandingTaskService;
     private final ArxivFetcher arxivFetcher;
     private final PaperMapper paperMapper;
+    private final PaperAssetLifecycleService paperAssetLifecycleService;
     private final AsyncTaskManager asyncTaskManager;
     private final AsyncTaskHandlerRegistry handlerRegistry;
 
@@ -41,11 +42,13 @@ public class AsyncTaskService {
     public AsyncTaskService(PaperUnderstandingTaskService paperUnderstandingTaskService,
                             ArxivFetcher arxivFetcher,
                             PaperMapper paperMapper,
+                            PaperAssetLifecycleService paperAssetLifecycleService,
                             AsyncTaskManager asyncTaskManager,
                             AsyncTaskHandlerRegistry handlerRegistry) {
         this.paperUnderstandingTaskService = paperUnderstandingTaskService;
         this.arxivFetcher = arxivFetcher;
         this.paperMapper = paperMapper;
+        this.paperAssetLifecycleService = paperAssetLifecycleService;
         this.asyncTaskManager = asyncTaskManager;
         this.handlerRegistry = handlerRegistry;
         registerHandlers();
@@ -67,15 +70,34 @@ public class AsyncTaskService {
             if (!dir.isAbsolute()) {
                 dir = new File(System.getProperty("user.dir"), pdfStorageDir);
             }
-            String fileName = arxivFetcher.downloadPdf(arxivId, dir.getAbsolutePath());
-            if (fileName == null) {
-                throw new AsyncTaskExecutionException("ARXIV_DOWNLOAD_EMPTY", "arXiv PDF 下载未返回文件", false);
+            Paper existing = paperMapper.selectById(paperId);
+            if (existing == null) {
+                throw new AsyncTaskExecutionException("PAPER_NOT_FOUND", "论文不存在", false);
             }
-            Paper update = new Paper();
-            update.setId(paperId);
-            update.setPdfPath(fileName);
-            paperMapper.updateById(update);
-            return Map.of("paperId", paperId, "fileName", fileName);
+            String fileName = null;
+            try {
+                fileName = arxivFetcher.downloadPdf(arxivId, dir.getAbsolutePath());
+                if (fileName == null || paperAssetLifecycleService.resolveStoredPdf(fileName) == null) {
+                    throw new AsyncTaskExecutionException("ARXIV_DOWNLOAD_EMPTY", "arXiv PDF 下载未返回有效文件", false);
+                }
+                Paper update = new Paper();
+                update.setId(paperId);
+                update.setPdfPath(fileName);
+                if (paperMapper.updateById(update) != 1) {
+                    throw new IllegalStateException("论文记录更新失败");
+                }
+                if (existing.getPdfPath() != null && !existing.getPdfPath().isBlank()
+                        && !existing.getPdfPath().equals(fileName)) {
+                    Paper replaced = new Paper();
+                    replaced.setId(paperId);
+                    replaced.setPdfPath(existing.getPdfPath());
+                    paperAssetLifecycleService.deleteAfterCommit(List.of(replaced));
+                }
+                return Map.of("paperId", paperId, "fileName", fileName);
+            } catch (RuntimeException exception) {
+                if (fileName != null) paperAssetLifecycleService.deleteImmediately(fileName);
+                throw exception;
+            }
         });
     }
 

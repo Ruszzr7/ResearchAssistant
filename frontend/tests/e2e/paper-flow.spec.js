@@ -19,7 +19,7 @@ test.describe('阶段 0：论文阅读核心链路', () => {
     await importButton.click()
     const dialog = page.locator('.el-dialog:visible').filter({ hasText: '导入论文' })
     await expect(dialog).toBeVisible()
-    await page.locator('input[type="file"][accept=".pdf"]').setInputFiles({
+    await page.locator('input[type="file"]').setInputFiles({
       name: 'phase0-fixture.pdf',
       mimeType: 'application/pdf',
       buffer: state.pdf,

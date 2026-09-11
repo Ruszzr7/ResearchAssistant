@@ -17,6 +17,9 @@ public interface AgentAttachmentMapper extends BaseMapper<AgentAttachmentRecord>
     @Select("SELECT * FROM agent_attachment WHERE turn_id = #{turnId} ORDER BY created_at, id")
     List<AgentAttachmentRecord> selectByTurnId(@Param("turnId") long turnId);
 
+    @Select("SELECT * FROM agent_attachment WHERE session_id = #{sessionId} ORDER BY created_at, id")
+    List<AgentAttachmentRecord> selectBySessionId(@Param("sessionId") long sessionId);
+
     @Update("UPDATE agent_attachment SET turn_id = #{turnId} WHERE attachment_id = #{attachmentId} "
             + "AND session_id = #{sessionId} AND (turn_id IS NULL OR turn_id = #{turnId})")
     int claim(@Param("attachmentId") String attachmentId,

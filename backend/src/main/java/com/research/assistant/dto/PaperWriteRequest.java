@@ -35,18 +35,6 @@ public class PaperWriteRequest {
     @Size(max = 50, message = "获取方式长度不能超过 50")
     private String acquisitionMethod;
     private Long folderId;
-    @Size(max = 50, message = "阅读状态长度不能超过 50")
-    private String readingStatus;
-    private Boolean pinned;
-    @Min(value = 0, message = "页数不能为负数")
-    @Max(value = 2_000_000, message = "页数过大")
-    private Integer pageCount;
-    @Min(value = 0, message = "当前页不能为负数")
-    @Max(value = 2_000_000, message = "当前页过大")
-    private Integer currentPage;
-    @Min(value = 0, message = "阅读时长不能为负数")
-    @Max(value = 2_000_000_000, message = "阅读时长过大")
-    private Integer readSeconds;
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
@@ -72,14 +60,4 @@ public class PaperWriteRequest {
     public void setAcquisitionMethod(String acquisitionMethod) { this.acquisitionMethod = acquisitionMethod; }
     public Long getFolderId() { return folderId; }
     public void setFolderId(Long folderId) { this.folderId = folderId; }
-    public String getReadingStatus() { return readingStatus; }
-    public void setReadingStatus(String readingStatus) { this.readingStatus = readingStatus; }
-    public Boolean getPinned() { return pinned; }
-    public void setPinned(Boolean pinned) { this.pinned = pinned; }
-    public Integer getPageCount() { return pageCount; }
-    public void setPageCount(Integer pageCount) { this.pageCount = pageCount; }
-    public Integer getCurrentPage() { return currentPage; }
-    public void setCurrentPage(Integer currentPage) { this.currentPage = currentPage; }
-    public Integer getReadSeconds() { return readSeconds; }
-    public void setReadSeconds(Integer readSeconds) { this.readSeconds = readSeconds; }
 }

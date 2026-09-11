@@ -1,6 +1,7 @@
 package com.research.assistant.controller;
 
 import com.research.assistant.common.GlobalExceptionHandler;
+import com.research.assistant.common.PaperFileValidationException;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.service.ArxivFetcher;
 import com.research.assistant.service.AsyncTaskService;
@@ -36,6 +37,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -118,7 +120,9 @@ class DynamicRequestContractTest {
 
         paperMvc.perform(post("/api/papers?runWorkflow=false")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"title\":\"A paper\",\"id\":99,\"pdfPath\":\"../../secret\",\"tags\":[{}]}"))
+                        .content("{\"title\":\"A paper\",\"id\":99,\"pdfPath\":\"../../secret\",\"tags\":[{}],"
+                                + "\"readingStatus\":\"READ\",\"pinned\":true,\"pageCount\":99,"
+                                + "\"currentPage\":88,\"readSeconds\":777}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.paper.id").value(7));
 
@@ -127,6 +131,10 @@ class DynamicRequestContractTest {
         assertThat(captor.getValue().getId()).isNull();
         assertThat(captor.getValue().getPdfPath()).isNull();
         assertThat(captor.getValue().getTags()).isNull();
+        assertThat(captor.getValue().getReadingStatus()).isNull();
+        assertThat(captor.getValue().getPageCount()).isNull();
+        assertThat(captor.getValue().getCurrentPage()).isNull();
+        assertThat(captor.getValue().getReadSeconds()).isNull();
     }
 
     @Test
@@ -138,6 +146,18 @@ class DynamicRequestContractTest {
                 .andExpect(jsonPath("$.code").value(200));
 
         verify(readingProgressService).updateStatus(7L, "READ");
+    }
+
+    @Test
+    void uploadReturnsSpecificChinesePdfValidationReason() throws Exception {
+        when(paperService.uploadPdfAndCreate(any(), any(Paper.class), eq(false)))
+                .thenThrow(new PaperFileValidationException("文件不是有效的 PDF，或 PDF 无法打开"));
+
+        paperMvc.perform(multipart("/api/papers/upload")
+                        .file(new org.springframework.mock.web.MockMultipartFile(
+                                "file", "broken.bin", "application/octet-stream", "bad".getBytes())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("文件不是有效的 PDF，或 PDF 无法打开"));
     }
 
     @Test

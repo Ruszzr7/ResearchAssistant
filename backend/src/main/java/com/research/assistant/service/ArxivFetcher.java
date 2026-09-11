@@ -2,6 +2,8 @@ package com.research.assistant.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -12,10 +14,15 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * arXiv API 查询器 —— 搜索论文、获取元数据、下载 LaTeX 源码。
@@ -130,7 +137,9 @@ public class ArxivFetcher {
     public String downloadPdf(String arxivId, String saveDir) {
         // 使用无后缀的 canonical URL，避免 arXiv 返回 301 重定向
         String pdfUrl = "https://arxiv.org/pdf/" + arxivId;
-        String fileName = arxivId + ".pdf";
+        String safeId = arxivId == null ? "unknown" : arxivId.replaceAll("[^A-Za-z0-9._-]", "_");
+        String fileName = "arxiv-" + safeId + "-" + UUID.randomUUID() + ".pdf";
+        Path temporary = null;
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(pdfUrl))
@@ -142,15 +151,44 @@ public class ArxivFetcher {
                 log.warn("arXiv PDF 下载失败 {}: HTTP {}", arxivId, response.statusCode());
                 return null;
             }
-            java.io.File dir = new java.io.File(saveDir);
-            if (!dir.exists()) dir.mkdirs();
-            java.io.File outFile = new java.io.File(dir, fileName);
-            java.nio.file.Files.write(outFile.toPath(), response.body());
+            try (PDDocument document = Loader.loadPDF(response.body())) {
+                if (document.getNumberOfPages() <= 0) {
+                    log.warn("arXiv PDF 无可读取页面: {}", arxivId);
+                    return null;
+                }
+            } catch (Exception exception) {
+                log.warn("arXiv 返回内容不是有效 PDF {}: {}", arxivId, exception.getMessage());
+                return null;
+            }
+
+            Path dir = Path.of(saveDir).toAbsolutePath().normalize();
+            Files.createDirectories(dir);
+            Path target = dir.resolve(fileName).normalize();
+            if (!target.startsWith(dir)) {
+                log.warn("拒绝保存越界的 arXiv 文件: {}", arxivId);
+                return null;
+            }
+            temporary = Files.createTempFile(dir, ".upload-", ".tmp");
+            Files.write(temporary, response.body());
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, target);
+            }
+            temporary = null;
             log.info("arXiv PDF 下载成功: {} → {}", arxivId, fileName);
             return fileName;
         } catch (Exception e) {
             log.warn("arXiv PDF 下载异常 {}: {}", arxivId, e.getMessage());
             return null;
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (Exception ignored) {
+                    // 不覆盖原始下载错误。
+                }
+            }
         }
     }
 

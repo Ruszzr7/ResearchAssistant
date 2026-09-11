@@ -144,6 +144,23 @@ public class AgentAttachmentService {
         return resolved;
     }
 
+    /** 会话删除成功后清理该会话的暂存附件和已归档附件物理文件。 */
+    public void deleteAfterCommitBySession(long sessionId) {
+        List<AgentAttachmentRecord> snapshot = attachmentMapper.selectBySessionId(sessionId);
+        if (snapshot == null || snapshot.isEmpty()) return;
+        Runnable deletion = () -> snapshot.forEach(this::deleteStoredFile);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    deletion.run();
+                }
+            });
+        } else {
+            deletion.run();
+        }
+    }
+
     @Transactional
     public void updateExtraction(AgentAttachmentRecord record, String status,
                                  String previewText, String metadataJson) {
@@ -162,6 +179,15 @@ public class AgentAttachmentService {
         Path resolved = storageRoot.resolve(relative).normalize();
         if (!resolved.startsWith(storageRoot)) throw new IllegalArgumentException("attachment path escapes storage root");
         return resolved;
+    }
+
+    private void deleteStoredFile(AgentAttachmentRecord record) {
+        if (record == null || record.getStoragePath() == null || record.getStoragePath().isBlank()) return;
+        try {
+            Files.deleteIfExists(resolveInsideRoot(record.getStoragePath()));
+        } catch (Exception exception) {
+            // 文件清理失败不能影响已经成功提交的会话删除。
+        }
     }
 
     private static String normalizeMediaType(String mediaType, String originalName) {

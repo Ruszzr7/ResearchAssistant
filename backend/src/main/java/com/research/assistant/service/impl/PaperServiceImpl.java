@@ -3,27 +3,29 @@ package com.research.assistant.service.impl;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.research.assistant.common.DuplicatePaperException;
+import com.research.assistant.common.PaperFileValidationException;
+import com.research.assistant.constant.AcquisitionMethod;
 import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.Tag;
+import com.research.assistant.mapper.FolderMapper;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.TagMapper;
 import com.research.assistant.service.PaperService;
 import com.research.assistant.service.PaperAssetLifecycleService;
 import com.research.assistant.service.PdfExtractor;
 import com.research.assistant.service.metadata.MetadataNormalizer;
+import com.research.assistant.service.metadata.PaperDocumentReviewer;
 import com.research.assistant.service.metadata.PdfMetadataHeuristics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.Collections;
 import java.util.List;
@@ -43,18 +45,20 @@ public class PaperServiceImpl implements PaperService {
 
     private final PaperMapper paperMapper;
     private final TagMapper tagMapper;
+    private final FolderMapper folderMapper;
     private final PdfExtractor pdfExtractor;
     private final PaperAssetLifecycleService paperAssetLifecycleService;
+    private final PaperDocumentReviewer paperDocumentReviewer;
 
-    @Value("${app.storage.pdf-dir:../data/papers}")
-    private String pdfStorageDir;
-
-    public PaperServiceImpl(PaperMapper paperMapper, TagMapper tagMapper, PdfExtractor pdfExtractor,
-                            PaperAssetLifecycleService paperAssetLifecycleService) {
+    public PaperServiceImpl(PaperMapper paperMapper, TagMapper tagMapper, FolderMapper folderMapper,
+                            PdfExtractor pdfExtractor, PaperAssetLifecycleService paperAssetLifecycleService,
+                            PaperDocumentReviewer paperDocumentReviewer) {
         this.paperMapper = paperMapper;
         this.tagMapper = tagMapper;
+        this.folderMapper = folderMapper;
         this.pdfExtractor = pdfExtractor;
         this.paperAssetLifecycleService = paperAssetLifecycleService;
+        this.paperDocumentReviewer = paperDocumentReviewer;
     }
 
     @Override
@@ -101,19 +105,25 @@ public class PaperServiceImpl implements PaperService {
     @Override
     @Transactional
     public Paper create(Paper paper) {
-        normalizeAuthors(paper);
-        if (paper.getReadingStatus() == null || paper.getReadingStatus().isBlank()) {
-            paper.setReadingStatus(ReadingStatus.UNREAD);
+        normalizePaperWrite(paper, true);
+        if (paperMapper.insert(paper) != 1) {
+            throw new IllegalStateException("论文记录写入失败");
         }
-        paperMapper.insert(paper);
         return getById(paper.getId());   // 回查以填充 tags
     }
 
     @Override
     @Transactional
     public Paper update(Paper paper) {
-        normalizeAuthors(paper);
-        paperMapper.updateById(paper);
+        Paper existing = paper == null || paper.getId() == null ? null : paperMapper.selectById(paper.getId());
+        if (existing == null) {
+            throw new IllegalArgumentException("论文不存在");
+        }
+        normalizePaperWrite(paper, false);
+        preserveServerManagedFields(paper, existing);
+        if (paperMapper.updateById(paper) != 1) {
+            throw new IllegalStateException("论文记录更新失败");
+        }
         return getById(paper.getId());
     }
 
@@ -123,63 +133,59 @@ public class PaperServiceImpl implements PaperService {
         Paper paper = paperMapper.selectById(id);
         if (paper == null) return;
         // Paper-owned database data (including annotations) is removed by foreign-key cascades.
-        paperMapper.deleteById(id);
+        if (paperMapper.deleteById(id) != 1) {
+            throw new IllegalStateException("论文记录删除失败");
+        }
         paperAssetLifecycleService.deleteAfterCommit(List.of(paper));
     }
 
     // ========== PDF 文件管理 ==========
 
     @Override
+    @Transactional
     public String uploadPdf(Long paperId, MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new RuntimeException("文件为空");
-        }
-        String originalName = file.getOriginalFilename();
-        if (originalName == null || !originalName.toLowerCase().endsWith(".pdf")) {
-            throw new RuntimeException("仅支持 PDF 文件");
-        }
-        // 确保存储目录存在（相对路径 → 基于 user.dir 解析为绝对路径）
-        File dir = new File(pdfStorageDir);
-        if (!dir.isAbsolute()) {
-            dir = new File(System.getProperty("user.dir"), pdfStorageDir);
-        }
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-        // 生成唯一文件名: {paperId}_{timestamp}.pdf
-        String storedName = paperId + "_" + System.currentTimeMillis() + ".pdf";
-        File dest = new File(dir, storedName);
+        Paper existing = paperMapper.selectById(paperId);
+        if (existing == null) throw new IllegalArgumentException("论文不存在");
+        PaperAssetLifecycleService.StoredPdf stored = paperAssetLifecycleService.storeUploadedPdf(file);
         try {
-            file.transferTo(dest);
-        } catch (IOException e) {
-            throw new RuntimeException("文件保存失败", e);
+            ensurePaperDocument(stored);
+            Paper paper = new Paper();
+            String oldPdfPath = existing.getPdfPath();
+            paper.setId(paperId);
+            populatePdfFields(paper, stored, existing.getYear());
+            if (paperMapper.updateById(paper) != 1) {
+                throw new IllegalStateException("论文记录更新失败");
+            }
+            if (oldPdfPath != null && !oldPdfPath.isBlank() && !oldPdfPath.equals(stored.storedName())) {
+                Paper old = new Paper();
+                old.setId(paperId);
+                old.setPdfPath(oldPdfPath);
+                paperAssetLifecycleService.deleteAfterCommit(List.of(old));
+            }
+            return stored.storedName();
+        } catch (RuntimeException exception) {
+            paperAssetLifecycleService.deleteImmediately(stored.storedName());
+            throw exception;
         }
-        // 更新 paper.pdfPath + 提取文本
-        Paper paper = new Paper();
-        paper.setId(paperId);
-        paper.setPdfPath(storedName);
+    }
+
+    private void populatePdfFields(Paper paper, PaperAssetLifecycleService.StoredPdf stored,
+                                   Integer existingYear) {
+        paper.setPdfPath(stored.storedName());
+        paper.setPageCount(stored.pageCount());
         // 异步提取 PDF 文本（暂存于 aiSummary，阶段三由 LLM 结构化）
-        String extracted = pdfExtractor.extract(storedName);
+        String extracted = pdfExtractor.extract(stored.storedName());
         if (!extracted.isEmpty()) {
             paper.setAiSummary(extracted);
         }
         // 若年份为空或历史默认值，使用出版信息行提取真实年份；识别不到时保持为空，
         // 不再把授权下载时间等首页年份误认为出版年份。
-        Integer existingYear = paperMapper.selectById(paperId).getYear();
         if (existingYear == null || existingYear == 2025) {
             Integer parsedYear = new PdfMetadataHeuristics().extract(extracted).year();
             if (parsedYear != null) {
                 paper.setYear(parsedYear);
             }
         }
-        // 提取 PDF 页数
-        int pageCount = pdfExtractor.countPages(storedName);
-        if (pageCount > 0) {
-            paper.setPageCount(pageCount);
-        }
-
-        paperMapper.updateById(paper);
-        return storedName;
     }
 
     @Override
@@ -191,30 +197,57 @@ public class PaperServiceImpl implements PaperService {
     @Override
     @Transactional
     public Paper uploadPdfAndCreate(MultipartFile file, Paper paper, boolean overwrite) {
-        normalizeAuthors(paper);
-        Paper duplicate = findDuplicatePaper(file, paper);
-        if (duplicate != null) {
-            if (!overwrite) {
-                throw new DuplicatePaperException(duplicate.getId(), duplicate.getTitle());
-            }
-            String oldPdfPath = duplicate.getPdfPath();
-            paper.setId(duplicate.getId());
-            if (paper.getTitle() == null || paper.getTitle().isBlank()) {
-                paper.setTitle(duplicate.getTitle());
-            }
-            paperMapper.updateById(paper);
-            uploadPdf(duplicate.getId(), file);
-            Paper replaced = new Paper();
-            replaced.setId(duplicate.getId());
-            replaced.setPdfPath(oldPdfPath);
-            paperAssetLifecycleService.deleteAfterCommit(List.of(replaced));
-            return getById(duplicate.getId());
+        normalizePaperWrite(paper, true);
+        if (file == null || file.isEmpty()) {
+            throw new PaperFileValidationException("上传文件为空");
         }
-        paperMapper.insert(paper);
-        if (file != null && !file.isEmpty()) {
-            uploadPdf(paper.getId(), file);
+
+        // 先完成文件校验和唯一存储，再处理重复判断。这样伪装、损坏或加密文件
+        // 不会因为 DOI 重复而被错误地当成合法上传，也不会进入数据库。
+        PaperAssetLifecycleService.StoredPdf stored = paperAssetLifecycleService.storeUploadedPdf(file);
+        try {
+            ensurePaperDocument(stored);
+            Paper duplicate = findDuplicatePaper(file, paper);
+            if (duplicate != null) {
+                if (!overwrite) {
+                    throw new DuplicatePaperException(duplicate.getId(), duplicate.getTitle());
+                }
+                paper.setId(duplicate.getId());
+                // 阅读状态、置顶、阅读进度和已有分析属于服务端状态，覆盖元数据时保留原值。
+                preserveServerManagedFields(paper, duplicate);
+                populatePdfFields(paper, stored, duplicate.getYear());
+                if (paperMapper.updateById(paper) != 1) {
+                    throw new IllegalStateException("论文记录更新失败");
+                }
+                if (duplicate.getPdfPath() != null
+                        && !duplicate.getPdfPath().equals(stored.storedName())) {
+                    Paper replaced = new Paper();
+                    replaced.setId(duplicate.getId());
+                    replaced.setPdfPath(duplicate.getPdfPath());
+                    paperAssetLifecycleService.deleteAfterCommit(List.of(replaced));
+                }
+                return getById(duplicate.getId());
+            }
+
+            populatePdfFields(paper, stored, paper.getYear());
+            if (paperMapper.insert(paper) != 1) {
+                throw new IllegalStateException("论文记录写入失败");
+            }
+            return getById(paper.getId());
+        } catch (RuntimeException exception) {
+            paperAssetLifecycleService.deleteImmediately(stored.storedName());
+            throw exception;
         }
-        return getById(paper.getId());
+    }
+
+    private void ensurePaperDocument(PaperAssetLifecycleService.StoredPdf stored) {
+        PdfExtractor.MetadataTextExtraction texts = pdfExtractor
+                .extractMetadataTextExtraction(stored.storedName(), 5);
+        PaperDocumentReviewer.Review review = paperDocumentReviewer
+                .review(texts.identityText(), texts.metadataText());
+        if (review.status() == PaperDocumentReviewer.Status.NOT_PAPER) {
+            throw new PaperFileValidationException(review.message());
+        }
     }
 
     private Paper findDuplicatePaper(MultipartFile file, Paper paper) {
@@ -226,7 +259,7 @@ public class PaperServiceImpl implements PaperService {
         String uploadedHash = sha256(file);
         if (uploadedHash == null) return null;
         for (Paper existing : paperMapper.selectList(null)) {
-            File stored = resolveStoredFile(existing.getPdfPath());
+            Path stored = paperAssetLifecycleService.resolveStoredPdf(existing.getPdfPath());
             if (stored != null && uploadedHash.equals(sha256(stored))) return existing;
         }
         return null;
@@ -241,8 +274,8 @@ public class PaperServiceImpl implements PaperService {
         }
     }
 
-    private String sha256(File file) {
-        try (InputStream input = Files.newInputStream(file.toPath())) {
+    private String sha256(Path file) {
+        try (InputStream input = Files.newInputStream(file)) {
             return sha256(input);
         } catch (Exception e) {
             return null;
@@ -261,20 +294,15 @@ public class PaperServiceImpl implements PaperService {
         return hex.toString();
     }
 
-    private File resolveStoredFile(String storedName) {
-        if (storedName == null || storedName.isBlank()) return null;
-        File dir = new File(pdfStorageDir);
-        if (!dir.isAbsolute()) dir = new File(System.getProperty("user.dir"), pdfStorageDir);
-        File file = new File(dir, storedName);
-        return file.isFile() ? file : null;
-    }
-
     @Override
     @Transactional
     public void deleteBatch(List<Long> ids) {
         if (ids == null || ids.isEmpty()) return;
         List<Paper> papers = paperMapper.selectBatchIds(ids);
-        paperMapper.deleteBatchIds(ids);
+        if (papers == null || papers.isEmpty()) return;
+        if (paperMapper.deleteBatchIds(ids) != papers.size()) {
+            throw new IllegalStateException("论文记录删除失败");
+        }
         paperAssetLifecycleService.deleteAfterCommit(papers);
     }
 
@@ -282,6 +310,7 @@ public class PaperServiceImpl implements PaperService {
     @Transactional
     public void moveBatch(List<Long> ids, Long folderId) {
         if (ids == null || ids.isEmpty()) return;
+        validateFolder(folderId);
         paperMapper.update(null,
                 new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<Paper>()
                         .in("id", ids)
@@ -292,6 +321,55 @@ public class PaperServiceImpl implements PaperService {
     private void normalizeAuthors(Paper paper) {
         String normalized = MetadataNormalizer.normalizeAuthors(paper.getAuthors());
         paper.setAuthors(normalized);
+    }
+
+    private void normalizePaperWrite(Paper paper, boolean creating) {
+        if (paper == null) throw new IllegalArgumentException("论文不能为空");
+        if (paper.getTitle() == null || paper.getTitle().isBlank()) {
+            throw new IllegalArgumentException("标题不能为空");
+        }
+        normalizeAuthors(paper);
+        if (paper.getReadingStatus() == null || paper.getReadingStatus().isBlank()) {
+            if (creating) paper.setReadingStatus(ReadingStatus.UNREAD);
+        } else {
+            String status = paper.getReadingStatus().trim().toUpperCase();
+            if (!ReadingStatus.UNREAD.equals(status)
+                    && !ReadingStatus.READING.equals(status)
+                    && !ReadingStatus.READ.equals(status)) {
+                throw new IllegalArgumentException("阅读状态必须是 UNREAD、READING 或 READ");
+            }
+            paper.setReadingStatus(status);
+        }
+        if (paper.getAcquisitionMethod() == null || paper.getAcquisitionMethod().isBlank()) {
+            if (creating) paper.setAcquisitionMethod(AcquisitionMethod.MANUAL_UPLOAD);
+        } else {
+            String method = paper.getAcquisitionMethod().trim().toUpperCase();
+            if (!AcquisitionMethod.OA.equals(method)
+                    && !AcquisitionMethod.MANUAL_UPLOAD.equals(method)
+                    && !AcquisitionMethod.BROWSER_DOWNLOAD.equals(method)) {
+                throw new IllegalArgumentException("获取方式必须是 OA、MANUAL_UPLOAD 或 BROWSER_DOWNLOAD");
+            }
+            paper.setAcquisitionMethod(method);
+        }
+        validateFolder(paper.getFolderId());
+    }
+
+    private void preserveServerManagedFields(Paper update, Paper existing) {
+        update.setPdfPath(existing.getPdfPath());
+        update.setReadingStatus(existing.getReadingStatus());
+        update.setPinned(existing.getPinned());
+        update.setPageCount(existing.getPageCount());
+        update.setCurrentPage(existing.getCurrentPage());
+        update.setReadSeconds(existing.getReadSeconds());
+        update.setLastReadAt(existing.getLastReadAt());
+        update.setAiSummary(existing.getAiSummary());
+        update.setProcessingStatus(existing.getProcessingStatus());
+    }
+
+    private void validateFolder(Long folderId) {
+        if (folderId != null && (folderId <= 0 || folderMapper.selectById(folderId) == null)) {
+            throw new IllegalArgumentException("文件夹不存在");
+        }
     }
 
     @Override

@@ -1,19 +1,28 @@
 package com.research.assistant.service;
 
 import com.research.assistant.entity.Paper;
+import com.research.assistant.common.PaperFileValidationException;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Owns the on-disk lifecycle of files derived from an imported paper.
@@ -52,6 +61,80 @@ public class PaperAssetLifecycleService {
             });
         } else {
             deletion.run();
+        }
+    }
+
+    /**
+     * 将上传内容写入论文目录下的临时文件，使用 PDFBox 验证后再移动为唯一正式文件。
+     * 正式文件会在当前事务回滚时自动清理，避免数据库失败留下孤儿文件。
+     */
+    public StoredPdf storeUploadedPdf(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new PaperFileValidationException("上传文件为空");
+        }
+
+        Path temporary = null;
+        try {
+            Files.createDirectories(pdfRoot);
+            temporary = Files.createTempFile(pdfRoot, ".upload-", ".tmp");
+            try (InputStream input = file.getInputStream()) {
+                Files.copy(input, temporary, StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            int pageCount;
+            try (PDDocument document = Loader.loadPDF(temporary.toFile())) {
+                pageCount = document.getNumberOfPages();
+            } catch (InvalidPasswordException exception) {
+                throw new PaperFileValidationException("加密 PDF 无法打开，请先解除密码保护");
+            } catch (IOException exception) {
+                throw new PaperFileValidationException("文件不是有效的 PDF，或 PDF 无法打开");
+            }
+            if (pageCount <= 0) {
+                throw new PaperFileValidationException("PDF 文件没有可读取的页面");
+            }
+
+            String storedName = "paper-" + UUID.randomUUID() + ".pdf";
+            Path stored = safeChild(pdfRoot, storedName);
+            if (stored == null) {
+                throw new IllegalStateException("无法创建论文文件路径");
+            }
+            moveIntoPlace(temporary, stored);
+            temporary = null;
+            cleanupOnRollback(stored);
+            return new StoredPdf(storedName, pageCount);
+        } catch (IllegalArgumentException exception) {
+            throw exception;
+        } catch (IOException exception) {
+            throw new PaperFileValidationException("上传文件读取或保存失败");
+        } finally {
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException ignored) {
+                    log.warn("Failed to delete temporary uploaded PDF: {}", temporary);
+                }
+            }
+        }
+    }
+
+    /** 返回存储根目录内的真实 PDF，路径越界或文件不存在时返回 null。 */
+    public Path resolveStoredPdf(String storedName) {
+        if (storedName == null || storedName.isBlank()) return null;
+        Path candidate = safeChild(pdfRoot, storedName);
+        return candidate != null && Files.isRegularFile(candidate) ? candidate : null;
+    }
+
+    /** 立即删除尚未提交的正式文件；仅允许删除配置目录内的文件。 */
+    public void deleteImmediately(String storedName) {
+        Path candidate = safeChild(pdfRoot, storedName);
+        if (candidate != null) deletePath(candidate);
+    }
+
+    private void moveIntoPlace(Path temporary, Path stored) throws IOException {
+        try {
+            Files.move(temporary, stored, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException exception) {
+            Files.move(temporary, stored);
         }
     }
 
@@ -109,6 +192,25 @@ public class PaperAssetLifecycleService {
         Path path = Path.of(configured);
         if (!path.isAbsolute()) path = Path.of(System.getProperty("user.dir")).resolve(path);
         return path.toAbsolutePath().normalize();
+    }
+
+    private static void cleanupOnRollback(Path file) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    try {
+                        Files.deleteIfExists(file);
+                    } catch (IOException exception) {
+                        // Do not mask the database rollback with a filesystem cleanup failure.
+                    }
+                }
+            }
+        });
+    }
+
+    public record StoredPdf(String storedName, int pageCount) {
     }
 
     private static final class AssetDeletionException extends RuntimeException {

@@ -490,7 +490,7 @@
           <div v-if="!uploadFile" class="upload-text">拖拽 PDF 到此处或 <em>点击上传</em></div>
           <div v-else class="upload-file">{{ uploadFile.name }} <span class="upload-remove" @click.stop="uploadFile=null">✕</span></div>
         </div>
-        <input type="file" ref="uploadInputRef" accept=".pdf" @change="onFileChange" style="display:none" />
+        <input type="file" ref="uploadInputRef" accept=".pdf,application/pdf" @change="onFileChange" style="display:none" />
         <div class="doi-row">
           <span class="doi-or">— 或 —</span>
           <div class="doi-input-wrap">
@@ -515,6 +515,7 @@
             <div class="preview-title">识别结果</div>
             <p class="import-helper">自动填充会从 PDF 识别 DOI/arXiv ID，再获取标题、作者、年份、来源和摘要；摘要最多填充 3000 字，也可以继续手动修改。</p>
           </div>
+          <el-alert v-if="documentReviewMessage" :title="documentReviewMessage" :type="documentReviewType === 'NOT_PAPER' ? 'error' : 'warning'" :closable="false" show-icon />
           <el-form label-width="70px" size="small">
             <el-form-item label="标题"><el-input v-model="form.title" placeholder="自动填充或手动输入论文标题" /></el-form-item>
             <el-form-item label="作者"><el-input v-model="form.authors" placeholder="自动识别或手动输入" /></el-form-item>
@@ -629,6 +630,8 @@ const doiInput = ref('')
 const doiPdfUrl = ref('')
 const fetchingDoi = ref(false)
 const enriching = ref(false)
+const documentReviewType = ref('UNCERTAIN')
+const documentReviewMessage = ref('')
 
 // ===== 全局后台任务：论文库 AI 分析切换页面不取消 =====
 const {
@@ -1185,7 +1188,7 @@ function stopResize(){
   resizing.value=null
 }
 
-function openImportDialog(){isEditing.value=false;editPaperId.value=null;uploadFile.value=null;doiInput.value='';doiPdfUrl.value='';form.value={...makeEmptyForm(),folderId:selectedFolderId.value};dialogVisible.value=true}
+function openImportDialog(){isEditing.value=false;editPaperId.value=null;uploadFile.value=null;doiInput.value='';doiPdfUrl.value='';documentReviewType.value='UNCERTAIN';documentReviewMessage.value='';form.value={...makeEmptyForm(),folderId:selectedFolderId.value};dialogVisible.value=true}
 function openEditDialog(paper){isEditing.value=true;editPaperId.value=paper.id;uploadFile.value=null;form.value={...paper};dialogVisible.value=true}
 function resetImportMetadataForNewFile(){
   form.value={
@@ -1198,8 +1201,14 @@ function resetImportMetadataForNewFile(){
 }
 function setUploadFile(file){
   if(!file)return
+  if(!/\.pdf$/i.test(file.name || '')){
+    ElMessage.warning('仅支持上传 PDF 文件')
+    return
+  }
   resetImportMetadataForNewFile()
   uploadFile.value=file
+  documentReviewType.value='UNCERTAIN'
+  documentReviewMessage.value=''
 }
 function onFileChange(e){
   const f=e.target.files?.[0]
@@ -1209,7 +1218,7 @@ function onFileChange(e){
 }
 function onDropFile(e){
   const f=e.dataTransfer?.files?.[0]
-  if(f?.name?.toLowerCase().endsWith('.pdf'))setUploadFile(f)
+  if(f)setUploadFile(f)
 }
 
 /** Crossref DOI → 自动提取元数据 */
@@ -1249,7 +1258,9 @@ async function autoIdentify() {
     fd.append('file', uploadFile.value)
     const res = await api.post('/papers/enrich-metadata', fd, { timeout: 25000 })
     fillFormFromEnrichment(res.data)
-    if (res.data.found) {
+    if (res.data.documentType === 'NOT_PAPER') {
+      ElMessage.error(res.data.message || '导入文件不是有效论文')
+    } else if (res.data.found) {
       ElMessage.success('已自动填充元数据')
     } else {
       ElMessage.info(res.data.message || '未识别到 DOI/arXiv ID，请手动填写')
@@ -1269,8 +1280,12 @@ function decodeHtmlEntities(value) {
 }
 
 function fillFormFromEnrichment(data) {
+  documentReviewType.value = data.documentType || 'UNCERTAIN'
+  documentReviewMessage.value = data.documentType === 'NOT_PAPER' || data.documentType === 'UNCERTAIN'
+    ? (data.message || '') : ''
+  if (data.documentType === 'NOT_PAPER') return
   const empty = v => v == null || v === '' || (typeof v === 'string' && v.trim() === '')
-  if (empty(form.value.title) && data.title) form.value.title = decodeHtmlEntities(data.title)
+  if (data.documentType !== 'UNCERTAIN' && empty(form.value.title) && data.title) form.value.title = decodeHtmlEntities(data.title)
   if (empty(form.value.authors) && data.authors) form.value.authors = formatAuthors(data.authors)
   if (empty(form.value.year) && data.year) form.value.year = data.year
   if (empty(form.value.source) && data.source) form.value.source = decodeHtmlEntities(data.source)
