@@ -37,12 +37,19 @@ public class ResearchSessionService {
         this.agentTurnMapper = agentTurnMapper;
     }
 
-    public List<ResearchSessionSummary> list(boolean archived, String keyword, int limit) {
-        int bounded = Math.max(1, Math.min(limit, 200));
+    public ResearchSessionPage page(boolean archived, String keyword, int page, int size) {
+        int current = Math.max(1, page);
+        int boundedSize = Math.max(1, Math.min(size, 200));
         String safeKeyword = keyword == null || keyword.isBlank() ? null : keyword.trim();
-        return sessionMapper.selectRecent(archived, safeKeyword, bounded).stream()
+        long total = sessionMapper.countPage(archived, safeKeyword);
+        long offset = ((long) current - 1L) * boundedSize;
+        List<ResearchSessionSummary> records = sessionMapper.selectPage(
+                        archived, safeKeyword, offset, boundedSize).stream()
                 .map(this::toSummary)
                 .toList();
+        int pages = total == 0 ? 0 : (int) Math.min(Integer.MAX_VALUE,
+                (total + boundedSize - 1L) / boundedSize);
+        return new ResearchSessionPage(records, total, current, boundedSize, pages);
     }
 
     public ResearchSessionDetail get(long sessionId) {
@@ -143,10 +150,13 @@ public class ResearchSessionService {
         view.setId(message.getId());
         view.setMessageKey(message.getMessageKey());
         view.setRole(message.getRole());
+        view.setMessageType(message.getMessageType());
+        view.setMessageStatus(message.getMessageStatus());
         view.setContent(message.getContent());
         view.setRunId(message.getRunId());
         view.setSelectionAnchor(readNullable(message.getSelectionAnchorJson()));
         view.setEvidence(readNullable(message.getEvidenceJson()));
+        view.setEvidenceSchemaVersion(message.getEvidenceSchemaVersion());
         view.setCreatedAt(message.getCreatedAt());
         return view;
     }

@@ -339,9 +339,10 @@ function usableSearchQuote(value) {
 function mergedTextDescriptor(values) {
   const items = values.map(value => value.item)
   const quotes = values.map(value => value.quote).filter(Boolean)
-  const targetBoxes = items.flatMap(item => item.locator?.targetBoxes?.length
-    ? item.locator.targetBoxes
-    : [item.locator?.targetBbox || item.bbox]).filter(Boolean)
+  const targetLocators = uniqueLocators(items)
+  const targetBoxes = targetLocators.flatMap(locator => locator.targetBoxes?.length
+    ? locator.targetBoxes
+    : locator.rects?.length ? locator.rects : [locator.targetBbox]).filter(Boolean)
   const targetBbox = unionBoundingBoxes(targetBoxes)
   const quote = quotes.join(' ').replace(/\s+/g, ' ').trim()
   const fullText = items.map(item => item.fullText || item.text || '')
@@ -357,6 +358,9 @@ function mergedTextDescriptor(values) {
     target: {
       ...first,
       blockId: `citation-span:${items.map(item => item.blockId).join('|')}`,
+      // A wrapped citation may be composed of several physical blocks. Keep every
+      // locator on the jump target so the PDF viewer paints all lines/columns.
+      locators: targetLocators,
       bbox: targetBbox,
       text: quote,
       locator: {
@@ -369,6 +373,32 @@ function mergedTextDescriptor(values) {
       },
     },
   }
+}
+
+function uniqueLocators(items) {
+  const seen = new Set()
+  const result = []
+  for (const item of items || []) {
+    const locators = Array.isArray(item?.locators) && item.locators.length
+      ? item.locators
+      : item?.locator ? [item.locator] : []
+    for (const locator of locators) {
+      const boxes = locator?.targetBoxes?.length
+        ? locator.targetBoxes
+        : locator?.rects?.length ? locator.rects : item?.bbox ? [item.bbox] : []
+      const key = locator?.locatorId || `${locator?.pageNumber || locator?.page || ''}:${JSON.stringify(boxes)}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.push({
+        ...locator,
+        targetBoxes: boxes,
+        contentBoxes: locator?.contentBoxes?.length ? locator.contentBoxes : boxes,
+        focusBoxes: locator?.focusBoxes?.length ? locator.focusBoxes : boxes,
+        rects: locator?.rects?.length ? locator.rects : boxes,
+      })
+    }
+  }
+  return result
 }
 
 function citationQuoteKey(item, quote) {

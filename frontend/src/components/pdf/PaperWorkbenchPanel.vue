@@ -207,36 +207,10 @@
                 {{ contextModeLabel(message) }}
               </small>
             </template>
-            <details v-if="messageCitationSources(message).length" class="chat-claim-list">
-              <summary>查看依据（{{ messageCitationSources(message).length }}）</summary>
-              <ol>
-                <li v-for="source in messageCitationSources(message)" :key="source.key">
-                  <ResearchMarkdown
-                    v-if="source.kind === '公式' && source.textFormat === 'LATEX' && source.textReliable"
-                    class="evidence-source__formula"
-                    :content="`$$${source.fullText}$$`"
-                  />
-                  <span v-else class="evidence-source__excerpt">{{ source.excerpt }}</span>
-                  <span v-if="source.fullTextAvailable === false" class="evidence-source__legacy">
-                    该历史记录只保存了证据摘要；请在新对话中重新检索以获得完整依据。
-                  </span>
-                  <details v-if="source.excerptTruncated" open class="evidence-source__full">
-                    <summary>完整依据（可收起）</summary>
-                    <ResearchMarkdown
-                      v-if="source.kind === '公式' && source.textFormat === 'LATEX' && source.textReliable"
-                      :content="`$$${source.fullText}$$`"
-                    />
-                    <pre v-else>{{ source.fullText }}</pre>
-                  </details>
-                  <button
-                    type="button"
-                    class="evidence-source__jump"
-                    :title="source.title"
-                    @click="jump(source.target)"
-                  >{{ source.kind }} · p.{{ source.page }}</button>
-                </li>
-              </ol>
-            </details>
+            <EvidenceSourceList
+              :sources="messageCitationSources(message)"
+              @jump="jump"
+            />
           </article>
           <div v-if="running" class="chat-message is-assistant is-pending">
             <div class="chat-message__role">论文助手</div>
@@ -362,8 +336,9 @@ import {
 } from '@/api/researchArchive.js'
 import FormulaRegionCard from '@/components/pdf/FormulaRegionCard.vue'
 import ResearchMarkdown from '@/components/ResearchMarkdown.vue'
+import EvidenceSourceList from '@/components/EvidenceSourceList.vue'
 import { buildCitationSources, buildCitedAnswer } from '@/utils/answerCitations.js'
-import { mapAgentEvidenceList } from '@/utils/evidenceViewModel.js'
+import { mapResearchMessageView } from '@/utils/researchMessageView.js'
 import { CHAT_ATTACHMENT_ACCEPT, prepareChatAttachment } from '@/utils/chatAttachments.js'
 import { usePaperAgent } from '@/composables/usePaperAgent.js'
 import {
@@ -864,24 +839,7 @@ async function restoreResearchMessages(sessionId) {
       return
     }
     selectionConversationId.value = freshSelectionConversationId(sessionId)
-    selectionMessages.value = (detail?.messages || [])
-      .map(message => ({
-      id: message.messageKey || String(message.id),
-      runId: message.runId || null,
-      role: message.role === 'USER' ? 'user' : 'assistant',
-      content: message.content || '',
-      claims: message.evidence?.claims || (message.evidence?.citations || []).map(item => ({
-        text: message.content?.slice(item.answerStart, item.answerEnd) || '', evidenceIds: [item.sourceObjectId],
-      })),
-      answerBlocks: message.evidence?.answerBlocks || [],
-      evidence: mapAgentEvidenceList(message.evidence?.evidence || []),
-      regionFallback: Boolean(message.evidence?.regionFallback),
-      actions: message.evidence?.actions || [],
-      selectionAnchor: message.selectionAnchor || null,
-      contextInherited: Boolean(message.evidence?.contextInherited),
-      contextMode: message.evidence?.contextMode || '',
-      attachments: message.evidence?.attachments || [],
-    }))
+    selectionMessages.value = (detail?.messages || []).map(mapResearchMessageView)
     await scrollSelectionChat()
     const unfinishedRunId = findUnfinishedRunId(selectionMessages.value)
     if (unfinishedRunId) void resumePersistedRun(unfinishedRunId, sessionId)
@@ -939,8 +897,9 @@ function contextModeLabel(message) {
 
 async function loadConversationSessions() {
   try {
-    const sessions = await listResearchSessions({ archived: false, limit: 200 })
-    conversationSessions.value = (sessions || []).filter(sessionBelongsToCurrentPaper)
+    const response = await listResearchSessions({ archived: false, page: 1, size: 200 })
+    const sessions = Array.isArray(response) ? response : response?.records || []
+    conversationSessions.value = sessions.filter(sessionBelongsToCurrentPaper)
       .sort((left, right) => sessionActivity(right) - sessionActivity(left) || Number(right.id) - Number(left.id))
   } catch { /* Conversation switching is optional while PDF reading remains available. */ }
 }

@@ -52,7 +52,9 @@ import {
   researchRouteLocation,
 } from '@/router/workbenchRoute.js'
 import {
+  consumePendingResearchEvidence,
   readLastResearchLocation,
+  writePendingResearchEvidence,
   writeLastResearchLocation,
 } from '@/utils/researchSessionState.js'
 
@@ -127,6 +129,7 @@ async function loadRoutePaper(id) {
     if (!loaded.pdfPath) throw new Error('该论文没有可打开的 PDF')
     paper.value = loaded
     activeResearchSessionId.value = positivePaperId(route.query.session)
+    pendingEvidence.value = consumePendingResearchEvidence(id)
     lastPersistedPage = positivePageNumber(loaded.currentPage)
     initialPage.value = positivePageNumber(route.query.page) || lastPersistedPage || 1
     currentPage.value = initialPage.value
@@ -267,6 +270,7 @@ async function openPaperEvidence(item) {
     if (query.page) await viewerRef.value?.goToPage?.(Number(query.page))
     return
   }
+  writePendingResearchEvidence(item)
   delete query.session
   await router.push(researchRouteLocation(targetId, query))
 }

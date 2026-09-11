@@ -3,6 +3,7 @@ package com.research.assistant.controller;
 import com.research.assistant.common.Result;
 import com.research.assistant.dto.research.ResearchSessionCreateRequest;
 import com.research.assistant.dto.research.ResearchSessionDetail;
+import com.research.assistant.dto.research.ResearchSessionPage;
 import com.research.assistant.dto.research.ResearchSessionSummary;
 import com.research.assistant.dto.research.ResearchSessionUpdateRequest;
 import com.research.assistant.service.research.ResearchSessionService;
@@ -17,8 +18,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-
 /** Persistent paper-research sessions and their user-visible history. */
 @RestController
 @RequestMapping("/api/research/sessions")
@@ -31,11 +30,12 @@ public class ResearchSessionController {
     }
 
     @GetMapping
-    public Result<List<ResearchSessionSummary>> list(
+    public Result<ResearchSessionPage> list(
             @RequestParam(defaultValue = "false") boolean archived,
             @RequestParam(required = false) String keyword,
-            @RequestParam(defaultValue = "100") int limit) {
-        return Result.ok(sessionService.list(archived, keyword, limit));
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return Result.ok(sessionService.page(archived, keyword, page, size));
     }
 
     @PostMapping

@@ -113,11 +113,22 @@ function answerMessage() {
   }
 }
 
-function sessionDetail(messages) {
+function sessionDetail(messages, baseSession = session) {
   return {
-    session: { ...session, messageCount: messages.length, lastActivityAt: '2026-09-10T00:00:01Z' },
+    session: { ...baseSession, messageCount: messages.length, lastActivityAt: '2026-09-10T00:00:01Z' },
     messages,
   }
+}
+
+function archiveSessions(messages) {
+  if (!messages.length) return []
+  return Array.from({ length: 21 }, (_, index) => ({
+    ...session,
+    id: SESSION_ID + index,
+    title: index === 0 ? session.title : `阶段 2 历史对话 ${index + 1}`,
+    messageCount: messages.length,
+    lastActivityAt: `2026-09-${String(10 - Math.min(index, 8)).padStart(2, '0')}T00:00:01Z`,
+  }))
 }
 
 /**
@@ -236,15 +247,27 @@ export async function installPaperFlowMock(page) {
     }
 
     if (path === '/research/sessions' && request.method() === 'GET') {
-      return route.fulfill(response(state.messages.length ? [{ ...session, messageCount: state.messages.length }] : []))
+      const allRecords = archiveSessions(state.messages)
+      const requestedPage = Math.max(1, Number(url.searchParams.get('page')) || 1)
+      const requestedSize = Math.max(1, Number(url.searchParams.get('size')) || 20)
+      const records = allRecords.slice((requestedPage - 1) * requestedSize, requestedPage * requestedSize)
+      return route.fulfill(response({
+        records,
+        total: allRecords.length,
+        current: requestedPage,
+        size: requestedSize,
+        pages: allRecords.length ? Math.ceil(allRecords.length / requestedSize) : 0,
+      }))
     }
     if (path === '/research/sessions' && request.method() === 'POST') {
       return route.fulfill(response({ ...session }))
     }
-    if (path === `/research/sessions/${SESSION_ID}` && request.method() === 'GET') {
-      return route.fulfill(response(sessionDetail(state.messages)))
+    if (/^\/research\/sessions\/\d+$/.test(path) && request.method() === 'GET') {
+      const sessionId = Number(path.split('/').pop())
+      const selected = archiveSessions(state.messages).find(item => item.id === sessionId) || session
+      return route.fulfill(response(sessionDetail(state.messages, selected)))
     }
-    if (path === `/research/sessions/${SESSION_ID}` && request.method() === 'PUT') {
+    if (/^\/research\/sessions\/\d+$/.test(path) && request.method() === 'PUT') {
       return route.fulfill(response({ ...session }))
     }
     if (path === '/agent/turns' && request.method() === 'POST') {

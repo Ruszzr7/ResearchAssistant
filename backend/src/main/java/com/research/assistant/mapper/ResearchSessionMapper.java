@@ -11,6 +11,22 @@ import java.util.List;
 @Mapper
 public interface ResearchSessionMapper extends BaseMapper<ResearchSession> {
 
+    String SESSION_COLUMNS = "id, session_key, title, session_type, primary_paper_id, last_page, mode, "
+            + "output_language, archived, last_activity_at, created_at, updated_at";
+
+    @Select("SELECT " + SESSION_COLUMNS + " FROM research_session WHERE archived = #{archived} "
+            + "AND (#{keyword} IS NULL OR title LIKE CONCAT('%', #{keyword}, '%')) "
+            + "ORDER BY last_activity_at DESC, id DESC LIMIT #{size} OFFSET #{offset}")
+    List<ResearchSession> selectPage(@Param("archived") boolean archived,
+                                      @Param("keyword") String keyword,
+                                      @Param("offset") long offset,
+                                      @Param("size") int size);
+
+    @Select("SELECT COUNT(*) FROM research_session WHERE archived = #{archived} "
+            + "AND (#{keyword} IS NULL OR title LIKE CONCAT('%', #{keyword}, '%'))")
+    long countPage(@Param("archived") boolean archived,
+                   @Param("keyword") String keyword);
+
     @Select("SELECT id, session_key, title, session_type, primary_paper_id, last_page, mode, "
             + "output_language, archived, last_activity_at, created_at, updated_at "
             + "FROM research_session WHERE archived = #{archived} "

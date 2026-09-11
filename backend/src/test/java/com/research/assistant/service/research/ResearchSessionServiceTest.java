@@ -46,4 +46,25 @@ class ResearchSessionServiceTest {
         assertThat(detail.session().getOutputLanguage()).isEqualTo("EN");
         assertThat(detail.messages()).isEmpty();
     }
+
+    @Test
+    void returnsResearchSessionsWithStablePageMetadata() {
+        Paper paper = new Paper();
+        paper.setTitle("Paged Research Paper");
+        paper.setYear(2026);
+        paperMapper.insert(paper);
+        for (int index = 0; index < 5; index++) {
+            service.create(new ResearchSessionCreateRequest(
+                    List.of(paper.getId()), paper.getId(), "会话 " + index,
+                    "PAPER_ANALYSIS", index + 1, "ZH"));
+        }
+
+        var result = service.page(false, "会话", 2, 2);
+
+        assertThat(result.getTotal()).isEqualTo(5);
+        assertThat(result.getCurrent()).isEqualTo(2);
+        assertThat(result.getSize()).isEqualTo(2);
+        assertThat(result.getPages()).isEqualTo(3);
+        assertThat(result.getRecords()).hasSize(2);
+    }
 }

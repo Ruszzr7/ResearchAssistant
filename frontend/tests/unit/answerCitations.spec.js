@@ -276,6 +276,10 @@ describe('answer citations', () => {
     expect(sources[0].target.locator.targetBoxes).toEqual([
       evidence[0].bbox, evidence[1].bbox,
     ])
+    expect(sources[0].target.locators).toHaveLength(2)
+    expect(sources[0].target.locators.map(locator => locator.targetBoxes)).toEqual([
+      [evidence[0].bbox], [evidence[1].bbox],
+    ])
   })
 
   it('merges one wrapped source sentence even when its citations occur in separate answer blocks', () => {

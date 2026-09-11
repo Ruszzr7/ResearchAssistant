@@ -1,6 +1,7 @@
 package com.research.assistant.controller;
 
 import com.research.assistant.common.GlobalExceptionHandler;
+import com.research.assistant.dto.research.ResearchSessionPage;
 import com.research.assistant.dto.research.ResearchSessionSummary;
 import com.research.assistant.service.research.ResearchSessionService;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,15 +42,20 @@ class ResearchSessionControllerTest {
         ResearchSessionSummary summary = new ResearchSessionSummary();
         summary.setId(8L);
         summary.setTitle("RSMA 精读");
-        when(sessionService.list(true, "RSMA", 12)).thenReturn(List.of(summary));
+        when(sessionService.page(true, "RSMA", 2, 12))
+                .thenReturn(new ResearchSessionPage(List.of(summary), 25, 2, 12, 3));
 
         mockMvc.perform(get("/api/research/sessions")
                         .param("archived", "true")
                         .param("keyword", "RSMA")
-                        .param("limit", "12"))
+                        .param("page", "2")
+                        .param("size", "12"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].id").value(8))
-                .andExpect(jsonPath("$.data[0].title").value("RSMA 精读"));
+                .andExpect(jsonPath("$.data.records[0].id").value(8))
+                .andExpect(jsonPath("$.data.records[0].title").value("RSMA 精读"))
+                .andExpect(jsonPath("$.data.total").value(25))
+                .andExpect(jsonPath("$.data.current").value(2))
+                .andExpect(jsonPath("$.data.pages").value(3));
 
     }
 

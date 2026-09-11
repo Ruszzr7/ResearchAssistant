@@ -10,14 +10,14 @@
           v-model="keyword"
           clearable
           placeholder="搜索档案"
-          @keyup.enter="loadSessions"
-          @clear="loadSessions"
+          @keyup.enter="reloadSessions"
+          @clear="reloadSessions"
         />
-        <el-button :icon="Refresh" :loading="loading" @click="loadSessions">刷新</el-button>
+        <el-button :icon="Refresh" :loading="loading" @click="reloadSessions">刷新</el-button>
       </div>
     </header>
 
-    <el-tabs v-model="activeTab" @tab-change="loadSessions">
+    <el-tabs v-model="activeTab" @tab-change="reloadSessions">
       <el-tab-pane label="最近研究" name="active" />
       <el-tab-pane label="已归档" name="archived" />
     </el-tabs>
@@ -30,7 +30,7 @@
       :closable="false"
       :title="loadError"
     >
-      <template #default><el-button size="small" type="primary" @click="loadSessions">重试</el-button></template>
+      <template #default><el-button size="small" type="primary" @click="reloadSessions">重试</el-button></template>
     </el-alert>
 
     <div v-loading="loading" class="archive-browser">
@@ -77,6 +77,18 @@
       </section>
     </div>
 
+    <div v-if="total > pageSize" class="archive-pagination">
+      <span>第 {{ page }} / {{ pages }} 页，共 {{ total }} 个对话</span>
+      <el-pagination
+        :current-page="page"
+        :page-size="pageSize"
+        :total="total"
+        background
+        layout="prev, pager, next"
+        @current-change="changePage"
+      />
+    </div>
+
     <el-empty v-if="!loading && !paperGroups.length" :description="activeTab === 'active' ? '暂无研究档案' : '暂无已归档档案'" />
 
     <el-drawer v-model="detailVisible" :title="detail?.session?.title || '研究档案'" size="520px" destroy-on-close>
@@ -97,26 +109,33 @@
             >{{ paper.title || `论文 #${paper.id}` }}</button>
           </div>
           <div class="detail-summary__stats">
-            <span>{{ detail.messages.length }} 条消息</span>
+            <span>{{ archiveMessages.length }} 条消息</span>
             <span>{{ detail.session.runCount || 0 }} 次运行</span>
           </div>
         </section>
 
         <el-tabs v-model="detailTab">
           <el-tab-pane label="对话" name="messages">
-            <div v-if="detail.messages.length" class="message-list">
+            <div v-if="archiveMessages.length" class="message-list">
               <article
-                v-for="message in detail.messages"
+                v-for="message in archiveMessages"
                 :key="message.id"
-                :class="['archive-message', message.role === 'USER' ? 'is-user' : 'is-assistant']"
+                :class="['archive-message', message.role === 'user' ? 'is-user' : 'is-assistant']"
               >
-                <small>{{ message.role === 'USER' ? '我' : '论文助手' }} · {{ formatTime(message.createdAt) }}</small>
+                <small>{{ message.role === 'user' ? '我' : '论文助手' }} · {{ formatTime(message.createdAt) }}</small>
                 <ResearchMarkdown
-                  v-if="message.role !== 'USER'"
+                  v-if="message.role !== 'user'"
                   class="archive-message__content"
-                  :content="message.content"
+                  :content="citedAnswer(message)"
+                  @citation-click="jumpCitation(message, $event)"
                 />
                 <p v-else>{{ message.content }}</p>
+                <EvidenceSourceList
+                  v-if="message.role !== 'user'"
+                  :sources="messageCitationSources(message)"
+                  :allow-page-only="false"
+                  @jump="openArchivedEvidence"
+                />
                 <button v-if="message.selectionAnchor?.page" type="button" @click="openMessageEvidence(message)">
                   第 {{ message.selectionAnchor.page }} 页
                 </button>
@@ -145,12 +164,23 @@ import { useRouter } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ResearchMarkdown from '@/components/ResearchMarkdown.vue'
+import EvidenceSourceList from '@/components/EvidenceSourceList.vue'
 import {
   deleteResearchSession,
   getResearchSession,
   listResearchSessions,
+  normalizeResearchSessionPage,
   updateResearchSession,
 } from '@/api/researchArchive.js'
+import { buildCitationSources, buildCitedAnswer } from '@/utils/answerCitations.js'
+import { evidenceLocators } from '@/utils/evidenceViewModel.js'
+import { mapResearchMessageList } from '@/utils/researchMessageView.js'
+import { positivePageNumber, positivePaperId, researchRouteLocation } from '@/router/workbenchRoute.js'
+import {
+  consumeResearchArchiveReturnState,
+  writePendingResearchEvidence,
+  writeResearchArchiveReturnState,
+} from '@/utils/researchSessionState.js'
 
 defineOptions({ name: 'ResearchArchiveView' })
 
@@ -166,6 +196,12 @@ const detailError = ref('')
 const detailSession = ref(null)
 const detailTab = ref('messages')
 const selectedPaperId = ref(null)
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
+const pages = ref(0)
+
+const archiveMessages = computed(() => mapResearchMessageList(detail.value?.messages || []))
 
 const paperGroups = computed(() => {
   const groups = new Map()
@@ -197,24 +233,55 @@ watch(paperGroups, groups => {
   }
 })
 
-onMounted(loadSessions)
+const archiveReturnState = consumeResearchArchiveReturnState()
+if (archiveReturnState) {
+  page.value = archiveReturnState.page
+  activeTab.value = archiveReturnState.activeTab
+  keyword.value = archiveReturnState.keyword
+  selectedPaperId.value = archiveReturnState.selectedPaperId
+}
 
-async function loadSessions() {
+onMounted(() => loadSessions({ resetPage: !archiveReturnState }))
+
+async function loadSessions({ resetPage = false } = {}) {
+  if (resetPage) page.value = 1
   loading.value = true
   loadError.value = ''
   try {
-    sessions.value = await listResearchSessions({
+    const response = await listResearchSessions({
       archived: activeTab.value === 'archived',
       keyword: keyword.value.trim() || undefined,
-      limit: 100,
+      page: page.value,
+      size: pageSize.value,
     })
+    const result = normalizeResearchSessionPage(response)
+    sessions.value = result.records
+    total.value = result.total
+    page.value = result.current
+    pageSize.value = result.size
+    pages.value = result.pages
+    if (!sessions.value.length && total.value > 0 && page.value > pages.value) {
+      page.value = pages.value
+      await loadSessions()
+    }
   } catch (reason) {
     sessions.value = []
+    total.value = 0
+    pages.value = 0
     loadError.value = reason?.response?.data?.message || reason?.message || '研究档案加载失败'
     ElMessage.error(loadError.value)
   } finally {
     loading.value = false
   }
+}
+
+function reloadSessions() {
+  return loadSessions({ resetPage: true })
+}
+
+function changePage(value) {
+  page.value = positivePageNumber(value) || 1
+  return loadSessions()
 }
 
 async function openDetail(session) {
@@ -256,6 +323,54 @@ function openMessageEvidence(message) {
       mode: 'selection',
     },
   })
+}
+
+function citedAnswer(message) {
+  return buildCitedAnswer(message.content, message.claims, message.evidence, message.answerBlocks)
+}
+
+function messageCitationSources(message) {
+  return buildCitationSources(message?.claims, message?.evidence, message?.answerBlocks)
+}
+
+function jumpCitation(message, citationTarget) {
+  const sources = messageCitationSources(message)
+  const sourceMatch = /^source~(\d+)$/.exec(String(citationTarget || ''))
+  if (sourceMatch) {
+    openArchivedEvidence(sources.find(source => source.number === Number(sourceMatch[1]))?.target)
+    return
+  }
+  const parts = String(citationTarget || '').split('~')
+  const item = message.evidence?.find(candidate => candidate.evidenceId === parts[0])
+  if (!item) return
+  const blockIndex = Number(parts[1])
+  const citationIndex = Number(parts[2])
+  const citation = Number.isInteger(blockIndex) && Number.isInteger(citationIndex)
+    ? message.answerBlocks?.[blockIndex]?.citations?.[citationIndex]
+    : null
+  openArchivedEvidence(citation?.evidenceId === item.evidenceId && citation?.quote
+    ? { ...item, locator: { ...(item.locator || {}), targetText: citation.quote } }
+    : item)
+}
+
+async function openArchivedEvidence(target) {
+  const paperId = positivePaperId(target?.paperId)
+  const pageNumber = positivePageNumber(target?.page ?? target?.pageNumber)
+  if (!paperId || !pageNumber || !evidenceLocators(target).length) return
+  const pending = writePendingResearchEvidence({ ...target, page: pageNumber })
+  if (!pending) return
+  writeResearchArchiveReturnState({
+    page: page.value,
+    activeTab: activeTab.value,
+    keyword: keyword.value,
+    selectedPaperId: selectedPaperId.value,
+  })
+  const sessionId = positivePaperId(detail.value?.session?.id)
+  await router.push(researchRouteLocation(paperId, {
+    ...(sessionId ? { session: String(sessionId) } : {}),
+    page: String(pageNumber),
+    returnTo: '/archive',
+  }))
 }
 
 async function renameSession() {
@@ -350,6 +465,8 @@ function formatTime(value) {
 .archive-message p { margin: 5px 0; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
 .archive-message__content { margin: 5px 0; font-size: 11px; line-height: 1.55; }
 .archive-message button { padding: 0; border: 0; color: var(--ra-link); background: none; font-size: 10px; cursor: pointer; }
+.archive-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; color: var(--ra-text-tertiary); font-size: 10px; }
+.archive-pagination :deep(.el-pagination) { --el-pagination-font-size: 11px; }
 .run-list article { padding: 10px; border: 1px solid var(--ra-border); border-radius: 8px; }
 .run-list article > div { display: flex; align-items: center; justify-content: space-between; }
 .run-answer { max-height: 160px; overflow: auto; margin: 7px 0 0; color: var(--ra-text-secondary); font-size: 11px; line-height: 1.5; }
