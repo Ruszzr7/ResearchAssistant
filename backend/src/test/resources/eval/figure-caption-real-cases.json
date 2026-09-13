@@ -1,0 +1,19 @@
+{
+  "papers": [
+    {
+      "paperId": 184,
+      "rejectedDiscussionBlockIds": ["p4-b0050"],
+      "acceptedCaptionBlockIds": ["p4-b0048", "p4-b0049"]
+    },
+    {
+      "paperId": 191,
+      "rejectedDiscussionBlockIds": ["p9-b0099", "p9-b0111"],
+      "acceptedCaptionBlockIds": ["p9-b0081", "p10-b0002"]
+    },
+    {
+      "paperId": 207,
+      "rejectedDiscussionBlockIds": ["p3-b0082", "p12-b0045", "p12-b0114"],
+      "acceptedCaptionBlockIds": ["p4-b0023", "p12-b0070", "p12-b0093"]
+    }
+  ]
+}

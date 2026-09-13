@@ -11,8 +11,8 @@ public record PaperSourceIndex(int schemaVersion,
                                List<EquationEntity> equations,
                                List<PaperSourceUnit> sourceUnits,
                                List<PaperSourceContinuation> continuations) {
-    /** Physical evidence anchors and formula ownership were separated in v6. */
-    public static final int SCHEMA_VERSION = 6;
+    /** Figure captions and figure discussions are structurally separated in v7. */
+    public static final int SCHEMA_VERSION = 7;
 
     public PaperSourceIndex {
         documentHash = documentHash == null ? "" : documentHash;

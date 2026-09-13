@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -52,7 +53,7 @@ public class AgentLoopService {
             {"type":"object","properties":{
             "groundingMode":{"type":"string","enum":["PAPER","GENERAL_KNOWLEDGE","MIXED"],"description":"PAPER 表示回答依赖当前论文；GENERAL_KNOWLEDGE 表示完全不依赖论文；MIXED 表示同时包含两者。"},
             "answerBlocks":{"type":"array","items":{"type":"object","properties":{
-            "text":{"type":"string","description":"完整的 GitHub 风格 Markdown。数学使用 $...$ 或 $$...$$；不要添加数字引用标记。只写已由对应来源支持的内容，无法确认的细节直接省略。"},"sourceObjectIds":{"type":"array","description":"支持本答案块的、且已在当前论文版本上下文中实际读取的来源 ID；不依赖论文原文的回答可填写空数组。","items":{"type":"string"}}},
+            "text":{"type":"string","description":"完整的 GitHub 风格 Markdown。数学使用 $...$ 或 $$...$$；不要添加数字引用标记。文本必须是合法 JSON 字符串，允许换行、回车和制表符，但禁止其它 Unicode 控制字符；LaTeX 命令中的反斜杠必须使用合法 JSON 转义。只写已由对应来源支持的内容，无法确认的细节直接省略。"},"sourceObjectIds":{"type":"array","description":"支持本答案块的、且已在当前论文版本上下文中实际读取的来源 ID；不依赖论文原文的回答可填写空数组。","items":{"type":"string"}}},
             "required":["text","sourceObjectIds"],"additionalProperties":false}},
             "clarification":{"type":"string","description":"仅当请求确实存在歧义时提出一个简短的中文澄清问题；此时留空或省略 answerBlocks。"}},
             "required":["groundingMode"],"additionalProperties":false}
@@ -182,7 +183,7 @@ public class AgentLoopService {
         List<AgentToolDefinition> definitions = new ArrayList<>();
         List<AgentSkillBinding> skills = skillRegistry.bindings(context, input.userMessage());
         definitions.add(new AgentToolDefinition("submit_answer",
-                "所有正常回答都必须使用本工具提交。先如实声明 groundingMode：当前论文的内容、方法、创新、公式、图表或结论属于 PAPER；完全不依赖论文的知识属于 GENERAL_KNOWLEDGE；两者并存时使用 MIXED。使用有序的 answerBlocks 提交最终答案；PAPER 回答的每个块都必须绑定实际读取且支持该块的 sourceObjectIds，MIXED 中只有完全不依赖论文的块可以使用空数组。包含 $$...$$ 或 \\[...\\] 完整展示公式的论文答案块，必须绑定可靠公式文本或已实际读取图像的公式来源。每个块只放一个事实性陈述或一组紧密相关的陈述。画像、摘要或一次未命中都不能代替原文证据；只写已确认的内容，不要输出检索过程、来源说明或内部诊断段落。", ANSWER_SCHEMA));
+                "所有正常回答都必须使用本工具提交。先如实声明 groundingMode：当前论文的内容、方法、创新、公式、图表或结论属于 PAPER；完全不依赖论文的知识属于 GENERAL_KNOWLEDGE；两者并存时使用 MIXED。使用有序的 answerBlocks 提交最终答案；PAPER 回答的每个块都必须绑定实际读取且支持该块的 sourceObjectIds，MIXED 中只有完全不依赖论文的块可以使用空数组。包含 $$...$$ 或 \\[...\\] 完整展示公式的论文答案块，必须绑定可靠公式文本或已实际读取图像的公式来源；使用视觉公式时，sourceObjectIds 必须包含 visualSources 中对应的 FORMULA sourceObjectId，相邻 TEXT 不能替代公式来源。每个块只放一个事实性陈述或一组紧密相关的陈述。answerBlocks.text 必须保持合法 JSON 字符串，LaTeX 反斜杠必须正确转义，不得产生不可渲染的 Unicode 控制字符。画像、摘要或一次未命中都不能代替原文证据；只写已确认的内容，不要输出检索过程、来源说明或内部诊断段落。", ANSWER_SCHEMA));
         definitions.add(new AgentToolDefinition("ask_clarification",
                 "仅当页面操作或答案实质依赖缺失或含糊的用户意图时，提出一个简短的自然语言澄清问题。普通可解问题不要使用。",
                 CLARIFICATION_SCHEMA));
@@ -243,6 +244,7 @@ public class AgentLoopService {
         try {
             if ("ask_clarification".equals(request.name())) {
                 String question = requiredText(objectMapper.readTree(request.argumentsJson()), "question");
+                validateModelVisibleText(question, "澄清问题");
                 AgentTurnResult waiting = new AgentTurnResult(turn.getTurnId(), runId,
                         AgentRunStatus.WAITING_USER.name(), question, List.of(), List.of());
                 String resultJson = writeResult(waiting);
@@ -257,7 +259,9 @@ public class AgentLoopService {
             }
             if ("submit_answer".equals(request.name())) {
                 JsonNode submission = objectMapper.readTree(request.argumentsJson());
-                String clarification = optionalParameter(submission.path("clarification").asText(null));
+                String clarificationText = submission.path("clarification").asText(null);
+                validateModelVisibleText(clarificationText, "clarification");
+                String clarification = optionalParameter(clarificationText);
                 JsonNode submittedBlocks = submission.path("answerBlocks");
                 if (clarification != null && (!submittedBlocks.isArray() || submittedBlocks.isEmpty())) {
                     AgentTurnResult waiting = new AgentTurnResult(turn.getTurnId(), runId,
@@ -759,6 +763,7 @@ public class AgentLoopService {
                     progress.put("outcome", progressState);
                     progress.put("attempt", requestCount);
                     progress.put("refinementCount", state.refinementCountsByNeed.getOrDefault(id, 0));
+                    progress.put("newDistinctSources", newForNeed.size());
                     progress.set("newSourceObjectIds", objectMapper.valueToTree(newForNeed));
                     progress.put("recommendedAction", nextAction);
                     progress.put("reason", reason);
@@ -917,7 +922,7 @@ public class AgentLoopService {
         StringBuilder answer = new StringBuilder();
         List<CitationRequest> requests = new ArrayList<>();
         for (JsonNode block : blocks) {
-            String text = stripModelCitationMarkers(requiredText(block, "text"));
+            String text = stripModelCitationMarkers(requiredAnswerText(block));
             if (answer.length() > 0) answer.append("\n\n");
             int start = answer.length();
             answer.append(text);
@@ -940,8 +945,7 @@ public class AgentLoopService {
             }
             if (!sourceIds.isEmpty() && containsDisplayMath(text)
                     && !hasReliableFormulaSupport(sourceIds, context, visuallyReadSources)) {
-                throw new IllegalArgumentException(
-                        "包含完整展示公式的论文答案块必须绑定可靠公式文本，或绑定已实际读取图像的公式来源");
+                throw new IllegalArgumentException(formulaSupportError(context, visuallyReadSources));
             }
         }
         if ("MIXED".equals(groundingMode) && requests.isEmpty()) {
@@ -974,6 +978,26 @@ public class AgentLoopService {
             if (textReliable || visuallyReadSources.contains(sourceId)) return true;
         }
         return false;
+    }
+
+    private static String formulaSupportError(AgentContextSnapshot context,
+                                              Set<String> visuallyReadSources) {
+        List<String> formulaSources = context.sourceCatalog() == null ? List.of()
+                : visuallyReadSources.stream()
+                .filter(sourceId -> {
+                    SourceObject source = context.sourceCatalog().objects().get(sourceId);
+                    return source != null && source.contentType()
+                            == com.research.assistant.service.agent.source.SourceContentType.FORMULA;
+                })
+                .sorted()
+                .limit(4)
+                .toList();
+        if (formulaSources.isEmpty()) {
+            return "包含完整展示公式的论文答案块必须绑定可靠公式文本，或绑定已实际读取图像的公式来源";
+        }
+        return "完整公式只绑定了正文来源。本轮已实际读取的 FORMULA 来源为 "
+                + String.join("、", formulaSources)
+                + "；请把对应 sourceObjectId 加入当前答案块后直接重新调用 submit_answer，不要重新检索已读来源。";
     }
 
     static String stripModelCitationMarkers(String value) {
@@ -1160,6 +1184,37 @@ public class AgentLoopService {
         String value = root.path(name).asText("").trim();
         if (value.isEmpty()) throw new IllegalArgumentException(name + " 不能为空");
         return value;
+    }
+
+    private static String requiredAnswerText(JsonNode block) {
+        JsonNode valueNode = block.path("text");
+        if (!valueNode.isTextual()) throw new IllegalArgumentException("text 不能为空");
+        String value = valueNode.textValue();
+        validateModelVisibleText(value, "answerBlocks.text");
+        value = value.trim();
+        if (value.isEmpty()) throw new IllegalArgumentException("text 不能为空");
+        return value;
+    }
+
+    /**
+     * Jackson legitimately decodes JSON unicode escapes such as \\u0005. Such
+     * escapes are valid JSON, but the resulting C0/C1 characters are not valid
+     * user-visible Markdown and can break the formula renderer. Reject them at
+     * the terminal tool boundary so the framework can return a tool error to the
+     * model while retaining the original tool request in the run audit.
+     */
+    private static void validateModelVisibleText(String value, String field) {
+        if (value == null || value.isEmpty()) return;
+        for (int index = 0; index < value.length();) {
+            int codePoint = value.codePointAt(index);
+            boolean allowedWhitespace = codePoint == '\t' || codePoint == '\n' || codePoint == '\r';
+            if (Character.isISOControl(codePoint) && !allowedWhitespace) {
+                throw new IllegalArgumentException(field + " 包含不可渲染的 Unicode 控制字符 U+"
+                        + String.format(Locale.ROOT, "%04X", codePoint)
+                        + "；答案未提交。请重新调用 submit_answer，重新生成文本并确保 LaTeX 反斜杠使用合法 JSON 转义。");
+            }
+            index += Character.charCount(codePoint);
+        }
     }
 
     private static List<AgentEvidenceView> evidenceViews(GroundedAnswer grounded, AgentContextSnapshot context) {

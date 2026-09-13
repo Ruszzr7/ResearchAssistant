@@ -102,4 +102,35 @@ class PaperEvidenceSkillToolTest {
         assertThat(result.visuals()).containsExactly(visual);
         verify(visualService).render(catalog, List.of("src-figure"));
     }
+
+    @Test
+    void rendersOnlyTheConfirmedFigureWhenAVisualBatchContainsNeighboringFigures() {
+        PaperReadToolRegistry readTool = mock(PaperReadToolRegistry.class);
+        PaperSourceVisualService visualService = mock(PaperSourceVisualService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        PaperSourceCatalog catalog = new PaperSourceCatalog(
+                9, "h".repeat(64), "parser", 12, Map.of(), Map.of());
+        String arguments = """
+                {"needs":[{"id":"figure","objective":"确认图8趋势",
+                "query":"Fig. 8 ergodic rate","targets":["Fig. 8"],
+                "contentTypes":["FIGURE"]}]}
+                """;
+        when(readTool.execute(catalog, "retrieve_paper_evidence", arguments)).thenReturn(
+                new AgentToolExecution("""
+                        {"status":"found","sources":[
+                        {"sourceObjectId":"src-figure-4","contentType":"FIGURE","figureNumber":"4"},
+                        {"sourceObjectId":"src-figure-8","contentType":"FIGURE","figureNumber":"8"}],
+                        "evidenceNeeds":[{"searchIndex":0,"sourceObjectIds":["src-figure-4","src-figure-8"],
+                        "targetCoverage":{"matchedTargets":["Fig. 8"],"missingTargets":[]}}]}
+                        """, Set.of("src-figure-4", "src-figure-8")));
+        AgentVisualContent visual = new AgentVisualContent(
+                "src-figure-8", 12, "FIGURE", "image/jpeg", new byte[]{1}, 320, 180);
+        when(visualService.render(eq(catalog), eq(List.of("src-figure-8")))).thenReturn(List.of(visual));
+
+        AgentToolExecution result = new PaperEvidenceSkillTool(readTool, visualService, objectMapper)
+                .execute(catalog, "retrieve_paper_evidence", arguments);
+
+        assertThat(result.visuals()).containsExactly(visual);
+        verify(visualService).render(catalog, List.of("src-figure-8"));
+    }
 }

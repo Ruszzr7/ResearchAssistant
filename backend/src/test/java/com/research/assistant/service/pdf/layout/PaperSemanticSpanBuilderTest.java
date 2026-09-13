@@ -78,6 +78,48 @@ class PaperSemanticSpanBuilderTest {
     }
 
     @Test
+    void keepsUnconfirmedFigureDiscussionSentencesAsBodyRegardlessOfPredicate() {
+        DocumentBlock evaluates = block("fig-evaluates", DocumentBlockRole.CAPTION, 1,
+                .10, .20, .80, .03,
+                "Fig. 12 evaluates the relationship between throughput and user count.");
+        DocumentBlock displays = block("fig-displays", DocumentBlockRole.CAPTION, 2,
+                .10, .30, .80, .03,
+                "Fig. 13 displays the performance under varying blocklengths.");
+        DocumentBlock caption = block("actual-caption", DocumentBlockRole.CAPTION, 3,
+                .10, .40, .80, .03,
+                "Fig. 13. Throughput versus blocklength under different BLERs.");
+
+        List<PaperSemanticSpan> spans = builder.build(artifact(List.of(
+                evaluates, displays, caption)));
+
+        assertThat(spans).extracting(PaperSemanticSpan::role)
+                .containsExactly(DocumentBlockRole.BODY,
+                        DocumentBlockRole.BODY, DocumentBlockRole.CAPTION);
+    }
+
+    @Test
+    void keepsAShortWrappedCaptionLineOutOfFollowingBodyEvidence() {
+        DocumentBlock caption = block("caption", DocumentBlockRole.CAPTION, 1,
+                .51, .223, .41, .006,
+                "Fig. 3. Ergodic sum-rate of different schemes versus blocklength under");
+        DocumentBlock continuation = block("caption-line-2", DocumentBlockRole.BODY, 2,
+                .51, .234, .09, .006, "various BLERs.");
+        DocumentBlock analysis = block("analysis", DocumentBlockRole.BODY, 3,
+                .51, .259, .41, .18,
+                "The competing schemes basically overlap because random precoding is used.");
+
+        List<PaperSemanticSpan> spans = builder.build(artifact(List.of(
+                caption, continuation, analysis)));
+
+        assertThat(spans).hasSize(2);
+        assertThat(spans.get(0).role()).isEqualTo(DocumentBlockRole.CAPTION);
+        assertThat(spans.get(0).blockIds()).containsExactly("caption", "caption-line-2");
+        assertThat(spans.get(0).text()).endsWith("under various BLERs.");
+        assertThat(spans.get(1).role()).isEqualTo(DocumentBlockRole.BODY);
+        assertThat(spans.get(1).blockIds()).containsExactly("analysis");
+    }
+
+    @Test
     void continuesAnUnfinishedParagraphAcrossAdjacentPageEdges() {
         PaperLayoutArtifact artifact = artifact(List.of(
                 blockOnPage("tail", 1, DocumentBlockRole.BODY, 1,

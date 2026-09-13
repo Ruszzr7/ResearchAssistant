@@ -502,6 +502,11 @@ class PaperSourceIndexServiceTest {
     @Test
     void recognizesCaptionWithoutPunctuationButRejectsNarrativeReference() {
         List<DocumentBlock> blocks = List.of(
+                new DocumentBlock("figure-region", 4,
+                        new NormalizedBoundingBox(.08, .06, .41, .04),
+                        DocumentBlockRole.FIGURE, 0, List.of("III. Analysis"),
+                        "", null, null, .9, DocumentBlockContentMode.REGION,
+                        MathContentProfile.none(""), DocumentLayoutLane.UNKNOWN),
                 block("caption", 4, 1, DocumentBlockRole.CAPTION,
                         "Fig. 7 Two-user achievable rate region"),
                 block("reference", 4, 2, DocumentBlockRole.BODY,
@@ -513,7 +518,7 @@ class PaperSourceIndexServiceTest {
         assertThat(figures).singleElement().satisfies(unit -> {
             assertThat(unit.label()).isEqualTo("Fig. 7");
             assertThat(unit.blocks()).extracting(DocumentBlock::id)
-                    .contains("caption")
+                    .contains("figure-region", "caption")
                     .doesNotContain("reference");
         });
     }
@@ -569,6 +574,27 @@ class PaperSourceIndexServiceTest {
             assertThat(unit.blocks()).extracting(DocumentBlock::id)
                     .contains("caption")
                     .doesNotContain("reference");
+        });
+    }
+
+    @Test
+    void rejectsUnconfirmedFigureDiscussionWithoutMaintainingAPredicateBlacklist() {
+        List<DocumentBlock> blocks = List.of(
+                block("discussion-12", 4, 1, DocumentBlockRole.CAPTION,
+                        "Fig. 12 evaluates the relationship between throughput and user count."),
+                block("discussion-13", 4, 2, DocumentBlockRole.CAPTION,
+                        "Fig. 13 displays the performance under varying blocklengths."),
+                block("caption-13", 4, 3, DocumentBlockRole.CAPTION,
+                        "Fig. 13. Throughput versus blocklength under different BLERs."));
+
+        List<PaperSourceUnit> figures = service.build(artifact(blocks)).sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.FIGURE).toList();
+
+        assertThat(figures).singleElement().satisfies(unit -> {
+            assertThat(unit.label()).isEqualTo("Fig. 13");
+            assertThat(unit.blocks()).extracting(DocumentBlock::id)
+                    .contains("caption-13")
+                    .doesNotContain("discussion-12", "discussion-13");
         });
     }
 

@@ -23,7 +23,9 @@ import java.util.regex.Pattern;
 @Component
 public class PaperLayoutSemanticEnricher {
 
-    static final String VERSION = "semantic-v6";
+    static final String VERSION = "semantic-v7";
+
+    private static final FigureCaptionClassifier FIGURE_CAPTIONS = new FigureCaptionClassifier();
 
     private static final Pattern ABSTRACT_START = Pattern.compile(
             "(?i)^\\s*(?:abstract|summary)\\b[\\s.:-]*");
@@ -33,8 +35,8 @@ public class PaperLayoutSemanticEnricher {
             "(?i)^\\s*(?:(?:[IVXLC]+|\\d+)\\.?\\s+)?(?:references|bibliography)\\s*$");
     private static final Pattern TABLE_HEADING = Pattern.compile(
             "(?i)^\\s*table\\s+(?:[IVXLC]+|\\d+)[.:\\s].*");
-    private static final Pattern CAPTION = Pattern.compile(
-            "(?i)^\\s*(?:fig(?:ure)?\\.?\\s*\\d+|table\\s+(?:[IVXLC]+|\\d+))[.:\\s].*");
+    private static final Pattern TABLE_CAPTION = Pattern.compile(
+            "(?i)^\\s*table\\s+(?:[IVXLC]+|\\d+)[.:\\s].*");
     private static final Pattern NUMBERED_HEADING = Pattern.compile(
             "(?i)^\\s*(?:(?:[IVXLC]+|\\d+(?:\\.\\d+)*)\\.|appendix(?:\\s+[A-Z])?)\\s*[A-Z].*");
     private static final Pattern PROOF_HEADING = Pattern.compile(
@@ -258,9 +260,13 @@ public class PaperLayoutSemanticEnricher {
                     role = DocumentBlockRole.TABLE;
                 } else if (!inAbstract && block.role() == DocumentBlockRole.FIGURE) {
                     role = DocumentBlockRole.FIGURE;
-                } else if (!inAbstract && block.role() == DocumentBlockRole.CAPTION) {
+                } else if (!inAbstract && FIGURE_CAPTIONS.isDiscussion(block, blocks)) {
+                    role = DocumentBlockRole.BODY;
+                } else if (!inAbstract && (block.role() == DocumentBlockRole.CAPTION
+                        || FIGURE_CAPTIONS.isCaptionContinuation(block, blocks))) {
                     role = DocumentBlockRole.CAPTION;
-                } else if (!inAbstract && CAPTION.matcher(text).matches()) {
+                } else if (!inAbstract && (FIGURE_CAPTIONS.caption(block, blocks).isPresent()
+                        || TABLE_CAPTION.matcher(text).matches())) {
                     role = DocumentBlockRole.CAPTION;
                 // PDFBox occasionally labels a displayed equation as HEADING when its
                 // equation number is extracted on the same line.  A numbered equation

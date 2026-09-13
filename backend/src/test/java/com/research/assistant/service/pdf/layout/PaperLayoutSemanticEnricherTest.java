@@ -58,7 +58,7 @@ class PaperLayoutSemanticEnricherTest {
                 "This paper introduces a grounded workflow."
         ));
 
-        assertThat(enriched.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v6");
+        assertThat(enriched.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v7");
         assertThat(enriched.blocks()).extracting(DocumentBlock::readingOrder)
                 .containsExactlyElementsOf(java.util.stream.IntStream
                         .range(0, enriched.blocks().size()).boxed().toList());
@@ -159,6 +159,48 @@ class PaperLayoutSemanticEnricherTest {
             assertThat(block.role()).isEqualTo(DocumentBlockRole.FORMULA);
             assertThat(block.contentMode()).isEqualTo(DocumentBlockContentMode.REGION);
         });
+    }
+
+    @Test
+    void separatesExplicitFigureCaptionFromUnconfirmedFigureDiscussion() {
+        PaperLayoutArtifact raw = new PaperLayoutArtifact(
+                207L, "d".repeat(64), "pdfbox-layout-v1", .9,
+                Instant.parse("2026-09-13T00:00:00Z"), 1,
+                List.of(
+                        block(0, 1, .08, .20, .41, .02,
+                                "Fig. 9 displays the performance under varying blocklengths."),
+                        block(1, 1, .08, .40, .41, .02,
+                                "Fig. 9: Ergodic sum-rate versus blocklength.")));
+
+        PaperLayoutArtifact enriched = enricher.enrich(raw, PaperLayoutHints.empty());
+
+        assertThat(enriched.blocks()).extracting(DocumentBlock::role)
+                .containsExactly(DocumentBlockRole.BODY, DocumentBlockRole.CAPTION);
+    }
+
+    @Test
+    void acceptsPunctuationlessCaptionOnlyWithAnIndependentVisualAbove() {
+        DocumentBlock visual = new DocumentBlock("figure-region", 1,
+                new NormalizedBoundingBox(.08, .20, .41, .16),
+                DocumentBlockRole.FIGURE, 0, List.of(), "", null, null, .9,
+                DocumentBlockContentMode.REGION, MathContentProfile.none(""),
+                DocumentLayoutLane.LEFT);
+        DocumentBlock caption = new DocumentBlock("caption", 1,
+                new NormalizedBoundingBox(.08, .37, .41, .02),
+                DocumentBlockRole.BODY, 1, List.of(),
+                "Fig. 7 Two-user achievable rate region", null, null, .9,
+                DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                DocumentLayoutLane.LEFT);
+        PaperLayoutArtifact raw = new PaperLayoutArtifact(
+                208L, "e".repeat(64), "pdfbox-layout-v1", .9,
+                Instant.parse("2026-09-13T00:00:00Z"), 1,
+                List.of(visual, caption));
+
+        PaperLayoutArtifact enriched = enricher.enrich(raw, PaperLayoutHints.empty());
+
+        assertThat(enriched.blocks().stream().filter(block -> block.id().equals("caption")))
+                .singleElement().satisfies(block ->
+                        assertThat(block.role()).isEqualTo(DocumentBlockRole.CAPTION));
     }
 
     @Test

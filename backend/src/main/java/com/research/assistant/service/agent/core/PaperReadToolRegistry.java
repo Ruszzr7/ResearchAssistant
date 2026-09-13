@@ -52,6 +52,8 @@ public class PaperReadToolRegistry {
     private static final Pattern FORMULA_TARGET = Pattern.compile(
             "(?i)^(?:(?:公式(?:编号)?|方程(?:式)?(?:编号)?)\\s*|(?:eq(?:uation)?|formula)\\.?\\s*)?"
                     + "\\(?([0-9]{1,4}[a-z]?)\\)?$");
+    private static final Pattern FIGURE_REFERENCE = Pattern.compile(
+            "(?i)\\bfig(?:ure)?s?\\.?\\s*([0-9IVX]+[a-z]?)\\b");
     private static final String EVIDENCE_SCHEMA = """
             {"type":"object","properties":{
             "needs":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{
@@ -91,7 +93,7 @@ public class PaperReadToolRegistry {
 
     public List<AgentToolDefinition> definitions() {
         return List.of(new AgentToolDefinition("retrieve_paper_evidence",
-                "从当前论文检索可引用的原文证据。先把最终答案需要成立的独立事实拆成 1～4 个 needs，并在首次调用中一次提交；首次有效检索后 Need ID 集合冻结。每个 Need 都要提供稳定唯一的 id、中文中立的 objective，以及 query、sourceObjectIds 或 profileClaimRefs 中至少一种检索锚点。query、keywords 和 targets 使用论文原文术语、变量、数值或公式编号；targets 只做词面核对。用户直接询问图或图中趋势时，该 Need 必须使用 contentTypes=[\"FIGURE\"]，实际图像区域会随 FIGURE 来源一起返回；解释图的正文可作为另一个 TEXT Need。回答精确公式时优先限制 FORMULA，公式文本不可靠时工具会自动返回局部图像。收到来源后由 Agent 阅读并判断语义充分性；只对未解决 Need 保持原 id 和 objective，补检索时填写 refinementReason 并改变有效检索条件。若返回 hasMore=true，使用同一 Need 的 nextCursor 继续读取候选页；若没有新来源、游标已耗尽或 stopRecommended=true，停止该 Need并使用 submit_answer。不要重复请求、新建同方向 Need，或把检索状态当成论文结论。", EVIDENCE_SCHEMA));
+                "从当前论文检索可引用的原文证据。先把最终答案需要成立的独立事实拆成 1～4 个 needs，并在首次调用中一次提交；首次有效检索后 Need ID 集合冻结。每个 Need 都要提供稳定唯一的 id、中文中立的 objective，以及 query、sourceObjectIds 或 profileClaimRefs 中至少一种检索锚点。query、keywords 和 targets 使用论文原文术语、变量名、数值或公式编号；targets 只做词面核对。用户直接询问图或图中趋势时，该 Need 必须使用 contentTypes=[\"FIGURE\"]，并在 targets/query 中保留明确的 Fig./Figure 编号；实际图像区域会随匹配的 FIGURE 来源一起返回。解释图的正文可作为另一个 TEXT Need。回答精确公式时优先限制 FORMULA，公式文本不可靠时工具会自动返回局部图像。收到来源后由 Agent 阅读并判断语义充分性；只对未解决 Need 保持原 id 和 objective，补检索时填写 refinementReason 并改变有效检索条件。若返回 coverageState=LEXICAL_TARGETS_COVERED，或明确返回了目标图/图题，停止该 Need 并使用 submit_answer；不要为了穷尽候选而继续检索。若返回 hasMore=true，只有仍缺少目标或正文时才使用同一 Need 的 nextCursor 继续读取候选页；若没有新来源、游标已耗尽或 stopRecommended=true，停止该 Need并使用 submit_answer。discussesFigure/discussedBy 中的来源 ID 只是关系定位提示，不是本次已读取或可引用的来源；引用前必须把该 ID 作为 sourceObjectIds 重新交给本工具读取。不要重复请求、新建同方向 Need，或把检索状态当成论文结论。", EVIDENCE_SCHEMA));
     }
 
     /** Compatibility entry point; model-facing tools no longer vary by message keywords. */
@@ -143,6 +145,7 @@ public class PaperReadToolRegistry {
         Map<Integer, List<MergedHit>> hitsBySearch = new LinkedHashMap<>();
         Map<Integer, List<String>> invalidSourceIdsBySearch = new LinkedHashMap<>();
         Map<Integer, List<String>> invalidClaimRefsBySearch = new LinkedHashMap<>();
+        Map<SearchRequestKey, List<RetrievalHit>> searchCache = new LinkedHashMap<>();
         ProfileClaimIndex claimIndex = profileClaimIndex(catalog);
         Set<String> matchedProfileClaimRefs = new LinkedHashSet<>();
         int searchCount = hasSearches ? Math.min(requestedNeeds.size(), MAX_SEARCHES_PER_REQUEST) : 0;
@@ -200,7 +203,7 @@ public class PaperReadToolRegistry {
                 claimHit.searchIndexes.add(index);
                 searchHits.put(sourceId, claimHit);
             }
-            mergeRetrievedHits(sourceService.search(catalog, request), index, merged, searchHits);
+            mergeRetrievedHits(search(catalog, request, searchCache), index, merged, searchHits);
             if (searchHits.isEmpty()) {
                 String fallbackQuery = fallbackQuery(search, query);
                 Set<SourceContentType> fallbackTypes = types;
@@ -209,7 +212,7 @@ public class PaperReadToolRegistry {
                         && (!fallbackQuery.equals(query) || !fallbackTypes.equals(types))) {
                     PaperSearchRequest fallbackRequest = new PaperSearchRequest(fallbackQuery, fallbackTypes,
                             pageHint.start(), pageHint.end(), MAX_SEARCH_RESULTS);
-                    mergeRetrievedHits(sourceService.search(catalog, fallbackRequest), index, merged, searchHits);
+                    mergeRetrievedHits(search(catalog, fallbackRequest, searchCache), index, merged, searchHits);
                 }
             }
             hitsBySearch.put(index, new ArrayList<>(searchHits.values()));
@@ -225,6 +228,7 @@ public class PaperReadToolRegistry {
                     .filter(hit -> SourceEvidenceQuality.usableForCitation(
                             catalog.objects().get(hit.sourceObjectId)))
                     .toList();
+            eligibleHits = restrictToExactFigureTargets(catalog, eligibleHits, need);
             eligibleHitsBySearch.put(entry.getKey(), eligibleHits);
             List<MergedHit> page = candidatePage(eligibleHits, need);
             candidatePages.put(entry.getKey(), page);
@@ -301,7 +305,11 @@ public class PaperReadToolRegistry {
                 String status = compact.isEmpty() ? "not_found" : "found";
                 List<Map<String, Object>> evidenceNeeds = buildEvidenceNeeds(catalog, requestedNeeds,
                         hitsBySearch, candidatePages, eligibleHitsBySearch, selectedById,
-                        invalidSourceIdsBySearch, invalidClaimRefsBySearch);
+                        invalidSourceIdsBySearch, invalidClaimRefsBySearch,
+                        compact.stream().collect(java.util.stream.Collectors.toMap(
+                                source -> String.valueOf(source.get("sourceObjectId")),
+                                source -> Boolean.TRUE.equals(source.get("contentComplete")),
+                                (left, right) -> left, LinkedHashMap::new)));
                 Map<String, Object> payload = new LinkedHashMap<>();
                 payload.put("status", status);
                 payload.put("untrustedPaperContent", true);
@@ -380,7 +388,8 @@ public class PaperReadToolRegistry {
                                                            Map<Integer, List<MergedHit>> eligibleHitsBySearch,
                                                            Map<String, MergedHit> selectedById,
                                                            Map<Integer, List<String>> invalidSourceIdsBySearch,
-                                                           Map<Integer, List<String>> invalidClaimRefsBySearch) {
+                                                           Map<Integer, List<String>> invalidClaimRefsBySearch,
+                                                           Map<String, Boolean> contentCompleteBySourceId) {
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map.Entry<Integer, List<MergedHit>> entry : hitsBySearch.entrySet()) {
             JsonNode need = requestedNeeds.get(entry.getKey());
@@ -418,6 +427,11 @@ public class PaperReadToolRegistry {
             value.put("targetCoverage", Map.of(
                     "matchedTargets", matchedTargets,
                     "missingTargets", missingTargets));
+            value.put("coverageState", coverageState(returnedIds, targets, missingTargets, hasMore));
+            if (!returnedIds.isEmpty()) {
+                value.put("contentComplete", returnedIds.stream()
+                        .allMatch(sourceId -> contentCompleteBySourceId.getOrDefault(sourceId, false)));
+            }
             value.put("invalidSourceObjectIds",
                     invalidSourceIdsBySearch.getOrDefault(entry.getKey(), List.of()));
             value.put("invalidProfileClaimRefs",
@@ -425,6 +439,20 @@ public class PaperReadToolRegistry {
             result.add(value);
         }
         return result;
+    }
+
+    private static String coverageState(List<String> returnedIds, List<String> targets,
+                                        List<String> missingTargets, boolean hasMore) {
+        if (returnedIds.isEmpty()) return hasMore ? "DEFERRED" : "NO_MATCH";
+        if (targets.isEmpty()) return "SOURCES_AVAILABLE";
+        if (missingTargets.isEmpty()) return "LEXICAL_TARGETS_COVERED";
+        return hasMore ? "LEXICAL_TARGETS_PARTIAL_MORE" : "LEXICAL_TARGETS_PARTIAL";
+    }
+
+    private List<RetrievalHit> search(PaperSourceCatalog catalog, PaperSearchRequest request,
+                                      Map<SearchRequestKey, List<RetrievalHit>> cache) {
+        SearchRequestKey key = SearchRequestKey.from(request);
+        return cache.computeIfAbsent(key, ignored -> sourceService.search(catalog, request));
     }
 
     private int nextCandidateCursor(List<MergedHit> page, Set<String> selectedIds, int offset) {
@@ -718,6 +746,11 @@ public class PaperReadToolRegistry {
 
     private static boolean targetMatches(SourceObject source, String target) {
         String normalizedTarget = SourceObject.normalize(target).toLowerCase(Locale.ROOT);
+        if (source.contentType() == SourceContentType.FIGURE) {
+            String requestedFigureNumber = figureNumberFromTarget(normalizedTarget);
+            String actualFigureNumber = figureNumberOf(source);
+            if (!requestedFigureNumber.isBlank() && requestedFigureNumber.equals(actualFigureNumber)) return true;
+        }
         String formulaNumber = SourceObject.normalize(source.formulaNumber()).toLowerCase(Locale.ROOT);
         Matcher formulaTargetMatcher = FORMULA_TARGET.matcher(normalizedTarget);
         if (source.contentType() == SourceContentType.FORMULA && formulaTargetMatcher.matches()) {
@@ -733,6 +766,59 @@ public class PaperReadToolRegistry {
                 .toLowerCase(Locale.ROOT);
         if (searchable.contains(normalizedTarget)) return true;
         return !formulaTarget.equals(normalizedTarget) && searchable.contains(formulaTarget);
+    }
+
+    private List<MergedHit> restrictToExactFigureTargets(PaperSourceCatalog catalog,
+                                                          List<MergedHit> hits,
+                                                          JsonNode need) {
+        if (hits.isEmpty() || need == null || !isFigureOnlyNeed(need)) return hits;
+        Set<String> requestedNumbers = figureNumbersForNeed(need);
+        if (requestedNumbers.isEmpty()) return hits;
+        List<MergedHit> exact = hits.stream()
+                .filter(hit -> {
+                    SourceObject source = catalog.objects().get(hit.sourceObjectId);
+                    return source != null && figureNumberOf(source) != null
+                            && requestedNumbers.contains(figureNumberOf(source));
+                })
+                .toList();
+        // Preserve fallback retrieval when the parser has no numbered FIGURE
+        // object.  Once an exact object exists, unrelated figures are not useful
+        // evidence for this explicit Need and must not receive visual crops.
+        return exact.isEmpty() ? hits : exact;
+    }
+
+    private boolean isFigureOnlyNeed(JsonNode need) {
+        JsonNode contentTypes = need.path("contentTypes");
+        if (!contentTypes.isArray() || contentTypes.size() != 1) return false;
+        return "FIGURE".equalsIgnoreCase(contentTypes.get(0).asText());
+    }
+
+    private Set<String> figureNumbersForNeed(JsonNode need) {
+        Set<String> numbers = new LinkedHashSet<>();
+        if (need.path("targets").isArray()) {
+            for (JsonNode target : need.path("targets")) {
+                String number = figureNumberFromTarget(target.asText(""));
+                if (!number.isBlank()) numbers.add(number);
+            }
+        }
+        String queryNumber = figureNumberFromTarget(need.path("query").asText(""));
+        if (!queryNumber.isBlank()) numbers.add(queryNumber);
+        return numbers;
+    }
+
+    private static String figureNumberOf(SourceObject source) {
+        if (source == null || source.contentType() != SourceContentType.FIGURE) return "";
+        String declared = source.provenance().getOrDefault("figureNumber", "").strip();
+        if (!declared.isBlank()) return declared.toLowerCase(Locale.ROOT);
+        Matcher matcher = FIGURE_REFERENCE.matcher(source.rawContent() == null ? "" : source.rawContent());
+        return matcher.find() ? matcher.group(1).toLowerCase(Locale.ROOT) : "";
+    }
+
+    private static String figureNumberFromTarget(String value) {
+        String normalized = SourceObject.normalize(value == null ? "" : value).toLowerCase(Locale.ROOT).strip();
+        Matcher matcher = FIGURE_REFERENCE.matcher(normalized);
+        if (matcher.find()) return matcher.group(1).toLowerCase(Locale.ROOT);
+        return normalized.matches("[0-9]{1,4}[a-z]?") ? normalized : "";
     }
 
     private ProfileClaimIndex profileClaimIndex(PaperSourceCatalog catalog) {
@@ -929,6 +1015,16 @@ public class PaperReadToolRegistry {
         }
         value.put("sectionPath", source.sectionPath());
         if (!source.formulaNumber().isBlank()) value.put("formulaNumber", source.formulaNumber());
+        copyProvenanceText(value, source, "figureNumber");
+        copyProvenanceText(value, source, "captionOf");
+        copyProvenanceList(value, source, "discussesFigure");
+        copyProvenanceList(value, source, "discussesFigureNumbers");
+        copyProvenanceList(value, source, "discussedBy");
+        if (source.provenance().containsKey("discussesFigure")
+                || source.provenance().containsKey("discussedBy")) {
+            value.put("relationUsage",
+                    "关系字段中的来源 ID 仅用于定位，不代表本次已读取或可引用；引用关联来源前必须用 sourceObjectIds 重新读取。只有本结果 sources 中实际返回的来源才可绑定到 submit_answer。");
+        }
         String textFormat = source.provenance().getOrDefault("textFormat", "PLAIN_TEXT");
         boolean textReliable = Boolean.parseBoolean(source.provenance().getOrDefault("textReliable",
                 Boolean.toString(source.contentType() != SourceContentType.FORMULA)));
@@ -945,6 +1041,18 @@ public class PaperReadToolRegistry {
         value.put("contentComplete", !truncated);
         value.put("truncated", truncated);
         return value;
+    }
+
+    private void copyProvenanceText(Map<String, Object> target, SourceObject source, String field) {
+        String value = source.provenance().getOrDefault(field, "").strip();
+        if (!value.isBlank()) target.put(field, value);
+    }
+
+    private void copyProvenanceList(Map<String, Object> target, SourceObject source, String field) {
+        List<String> values = java.util.Arrays.stream(
+                        source.provenance().getOrDefault(field, "").split(","))
+                .map(String::strip).filter(value -> !value.isBlank()).distinct().limit(8).toList();
+        if (!values.isEmpty()) target.put(field, values);
     }
 
     private static String formulaLabel(SourceObject source) {
@@ -987,6 +1095,14 @@ public class PaperReadToolRegistry {
             this.sourceObjectId = sourceObjectId;
             this.score = score;
             this.searchIndexes = searchIndexes;
+        }
+    }
+
+    private record SearchRequestKey(String query, Set<SourceContentType> contentTypes,
+                                    Integer pageStart, Integer pageEnd, int maxResults) {
+        private static SearchRequestKey from(PaperSearchRequest request) {
+            return new SearchRequestKey(request.query().toLowerCase(Locale.ROOT), request.contentTypes(),
+                    request.pageStart(), request.pageEnd(), request.maxResults());
         }
     }
 

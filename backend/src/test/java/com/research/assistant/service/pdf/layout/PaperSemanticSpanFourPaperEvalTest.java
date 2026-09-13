@@ -44,7 +44,7 @@ class PaperSemanticSpanFourPaperEvalTest {
 
                     Set<String> mapped = new LinkedHashSet<>();
                     spans.forEach(span -> mapped.addAll(span.blockIds()));
-                    long nonEmpty = blocks.stream().filter(block -> !sourceText(block).isBlank()).count();
+                    long nonEmpty = blocks.stream().filter(builder::isEvidenceEligible).count();
                     long merged = spans.stream().filter(span -> span.blocks().size() > 1).count();
                     long corrected = spans.stream().flatMap(span -> span.blocks().stream()
                                     .map(block -> block.role() != builder.effectiveRole(block)))
@@ -69,6 +69,12 @@ class PaperSemanticSpanFourPaperEvalTest {
                             "SPAN_EVAL paper=%d raw=%d spans=%d reduction=%.3f merged=%d maxBlocks=%d correctedRoles=%d formulaToBody=%d%n",
                             paperId, nonEmpty, spans.size(), reduction, merged, maxBlocks, corrected, formulaToBody);
                     if (paperId == 184L) {
+                        blocks.stream()
+                                .filter(block -> List.of("p4-b0048", "p4-b0049", "p4-b0050")
+                                        .contains(block.id()))
+                                .forEach(block -> System.out.printf(
+                                        "SPAN_EVAL block184=%s role=%s lane=%s bbox=%s text=%s%n",
+                                        block.id(), block.role(), block.layoutLane(), block.bbox(), block.text()));
                         spans.stream()
                                 .filter(span -> span.blockIds().contains("p4-b0048")
                                         || span.blockIds().contains("p4-b0050"))

@@ -43,6 +43,10 @@ public class PaperSourceCatalogService {
     private static final Pattern FORMULA_NUMBER = Pattern.compile(
             "(?i)(?:(?:\\b(?:eq(?:uation)?|formula)\\.?|公式(?:编号)?|方程(?:式)?(?:编号)?)\\s*\\(?|\\()"
                     + "(\\d{1,4}[a-z]?)\\)?");
+    private static final Pattern FIGURE_UNIT_ID = Pattern.compile(
+            "(?i)^figure:([\\dIVX]+[a-z]?):p\\d+$");
+    private static final Pattern FIGURE_REFERENCE = Pattern.compile(
+            "(?i)\\bfig(?:ure)?s?\\.?\\s*([\\dIVX]+[a-z]?)\\b");
 
     private final PaperLayoutArtifactService artifactService;
     private final PaperSourceIndexService sourceIndexService;
@@ -287,8 +291,71 @@ public class PaperSourceCatalogService {
             }
         }
         deduplicatePhysicalSources(objects, locators);
+        linkFigureRelations(objects);
         return new PaperSourceCatalog(artifact.paperId(), artifact.documentHash(), artifact.parserVersion(),
                 artifact.pageCount(), objects, locators);
+    }
+
+    private void linkFigureRelations(Map<String, SourceObject> objects) {
+        Map<String, String> figureIdByNumber = new LinkedHashMap<>();
+        for (Map.Entry<String, SourceObject> entry : List.copyOf(objects.entrySet())) {
+            SourceObject source = entry.getValue();
+            if (source.contentType() != SourceContentType.FIGURE) continue;
+            Matcher matcher = FIGURE_UNIT_ID.matcher(
+                    source.provenance().getOrDefault("sourceUnitId", ""));
+            if (!matcher.matches()) continue;
+            String number = normalizeFigureNumber(matcher.group(1));
+            figureIdByNumber.putIfAbsent(number, source.sourceObjectId());
+            Map<String, String> provenance = new LinkedHashMap<>(source.provenance());
+            provenance.put("figureNumber", number);
+            provenance.put("captionOf", "figure:" + number);
+            objects.put(entry.getKey(), withProvenance(source, provenance));
+        }
+        if (figureIdByNumber.isEmpty()) return;
+
+        Map<String, LinkedHashSet<String>> discussionIdsByFigure = new LinkedHashMap<>();
+        for (Map.Entry<String, SourceObject> entry : List.copyOf(objects.entrySet())) {
+            SourceObject source = entry.getValue();
+            if (source.contentType() != SourceContentType.TEXT) continue;
+            LinkedHashSet<String> numbers = figureReferences(source.rawContent()).stream()
+                    .filter(figureIdByNumber::containsKey)
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            if (numbers.isEmpty()) continue;
+            LinkedHashSet<String> figureIds = numbers.stream().map(figureIdByNumber::get)
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            Map<String, String> provenance = new LinkedHashMap<>(source.provenance());
+            provenance.put("discussesFigure", String.join(",", figureIds));
+            provenance.put("discussesFigureNumbers", String.join(",", numbers));
+            objects.put(entry.getKey(), withProvenance(source, provenance));
+            figureIds.forEach(figureId -> discussionIdsByFigure
+                    .computeIfAbsent(figureId, ignored -> new LinkedHashSet<>())
+                    .add(source.sourceObjectId()));
+        }
+        for (Map.Entry<String, LinkedHashSet<String>> entry : discussionIdsByFigure.entrySet()) {
+            SourceObject figure = objects.get(entry.getKey());
+            if (figure == null) continue;
+            Map<String, String> provenance = new LinkedHashMap<>(figure.provenance());
+            provenance.put("discussedBy", String.join(",", entry.getValue()));
+            objects.put(entry.getKey(), withProvenance(figure, provenance));
+        }
+    }
+
+    private List<String> figureReferences(String text) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        Matcher matcher = FIGURE_REFERENCE.matcher(text == null ? "" : text);
+        while (matcher.find()) result.add(normalizeFigureNumber(matcher.group(1)));
+        return List.copyOf(result);
+    }
+
+    private String normalizeFigureNumber(String value) {
+        return value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
+    }
+
+    private SourceObject withProvenance(SourceObject source, Map<String, String> provenance) {
+        return new SourceObject(source.sourceObjectId(), source.paperId(), source.documentHash(),
+                source.parserVersion(), source.sourceSchemaVersion(), source.contentType(),
+                source.rawContent(), source.normalizedContent(), source.sectionPath(),
+                source.formulaNumber(), provenance);
     }
 
     private Set<String> structuredCaptionBlockIds(PaperSourceIndex index) {
@@ -462,6 +529,7 @@ public class PaperSourceCatalogService {
     public List<RetrievalHit> search(PaperSourceCatalog catalog, PaperSearchRequest request) {
         String query = SourceObject.normalize(request.query()).toLowerCase(Locale.ROOT);
         Set<String> formulaNumbers = formulaNumbers(query);
+        Set<String> figureNumbers = new LinkedHashSet<>(figureReferences(query));
         boolean exactFormulaRequest = !formulaNumbers.isEmpty()
                 && request.contentTypes().contains(SourceContentType.FORMULA);
         List<ScoredSource> scored = new ArrayList<>();
@@ -502,6 +570,16 @@ public class PaperSourceCatalogService {
             if (!formulaNumbers.isEmpty() && objectFormulaNumbers.stream()
                     .map(value -> value.toLowerCase(Locale.ROOT)).anyMatch(formulaNumbers::contains)) {
                 routes.add("FORMULA_NUMBER");
+                score = Math.max(score, 1.0);
+            }
+            Set<String> objectFigureNumbers = canonicalFigureNumbers(object);
+            if (object.contentType() == SourceContentType.FIGURE && !figureNumbers.isEmpty()
+                    && objectFigureNumbers.stream().anyMatch(figureNumbers::contains)) {
+                // A query that names Fig./Figure N is asking for a specific visual
+                // object.  Make its canonical number outrank caption-word overlap
+                // with other figures without hiding fallback candidates when the
+                // parser did not recover a figure number.
+                routes.add("FIGURE_NUMBER");
                 score = Math.max(score, 1.0);
             }
             double sectionCoverage = LayoutTextSimilarity.queryCoverage(query, String.join(" ", object.sectionPath()));
@@ -693,6 +771,15 @@ public class PaperSourceCatalogService {
                 .filter(value -> !value.isBlank())
                 .map(value -> value.toLowerCase(Locale.ROOT))
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Set<String> canonicalFigureNumbers(SourceObject object) {
+        if (object == null || object.contentType() != SourceContentType.FIGURE) return Set.of();
+        LinkedHashSet<String> numbers = new LinkedHashSet<>();
+        String declared = object.provenance().getOrDefault("figureNumber", "");
+        if (!declared.isBlank()) numbers.add(normalizeFigureNumber(declared));
+        numbers.addAll(figureReferences(object.rawContent()));
+        return Set.copyOf(numbers);
     }
 
     private static String stableId(PaperLayoutArtifact artifact, String suffix) {

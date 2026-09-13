@@ -72,7 +72,7 @@ class PaperParsingFourPaperQualityEvalTest {
         Map<String, Integer> coverage = new HashMap<>();
         spans.forEach(span -> span.blockIds().forEach(id -> coverage.merge(id, 1, Integer::sum)));
         Set<String> nonEmptyIds = new HashSet<>();
-        layout.blocks().stream().filter(block -> !sourceText(block).isBlank())
+        layout.blocks().stream().filter(spanBuilder::isEvidenceEligible)
                 .forEach(block -> nonEmptyIds.add(block.id()));
         boolean coverageOk = coverage.keySet().equals(nonEmptyIds)
                 && coverage.values().stream().allMatch(count -> count == 1);

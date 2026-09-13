@@ -91,6 +91,48 @@ class PaperReadToolRegistryTest {
     }
 
     @Test
+    void reusesEquivalentSearchesAcrossIndependentNeeds() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        PaperSourceCatalog catalog = catalog(5, "The method improves effective throughput.", "context");
+        when(sourceService.search(eq(catalog), any())).thenReturn(
+                List.of(new RetrievalHit("src-1", .95, List.of("TOKEN_COVERAGE"))));
+        when(sourceService.readSource(catalog, "src-1")).thenReturn(catalog.requireObject("src-1"));
+
+        AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence", """
+                        {"needs":[
+                          {"id":"mechanism","objective":"确认机制","query":" Effective   Throughput ","contentTypes":["TEXT"]},
+                          {"id":"result","objective":"确认结果","query":"effective throughput","contentTypes":["TEXT"]}
+                        ],"maxEvidence":2}
+                        """);
+        JsonNode json = objectMapper.readTree(execution.resultJson());
+
+        verify(sourceService, times(1)).search(eq(catalog), any());
+        assertThat(json.at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-1");
+        assertThat(json.at("/evidenceNeeds/1/sourceObjectIds/0").asText()).isEqualTo("src-1");
+        assertThat(json.at("/sources/0/matchedSearches").toString()).contains("0", "1");
+    }
+
+    @Test
+    void doesNotReuseSearchesWithDifferentScope() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        PaperSourceCatalog catalog = catalog(5, "The method improves effective throughput.", "context");
+        when(sourceService.search(eq(catalog), any())).thenReturn(
+                List.of(new RetrievalHit("src-1", .95, List.of("TOKEN_COVERAGE"))));
+        when(sourceService.readSource(catalog, "src-1")).thenReturn(catalog.requireObject("src-1"));
+
+        new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence", """
+                        {"needs":[
+                          {"id":"text","objective":"确认正文","query":"effective throughput","contentTypes":["TEXT"]},
+                          {"id":"figure","objective":"确认图示","query":"effective throughput","contentTypes":["FIGURE"]}
+                        ],"maxEvidence":2}
+                        """);
+
+        verify(sourceService, times(2)).search(eq(catalog), any());
+    }
+
+    @Test
     void readsKnownTrustedSourceWithoutRunningAnotherSearch() throws Exception {
         PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
         PaperSourceCatalog catalog = catalog(5, "formula", "context");
@@ -104,6 +146,71 @@ class PaperReadToolRegistryTest {
         assertThat(objectMapper.readTree(execution.resultJson())
                 .at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-1");
         verify(sourceService, times(0)).search(eq(catalog), any());
+    }
+
+    @Test
+    void exposesFigureRelationsInTheModelVisibleSourceView() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        SourceObject figure = new SourceObject("src-figure", 9, "h".repeat(64), "parser", 7,
+                SourceContentType.FIGURE, "Fig. 4. Effective throughput.", null,
+                List.of("Results", "Fig. 4"), "", Map.of(
+                "figureNumber", "4",
+                "captionOf", "figure:4",
+                "discussedBy", "src-discussion"));
+        SourceLocator locator = new SourceLocator("loc-figure", figure.sourceObjectId(), 3,
+                "PDF_NORMALIZED", List.of(new NormalizedBoundingBox(.1, .3, .4, .04)),
+                figure.rawContent(), EvidenceLocator.Precision.VISUAL_REGION);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(9, "h".repeat(64), "parser", 3,
+                Map.of(figure.sourceObjectId(), figure),
+                Map.of(figure.sourceObjectId(), List.of(locator)));
+        when(sourceService.readSource(catalog, figure.sourceObjectId())).thenReturn(figure);
+
+        JsonNode json = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"figure\",\"objective\":\"读取图 4\","
+                        + "\"sourceObjectIds\":[\"src-figure\"],\"includeVisual\":true}]}"
+        ).resultJson());
+
+        assertThat(json.at("/sources/0/figureNumber").asText()).isEqualTo("4");
+        assertThat(json.at("/sources/0/captionOf").asText()).isEqualTo("figure:4");
+        assertThat(json.at("/sources/0/discussedBy/0").asText()).isEqualTo("src-discussion");
+        assertThat(json.at("/sources/0/relationUsage").asText()).contains("重新读取", "可引用");
+    }
+
+    @Test
+    void explicitFigureTargetExcludesOtherFigureCropsFromTheEvidenceBatch() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        SourceObject wrongFigure = figureSource("src-figure-4", "4", "Fig. 4. Other experiment.");
+        SourceObject targetFigure = figureSource("src-figure-8", "8", "Fig. 8. Ergodic sum-rate versus vehicle velocity.");
+        Map<String, SourceObject> objects = new LinkedHashMap<>();
+        objects.put(wrongFigure.sourceObjectId(), wrongFigure);
+        objects.put(targetFigure.sourceObjectId(), targetFigure);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(9, "h".repeat(64), "parser", 12,
+                objects, Map.of(
+                wrongFigure.sourceObjectId(), List.of(locator(wrongFigure, 4)),
+                targetFigure.sourceObjectId(), List.of(locator(targetFigure, 12))));
+        when(sourceService.search(eq(catalog), any())).thenReturn(
+                List.of(new RetrievalHit(wrongFigure.sourceObjectId(), .99, List.of("TOKEN")),
+                        new RetrievalHit(targetFigure.sourceObjectId(), .60, List.of("TOKEN"))));
+        when(sourceService.readSource(eq(catalog), any())).thenAnswer(invocation ->
+                catalog.requireObject(invocation.getArgument(1)));
+
+        JsonNode json = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence", """
+                        {"needs":[{"id":"figure","objective":"确认图8趋势",
+                        "query":"Fig. 8 Ergodic sum-rate versus vehicle velocity",
+                        "targets":["Fig. 8","vehicle velocity"],"contentTypes":["FIGURE"],
+                        "includeVisual":true}],"maxEvidence":8}
+                        """).resultJson());
+
+        assertThat(json.path("sources")).hasSize(1);
+        assertThat(json.at("/sources/0/sourceObjectId").asText()).isEqualTo(targetFigure.sourceObjectId());
+        assertThat(json.at("/evidenceNeeds/0/sourceObjectIds/0").asText())
+                .isEqualTo(targetFigure.sourceObjectId());
+        assertThat(json.at("/evidenceNeeds/0/targetCoverage/matchedTargets").toString())
+                .contains("Fig. 8");
+        assertThat(json.at("/evidenceNeeds/0/coverageState").asText())
+                .isEqualTo("LEXICAL_TARGETS_COVERED");
     }
 
     @Test
@@ -463,6 +570,9 @@ class PaperReadToolRegistryTest {
         assertThat(json.at("/evidenceNeeds/0/retrievalStatus").asText()).isEqualTo("found");
         assertThat(json.at("/evidenceNeeds/0/targetCoverage/matchedTargets").toString()).contains("21");
         assertThat(json.at("/evidenceNeeds/0/targetCoverage/missingTargets").toString()).contains("22");
+        assertThat(json.at("/evidenceNeeds/0/coverageState").asText())
+                .isEqualTo("LEXICAL_TARGETS_PARTIAL");
+        assertThat(json.at("/evidenceNeeds/0/contentComplete").asBoolean()).isTrue();
         assertThat(json.has("exhausted")).isFalse();
     }
 
@@ -529,6 +639,19 @@ class PaperReadToolRegistryTest {
         return new PaperSourceCatalog(9, "h".repeat(64), "parser", pageCount,
                 new LinkedHashMap<>(Map.of("src-1", first, "src-2", second)),
                 Map.of("src-1", List.of(firstLocator), "src-2", List.of(secondLocator)));
+    }
+
+    private SourceObject figureSource(String id, String number, String content) {
+        return new SourceObject(id, 9, "h".repeat(64), "parser", 7,
+                SourceContentType.FIGURE, content, null, List.of("Results", "Fig. " + number), "",
+                Map.of("figureNumber", number, "captionOf", "figure:" + number,
+                        "textFormat", "PLAIN_TEXT", "textReliable", "true"));
+    }
+
+    private SourceLocator locator(SourceObject source, int page) {
+        return new SourceLocator("loc-" + source.sourceObjectId(), source.sourceObjectId(), page,
+                "PDF_NORMALIZED", List.of(new NormalizedBoundingBox(.1, .3, .4, .04)),
+                source.rawContent(), EvidenceLocator.Precision.VISUAL_REGION);
     }
 
     private PaperSourceCatalog catalogWithThreeSources() {

@@ -123,6 +123,29 @@ class AgentLoopServiceTest {
     }
 
     @Test
+    void rejectsDecodedControlCharacterAndAcceptsTheCorrectedSubmission() {
+        when(assembler.assemble(any())).thenReturn(context(null));
+        String malformedArguments = "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"$"
+                + "\\" + "u0005" + "psilon$\",\"sourceObjectIds\":[]}]}";
+        String validArguments = "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"修复后的 $"
+                + "\\" + "\\" + "varepsilon$\",\"sourceObjectIds\":[]}]}";
+        gateway.add(decisionTool("bad-submit", "submit_answer", malformedArguments));
+        gateway.add(decisionTool("good-submit", "submit_answer", validArguments));
+
+        AgentTurnResult result = service.execute(input("解释公式"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        assertThat(result.message()).contains("修复后的 $\\varepsilon$")
+                .doesNotContain(Character.toString((char) 0x0005));
+        assertThat(gateway.requests).hasSize(2);
+        assertThat(gateway.requests.get(1).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("U+0005")
+                        && entry.content().contains("合法 JSON 转义"));
+        verify(runtime, times(2)).registerToolCall(eq("run-1"), eq("submit_answer"), anyString(), eq(true), anyString());
+    }
+
+    @Test
     void transientCapabilityProbeFailureDoesNotBlockDirectChat() {
         AiCapabilityService capability = mock(AiCapabilityService.class);
         doThrow(new IllegalStateException("AGENT_MODEL_CAPABILITY_NOT_VERIFIED"))
@@ -229,25 +252,33 @@ class AgentLoopServiceTest {
 
     @Test
     void visuallyReadFormulaMaySupportAnExactDisplayExpression() {
-        PaperSourceCatalog catalog = formulaCatalog();
+        PaperSourceCatalog catalog = formulaAndTextCatalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
                 "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认公式\",\"query\":\"Equation 12\"}]}"));
         gateway.add(decisionTool("m2", "submit_answer", """
+                {"groundingMode":"PAPER","answerBlocks":[
+                {"text":"$$T=R(1-\\\\varepsilon)$$","sourceObjectIds":["src-1"]}]}
+                """));
+        gateway.add(decisionTool("m3", "submit_answer", """
                 {"groundingMode":"PAPER","answerBlocks":[
                 {"text":"$$T=R(1-\\\\varepsilon)$$","sourceObjectIds":["src-formula"]}]}
                 """));
         AgentVisualContent visual = new AgentVisualContent(
                 "src-formula", 3, "FORMULA", "image/png", new byte[]{1}, 200, 80);
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
-                .thenReturn(new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-formula\"}]}",
-                        Set.of("src-formula"), List.of(visual)));
+                .thenReturn(new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-formula\"},{\"sourceObjectId\":\"src-1\"}]}",
+                        Set.of("src-formula", "src-1"), List.of(visual)));
 
         AgentTurnResult result = service.execute(input("公式（12）是什么？"));
 
         assertThat(result.message()).isEqualTo("$$T=R(1-\\varepsilon)$$");
         assertThat(result.evidence()).singleElement()
                 .satisfies(view -> assertThat(view.contentType()).isEqualTo("FORMULA"));
+        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("src-formula")
+                        && entry.content().contains("不要重新检索"));
     }
 
     @Test
@@ -818,6 +849,7 @@ class AgentLoopServiceTest {
                         && entry.content().contains("\"outcome\":\"new_sources\"")
                         && entry.content().contains("\"outcome\":\"no_match\"")
                         && entry.content().contains("\"recommendedAction\":\"refine_once\"")
+                        && entry.content().contains("\"newDistinctSources\":1")
                         && entry.content().contains("\"noProgress\":false")
                         && entry.content().contains("\"stopRecommended\":false")
                         && entry.content().contains("\"stopScope\":\"individual_need\""));
@@ -1025,6 +1057,16 @@ class AgentLoopServiceTest {
                 EvidenceLocator.Precision.FORMULA_REGION);
         return new PaperSourceCatalog(9, "hash", "parser", 5,
                 Map.of("src-formula", source), Map.of("src-formula", List.of(locator)));
+    }
+
+    private PaperSourceCatalog formulaAndTextCatalog() {
+        PaperSourceCatalog formula = formulaCatalog();
+        PaperSourceCatalog text = catalog();
+        return new PaperSourceCatalog(9, "hash", "parser", 5,
+                Map.of("src-formula", formula.objects().get("src-formula"),
+                        "src-1", text.objects().get("src-1")),
+                Map.of("src-formula", formula.locators().get("src-formula"),
+                        "src-1", text.locators().get("src-1")));
     }
 
     private PaperSourceCatalog figureCatalog() {

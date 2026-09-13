@@ -16,10 +16,11 @@ import java.util.regex.Pattern;
 @Component
 public class PaperSemanticSpanBuilder {
 
+    private static final FigureCaptionClassifier FIGURE_CAPTIONS = new FigureCaptionClassifier();
     private static final int MAX_BLOCKS_PER_SPAN = 12;
     private static final int MAX_CHARACTERS_PER_SPAN = 1_600;
-    private static final Pattern CAPTION = Pattern.compile(
-            "^(?:fig(?:ure)?\\.?|table)\\s*[\\dIVX]+[.:]\\s+.*",
+    private static final Pattern TABLE_CAPTION = Pattern.compile(
+            "^table\\s*[\\dIVX]+[.:]\\s+.*",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern FIGURE_REFERENCE_SENTENCE = Pattern.compile(
             "^fig(?:ure)?\\.?\\s*[\\dIVX]+\\s+(?:shows|exhibits|illustrates|depicts|presents|compares|demonstrates|plots|provides)\\b.*",
@@ -42,9 +43,7 @@ public class PaperSemanticSpanBuilder {
     public List<PaperSemanticSpan> build(PaperLayoutArtifact artifact) {
         if (artifact == null) throw new IllegalArgumentException("layout artifact is required");
         List<DocumentBlock> ordered = artifact.blocks().stream()
-                .filter(block -> block != null && !content(block).isBlank())
-                .filter(block -> !isPageDecoration(block))
-                .filter(this::isMeaningfulBlock)
+                .filter(this::isEvidenceEligible)
                 .sorted(Comparator.comparingInt(DocumentBlock::readingOrder))
                 .toList();
         List<PaperSemanticSpan> result = new ArrayList<>();
@@ -52,7 +51,7 @@ public class PaperSemanticSpanBuilder {
         int currentPage = -1;
         int pageOrdinal = 0;
         for (DocumentBlock block : ordered) {
-            DocumentBlockRole role = effectiveRole(block);
+            DocumentBlockRole role = effectiveRole(block, artifact.blocks());
             if (block.page() != currentPage) {
                 if (current != null && canContinueAcrossPage(current, block, role)) {
                     current.add(block, content(block));
@@ -126,11 +125,17 @@ public class PaperSemanticSpanBuilder {
     }
 
     public DocumentBlockRole effectiveRole(DocumentBlock block) {
+        return effectiveRole(block, List.of(block));
+    }
+
+    private DocumentBlockRole effectiveRole(DocumentBlock block,
+                                            List<DocumentBlock> contextBlocks) {
         String text = content(block);
         if (SUBHEADING.matcher(text).matches()) return DocumentBlockRole.HEADING;
-        if (block.role() == DocumentBlockRole.CAPTION
-                && FIGURE_REFERENCE_SENTENCE.matcher(text).matches()) return DocumentBlockRole.BODY;
-        if (CAPTION.matcher(text).matches()) return DocumentBlockRole.CAPTION;
+        if (FIGURE_CAPTIONS.isDiscussion(block, contextBlocks)) return DocumentBlockRole.BODY;
+        if (FIGURE_CAPTIONS.caption(block, contextBlocks).isPresent()
+                || FIGURE_CAPTIONS.isCaptionContinuation(block, contextBlocks)
+                || TABLE_CAPTION.matcher(text).matches()) return DocumentBlockRole.CAPTION;
         if (block.role() != DocumentBlockRole.FORMULA) return block.role();
         if (inReferences(block)) return DocumentBlockRole.REFERENCE;
         boolean structuredMath = block.latex() != null && !block.latex().isBlank();
@@ -158,6 +163,11 @@ public class PaperSemanticSpanBuilder {
         // “tot”) is not a standalone semantic span and must not become evidence.
         if (block.mathProfile().signalCount() > 0 && !naturalLanguageLike(text)) return false;
         return true;
+    }
+
+    boolean isEvidenceEligible(DocumentBlock block) {
+        return block != null && !content(block).isBlank()
+                && !isPageDecoration(block) && isMeaningfulBlock(block);
     }
 
     private boolean hasReadableToken(String text) {

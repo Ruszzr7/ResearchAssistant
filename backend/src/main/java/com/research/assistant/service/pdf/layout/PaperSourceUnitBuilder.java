@@ -12,10 +12,10 @@ import java.util.regex.Pattern;
 /** Lightweight same-page grouping for formula families, algorithms and visuals. */
 public class PaperSourceUnitBuilder {
 
+    private static final FigureCaptionClassifier FIGURE_CAPTIONS = new FigureCaptionClassifier();
     private static final int MAX_CAPTION_BLOCKS = 6;
     private static final double COLUMN_BOUNDARY = .5;
     private static final double COLUMN_TOLERANCE = .012;
-    private static final double MAX_CAPTION_LINE_GAP = .014;
     private static final Pattern FORMULA_MEMBER = Pattern.compile("^(\\d{1,4})([a-z])$", Pattern.CASE_INSENSITIVE);
     private static final Pattern ALGORITHM = Pattern.compile(
             "(?i)^\\s*(algorithm|alg\\.)\\s*(\\d+[a-z]?)\\b.*");
@@ -33,10 +33,6 @@ public class PaperSourceUnitBuilder {
     private static final Pattern VISUAL_REFERENCE = Pattern.compile(
             "(?i)^\\s*(?:in\\s+)?(?:fig(?:ure)?\\.?|table)\\s*[\\dIVX]+[a-z]?\\s+"
                     + "(?:shows|illustrates|depicts|presents|compares|plots|summarizes|lists)\\b.*");
-    private static final Pattern MULTI_FIGURE_REFERENCE = Pattern.compile(
-            "(?i)^\\s*fig(?:ure)?\\.?\\s*[\\dIVX]+[a-z]?\\s+and\\s+"
-                    + "fig(?:ure)?\\.?\\s*[\\dIVX]+[a-z]?\\s*,?\\s*"
-                    + "(?:respectively|shows|illustrates|depicts|presents|compares|plots)\\b.*");
     private static final Pattern FAMILY_LABEL = Pattern.compile(
             "(?i)^Equations \\(\\d+([a-z])–\\d+([a-z])\\)$");
 
@@ -355,11 +351,13 @@ public class PaperSourceUnitBuilder {
         Map<String, PaperSourceUnit> distinct = new LinkedHashMap<>();
         for (int index = 0; index < ordered.size(); index++) {
             DocumentBlock caption = ordered.get(index);
-            if (isVisualReference(caption.text())) continue;
             Matcher matcher = CAPTION.matcher(caption.text());
             if (!matcher.matches()) continue;
-            PaperSourceUnit.Kind kind = matcher.group(1).toLowerCase(Locale.ROOT).startsWith("table")
-                    ? PaperSourceUnit.Kind.TABLE : PaperSourceUnit.Kind.FIGURE;
+            boolean table = matcher.group(1).toLowerCase(Locale.ROOT).startsWith("table");
+            FigureCaptionClassifier.Caption figureCaption = table ? null
+                    : FIGURE_CAPTIONS.caption(caption, ordered).orElse(null);
+            if (!table && figureCaption == null) continue;
+            PaperSourceUnit.Kind kind = table ? PaperSourceUnit.Kind.TABLE : PaperSourceUnit.Kind.FIGURE;
             DocumentBlockRole visualRole = kind == PaperSourceUnit.Kind.TABLE
                     ? DocumentBlockRole.TABLE : DocumentBlockRole.FIGURE;
             List<DocumentBlock> blocks = new ArrayList<>();
@@ -375,11 +373,14 @@ public class PaperSourceUnitBuilder {
                 adjacentExplanation(ordered, index, caption).ifPresent(blocks::add);
             }
             blocks = blocks.stream().distinct().sorted(Comparator.comparingInt(DocumentBlock::readingOrder)).toList();
-            PaperSourceUnit candidate = unit(kind.name().toLowerCase(Locale.ROOT) + ":" + matcher.group(2)
+            String number = figureCaption == null ? matcher.group(2) : figureCaption.number();
+            String label = figureCaption == null
+                    ? matcher.group(1) + " " + number : figureCaption.label();
+            PaperSourceUnit candidate = unit(kind.name().toLowerCase(Locale.ROOT) + ":" + number
                             + ":p" + caption.page(), kind,
-                    matcher.group(1) + " " + matcher.group(2), blocks);
+                    label, blocks);
             String visualKey = kind == PaperSourceUnit.Kind.FIGURE
-                    ? kind.name() + ":" + matcher.group(2).toLowerCase(Locale.ROOT)
+                    ? kind.name() + ":" + number.toLowerCase(Locale.ROOT)
                     : candidate.id();
             distinct.merge(visualKey, candidate, this::strongerVisualSource);
         }
@@ -392,8 +393,8 @@ public class PaperSourceUnitBuilder {
 
     private int visualSourceScore(PaperSourceUnit unit) {
         DocumentBlock caption = unit.blocks().stream()
-                .filter(block -> CAPTION.matcher(block.text()).matches()
-                        && !isVisualReference(block.text()))
+                .filter(block -> FIGURE_CAPTIONS.caption(block, unit.blocks()).isPresent()
+                        || block.text().toLowerCase(Locale.ROOT).stripLeading().startsWith("table "))
                 .findFirst().orElse(unit.blocks().get(0));
         int score = caption.role() == DocumentBlockRole.CAPTION ? 4 : 0;
         score += (int) unit.blocks().stream()
@@ -401,11 +402,6 @@ public class PaperSourceUnitBuilder {
                         || block.role() == DocumentBlockRole.TABLE).count() * 3;
         return score + Math.min(3, unit.blocks().size())
                 + Math.min(2, caption.text().length() / 80);
-    }
-
-    private boolean isVisualReference(String text) {
-        return VISUAL_REFERENCE.matcher(text == null ? "" : text).matches()
-                || MULTI_FIGURE_REFERENCE.matcher(text == null ? "" : text).matches();
     }
 
     /**
@@ -420,27 +416,15 @@ public class PaperSourceUnitBuilder {
                                                     DocumentBlock caption) {
         List<DocumentBlock> result = new ArrayList<>();
         result.add(caption);
-        DocumentBlock previous = caption;
         for (int next = captionIndex + 1;
              next < ordered.size() && result.size() < MAX_CAPTION_BLOCKS;
              next++) {
             DocumentBlock candidate = ordered.get(next);
             if (candidate.page() != caption.page()
-                    || !compatibleLane(caption, candidate)
-                    || CAPTION.matcher(candidate.text()).matches()
-                    || isVisualReference(candidate.text())
-                    || !captionContinuationRole(candidate.role())
-                    || verticalGap(previous.bbox(), candidate.bbox()) > MAX_CAPTION_LINE_GAP) break;
+                    || !FIGURE_CAPTIONS.isCaptionContinuation(candidate, ordered)) break;
             result.add(candidate);
-            previous = candidate;
         }
         return List.copyOf(result);
-    }
-
-    private boolean captionContinuationRole(DocumentBlockRole role) {
-        return role == DocumentBlockRole.CAPTION
-                || role == DocumentBlockRole.BODY
-                || role == DocumentBlockRole.FORMULA;
     }
 
     private java.util.Optional<DocumentBlock> nearestVisual(List<DocumentBlock> ordered,

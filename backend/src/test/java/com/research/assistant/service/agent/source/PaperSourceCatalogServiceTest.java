@@ -73,6 +73,27 @@ class PaperSourceCatalogServiceTest {
     }
 
     @Test
+    void prioritizesTheCanonicalFigureNumberOverCaptionWordOverlap() {
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(12L, "g".repeat(64), "parser-v1", .95,
+                Instant.parse("2026-01-01T00:00:00Z"), 1, List.of(
+                new DocumentBlock("caption-4", 1, box(.08, .30, .40, .03), DocumentBlockRole.CAPTION,
+                        1, List.of("Results"), "Fig. 4. Ergodic rate versus velocity.", null, null, .98),
+                new DocumentBlock("caption-8", 1, box(.52, .30, .40, .03), DocumentBlockRole.CAPTION,
+                        2, List.of("Results"), "Fig. 8. Ergodic sum-rate versus vehicle velocity.", null, null, .98)));
+
+        PaperSourceCatalog catalog = service.build(artifact);
+        List<RetrievalHit> hits = service.search(catalog,
+                new PaperSearchRequest("Fig. 8 ergodic sum-rate versus vehicle velocity",
+                        Set.of(SourceContentType.FIGURE), 1, 1, 10));
+
+        assertThat(hits).isNotEmpty();
+        SourceObject first = catalog.requireObject(hits.get(0).sourceObjectId());
+        assertThat(first.contentType()).isEqualTo(SourceContentType.FIGURE);
+        assertThat(first.provenance().get("figureNumber")).isEqualTo("8");
+        assertThat(hits.get(0).retrievalRoutes()).contains("FIGURE_NUMBER");
+    }
+
+    @Test
     void exposesMergedParagraphAsOneSourceWithBlockLevelLocators() {
         PaperLayoutArtifact artifact = new PaperLayoutArtifact(7L, "a".repeat(64), "parser-v1", .95,
                 Instant.parse("2026-01-01T00:00:00Z"), 1, List.of(
@@ -148,6 +169,46 @@ class PaperSourceCatalogServiceTest {
                     assertThat(locator.focusRects()).singleElement()
                             .satisfies(box -> assertThat(box.height()).isGreaterThan(.20));
                 });
+    }
+
+    @Test
+    void linksConfirmedCaptionAndDiscussionWithoutTurningDiscussionIntoFigure() {
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(7L, "r".repeat(64), "parser-v1", .95,
+                Instant.parse("2026-01-01T00:00:00Z"), 1, List.of(
+                new DocumentBlock("caption", 1, box(.08, .40, .40, .03), DocumentBlockRole.CAPTION,
+                        1, List.of("Results"), "Fig. 4. Effective throughput versus user count.",
+                        null, null, .98),
+                new DocumentBlock("discussion", 1, box(.08, .52, .40, .08), DocumentBlockRole.BODY,
+                        2, List.of("Results"),
+                        "Fig. 4 shows that RSMA remains stable as the user count increases.",
+                        null, null, .98),
+                new DocumentBlock("other", 1, box(.52, .52, .40, .08), DocumentBlockRole.BODY,
+                        3, List.of("Results"),
+                        "Figure 9 is discussed only as future work and has no local caption.",
+                        null, null, .98)));
+
+        PaperSourceCatalog catalog = service.build(artifact);
+        SourceObject figure = catalog.objects().values().stream()
+                .filter(object -> object.contentType() == SourceContentType.FIGURE)
+                .findFirst().orElseThrow();
+        SourceObject discussion = catalog.objects().values().stream()
+                .filter(object -> object.contentType() == SourceContentType.TEXT)
+                .filter(object -> object.rawContent().contains("RSMA remains stable"))
+                .findFirst().orElseThrow();
+        SourceObject unrelated = catalog.objects().values().stream()
+                .filter(object -> object.rawContent().contains("future work"))
+                .findFirst().orElseThrow();
+
+        assertThat(figure.provenance())
+                .containsEntry("figureNumber", "4")
+                .containsEntry("captionOf", "figure:4")
+                .containsEntry("discussedBy", discussion.sourceObjectId());
+        assertThat(discussion.provenance())
+                .containsEntry("discussesFigure", figure.sourceObjectId())
+                .containsEntry("discussesFigureNumbers", "4");
+        assertThat(unrelated.provenance()).doesNotContainKeys(
+                "discussesFigure", "discussesFigureNumbers");
+        assertThat(discussion.contentType()).isEqualTo(SourceContentType.TEXT);
     }
 
     @Test
