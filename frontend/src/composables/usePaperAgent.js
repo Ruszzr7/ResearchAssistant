@@ -65,6 +65,7 @@ export function usePaperAgent() {
         }
         if (current?.status === 'FAILED') {
           finalStatus = current.status
+          if (view.result?.answer && view.result?.evidence?.length) return view
           const terminalError = new Error(current?.message || '论文助手执行失败')
           terminalError.agentTerminal = true
           terminalError.agentRunStatus = current.status

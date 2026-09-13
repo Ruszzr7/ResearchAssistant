@@ -443,6 +443,34 @@ class AgentLoopServiceTest {
     }
 
     @Test
+    void modelCanSubmitAGroundedAnswerAndPageActionTogether() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog, Set.of("src-1")));
+        ActionTarget target = new PaperActionResolver().resolve(catalog, "src-1");
+        when(actionResolver.resolve(catalog, "src-1")).thenReturn(target);
+        when(ticketService.issue(eq("run-1"), any(), eq(PaperActionType.HIGHLIGHT), eq(target),
+                ArgumentMatchers.isNull(), eq("#ffee58")))
+                .thenReturn(new ActionTicketService.IssuedActionTicket(
+                        "ticket", java.time.Instant.now().plusSeconds(60), null));
+        gateway.add(decisionTool("m1", "paper_action", """
+                {"actionType":"HIGHLIGHT","sourceObjectId":"src-1","color":"#ffee58",
+                 "answer":{"groundingMode":"PAPER","answerBlocks":[
+                   {"text":"论文报告达到 95% accuracy。","sourceObjectIds":["src-1"]}]}}
+                """));
+
+        AgentTurnResult result = service.execute(input("准确率是多少？并高亮对应原文"));
+
+        assertThat(result.status()).isEqualTo("WAITING_CLIENT");
+        assertThat(result.message()).isEqualTo("论文报告达到 95% accuracy。");
+        assertThat(result.citations()).singleElement()
+                .satisfies(citation -> assertThat(citation.sourceObjectId()).isEqualTo("src-1"));
+        assertThat(result.evidence()).singleElement()
+                .satisfies(evidence -> assertThat(evidence.sourceObjectId()).isEqualTo("src-1"));
+        assertThat(result.pendingActions()).singleElement()
+                .satisfies(action -> assertThat(action.target()).isEqualTo(target));
+    }
+
+    @Test
     void modelCanBatchOneHighlightAcrossExplicitSourcesWithIndependentTickets() {
         PaperSourceCatalog base = catalog();
         SourceObject second = new SourceObject("src-2", 9, "hash", "parser", 1, SourceContentType.TEXT,

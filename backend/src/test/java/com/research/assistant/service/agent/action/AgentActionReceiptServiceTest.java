@@ -2,6 +2,8 @@ package com.research.assistant.service.agent.action;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.dto.agent.AgentActionReceiptRequest;
+import com.research.assistant.dto.agent.AgentEvidenceView;
+import com.research.assistant.dto.agent.AgentTurnResult;
 import com.research.assistant.entity.AgentRunRecord;
 import com.research.assistant.entity.AgentToolCallRecord;
 import com.research.assistant.entity.AgentTurnRecord;
@@ -16,6 +18,7 @@ import com.research.assistant.service.agent.runtime.AgentToolCallStatus;
 import com.research.assistant.service.agent.source.PaperSourceCatalog;
 import com.research.assistant.service.agent.source.PaperSourceCatalogService;
 import com.research.assistant.service.agent.source.SourceContentType;
+import com.research.assistant.service.agent.source.CitationBinding;
 import com.research.assistant.service.agent.source.SourceLocator;
 import com.research.assistant.service.agent.source.SourceObject;
 import com.research.assistant.service.pdf.layout.EvidenceLocator;
@@ -122,6 +125,11 @@ class AgentActionReceiptServiceTest {
                 .when(runtime).transitionToolCall(eq("tool-1"), eq(AgentToolCallStatus.COMPLETED), anyString(),
                         org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull());
         AgentRunRecord run = new AgentRunRecord(); run.setRunId("run-1"); run.setStatus("WAITING_CLIENT");
+        run.setResultJson(json.writeValueAsString(new AgentTurnResult("turn-1", "run-1", "WAITING_CLIENT",
+                "论文报告达到 95% accuracy。",
+                List.of(new CitationBinding("cite-1", 1, 0, 24, "src", "target", List.of("loc"))),
+                List.of(new AgentEvidenceView(1, "src", 9L, "target", catalog().locators().get("src"))),
+                List.of())));
         when(runtime.getRun("run-1")).thenReturn(run);
         AgentTurnRecord turn = new AgentTurnRecord(); turn.setId(3L); turn.setTurnId("turn-1"); turn.setSessionId(5L);
         when(runtime.getTurnForRun("run-1")).thenReturn(turn);
@@ -139,6 +147,7 @@ class AgentActionReceiptServiceTest {
         var duplicate = service.accept(receipt);
 
         assertThat(first.annotationId()).isEqualTo(77L);
+        assertThat(first.message()).isEqualTo("已完成高亮。");
         assertThat(duplicate.annotationId()).isEqualTo(77L);
         ArgumentCaptor<PaperAnnotation> annotationCaptor = ArgumentCaptor.forClass(PaperAnnotation.class);
         verify(annotations, times(1)).insert(annotationCaptor.capture());
@@ -150,6 +159,11 @@ class AgentActionReceiptServiceTest {
         assertThat(persistedCoordinates.path("quads").get(0).path("x2").asDouble()).isBetween(.24999, .25001);
         assertThat(persistedCoordinates.path("quads").get(0).path("y1").asDouble()).isBetween(.22999, .23001);
         assertThat(persistedCoordinates.path("quads").get(0).path("y3").asDouble()).isBetween(.20999, .21001);
+        ArgumentCaptor<ResearchMessage> messageCaptor = ArgumentCaptor.forClass(ResearchMessage.class);
+        verify(messages).insert(messageCaptor.capture());
+        assertThat(messageCaptor.getValue().getMessageType()).isEqualTo("CHAT");
+        assertThat(messageCaptor.getValue().getContent()).contains("论文报告达到 95% accuracy。", "已完成高亮");
+        assertThat(messageCaptor.getValue().getEvidenceJson()).contains("src");
     }
 
     private PaperSourceCatalog catalog() {

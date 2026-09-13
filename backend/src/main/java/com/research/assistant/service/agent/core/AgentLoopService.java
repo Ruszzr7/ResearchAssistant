@@ -292,8 +292,25 @@ public class AgentLoopService {
                 return toolResult(resultJson);
             }
             if (actionSkillTool.supports(request.name())) {
+                JsonNode actionSubmission = objectMapper.readTree(request.argumentsJson());
+                GroundedAnswer groundedActionAnswer = null;
+                JsonNode submittedAnswer = actionSubmission.path("answer");
+                if (submittedAnswer.isObject()) {
+                    groundedActionAnswer = parseAndGround(objectMapper.writeValueAsString(submittedAnswer),
+                            context, readSources, visuallyReadSources, evidenceReadState.requiredFigureSourceIds);
+                }
                 List<PaperActionSkillTool.PreparedAction> preparedActions = actionSkillTool.prepare(
                         context.sourceCatalog(), readSources, request.argumentsJson(), objectMapper);
+                if (groundedActionAnswer != null) {
+                    Set<String> answerSourceIds = groundedActionAnswer.bindings().stream()
+                            .map(com.research.assistant.service.agent.source.CitationBinding::sourceObjectId)
+                            .collect(java.util.stream.Collectors.toSet());
+                    boolean targetsMatchAnswer = preparedActions.stream()
+                            .allMatch(action -> answerSourceIds.contains(action.target().sourceObjectId()));
+                    if (!targetsMatchAnswer) {
+                        throw new IllegalArgumentException("复合请求的回答必须引用每个页面操作目标来源");
+                    }
+                }
                 List<AgentPendingAction> actions = new ArrayList<>();
                 for (int targetIndex = 0; targetIndex < preparedActions.size(); targetIndex++) {
                     PaperActionSkillTool.PreparedAction preparedAction = preparedActions.get(targetIndex);
@@ -314,8 +331,13 @@ public class AgentLoopService {
                             preparedAction.target(), preparedAction.content(), preparedAction.color(),
                             issued.ticket(), issued.expiresAt()));
                 }
+                List<AgentEvidenceView> actionEvidence = groundedActionAnswer == null
+                        ? List.of() : evidenceViews(groundedActionAnswer, context);
                 AgentTurnResult waiting = new AgentTurnResult(turn.getTurnId(), runId,
-                        AgentRunStatus.WAITING_CLIENT.name(), "正在执行页面操作。", List.of(), List.of(), actions);
+                        AgentRunStatus.WAITING_CLIENT.name(), groundedActionAnswer == null
+                        ? "正在执行页面操作。" : groundedActionAnswer.answer(),
+                        groundedActionAnswer == null ? List.of() : groundedActionAnswer.bindings(),
+                        actionEvidence, actions);
                 String resultJson = writeResult(waiting);
                 if (!transitionRunBeforePersistingResult(runId, AgentRunStatus.WAITING_CLIENT, resultJson)) {
                     failLateToolCall(call);

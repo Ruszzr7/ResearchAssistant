@@ -245,6 +245,25 @@ describe('usePaperAgent', () => {
     wrapper.unmount()
   })
 
+  it('returns a validated answer when only its page action failed', async () => {
+    mocks.getAgentRun.mockResolvedValueOnce({
+      turnId: 'turn-1', runId: 'failed-action', status: 'FAILED',
+      message: '已校验的论文回答\n\n页面操作失败：无法定位',
+      citations: [{ answerStart: 0, answerEnd: 8, sourceObjectId: 'src-1' }],
+      evidence: [{ sourceObjectId: 'src-1', paperId: 7, quote: '原文', locators: [] }],
+      pendingActions: [],
+    })
+    let agent
+    const wrapper = mount({ setup() { agent = usePaperAgent(); return () => h('div') } })
+
+    const result = await agent.watchRun('failed-action')
+
+    expect(result.status).toBe('FAILED')
+    expect(result.result.answer).toContain('已校验的论文回答')
+    expect(agent.error.value).toBe('')
+    wrapper.unmount()
+  })
+
   it('returns a cancelled terminal result without treating it as a polling error', async () => {
     mocks.executeAgentTurn.mockResolvedValueOnce({
       turnId: 'turn-1', runId: 'run-1', status: 'RUNNING', message: null,

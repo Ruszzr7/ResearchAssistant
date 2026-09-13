@@ -160,18 +160,27 @@ public class AgentActionReceiptService {
 
     private void completeRun(String runId, String text) {
         AgentRunRecord run = runtimeService.getRun(runId);
+        AgentTurnResult pending = pendingResult(run);
+        boolean composite = hasPendingAnswer(pending);
         if (AgentRunStatus.WAITING_CLIENT.name().equals(run.getStatus())) {
             runtimeService.transitionRun(runId, AgentRunStatus.RUNNING, null, null, null);
         }
         try {
             AgentTurnRecord turn = runtimeService.getTurnForRun(runId);
+            String finalText = composite ? merge(pending.message(), text) : text;
             AgentTurnResult result = new AgentTurnResult(turn.getTurnId(), runId, AgentRunStatus.COMPLETED.name(),
-                    text, List.of(), List.of());
+                    finalText, composite ? pending.citations() : List.of(),
+                    composite ? pending.evidence() : List.of());
             String resultJson = objectMapper.writeValueAsString(result);
             ResearchMessage message = new ResearchMessage();
             message.setSessionId(turn.getSessionId()); message.setMessageKey("agent-assistant-" + UUID.randomUUID());
-            message.setRole("ASSISTANT"); message.setMessageType("ACTION_RECEIPT"); message.setMessageStatus("FINAL");
-            message.setContent(text); message.setRunId(runId); message.setAgentTurnId(turn.getId());
+            message.setRole("ASSISTANT"); message.setMessageType(composite ? "CHAT" : "ACTION_RECEIPT");
+            message.setMessageStatus("FINAL"); message.setContent(finalText); message.setRunId(runId);
+            message.setAgentTurnId(turn.getId());
+            if (composite) {
+                message.setEvidenceJson(resultJson);
+                message.setEvidenceSchemaVersion("ground-evidence-v2");
+            }
             messageMapper.insert(message);
             runtimeService.bindFinalMessage(turn.getTurnId(), message.getMessageKey());
             runtimeService.transitionRun(runId, AgentRunStatus.COMPLETED, resultJson, null, null);
@@ -182,10 +191,51 @@ public class AgentActionReceiptService {
 
     private void failRun(String runId, String error) {
         AgentRunRecord run = runtimeService.getRun(runId);
+        AgentTurnResult pending = pendingResult(run);
+        boolean composite = hasPendingAnswer(pending);
         if (AgentRunStatus.WAITING_CLIENT.name().equals(run.getStatus())) {
             runtimeService.transitionRun(runId, AgentRunStatus.RUNNING, null, null, null);
-            runtimeService.transitionRun(runId, AgentRunStatus.FAILED, null, "CLIENT_ACTION_FAILED", error);
+            if (!composite) {
+                runtimeService.transitionRun(runId, AgentRunStatus.FAILED, null, "CLIENT_ACTION_FAILED", error);
+                return;
+            }
+            try {
+                AgentTurnRecord turn = runtimeService.getTurnForRun(runId);
+                String finalText = merge(pending.message(), "页面操作失败：" + error);
+                AgentTurnResult result = new AgentTurnResult(turn.getTurnId(), runId,
+                        AgentRunStatus.FAILED.name(), finalText, pending.citations(), pending.evidence());
+                String resultJson = objectMapper.writeValueAsString(result);
+                ResearchMessage message = new ResearchMessage();
+                message.setSessionId(turn.getSessionId()); message.setMessageKey("agent-assistant-" + UUID.randomUUID());
+                message.setRole("ASSISTANT"); message.setMessageType("CHAT"); message.setMessageStatus("FINAL");
+                message.setContent(finalText); message.setRunId(runId); message.setAgentTurnId(turn.getId());
+                message.setEvidenceJson(resultJson); message.setEvidenceSchemaVersion("ground-evidence-v2");
+                messageMapper.insert(message);
+                runtimeService.bindFinalMessage(turn.getTurnId(), message.getMessageKey());
+                runtimeService.transitionRun(runId, AgentRunStatus.FAILED, resultJson,
+                        "CLIENT_ACTION_FAILED", error);
+            } catch (Exception serializationError) {
+                throw new IllegalStateException("failed to retain composite answer", serializationError);
+            }
         }
+    }
+
+    private AgentTurnResult pendingResult(AgentRunRecord run) {
+        if (run == null || run.getResultJson() == null || run.getResultJson().isBlank()) return null;
+        try {
+            return objectMapper.readValue(run.getResultJson(), AgentTurnResult.class);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static boolean hasPendingAnswer(AgentTurnResult result) {
+        return result != null && result.message() != null && !result.message().isBlank()
+                && !"正在执行页面操作。".equals(result.message());
+    }
+
+    private static String merge(String answer, String actionStatus) {
+        return answer + "\n\n" + actionStatus;
     }
 
     private AgentActionReceiptResult completedResult(ActionTicketPayload payload, AgentToolCallRecord call) {

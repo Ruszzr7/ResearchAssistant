@@ -5,6 +5,7 @@ import com.research.assistant.dto.agent.AgentTurnResult;
 import com.research.assistant.entity.AgentRunRecord;
 import com.research.assistant.entity.AgentToolCallRecord;
 import com.research.assistant.entity.AgentTurnRecord;
+import com.research.assistant.entity.ResearchMessage;
 import com.research.assistant.mapper.AgentToolCallMapper;
 import com.research.assistant.mapper.ResearchMessageMapper;
 import com.research.assistant.service.agent.runtime.AgentRunStatus;
@@ -80,6 +81,36 @@ class AgentRunCancellationServiceTest {
 
         assertThat(service.cancel("run-2")).isSameAs(stored);
         verify(submission, org.mockito.Mockito.never()).cancelExecution(anyString());
+    }
+
+    @Test
+    void cancellingCompositeActionKeepsTheValidatedAnswer() throws Exception {
+        AgentRuntimeService runtime = mock(AgentRuntimeService.class);
+        AgentTurnSubmissionService submission = mock(AgentTurnSubmissionService.class);
+        AgentToolCallMapper tools = mock(AgentToolCallMapper.class);
+        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
+        AgentLoopService loop = mock(AgentLoopService.class);
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        AgentRunRecord run = run("run-3", "WAITING_CLIENT");
+        run.setResultJson(json.writeValueAsString(new AgentTurnResult(
+                "turn-1", "run-3", "WAITING_CLIENT", "已校验的论文回答", List.of(), List.of())));
+        when(runtime.getRun("run-3")).thenReturn(run);
+        when(runtime.getTurnForRun("run-3")).thenReturn(turn());
+        when(runtime.transitionRun(eq("run-3"), eq(AgentRunStatus.CANCELLED), anyString(),
+                eq("USER_CANCELLED"), eq("用户取消回答"))).thenReturn(run);
+        when(tools.selectByRunId("run-3")).thenReturn(List.of());
+        when(messages.selectByMessageKey(7L, "agent-cancelled-run-3")).thenReturn(null);
+
+        AgentRunCancellationService service = new AgentRunCancellationService(
+                runtime, submission, tools, messages, json, loop);
+
+        AgentTurnResult result = service.cancel("run-3");
+
+        assertThat(result.message()).isEqualTo("已校验的论文回答\n\n页面操作已取消。");
+        verify(messages).insert(org.mockito.ArgumentMatchers.<ResearchMessage>argThat(message ->
+                "CHAT".equals(message.getMessageType())
+                        && message.getContent().contains("已校验的论文回答")
+                        && message.getEvidenceJson() != null));
     }
 
     private AgentRunRecord run(String id, String status) {

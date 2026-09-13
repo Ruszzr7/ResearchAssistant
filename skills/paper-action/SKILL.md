@@ -5,7 +5,7 @@ description: 当用户明确要求在论文可信区域执行跳转、高亮、�
 
 # 页面操作
 
-仅当用户明确要求在论文页面中修改或跳转时，激活本 Skill。用户自行点击答案引用属于前端证据跳转，不需要激活本 Skill。将明确的操作请求转换为一次结构化 `paper_action` 调用，提供 `actionType` 和可信的 `sourceObjectId`，仅在需要时提供 `content` 或 `color`。
+仅当用户明确要求在论文页面中修改或跳转时，激活本 Skill。用户自行点击答案引用属于前端证据跳转，不需要激活本 Skill。将明确的操作请求转换为一次结构化 `paper_action` 调用，提供 `actionType` 和可信的 `sourceObjectId`，仅在需要时提供 `content` 或 `color`。如果用户同时提出问题，先读取足以回答和定位的证据，再在同一次 `paper_action` 中填写 `answer`；其结构与 `submit_answer` 相同，回答块必须引用操作目标来源。纯操作请求不要填写 `answer`。
 
 使用当前选区或先前证据结果中的 `sourceObjectId`。画像里的候选 ID 在未经证据 Skill 读取前不是可执行目标；目标内容明确但没有可信 ID 时，先激活 `paper-evidence`。绝不要编造 ID 或坐标。本 Skill 不负责检索内容，也不创建引用。如果目标或操作存在实质歧义，应先请求澄清，再调用工具。
 

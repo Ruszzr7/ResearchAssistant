@@ -369,3 +369,17 @@
 - 定向测试 `AgentLoopServiceTest#visuallyReadFormulaMaySupportAnExactDisplayExpression` 通过，覆盖“错误绑定正文来源 → 收到已读公式 ID → 使用公式来源重新提交”的路径。
 - 论文 194 同一“公式（40）+图 4”问题真实复测 Run `e9d163e8-396b-4a60-8cbd-bd13e4b660ce` 已 `COMPLETED`：3 次模型调用、3 次工具调用，工具链为 `activate_skill → retrieve_paper_evidence → submit_answer`，公式块绑定 `eq:40:src_6b59edab65f63e9716a984fc`，没有重复检索或提交纠错。本次累计实际输入 15,142 tokens，不代表单次请求输入。
 - 该通用公式提交阻塞已消除；阶段 4.5 的图片证据与当前版本公式主链路可按基本能力目标收敛。论文 197、201 仍是旧 `semantic-v6` 数据，升级到当前版本属于数据刷新，不影响本次代码结论。
+
+## 2026-09-14 阶段 4.6 回答与页面操作复合终态（当前未提交）
+
+- `paper_action` 增加可选的结构化 `answer`，直接复用 `submit_answer` 的 `groundingMode`、答案块、来源和公式校验；纯回答仍由 `submit_answer` 结束，纯操作参数与回执流程保持不变。复合请求要求回答实际引用每个操作目标来源。
+- Run 等待客户端操作时持久化已校验回答、引用和证据；操作成功后合并操作完成状态，失败或用户取消时也保留回答，不再被单独的操作状态覆盖。前端允许显示“回答有效、页面操作失败”的复合结果。
+- 定向测试：`AgentLoopServiceTest`、`AgentActionReceiptServiceTest`、`AgentRunCancellationServiceTest` 共 47 项通过；前端 `usePaperAgent.spec.js` 12 项通过。
+- 论文 194 真实复合请求“解释公式（40）并高亮对应原文”Run `4ec0da07-bd94-40c3-9d35-962aafb88059` 已 `COMPLETED`：`activate_skill → retrieve_paper_evidence → activate_skill → paper_action`，回答和高亮共同绑定 `eq:40:src_6b59edab65f63e9716a984fc`，客户端创建高亮记录 147，最终以一条带 `ground-evidence-v2` 证据的 `CHAT` 保存并附加“已完成高亮”。
+
+## 2026-09-14 阶段 5 API 基础能力复核（当前未提交）
+
+- 现有能力测试已使用极小固定文字、图片和工具回执验证文字通信、工具调用、工具结果后的继续回答、结构化输出和图片输入；原生 PDF 单独作为可选能力，不读取论文或创建业务任务。本阶段无需修改代码。
+- 当前真实配置 `kimi-for-coding` 测试结果为 `VERIFIED`：chat、toolCalling、continuousTools、toolImageContinuation、structured、image 均为 `true`，pdf 为 `false`，有效期至 2026-09-21；PDF 不支持时按既有设计使用结构化文本和局部图片。
+- 使用草稿配置传入明显无效模型名后，当前供应商仍返回能力成功，说明该兼容端点忽略或改写 model 参数，项目无法据此可靠制造“模型不存在”响应；测试前后保存模型仍为 `kimi-for-coding`。论文 15、研究会话 46、Agent turn/run 82 的计数保持不变，仅新增一条按配置签名隔离的能力探测记录。
+- `AiCapabilityServiceTest` 与 `SettingsControllerContractTest` 通过；能力探测不会保存草稿设置，也不承担论文解析或理解质量验收。

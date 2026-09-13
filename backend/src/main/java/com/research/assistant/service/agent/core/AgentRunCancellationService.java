@@ -53,8 +53,13 @@ public class AgentRunCancellationService {
         AgentStateMachine.requireRunTransition(current, AgentRunStatus.CANCELLED);
 
         AgentTurnRecord turn = runtimeService.getTurnForRun(runId);
+        AgentTurnResult pending = pendingResult(run);
+        boolean composite = pending != null && pending.message() != null && !pending.message().isBlank()
+                && !"正在执行页面操作。".equals(pending.message());
         AgentTurnResult cancelled = new AgentTurnResult(turn.getTurnId(), runId,
-                AgentRunStatus.CANCELLED.name(), "已取消回答", List.of(), List.of());
+                AgentRunStatus.CANCELLED.name(), composite
+                ? pending.message() + "\n\n页面操作已取消。" : "已取消回答",
+                composite ? pending.citations() : List.of(), composite ? pending.evidence() : List.of());
         String resultJson = write(cancelled);
         try {
             runtimeService.transitionRun(runId, AgentRunStatus.CANCELLED, resultJson,
@@ -73,7 +78,7 @@ public class AgentRunCancellationService {
         // provider ignores interruption, its late transition will fail the CAS guard.
         submissionService.cancelExecution(runId);
         cancelOutstandingToolCalls(runId);
-        persistCancellationMessage(turn, runId);
+        persistCancellationMessage(turn, runId, cancelled, composite);
         return cancelled;
     }
 
@@ -98,18 +103,23 @@ public class AgentRunCancellationService {
         }
     }
 
-    private void persistCancellationMessage(AgentTurnRecord turn, String runId) {
+    private void persistCancellationMessage(AgentTurnRecord turn, String runId,
+                                            AgentTurnResult result, boolean composite) {
         String messageKey = CANCEL_MESSAGE_KEY_PREFIX + runId;
         if (messageMapper.selectByMessageKey(turn.getSessionId(), messageKey) != null) return;
         ResearchMessage message = new ResearchMessage();
         message.setSessionId(turn.getSessionId());
         message.setMessageKey(messageKey);
         message.setRole("ASSISTANT");
-        message.setMessageType("RUN_STATUS");
+        message.setMessageType(composite ? "CHAT" : "RUN_STATUS");
         message.setMessageStatus("FINAL");
-        message.setContent("已取消回答");
+        message.setContent(result.message());
         message.setRunId(runId);
         message.setAgentTurnId(turn.getId());
+        if (composite) {
+            message.setEvidenceJson(write(result));
+            message.setEvidenceSchemaVersion("ground-evidence-v2");
+        }
         messageMapper.insert(message);
         try {
             runtimeService.bindFinalMessage(turn.getTurnId(), messageKey);
@@ -123,6 +133,16 @@ public class AgentRunCancellationService {
             return objectMapper.copy().findAndRegisterModules().writeValueAsString(result);
         } catch (Exception error) {
             throw new IllegalStateException("取消结果序列化失败", error);
+        }
+    }
+
+    private AgentTurnResult pendingResult(AgentRunRecord run) {
+        if (run.getResultJson() == null || run.getResultJson().isBlank()) return null;
+        try {
+            return objectMapper.copy().findAndRegisterModules()
+                    .readValue(run.getResultJson(), AgentTurnResult.class);
+        } catch (Exception ignored) {
+            return null;
         }
     }
 }
