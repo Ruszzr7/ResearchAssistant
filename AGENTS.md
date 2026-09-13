@@ -32,13 +32,13 @@ Spring Boot 负责业务编排、持久化和异步任务；LangChain4j 接入 O
 ```text
 frontend/  Vue 页面、组件、API 与 composables
 backend/   Controller、Service、Skill、Workflow、Mapper、Entity
-scripts/   Windows / Bash 启动与环境检查脚本
-docs/      规格、进度、知识总结、技术债
+scripts/   Windows 启动与环境检查脚本
+docs/      产品规格与专项验收资料
 ```
 
 ## 开发流程
 
-Plan →  Code → Test → Review。每个实质功能完成后更新 `docs/progress.md`；稳定的技术结论写入 `docs/knowledge.md`。Git commit、分支和推送前必须先征得用户同意。
+Plan → Code → Test → Review。每个实质功能完成后同步更新相关规格或验收文档。Git commit、分支和推送前必须先征得用户同意。
 
 ## 常用命令
 

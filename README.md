@@ -89,5 +89,3 @@ cd frontend && npm.cmd run build
 - [PDF 内容验收](docs/pdf-content-pipeline-acceptance.md)：搜索、选择、公式和证据回链标准。
 - [部署与数据安全](docs/deployment.md)：Docker、备份和健康检查。
 - [数据库迁移](docs/migrations.md)：Flyway 版本说明。
-- [知识总结](docs/knowledge.md)：稳定设计决策和排查经验。
-- [开发进度](docs/progress.md)：当前状态、里程碑和下一步。
