@@ -13,9 +13,11 @@ const mocks = vi.hoisted(() => ({
   prepareChatAttachment: vi.fn(),
   state: {
     running: { __v_isRef: true, value: false },
+    progress: { __v_isRef: true, value: { status: '', phase: 'IDLE', label: '' } },
     error: { __v_isRef: true, value: '' },
     run: vi.fn(),
     watchRun: vi.fn(),
+    cancelRun: vi.fn(),
   },
 }))
 
@@ -74,9 +76,11 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     mocks.startPaperUnderstanding.mockReset().mockResolvedValue({ taskId: 'memory-task-1' })
     mocks.prepareChatAttachment.mockReset()
     mocks.state.running.value = false
+    mocks.state.progress.value = { status: '', phase: 'IDLE', label: '' }
     mocks.state.error.value = ''
     mocks.state.run.mockReset()
     mocks.state.watchRun.mockReset()
+    mocks.state.cancelRun.mockReset()
   })
 
   it('uses one unified research conversation and leaves comparison as an interface', async () => {
@@ -89,6 +93,21 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.get('.comparison-paper-action').trigger('click')
     expect(wrapper.emitted('add-comparison-paper')).toHaveLength(1)
     expect(mocks.state.run).not.toHaveBeenCalled()
+  })
+
+  it('shows a stop control while a run is active and delegates cancellation', async () => {
+    mocks.state.running.value = true
+    mocks.state.progress.value = { status: 'WAITING_CLIENT', phase: 'EXECUTING_ACTION', label: '正在执行页面操作…' }
+    mocks.state.cancelRun.mockResolvedValue({ status: 'CANCELLED' })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const stop = wrapper.get('.assistant-composer__send')
+    expect(stop.attributes('aria-label')).toBe('停止回答')
+    expect(stop.attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('.answer-progress').text()).toContain('正在执行页面操作')
+    await stop.trigger('click')
+    expect(mocks.state.cancelRun).toHaveBeenCalledTimes(1)
   })
 
   it('switches content and formula capture from the sliding selector', async () => {
@@ -553,6 +572,27 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     expect(mocks.state.watchRun).toHaveBeenCalledTimes(1)
     expect(mocks.getResearchSession).toHaveBeenCalledTimes(2)
     expect(wrapper.get('.error-state').text()).toContain('论文助手执行失败')
+  })
+
+  it('passes the persisted run id when restoring a pending page action', async () => {
+    mocks.listResearchSessions.mockResolvedValue([
+      { id: 91, primaryPaperId: 1, title: '待执行操作', lastActivityAt: '2026-09-13T04:00:00' },
+    ])
+    mocks.getResearchSession.mockResolvedValue({
+      session: { id: 91, primaryPaperId: 1, papers: [{ id: 1, title: 'Current Paper' }] },
+      messages: [{ messageKey: 'waiting-user', role: 'USER', content: '高亮图 1', runId: 'waiting-run' }],
+    })
+    mocks.state.watchRun.mockImplementation(async (runId, options) => {
+      options.onActionRequired([{ toolCallId: 'tool-1', ticket: 'expired-ticket' }])
+      return { status: 'COMPLETED', runId, result: { answer: '已完成高亮。', claims: [], evidence: [] } }
+    })
+
+    const wrapper = mountPanel({ researchSessionId: 91 })
+    await flushPromises()
+
+    expect(wrapper.emitted('execute-actions')).toContainEqual([[
+      expect.objectContaining({ toolCallId: 'tool-1', runId: 'waiting-run', evidence: null }),
+    ]])
   })
 
   it('does not restore a conversation that belongs to another paper', async () => {

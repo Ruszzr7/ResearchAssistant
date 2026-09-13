@@ -1,6 +1,8 @@
 package com.research.assistant.service.agent.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.research.assistant.service.agent.action.PaperActionResolver;
+import com.research.assistant.service.agent.skill.PaperActionSkillTool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.ChatModel;
@@ -19,6 +21,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 class LangChain4jPaperAgentExecutorTest {
+
+    @Test
+    void convertsTheRealPaperActionSchemaBeforeStartingTheModelLoop() {
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                return response("action-1", "paper_action", """
+                        {"operations":[
+                          {"actionType":"HIGHLIGHT","sourceObjectId":"src-algorithm"},
+                          {"actionType":"UNDERLINE","sourceObjectId":"src-formula"}]}
+                        """);
+            }
+        };
+        LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
+                mock(com.research.assistant.service.ai.LangChain4jModelFactory.class), new ObjectMapper());
+        AgentToolDefinition actionDefinition = new PaperActionSkillTool(new PaperActionResolver())
+                .definitions().get(0);
+
+        AgentFrameworkResult result = executor.execute(model,
+                List.of(AgentChatEntry.system("system"), AgentChatEntry.user("执行两个页面操作")),
+                List.of(actionDefinition),
+                request -> new AgentToolExecution("WAITING_CLIENT", Set.of()));
+
+        assertThat(result.content()).isEqualTo("WAITING_CLIENT");
+        assertThat(result.toolCalls()).isEqualTo(1);
+    }
 
     @Test
     void langChain4jOwnsBatchRetrieveThenSubmitLoopWithModelSelectedTools() {
@@ -118,7 +146,41 @@ class LangChain4jPaperAgentExecutorTest {
         assertThat(result.content()).isEqualTo("FINAL");
         assertThat(result.toolCalls()).isEqualTo(1);
         assertThat(requests).hasSize(2);
-        assertThat(requests.get(1).messages().toString()).contains("submit_answer");
+        assertThat(requests.get(1).messages().toString())
+                .contains("没有调用任何工具", "论文画像 Skill", "证据 Skill", "submit_answer");
+    }
+
+    @Test
+    void asksOnlyForTerminalSubmissionAfterNonTerminalToolsWereAlreadyUsed() {
+        List<ChatRequest> requests = new ArrayList<>();
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                requests.add(request);
+                if (requests.size() == 1) {
+                    return response("retrieve-1", "retrieve_paper_evidence",
+                            "{\"needs\":[{\"id\":\"question\",\"query\":\"question\"}]}");
+                }
+                if (requests.size() == 2) {
+                    return ChatResponse.builder().aiMessage(AiMessage.from("普通文本回答")).build();
+                }
+                return response("submit-1", "submit_answer", "{\"answerBlocks\":[]}");
+            }
+        };
+        LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
+                mock(com.research.assistant.service.ai.LangChain4jModelFactory.class), new ObjectMapper());
+
+        executor.execute(model,
+                List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
+                List.of(
+                        new AgentToolDefinition("retrieve_paper_evidence", "retrieve", objectSchema("needs")),
+                        new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
+                request -> new AgentToolExecution("submit_answer".equals(request.name()) ? "FINAL" : "evidence", Set.of()));
+
+        assertThat(requests).hasSize(3);
+        assertThat(requests.get(2).messages().toString())
+                .contains("现在立即调用 submit_answer")
+                .doesNotContain("刚才没有调用任何工具");
     }
 
     @Test
@@ -245,7 +307,8 @@ class LangChain4jPaperAgentExecutorTest {
                 .map(message -> (dev.langchain4j.data.message.UserMessage) message)
                 .flatMap(message -> message.contents().stream())
                 .anyMatch(content -> content instanceof dev.langchain4j.data.message.ImageContent)).isTrue();
-        assertThat(requests.get(1).messages().toString()).contains("src-figure", "page=4");
+        assertThat(requests.get(1).messages().toString())
+                .contains("src-figure", "page=4", "完整图注", "逐字核对图注");
     }
 
     @Test

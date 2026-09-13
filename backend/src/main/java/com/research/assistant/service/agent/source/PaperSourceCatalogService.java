@@ -39,8 +39,10 @@ import java.util.regex.Pattern;
 @Service
 public class PaperSourceCatalogService {
 
-    private static final Pattern FORMULA_NUMBER = Pattern.compile("(?:eq(?:uation)?\\.?\\s*)?\\((\\d{1,4}[a-z]?)\\)",
-            Pattern.CASE_INSENSITIVE);
+    /** Recognizes explicit formula-number queries in English and Chinese. */
+    private static final Pattern FORMULA_NUMBER = Pattern.compile(
+            "(?i)(?:(?:\\b(?:eq(?:uation)?|formula)\\.?|公式(?:编号)?|方程(?:式)?(?:编号)?)\\s*\\(?|\\()"
+                    + "(\\d{1,4}[a-z]?)\\)?");
 
     private final PaperLayoutArtifactService artifactService;
     private final PaperSourceIndexService sourceIndexService;
@@ -114,12 +116,18 @@ public class PaperSourceCatalogService {
                 .forEach(block -> blockById.put(block.id(), block));
         Map<String, SourceAnchor> textAnchorByBlock = new LinkedHashMap<>();
         index.textAnchors().forEach(anchor -> textAnchorByBlock.put(anchor.blockId(), anchor));
+        Set<String> structuredCaptionBlockIds = structuredCaptionBlockIds(index);
 
         Map<String, SourceObject> objects = new LinkedHashMap<>();
         Map<String, List<SourceLocator>> locators = new LinkedHashMap<>();
         for (PaperSemanticSpan span : spanBuilder.build(artifact)) {
             List<DocumentBlock> sourceBlocks = span.blocks().stream()
                     .filter(block -> !recoveredBlockIds.contains(block.id()))
+                    // A figure/table unit is the canonical owner of its caption.
+                    // Do not publish the same physical caption as a generic TEXT
+                    // source, otherwise typed de-duplication would either show it
+                    // twice or make the visual source unavailable.
+                    .filter(block -> !structuredCaptionBlockIds.contains(block.id()))
                     .toList();
             if (sourceBlocks.isEmpty()) continue;
             String sourceId = stableId(artifact, "span:" + span.id());
@@ -190,15 +198,22 @@ public class PaperSourceCatalogService {
             unitProvenance.put("sourceUnitKind", unit.kind().name());
             unitProvenance.put("blockIds", unit.blocks().stream().map(DocumentBlock::id)
                     .collect(java.util.stream.Collectors.joining(",")));
+            if (unit.kind() == PaperSourceUnit.Kind.FIGURE && unit.blocks().stream()
+                    .anyMatch(block -> block.id().endsWith(":visual-region"))) {
+                unitProvenance.put("visualRegion", "CAPTION_ANCHORED");
+            }
+            if (unit.kind() == PaperSourceUnit.Kind.FIGURE) {
+                unitProvenance.put("captionBlockIds", figureCaptionBlocks(unit).stream()
+                        .map(DocumentBlock::id)
+                        .collect(java.util.stream.Collectors.joining(",")));
+            }
             unitProvenance.put("readingOrder", Integer.toString(unit.blocks().get(0).readingOrder()));
             addTextMetadata(unitProvenance, sourceType, unit.blocks(), unit.text());
             SourceObject object = new SourceObject(sourceId, artifact.paperId(), artifact.documentHash(),
                     artifact.parserVersion(), PaperSourceIndex.SCHEMA_VERSION, sourceType,
                     unit.text(), SourceObject.normalize(unit.text()), sectionPath, "", unitProvenance);
             if (!SourceEvidenceQuality.usableForCitation(object)) continue;
-            SourceLocator sourceLocator = new SourceLocator(
-                    locatorId(sourceId, unit.page(), unit.id()), sourceId, unit.page(),
-                    "PDF_NORMALIZED", unit.boxes(), unit.text(), precision(unit));
+            SourceLocator sourceLocator = sourceUnitLocator(sourceId, unit);
             objects.put(sourceId, object);
             locators.put(sourceId, List.of(sourceLocator));
         }
@@ -274,6 +289,40 @@ public class PaperSourceCatalogService {
         deduplicatePhysicalSources(objects, locators);
         return new PaperSourceCatalog(artifact.paperId(), artifact.documentHash(), artifact.parserVersion(),
                 artifact.pageCount(), objects, locators);
+    }
+
+    private Set<String> structuredCaptionBlockIds(PaperSourceIndex index) {
+        return index.sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.FIGURE
+                        || unit.kind() == PaperSourceUnit.Kind.TABLE)
+                .flatMap(unit -> unit.blocks().stream().filter(block ->
+                        unit.kind() == PaperSourceUnit.Kind.FIGURE
+                                ? block.role() != DocumentBlockRole.FIGURE && !block.text().isBlank()
+                                : block.role() == DocumentBlockRole.CAPTION))
+                .map(DocumentBlock::id)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private SourceLocator sourceUnitLocator(String sourceId, PaperSourceUnit unit) {
+        if (unit.kind() != PaperSourceUnit.Kind.FIGURE) {
+            return new SourceLocator(locatorId(sourceId, unit.page(), unit.id()), sourceId, unit.page(),
+                    "PDF_NORMALIZED", unit.boxes(), unit.text(), precision(unit));
+        }
+        List<com.research.assistant.service.pdf.layout.NormalizedBoundingBox> captionBoxes =
+                figureCaptionBlocks(unit).stream().map(DocumentBlock::bbox).distinct().toList();
+        List<com.research.assistant.service.pdf.layout.NormalizedBoundingBox> visualBoxes = unit.blocks().stream()
+                .filter(block -> block.role() == DocumentBlockRole.FIGURE)
+                .map(DocumentBlock::bbox).distinct().toList();
+        if (captionBoxes.isEmpty()) captionBoxes = unit.boxes();
+        return new SourceLocator(locatorId(sourceId, unit.page(), unit.id()), sourceId, unit.page(),
+                "PDF_NORMALIZED", captionBoxes, visualBoxes, unit.text(), precision(unit));
+    }
+
+    private List<DocumentBlock> figureCaptionBlocks(PaperSourceUnit unit) {
+        return unit.blocks().stream()
+                .filter(block -> block.role() != DocumentBlockRole.FIGURE)
+                .filter(block -> !block.text().isBlank())
+                .toList();
     }
 
     /**
@@ -370,10 +419,9 @@ public class PaperSourceCatalogService {
                 .toList();
         String label = type == SourceContentType.FORMULA
                 ? formulaLabel(regionBlocks) : "视觉内容区域";
-        StringBuilder text = new StringBuilder(label)
-                .append("的文本提取不可靠，请查看原始页面区域。\n");
+        StringBuilder text = new StringBuilder(label);
         String context = neighbouringText(regionBlocks, allBlocks);
-        if (!context.isBlank()) text.append("邻近正文：").append(context);
+        if (!context.isBlank()) text.append("\n").append(context);
         return text.toString().strip();
     }
 
@@ -414,9 +462,17 @@ public class PaperSourceCatalogService {
     public List<RetrievalHit> search(PaperSourceCatalog catalog, PaperSearchRequest request) {
         String query = SourceObject.normalize(request.query()).toLowerCase(Locale.ROOT);
         Set<String> formulaNumbers = formulaNumbers(query);
+        boolean exactFormulaRequest = !formulaNumbers.isEmpty()
+                && request.contentTypes().contains(SourceContentType.FORMULA);
         List<ScoredSource> scored = new ArrayList<>();
         for (SourceObject object : catalog.objects().values()) {
             if (!request.contentTypes().isEmpty() && !request.contentTypes().contains(object.contentType())) continue;
+            // Once the request explicitly names a formula number, section text and
+            // neighbouring context must not be allowed to substitute another formula.
+            // The formulaNumber field is the canonical identity of a formula source.
+            if (exactFormulaRequest && !canonicalFormulaNumbers(object).stream()
+                    .map(value -> value.toLowerCase(Locale.ROOT))
+                    .anyMatch(formulaNumbers::contains)) continue;
             List<SourceLocator> objectLocators = catalog.requireLocators(object.sourceObjectId());
             int page = objectLocators.stream().mapToInt(SourceLocator::pageNumber).min().orElse(1);
             if (request.pageStart() != null || request.pageEnd() != null) {
@@ -626,6 +682,17 @@ public class PaperSourceCatalogService {
         Matcher matcher = FORMULA_NUMBER.matcher(query);
         while (matcher.find()) numbers.add(matcher.group(1).toLowerCase(Locale.ROOT));
         return Set.copyOf(numbers);
+    }
+
+    private static Set<String> canonicalFormulaNumbers(SourceObject object) {
+        if (object == null || object.formulaNumber() == null || object.formulaNumber().isBlank()) {
+            return Set.of();
+        }
+        return java.util.Arrays.stream(object.formulaNumber().split(","))
+                .map(String::strip)
+                .filter(value -> !value.isBlank())
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
 
     private static String stableId(PaperLayoutArtifact artifact, String suffix) {

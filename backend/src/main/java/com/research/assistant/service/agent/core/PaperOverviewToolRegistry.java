@@ -6,6 +6,7 @@ import com.research.assistant.mapper.PaperMemoryMapper;
 import com.research.assistant.service.agent.source.PaperSourceCatalog;
 import com.research.assistant.service.memory.PaperGlobalProfile;
 import com.research.assistant.service.memory.PaperMemoryClaim;
+import com.research.assistant.service.memory.PaperUnderstandingService;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -49,6 +50,7 @@ public class PaperOverviewToolRegistry {
                     "message", "已生成的论文画像不可用。原文可用时请使用论文证据，否则只能依据其他有效上下文回答。"));
         }
         if (catalog == null || !catalog.documentHash().equals(memory.getDocumentHash())
+                || !PaperUnderstandingService.PIPELINE_VERSION.equals(memory.getUnderstandingVersion())
                 || !catalog.parserVersion().equals(memory.getLayoutParserVersion())) {
             return result(Map.of(
                     "status", "stale",

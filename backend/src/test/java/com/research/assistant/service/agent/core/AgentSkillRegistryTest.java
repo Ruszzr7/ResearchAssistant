@@ -92,7 +92,10 @@ class AgentSkillRegistryTest {
                 .contains("HIGHLIGHT", "JUMP", "NOTE");
         assertThat(schema.at("/properties/sourceObjectId/description").asText())
                 .contains("当前选区或论文读取结果中的可信 sourceObjectId", "绝不要编造");
+        assertThat(schema.at("/properties/sourceObjectIds/maxItems").asInt()).isEqualTo(8);
         assertThat(schema.at("/properties/content/maxLength").asInt()).isEqualTo(2000);
-        assertThat(schema.at("/required").toString()).contains("actionType", "sourceObjectId");
+        assertThat(schema.at("/properties/operations/items/properties/actionType/type").asText())
+                .isEqualTo("string");
+        assertThat(schema.at("/required").isArray()).isTrue();
     }
 }

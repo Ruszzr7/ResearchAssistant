@@ -7,6 +7,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
+import java.util.concurrent.ConcurrentMap;
+
 /** Accepts a persisted Agent run before executing the potentially slow model loop. */
 @Slf4j
 @Service
@@ -14,6 +18,7 @@ public class AgentTurnSubmissionService {
 
     private final AgentLoopService loopService;
     private final TaskExecutor executor;
+    private final ConcurrentMap<String, Future<?>> activeExecutions = new ConcurrentHashMap<>();
 
     public AgentTurnSubmissionService(AgentLoopService loopService,
                                       @Qualifier("agentTurnExecutor") TaskExecutor executor) {
@@ -28,12 +33,32 @@ public class AgentTurnSubmissionService {
         }
         AgentTurnResult accepted = loopService.currentResult(prepared.run().getRunId());
         try {
-            executor.execute(() -> executeInBackground(prepared));
+            Runnable task = () -> {
+                String runId = prepared.run().getRunId();
+                try {
+                    executeInBackground(prepared);
+                } finally {
+                    activeExecutions.remove(runId);
+                }
+            };
+            if (executor instanceof org.springframework.core.task.AsyncTaskExecutor asyncExecutor) {
+                Future<?> future = asyncExecutor.submit(task);
+                activeExecutions.put(prepared.run().getRunId(), future);
+                if (future.isDone()) activeExecutions.remove(prepared.run().getRunId(), future);
+            } else {
+                executor.execute(task);
+            }
         } catch (RuntimeException rejected) {
             loopService.rejectPrepared(prepared, rejected);
             throw rejected;
         }
         return accepted;
+    }
+
+    /** Best-effort interruption; the persisted run state remains the authority. */
+    public void cancelExecution(String runId) {
+        Future<?> future = activeExecutions.get(runId);
+        if (future != null) future.cancel(true);
     }
 
     private void executeInBackground(AgentLoopService.PreparedTurn prepared) {

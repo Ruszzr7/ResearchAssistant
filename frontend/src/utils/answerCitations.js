@@ -511,9 +511,18 @@ function sourceView(number, key, item, target, quote, completeText = '') {
     textFormat: item?.textFormat || '',
     textReliable: !unreliableFormula,
     title: displayText || String(target?.text || item?.text || '').trim(),
-    kind: formula ? '公式' : '正文',
+    kind: evidenceKind(item, target, formula),
     target,
   }
+}
+
+function evidenceKind(item, target, formula) {
+  if (formula) return '公式'
+  return {
+    FIGURE: '图',
+    TABLE: '表格',
+    ALGORITHM: '算法',
+  }[String(target?.contentType || item?.contentType || '').toUpperCase()] || '正文'
 }
 
 function formulaCitationLabel(item, target) {

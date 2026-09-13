@@ -216,7 +216,7 @@
             <div class="chat-message__role">论文助手</div>
             <div class="answer-progress" role="status">
               <span aria-hidden="true" />
-              Agent 正在处理…
+              {{ progress?.label || '思考中…' }}
             </div>
           </div>
         </div>
@@ -309,13 +309,14 @@
             <button
               type="button"
               class="assistant-composer__send"
-              :disabled="selectionChatDisabled"
-              aria-label="发送"
-              title="发送"
-              @click="sendSelectionMessage"
+              :disabled="running ? cancelling : selectionChatDisabled"
+              :aria-label="running ? (cancelling ? '正在停止' : '停止回答') : '发送'"
+              :title="running ? (cancelling ? '正在停止' : '停止回答') : '发送'"
+              @click="running ? cancelAnswer() : sendSelectionMessage()"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 5 16 7-16 7 3-7-3-7Zm3 7h13" /></svg>
-              <span class="visually-hidden">发送</span>
+              <svg v-if="!running" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 5 16 7-16 7 3-7-3-7Zm3 7h13" /></svg>
+              <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+              <span class="visually-hidden">{{ running ? (cancelling ? '正在停止' : '停止回答') : '发送' }}</span>
             </button>
           </div>
         </div>
@@ -373,7 +374,9 @@ const emit = defineEmits([
   'add-comparison-paper', 'execute-actions',
 ])
 
-const { running, run, watchRun } = usePaperAgent()
+const { running, progress: agentProgress, run, watchRun, cancelRun } = usePaperAgent()
+const progress = agentProgress || ref({ status: '', phase: 'IDLE', label: '' })
+const cancelling = ref(false)
 const question = ref('')
 const pendingAttachments = ref([])
 const pendingFormulas = ref([])
@@ -745,6 +748,13 @@ async function sendSelectionMessage() {
         userMessage.runId = accepted?.runId || null
         detachSubmittedSelection(anchor)
       },
+      onActionRequired: actions => {
+        // Page actions are dispatched while the run is WAITING_CLIENT.  Do not
+        // wait for the final answer (or emit them a second time after receipt).
+        emit('execute-actions', actions.map(action => ({
+          ...action, runId: userMessage.runId, evidence: null,
+        })))
+      },
     })
     if (selectionConversationId.value !== conversationId) return
     contextInherited = Boolean(completed.result?.contextInherited)
@@ -762,11 +772,6 @@ async function sendSelectionMessage() {
       regionFallback: Boolean(completed.result?.regionFallback),
       actions: completed.result?.actions || [],
     })
-    emit('execute-actions', (completed.result?.actions || []).map(action => ({
-      ...action,
-      evidence: (completed.result?.evidence || [])
-        .find(item => item.evidenceId === action.evidenceId) || null,
-    })))
     await scrollSelectionChat()
   } catch (reason) {
     if (reason?.message !== 'aborted' && selectionConversationId.value === conversationId) {
@@ -777,6 +782,20 @@ async function sendSelectionMessage() {
       pendingFormulas.value = formulas
       setConversationError(sessionId, requestErrorMessage(reason, '选区对话失败'))
     }
+  }
+}
+
+async function cancelAnswer() {
+  if (!running.value || cancelling.value || typeof cancelRun !== 'function') return
+  cancelling.value = true
+  try {
+    await cancelRun()
+  } catch (reason) {
+    if (activeResearchSessionId.value) {
+      setConversationError(activeResearchSessionId.value, requestErrorMessage(reason, '取消回答失败'))
+    }
+  } finally {
+    cancelling.value = false
   }
 }
 
@@ -855,7 +874,11 @@ async function resumePersistedRun(runId, sessionId) {
   if (running.value || activeResearchSessionId.value !== sessionId || recoveredRunIds.has(runId)) return
   recoveredRunIds.add(runId)
   try {
-    const completed = await watchRun(runId)
+    const completed = await watchRun(runId, {
+      onActionRequired: actions => {
+        emit('execute-actions', actions.map(action => ({ ...action, runId, evidence: null })))
+      },
+    })
     if (activeResearchSessionId.value !== sessionId
         || selectionMessages.value.some(message => message.role === 'assistant' && message.runId === runId)) return
     waitingRunId.value = completed.status === 'WAITING_USER' ? completed.runId : null
@@ -870,11 +893,6 @@ async function resumePersistedRun(runId, sessionId) {
       regionFallback: Boolean(completed.result?.regionFallback),
       actions: completed.result?.actions || [],
     })
-    emit('execute-actions', (completed.result?.actions || []).map(action => ({
-      ...action,
-      evidence: (completed.result?.evidence || [])
-        .find(item => item.evidenceId === action.evidenceId) || null,
-    })))
     await scrollSelectionChat()
   } catch (reason) {
     if (reason?.message === 'aborted' || !reason?.agentTerminal) recoveredRunIds.delete(runId)

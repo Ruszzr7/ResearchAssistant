@@ -255,7 +255,40 @@
               />
             </g>
             <g v-if="ann.type === 'UNDERLINE'">
-              <line
+              <template v-if="isFormulaRegionAnnotation(ann)">
+                <line
+                  :x1="formulaUnderlineLine(ann, page).x1"
+                  :y1="formulaUnderlineLine(ann, page).y1"
+                  :x2="formulaUnderlineLine(ann, page).x2"
+                  :y2="formulaUnderlineLine(ann, page).y2"
+                  stroke="transparent"
+                  stroke-width="14"
+                  pointer-events="stroke"
+                  aria-hidden="true"
+                />
+                <line
+                  :x1="formulaUnderlineLine(ann, page).x1"
+                  :y1="formulaUnderlineLine(ann, page).y1"
+                  :x2="formulaUnderlineLine(ann, page).x2"
+                  :y2="formulaUnderlineLine(ann, page).y2"
+                  :stroke="ann.color || '#ff9800'"
+                  stroke-width="2"
+                />
+              </template>
+              <template v-else>
+                <line
+                v-for="(q, i) in ann.coordinates?.quads"
+                :key="`hit-${i}`"
+                :x1="quadLine(q, page, ann.coordinates).x1"
+                :y1="quadLine(q, page, ann.coordinates).y1"
+                :x2="quadLine(q, page, ann.coordinates).x2"
+                :y2="quadLine(q, page, ann.coordinates).y2"
+                stroke="transparent"
+                stroke-width="14"
+                pointer-events="stroke"
+                aria-hidden="true"
+                />
+                <line
                 v-for="(q, i) in ann.coordinates?.quads"
                 :key="i"
                 :x1="quadLine(q, page, ann.coordinates).x1"
@@ -264,7 +297,8 @@
                 :y2="quadLine(q, page, ann.coordinates).y2"
                 :stroke="ann.color || '#ff9800'"
                 stroke-width="2"
-              />
+                />
+              </template>
             </g>
             <g
               v-if="selectedAnnotation?.localId === ann.localId && isResizableAnnotation(ann)"
@@ -551,10 +585,14 @@ import {
   isCommentAnnotation,
   isSelectionNote,
   resizeTextAnnotationQuads,
+  annotationPointForPage,
+  quadLineForPage,
+  formulaUnderlineLineForPage,
 } from '@/utils/pdfAnnotation.js'
 import {
   boundingBoxToViewportQuad,
   cloneSelectionTextAnchor,
+  normalizePdfiumContentSegments,
   selectionToAnchorPayload,
 } from '@/utils/pdfSelectionAnchor.js'
 import {
@@ -567,7 +605,7 @@ import {
   recognizeFormulaRegion,
   resolveSelectionAnchor,
 } from '@/api/workbench.js'
-import { submitAgentActionReceipt } from '@/api/agent.js'
+import { renewAgentActionTicket, submitAgentActionReceipt } from '@/api/agent.js'
 import {
   DEFAULT_WORKBENCH_RATIO,
   DEFAULT_COMMENT_PANEL_WIDTH,
@@ -587,6 +625,7 @@ import { isTextSelectionDrag } from '@/utils/pdfTextSelection.js'
 import { formulaNumberCandidates, formulaNumberSearchQueries } from '@/utils/formulaEvidence.js'
 import {
   evidenceLocators,
+  mergeDisplayBoxes,
   selectEvidenceFocusBoxes,
   unionBoundingBoxes,
 } from '@/utils/evidenceViewModel.js'
@@ -1667,6 +1706,27 @@ async function jumpToEvidence(item) {
     emit('open-paper-evidence', item)
     return
   }
+  const pageLocators = evidenceLocators(item).filter(locator => Number(locator.pageNumber || locator.page) === page)
+  const locatorBoxes = validEvidenceBoxes(pageLocators.flatMap(locator => (
+    locator.targetBoxes || locator.rects || []
+  )))
+  // Draw one readable region for adjacent lines while keeping locatorBoxes as
+  // the authoritative physical geometry for actions and citation identity.
+  const displayBoxes = mergeDisplayBoxes(locatorBoxes)
+  const preliminaryBoxes = formulaRegion
+    ? validEvidenceBoxes(item?.locator?.focusBoxes || (targetBox ? [targetBox] : []))
+    : selectEvidenceFocusBoxes({ locatorBoxes: displayBoxes, exactBoxes: [], fallbackBox: targetBox })
+  // Preserve the target before materialising the virtual page. The SVG overlay is
+  // then painted as soon as the page viewport mounts instead of appearing only
+  // after the canvas and text layer have both finished rendering.
+  if (preliminaryBoxes.length) {
+    evidenceFocus.value = {
+      page,
+      boxes: preliminaryBoxes,
+      mode: formulaRegion ? 'FORMULA_REGION' : 'TEXT',
+      precision: item?.locator?.precision || 'BLOCK',
+    }
+  }
   await goToPage(page)
   await waitForEvidencePage(page)
   const formulaLabels = formulaRegion ? formulaNumberCandidates(item) : []
@@ -1703,15 +1763,13 @@ async function jumpToEvidence(item) {
     return
   }
 
-  const pageLocators = evidenceLocators(item).filter(locator => Number(locator.pageNumber || locator.page) === page)
-  const locatorBoxes = validEvidenceBoxes(pageLocators.flatMap(locator => (
-    locator.targetBoxes || locator.rects || []
-  )))
   const exactBoxes = locatorBoxes.length ? [] : await locateEvidenceText(item)
   // targetBoxes are the parser's complete physical block geometry. A PDFium
   // search may match only a prefix of a long locator, so it must never replace
   // these boxes with an apparently more precise but incomplete match.
-  const focusBoxes = selectEvidenceFocusBoxes({ locatorBoxes, exactBoxes, fallbackBox: targetBox })
+  const focusBoxes = selectEvidenceFocusBoxes({
+    locatorBoxes: displayBoxes, exactBoxes, fallbackBox: targetBox,
+  })
   if (!focusBoxes.length) {
     evidenceFocus.value = null
     ElMessage.info(`已定位到第 ${page} 页，但当前 PDF 没有可绘制的字符位置`)
@@ -1759,7 +1817,11 @@ function scheduleEvidenceFocusClear() {
 async function executeAgentActions(actions) {
   for (const action of actions || []) {
     if (action?.ticket && action?.target) {
-      await executeTicketedAgentAction(action)
+      const completed = await executeTicketedAgentAction(action)
+      // A failed receipt makes the server-side action run terminal. Do not
+      // continue issuing side effects for the remaining tickets in the same
+      // model request; the user can retry the whole request explicitly.
+      if (!completed) break
       continue
     }
     if (!['HIGHLIGHT', 'UNDERLINE', 'ADD_NOTE', 'ADD_COMMENT', 'NAVIGATE'].includes(action?.type)) continue
@@ -1857,6 +1919,7 @@ async function executeAgentActions(actions) {
           notePosition,
         } : {}),
         anchorKind: 'AGENT_EVIDENCE',
+        geometryKind: target.locator?.precision === 'FORMULA_REGION' ? 'FORMULA_REGION' : 'TEXT_RANGE',
         anchorText: String(action.targetText || action.query || '').slice(0, 500),
         evidenceId: action.evidenceId,
         agentActionId: action.actionId,
@@ -1890,19 +1953,92 @@ async function executeAgentActions(actions) {
 }
 
 async function executeTicketedAgentAction(action) {
+  const expiresAt = Date.parse(action?.expiresAt || '')
+  if (action?.runId && action?.toolCallId
+      && Number.isFinite(expiresAt) && expiresAt <= Date.now() + 15_000) {
+    const renewed = await renewAgentActionTicket(action.runId, action.toolCallId)
+    action = { ...action, ...renewed, target: renewed?.target || action.target }
+  }
   const page = Number(action.target?.pageNumber)
-  const boxes = validEvidenceBoxes(action.target?.rects)
+  const trustedBoxes = validEvidenceBoxes(action.target?.rects)
+  let boxes = trustedBoxes
+  let textAnchor = null
   try {
     if (!Number.isInteger(page) || page < 1 || Number(action.target?.paperId) !== Number(props.paper.id)) {
       throw new Error('操作目标不属于当前论文')
     }
     await goToPage(page)
+    await waitForEvidencePage(page)
+    const formulaRegion = action.target?.precision === 'FORMULA_REGION'
+      || String(action.target?.sourceObjectId || '').startsWith('eq:')
+    // Agent 下划线统一沿用普通页面文字选取。公式来源仍用于证据跳转，
+    // 但不再用“计算公式区域底部”的专用线；高亮的公式区域模式保持不变。
+    const usePdfiumTextSelection = action.actionType === 'UNDERLINE'
+      || (action.actionType === 'HIGHLIGHT' && !formulaRegion)
+    if (usePdfiumTextSelection) {
+      if (!trustedBoxes.length) {
+        throw new Error('操作目标缺少可定位的原文范围')
+      }
+      // 先用可信矩形找到其内真实 glyph 的首尾字符，避免直接在矩形边界
+      // hit-test 时吸附到相邻行或另一栏。最终显示仍调用与鼠标拖选完全相同的
+      // PDFium select(start, end)，矩形筛选结果不直接用作标记几何。
+      let range = null
+      if (typeof pdfInteractionEngine.selectWithinRects === 'function') {
+        const located = await pdfInteractionEngine.selectWithinRects(page - 1, trustedBoxes)
+        if (Number.isInteger(located?.charStart) && Number.isInteger(located?.charEnd)) {
+          range = pdfiumRangeResult(page, located.charStart, located.charEnd)
+        }
+      }
+      if (!range) range = await resolveAnnotationPdfiumRangeByGeometry(page, trustedBoxes)
+      if (!range) throw new Error('无法建立精确文字位置')
+      const selection = await pdfInteractionEngine.select(page - 1, range.start, range.end)
+      if (!selection || !pdfInteractionReady.value || !pdfInteractionEngine) {
+        throw new Error('无法建立精确文字位置')
+      }
+      const selectedBoxes = validEvidenceBoxes(selection?.rects)
+      const selectedText = String(selection?.text || '').trim()
+      if (!selectedBoxes.length || !selectedText) {
+        throw new Error('无法建立精确文字位置')
+      }
+      boxes = selectedBoxes
+      textAnchor = {
+        version: 2,
+        engine: 'PDFIUM',
+        page,
+        documentFingerprint: pdfDoc.value?.fingerprints?.[0] || '',
+        textMapVersion: 1,
+        charStart: selection.charStart,
+        charEnd: selection.charEnd,
+        // 可见矩形和首尾字符锚点足以持久化并支持后续编辑，无需重复保存
+        // PDFium 的每个文本子段。
+        ranges: [],
+        contentSegments: [],
+      }
+    }
     if (boxes.length) {
-      evidenceFocus.value = { page, boxes, precision: 'TEXT' }
+      evidenceFocus.value = {
+        page,
+        boxes,
+        precision: usePdfiumTextSelection ? 'TEXT' : (formulaRegion ? 'FORMULA_REGION' : 'TEXT'),
+      }
       await nextTick()
       scrollEvidenceIntoView(page, boxes)
     }
-    const receipt = await submitAgentActionReceipt({ ticket: action.ticket, success: true, actualCoordinates: { page } })
+    const receiptCoordinates = { page }
+    if (boxes.length) {
+      receiptCoordinates.coordinateSpace = 'PDF_NORMALIZED'
+      receiptCoordinates.rects = boxes
+    }
+    if (textAnchor) {
+      receiptCoordinates.textAnchor = textAnchor
+      // 让服务端和重新加载后的渲染都沿用普通 PDFium 文本下划线。
+      receiptCoordinates.geometryKind = 'TEXT_RANGE'
+    }
+    const receipt = await submitAgentActionReceipt({
+      ticket: action.ticket,
+      success: true,
+      actualCoordinates: receiptCoordinates,
+    })
     await loadAnnotations()
     ElMessage.success(receipt?.message || '页面操作已完成')
   } catch (reason) {
@@ -1915,7 +2051,9 @@ async function executeTicketedAgentAction(action) {
       })
     } catch { /* The original error is more useful to the user. */ }
     ElMessage.error(requestErrorMessage(reason, '页面操作失败'))
+    return false
   }
+  return true
 }
 
 async function locateEvidenceText(item) {
@@ -2476,7 +2614,7 @@ function onOverlayPointerMove(e) {
     return
   }
   if (resizingAnnotation) {
-    resizeAnnotationRange(resizingAnnotation, e)
+    void resizeAnnotationRange(resizingAnnotation, e)
   }
 }
 
@@ -2507,10 +2645,18 @@ async function onOverlayPointerUp(e) {
   }
   if (resizingAnnotation) {
     const resize = resizingAnnotation
+    await resize.pendingUpdate
     if (resize.captureTarget?.hasPointerCapture?.(e.pointerId)) {
       resize.captureTarget.releasePointerCapture(e.pointerId)
     }
     resizingAnnotation = null
+    if (resize.error) {
+      resize.annotation.coordinates.quads = resize.originalQuads
+      resize.annotation.coordinates.textAnchor = resize.originalTextAnchor
+      resize.annotation.coordinates.anchorText = resize.originalAnchorText
+      ElMessage.error('标记范围调整失败：' + requestErrorMessage(resize.error))
+      return
+    }
     if (!resize.moved) return
     suppressAnnotationClickId = resize.annotation.localId
     window.setTimeout(() => {
@@ -2521,6 +2667,8 @@ async function onOverlayPointerUp(e) {
       ElMessage.success('标记范围已更新')
     } catch (error) {
       resize.annotation.coordinates.quads = resize.originalQuads
+      resize.annotation.coordinates.textAnchor = resize.originalTextAnchor
+      resize.annotation.coordinates.anchorText = resize.originalAnchorText
       ElMessage.error('标记范围保存失败：' + requestErrorMessage(error))
     }
   }
@@ -2551,7 +2699,124 @@ function isResizableAnnotation(annotation) {
     && annotation.coordinates.quads.length > 0
 }
 
+function pdfiumTextAnchor(annotation) {
+  const anchor = annotation?.coordinates?.textAnchor
+  const start = Number(anchor?.charStart)
+  const end = Number(anchor?.charEnd)
+  if (anchor?.engine !== 'PDFIUM'
+      || !Number.isInteger(start) || !Number.isInteger(end)
+      || start < 0 || end < start) return null
+  return { anchor, start, end }
+}
+
+function annotationNormalizedBoxes(annotation) {
+  return (annotation?.coordinates?.quads || []).map(quad => {
+    const xs = [quad?.x1, quad?.x2, quad?.x3, quad?.x4].map(Number)
+    const ys = [quad?.y1, quad?.y2, quad?.y3, quad?.y4].map(Number)
+    if (xs.some(value => !Number.isFinite(value)) || ys.some(value => !Number.isFinite(value))) return null
+    const x = Math.min(...xs)
+    const y = Math.min(...ys)
+    const right = Math.max(...xs)
+    const bottom = Math.max(...ys)
+    return right > x && bottom > y
+      ? { x, y, width: right - x, height: bottom - y }
+      : null
+  }).filter(Boolean)
+}
+
+function pdfiumRangeResult(pageNum, start, end) {
+  return {
+    anchor: {
+      version: 2,
+      engine: 'PDFIUM',
+      page: Number(pageNum),
+      documentFingerprint: pdfDoc.value?.fingerprints?.[0] || '',
+      textMapVersion: 1,
+      charStart: start,
+      charEnd: end,
+      ranges: [],
+      contentSegments: [],
+    },
+    start,
+    end,
+  }
+}
+
+async function resolveAnnotationPdfiumRangeByGeometry(pageNum, boxes) {
+  const layer = textLayerRefs.value[Number(pageNum)]
+  const pageRect = layer?.getBoundingClientRect?.()
+  if (!layer || !pageRect?.width || !pageRect?.height || !boxes.length) return null
+  const ordered = boxes.slice().sort((first, second) => (
+    first.y - second.y || first.x - second.x
+  ))
+  const toClientPoint = (box, edge) => ({
+    x: pageRect.left + (edge === 'start' ? box.x : box.x + box.width) * pageRect.width,
+    y: pageRect.top + (box.y + box.height / 2) * pageRect.height,
+  })
+  const first = await pdfiumEndpointAtPoint(
+    pageNum, layer, toClientPoint(ordered[0], 'start').x, toClientPoint(ordered[0], 'start').y,
+  )
+  const last = await pdfiumEndpointAtPoint(
+    pageNum, layer, toClientPoint(ordered[ordered.length - 1], 'end').x,
+    toClientPoint(ordered[ordered.length - 1], 'end').y,
+  )
+  if (!first || !last) return null
+  const start = Math.min(first.charIndex, last.charIndex)
+  const end = Math.max(first.charIndex, last.charIndex)
+  return pdfiumRangeResult(pageNum, start, end)
+}
+
+/**
+ * Older/Agent-created markers carry trusted geometry but no PDFium character
+ * range. Resolve that range once from the same text and page before resizing,
+ * so their handles can use the exact mouse-selection semantics as well.
+ */
+async function resolveAnnotationPdfiumRange(annotation, pageNum) {
+  const existing = pdfiumTextAnchor(annotation)
+  if (existing) return existing
+  if (!pdfInteractionReady.value || !pdfInteractionEngine) return null
+  const targetBoxes = annotationNormalizedBoxes(annotation)
+  const geometryRange = await resolveAnnotationPdfiumRangeByGeometry(pageNum, targetBoxes)
+  if (geometryRange) return geometryRange
+  const text = String(annotation?.coordinates?.anchorText || '').trim()
+  if (!text) return null
+  const targetBox = unionBoundingBoxes(targetBoxes)
+  for (const phrase of evidenceSearchPhrases(text)) {
+    let matches
+    try { matches = await pdfInteractionEngine.search(phrase) }
+    catch { continue }
+    const pageMatches = (matches || []).filter(candidate => (
+      candidate.pageIndex + 1 === Number(pageNum) && candidate.rects?.length
+    ))
+    if (!pageMatches.length) continue
+    const overlapping = targetBoxes.length
+      ? pageMatches.filter(candidate => candidate.rects.some(rect => (
+        targetBoxes.some(box => boxesOverlap(rect, box))
+      )))
+      : []
+    const candidates = overlapping.length ? overlapping : pageMatches
+    const selected = candidates
+      .slice()
+      .sort((first, second) => (
+        evidenceMatchDistance(first.rects, targetBox)
+        - evidenceMatchDistance(second.rects, targetBox)
+      ))[0]
+    if (!selected) continue
+    const start = Number(selected.charStart)
+    const end = Number(selected.charEnd)
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start) continue
+    return pdfiumRangeResult(pageNum, start, end)
+  }
+  return null
+}
+
 function annotationResizeHandle(annotation, page, edge) {
+  if (isFormulaRegionAnnotation(annotation) && annotation?.type === 'UNDERLINE') {
+    const line = formulaUnderlineLine(annotation, page)
+    return edge === 'start'
+      ? { x: line.x1, y: line.y1 }
+      : { x: line.x2, y: line.y2 }
+  }
   const quads = annotation.coordinates?.quads || []
   const quad = edge === 'start' ? quads[0] : quads[quads.length - 1]
   if (!quad || !page?.viewport) return { x: 0, y: 0 }
@@ -2569,32 +2834,132 @@ function beginAnnotationResize(e, annotation, page, edge) {
   const pageEl = findPageElement(e.currentTarget)
   if (!pageEl) return
   selectedAnnotation.value = annotation
+  const existingPdfiumRange = pdfiumTextAnchor(annotation)
   resizingAnnotation = {
     annotation,
     page,
+    pageNum: page.pageNum || annotation.page,
     pageEl,
+    textLayer: textLayerRefs.value[page.pageNum || annotation.page],
     edge,
     captureTarget: e.currentTarget,
     originalQuads: JSON.parse(JSON.stringify(annotation.coordinates.quads)),
-    moved: false
+    originalTextAnchor: annotation.coordinates?.textAnchor
+      ? JSON.parse(JSON.stringify(annotation.coordinates.textAnchor)) : null,
+    originalAnchorText: annotation.coordinates?.anchorText || '',
+    pdfiumRange: existingPdfiumRange,
+    pdfiumRangePromise: existingPdfiumRange ? null
+      : resolveAnnotationPdfiumRange(annotation, page.pageNum || annotation.page).catch(() => null),
+    revision: 0,
+    pendingUpdate: Promise.resolve(),
+    error: null,
+    moved: false,
+  }
+  if (resizingAnnotation.pdfiumRangePromise) {
+    const resize = resizingAnnotation
+    void resize.pdfiumRangePromise.then(range => {
+      if (resizingAnnotation !== resize) return
+      resize.pdfiumRange = range
+      resize.pdfiumRangePromise = null
+    })
   }
   e.currentTarget.setPointerCapture?.(e.pointerId)
   e.preventDefault()
 }
 
+function updatePdfiumAnnotationSelection(resize, selection) {
+  const quads = (selection.rects || []).map(boundingBoxToViewportQuad).filter(Boolean)
+  if (!quads.length) return false
+  const annotation = resize.annotation
+  const changed = JSON.stringify(quads) !== JSON.stringify(annotation.coordinates?.quads || [])
+  if (!changed) return false
+  annotation.coordinates.quads = quads
+  // Once an endpoint is manually adjusted, the marker follows an ordinary
+  // PDFium text selection (including line changes) instead of remaining a
+  // fixed formula-region underline.
+  annotation.coordinates.geometryKind = 'TEXT_RANGE'
+  const anchor = resize.pdfiumRange?.anchor || {}
+  const runs = (selection.runs || []).map(run => ({
+    type: 'TEXT',
+    charStart: run.charStart,
+    charEnd: run.charEnd,
+    text: run.text,
+    fonts: [],
+    rect: run.rect,
+  }))
+  annotation.coordinates.textAnchor = {
+    ...anchor,
+    version: 2,
+    engine: 'PDFIUM',
+    page: resize.pageNum,
+    documentFingerprint: anchor.documentFingerprint || pdfDoc.value?.fingerprints?.[0] || '',
+    textMapVersion: 1,
+    charStart: selection.charStart,
+    charEnd: selection.charEnd,
+    ranges: [],
+    contentSegments: normalizePdfiumContentSegments(
+      runs, selection.charStart, selection.charEnd,
+    ),
+  }
+  annotation.coordinates.anchorText = String(selection.text || '').slice(0, 500)
+  resize.moved = true
+  return true
+}
+
+async function resizeAnnotationByPdfium(resize, event, revision) {
+  let range = resize.pdfiumRange
+  if (!range && resize.pdfiumRangePromise) {
+    range = await resize.pdfiumRangePromise
+    if (range && resizingAnnotation === resize) resize.pdfiumRange = range
+  }
+  if (!range || !resize.textLayer || !pdfInteractionReady.value || !pdfInteractionEngine) return
+  const endpoint = await pdfiumEndpointAtPoint(resize.pageNum, resize.textLayer, event.clientX, event.clientY)
+  if (!endpoint || resizingAnnotation !== resize || revision !== resize.revision) return
+  const from = resize.edge === 'start' ? endpoint.charIndex : range.start
+  const to = resize.edge === 'start' ? range.end : endpoint.charIndex
+  const selection = await pdfInteractionEngine.select(resize.pageNum - 1, from, to)
+  if (resizingAnnotation !== resize || revision !== resize.revision) return
+  updatePdfiumAnnotationSelection(resize, selection)
+}
+
 function resizeAnnotationRange(resize, event) {
   const rect = resize.pageEl.getBoundingClientRect()
-  if (!rect.width) return
+  if (!rect.width || !rect.height) return
   const quads = resize.annotation.coordinates?.quads
   if (!quads?.length) return
   const rawPointerX = clamp((event.clientX - rect.left) / rect.width, 0.002, 0.998)
-  const result = resizeTextAnnotationQuads(quads, resize.edge, rawPointerX)
-  if (!result.changed) return
-  resize.annotation.coordinates.quads = result.quads
-  // Manual geometry adjustment no longer guarantees the old character range.
-  // Keep anchorText for display, but never persist a knowingly stale range.
-  resize.annotation.coordinates.textAnchor = null
-  resize.moved = true
+  const rawPointerY = clamp((event.clientY - rect.top) / rect.height, 0.002, 0.998)
+  const revision = ++resize.revision
+  resize.error = null
+  const hasPdfiumResolution = (resize.pdfiumRange || resize.pdfiumRangePromise)
+    && resize.textLayer && pdfInteractionReady.value && pdfInteractionEngine
+  if (hasPdfiumResolution) {
+    // Keep old/Agent markers responsive while their one-time text lookup is in
+    // flight. A later PDFium result replaces this geometry with exact glyphs.
+    if (!resize.pdfiumRange) {
+      const fallback = resizeTextAnnotationQuads(quads, resize.edge, rawPointerX, rawPointerY)
+      if (fallback.changed) {
+        resize.annotation.coordinates.quads = fallback.quads
+        resize.annotation.coordinates.textAnchor = null
+        resize.moved = true
+      }
+    }
+    const update = resizeAnnotationByPdfium(resize, event, revision).catch(error => {
+      if (resizingAnnotation === resize && revision === resize.revision) resize.error = error
+    })
+    resize.pendingUpdate = update
+    return update
+  }
+  const result = resizeTextAnnotationQuads(quads, resize.edge, rawPointerX, rawPointerY)
+  if (result.changed) {
+    resize.annotation.coordinates.quads = result.quads
+    // Without a character anchor this is a geometry-only edit. Keep the visible
+    // label, but do not persist a knowingly stale character range.
+    resize.annotation.coordinates.textAnchor = null
+    resize.moved = true
+  }
+  resize.pendingUpdate = Promise.resolve()
+  return resize.pendingUpdate
 }
 
 function onAnnotationClick(ann) {
@@ -2736,28 +3101,27 @@ function quadPoints(q, page, coords) {
 }
 
 function quadLine(q, page, coords) {
-  if (!page.viewport) return { x1: 0, y1: 0, x2: 0, y2: 0 }
-  const p1 = annotationPoint(q.x1, q.y1, page, coords)
-  const p2 = annotationPoint(q.x2, q.y2, page, coords)
-  return { x1: p1[0], y1: p1[1], x2: p2[0], y2: p2[1] }
+  return quadLineForPage(q, page, coords)
+}
+
+function isFormulaRegionAnnotation(annotation) {
+  if (annotation?.coordinates?.geometryKind === 'TEXT_RANGE') return false
+  return annotation?.coordinates?.geometryKind === 'FORMULA_REGION'
+    || String(annotation?.sourceObjectId || '').startsWith('eq:')
+}
+
+function formulaUnderlineLine(annotation, page) {
+  return formulaUnderlineLineForPage(annotation?.coordinates?.quads, page, annotation?.coordinates)
 }
 
 function annotationPoint(x, y, page, coords) {
-  const v = page.viewport
-  if (coords?.coordinateSpace === 'viewport') return [x * v.width, y * v.height]
-  const width = coords?.pageWidth || (v.viewBox[2] - v.viewBox[0])
-  const height = coords?.pageHeight || (v.viewBox[3] - v.viewBox[1])
-  return v.convertToViewportPoint(x * width + v.viewBox[0], y * height + v.viewBox[1])
+  return annotationPointForPage(x, y, page, coords)
 }
 
 function freehandPoints(coords, page) {
   if (!page.viewport || !coords?.points) return ''
-  const v = page.viewport
   return coords.points.map(p => {
-    if (coords.coordinateSpace === 'viewport') return `${p.x * v.width},${p.y * v.height}`
-    const width = coords.pageWidth || (v.viewBox[2] - v.viewBox[0])
-    const height = coords.pageHeight || (v.viewBox[3] - v.viewBox[1])
-    const vp = v.convertToViewportPoint(p.x * width + v.viewBox[0], p.y * height + v.viewBox[1])
+    const vp = annotationPointForPage(p.x, p.y, page, coords)
     return `${vp[0]},${vp[1]}`
   }).join(' ')
 }

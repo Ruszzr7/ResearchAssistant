@@ -392,6 +392,7 @@ class PaperReadToolRegistryTest {
         PaperMemoryRecord memory = new PaperMemoryRecord();
         memory.setDocumentHash(catalog.documentHash());
         memory.setLayoutParserVersion(catalog.parserVersion());
+        memory.setUnderstandingVersion(com.research.assistant.service.memory.PaperUnderstandingService.PIPELINE_VERSION);
         memory.setProfileJson("""
                 {"keyFindings":[{"category":"FINDING","statement":"结论",
                 "evidenceBlockIds":["p1-b1"],"confidence":0.9}]}
@@ -420,6 +421,7 @@ class PaperReadToolRegistryTest {
         PaperMemoryRecord memory = new PaperMemoryRecord();
         memory.setDocumentHash(catalog.documentHash());
         memory.setLayoutParserVersion(catalog.parserVersion());
+        memory.setUnderstandingVersion(com.research.assistant.service.memory.PaperUnderstandingService.PIPELINE_VERSION);
         memory.setProfileJson("""
                 {"keyFindings":[{"category":"FINDING",
                 "statement":"所提方案在缩短块长和降低BLER下不降低传输速率",
@@ -462,6 +464,35 @@ class PaperReadToolRegistryTest {
         assertThat(json.at("/evidenceNeeds/0/targetCoverage/matchedTargets").toString()).contains("21");
         assertThat(json.at("/evidenceNeeds/0/targetCoverage/missingTargets").toString()).contains("22");
         assertThat(json.has("exhausted")).isFalse();
+    }
+
+    @Test
+    void doesNotCountAFormulaMentionInContextAsTheRequestedFormula() throws Exception {
+        PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
+        SourceObject formula13 = new SourceObject("formula-13", 9, "h".repeat(64), "parser", 1,
+                SourceContentType.FORMULA, "M = H^T. (13)", null,
+                List.of("H = [H1 H2 … HN]. (12)", "公式 (13)"), "13", Map.of());
+        SourceLocator locator = new SourceLocator("loc-13", "formula-13", 1, "PDF_NORMALIZED",
+                List.of(new NormalizedBoundingBox(.2, .3, .5, .05)), formula13.rawContent(),
+                EvidenceLocator.Precision.FORMULA_REGION);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(9, "h".repeat(64), "parser", 1,
+                new LinkedHashMap<>(Map.of("formula-13", formula13)),
+                Map.of("formula-13", List.of(locator)));
+        when(sourceService.search(eq(catalog), any())).thenReturn(
+                List.of(new RetrievalHit("formula-13", .95, List.of("TOKEN_COVERAGE"))));
+        when(sourceService.readSource(catalog, "formula-13")).thenReturn(formula13);
+
+        AgentToolExecution execution = new PaperReadToolRegistry(sourceService, objectMapper).execute(
+                catalog, "retrieve_paper_evidence", """
+                        {"needs":[{"id":"formula-12","objective":"确认公式 12",
+                        "query":"公式 12","targets":["12"],"contentTypes":["FORMULA"]}]}
+                        """);
+        JsonNode json = objectMapper.readTree(execution.resultJson());
+
+        assertThat(json.at("/evidenceNeeds/0/targetCoverage/matchedTargets").toString())
+                .isEqualTo("[]");
+        assertThat(json.at("/evidenceNeeds/0/targetCoverage/missingTargets").toString())
+                .contains("12");
     }
 
     @Test

@@ -54,6 +54,25 @@ class PaperSourceCatalogServiceTest {
     }
 
     @Test
+    void treatsChineseFormulaNumberQueryAsAnExactFormulaIdentity() {
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(12L, "f".repeat(64), "parser-v1", .95,
+                Instant.parse("2026-01-01T00:00:00Z"), 1, List.of(
+                new DocumentBlock("formula-12", 1, box(.20, .20, .50, .04), DocumentBlockRole.FORMULA,
+                        1, List.of("Method"), "H = [H1 H2 … HN]. (12)", null, null, .98),
+                // Formula 13 intentionally carries neighbouring context mentioning
+                // formula 12.  That mention must not satisfy an explicit formula-12 query.
+                new DocumentBlock("formula-13", 1, box(.20, .32, .50, .04), DocumentBlockRole.FORMULA,
+                        2, List.of("H = [H1 H2 … HN]. (12)"), "M = H^T. (13)", null, null, .98)));
+
+        PaperSourceCatalog catalog = service.build(artifact);
+        List<RetrievalHit> hits = service.search(catalog,
+                new PaperSearchRequest("公式 12", Set.of(SourceContentType.FORMULA), 1, 1, 5));
+
+        assertThat(hits).hasSize(1);
+        assertThat(catalog.requireObject(hits.get(0).sourceObjectId()).formulaNumber()).isEqualTo("12");
+    }
+
+    @Test
     void exposesMergedParagraphAsOneSourceWithBlockLevelLocators() {
         PaperLayoutArtifact artifact = new PaperLayoutArtifact(7L, "a".repeat(64), "parser-v1", .95,
                 Instant.parse("2026-01-01T00:00:00Z"), 1, List.of(
@@ -97,6 +116,79 @@ class PaperSourceCatalogServiceTest {
         assertThat(algorithm.rawContent()).contains("Algorithm 2", "rate subproblem", "beamformer");
         assertThat(catalog.requireLocators(algorithm.sourceObjectId())).singleElement()
                 .satisfies(locator -> assertThat(locator.rects()).hasSize(3));
+    }
+
+    @Test
+    void figureSourceKeepsCaptionTextAndCaptionAnchoredVisualRegion() {
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(7L, "a".repeat(64), "parser-v1", .95,
+                Instant.parse("2026-01-01T00:00:00Z"), 1, List.of(
+                new DocumentBlock("prose", 1, box(.08, .10, .40, .08), DocumentBlockRole.BODY,
+                        1, List.of("Results"),
+                        "The next experiment compares the achievable rate of all schemes.",
+                        null, null, .98),
+                new DocumentBlock("caption", 1, box(.08, .44, .40, .04), DocumentBlockRole.CAPTION,
+                        2, List.of("Results"), "Fig. 3. Achievable rate comparison.",
+                        null, null, .98)));
+
+        PaperSourceCatalog catalog = service.build(artifact);
+        SourceObject figure = catalog.objects().values().stream()
+                .filter(object -> object.contentType() == SourceContentType.FIGURE)
+                .findFirst().orElseThrow();
+
+        assertThat(figure.rawContent()).isEqualTo("Fig. 3. Achievable rate comparison.");
+        assertThat(catalog.objects().values())
+                .filteredOn(object -> object.contentType() == SourceContentType.TEXT)
+                .noneMatch(object -> object.rawContent().equals(figure.rawContent()));
+        assertThat(figure.provenance()).containsEntry("visualRegion", "CAPTION_ANCHORED");
+        assertThat(catalog.requireLocators(figure.sourceObjectId())).singleElement()
+                .satisfies(locator -> {
+                    assertThat(locator.precision()).isEqualTo(
+                            com.research.assistant.service.pdf.layout.EvidenceLocator.Precision.VISUAL_REGION);
+                    assertThat(locator.rects()).containsExactly(box(.08, .44, .40, .04));
+                    assertThat(locator.focusRects()).singleElement()
+                            .satisfies(box -> assertThat(box.height()).isGreaterThan(.20));
+                });
+    }
+
+    @Test
+    void figureLocatorCoversEveryCaptionLineButKeepsVisualCropSeparate() {
+        PaperLayoutArtifact artifact = new PaperLayoutArtifact(7L, "d".repeat(64), "parser-v1", .95,
+                Instant.parse("2026-01-01T00:00:00Z"), 1, List.of(
+                new DocumentBlock("prose", 1, box(.52, .10, .41, .08), DocumentBlockRole.BODY,
+                        1, List.of("Results"), "The following chart compares the proposed systems.",
+                        null, null, .98),
+                new DocumentBlock("caption", 1, box(.52, .40, .41, .012), DocumentBlockRole.CAPTION,
+                        2, List.of("Results"), "FIGURE 2. Spectral efficiency for N = 3",
+                        null, null, .98),
+                new DocumentBlock("caption-line-2", 1, box(.52, .416, .40, .012), DocumentBlockRole.BODY,
+                        3, List.of("Results"), "and R = OMA throughput with 50% bandwidth.",
+                        null, null, .98),
+                new DocumentBlock("caption-line-3", 1, box(.52, .432, .38, .012), DocumentBlockRole.FORMULA,
+                        4, List.of("Results"), "The cluster-heads are distributed within 150m of the BS.",
+                        null, null, .98),
+                new DocumentBlock("analysis", 1, box(.52, .48, .41, .08), DocumentBlockRole.BODY,
+                        5, List.of("Results"),
+                        "Figure 2 shows that the proposed method improves spectral efficiency.",
+                        null, null, .98)));
+
+        PaperSourceCatalog catalog = service.build(artifact);
+        SourceObject figure = catalog.objects().values().stream()
+                .filter(object -> object.contentType() == SourceContentType.FIGURE)
+                .findFirst().orElseThrow();
+        SourceLocator locator = catalog.requireLocators(figure.sourceObjectId()).get(0);
+
+        assertThat(figure.rawContent()).contains("FIGURE 2", "50% bandwidth", "distributed within 150m")
+                .doesNotContain("proposed method improves");
+        assertThat(locator.rects()).containsExactly(
+                box(.52, .40, .41, .012),
+                box(.52, .416, .40, .012),
+                box(.52, .432, .38, .012));
+        assertThat(locator.focusRects()).singleElement()
+                .satisfies(box -> assertThat(box.y()).isLessThan(.40));
+        assertThat(catalog.objects().values())
+                .filteredOn(object -> object.contentType() == SourceContentType.TEXT)
+                .anyMatch(object -> object.rawContent().contains("proposed method improves"))
+                .noneMatch(object -> object.rawContent().contains("50% bandwidth"));
     }
 
     @Test

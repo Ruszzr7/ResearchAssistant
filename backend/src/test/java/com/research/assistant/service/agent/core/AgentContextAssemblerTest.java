@@ -51,8 +51,10 @@ class AgentContextAssemblerTest {
                 .contains("GitHub 风格 Markdown", "$...$", "$$...$$", "###")
                 .contains("不要使用【标题】这类方括号标题", "不要输出未包裹的伪 LaTeX")
                 .contains("能力描述是使用规则的权威来源")
-                .contains("依赖论文的事实性陈述必须建立在已验证的论文上下文上")
-                .contains("如果现有论文上下文不足，明确说明限制");
+                .contains("根据答案的实际依据选择 groundingMode")
+                .contains("论文画像只用于确定方向和设计 Need")
+                .contains("如果现有论文上下文不足，只回答已经确认的内容")
+                .doesNotContain("证据限制");
         verify(messages).selectFinalAfter(7L, 0);
     }
 

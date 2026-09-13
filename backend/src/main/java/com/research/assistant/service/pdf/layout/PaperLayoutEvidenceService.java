@@ -216,9 +216,9 @@ public class PaperLayoutEvidenceService {
                     .reduce("", (left, right) -> left.isBlank() ? right : left + " … " + right);
         }
         return switch (block.role()) {
-            case FORMULA -> "[公式区域：未获得可信 LaTeX，仅可按页面区域定位和核对]";
-            case TABLE -> "[表格区域：未获得可信单元格结构，仅可按页面区域定位和核对]";
-            default -> "[视觉区域：没有可安全引用的精确文本]";
+            case FORMULA -> "公式区域";
+            case TABLE -> "表格区域";
+            default -> "视觉区域";
         };
     }
 

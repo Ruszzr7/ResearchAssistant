@@ -2,6 +2,7 @@ package com.research.assistant.service.agent.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.dto.agent.AgentExplicitAction;
+import com.research.assistant.dto.agent.AgentPendingAction;
 import com.research.assistant.dto.agent.AgentTurnInput;
 import com.research.assistant.dto.agent.AgentTurnResult;
 import com.research.assistant.entity.AgentRunRecord;
@@ -10,6 +11,7 @@ import com.research.assistant.entity.AgentTurnRecord;
 import com.research.assistant.mapper.ResearchMessageMapper;
 import com.research.assistant.service.agent.runtime.AgentModelSnapshot;
 import com.research.assistant.service.agent.runtime.AgentRunStatus;
+import com.research.assistant.service.agent.runtime.AgentToolCallStatus;
 import com.research.assistant.service.agent.runtime.AgentRuntimeService;
 import com.research.assistant.service.agent.source.GroundEvidenceService;
 import com.research.assistant.service.agent.source.PaperSourceCatalog;
@@ -43,6 +45,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -107,7 +110,8 @@ class AgentLoopServiceTest {
     @Test
     void ordinaryChatCompletesWithoutEvidenceGate() {
         when(assembler.assemble(any())).thenReturn(context(null));
-        gateway.add(new ScriptedDecision("你好，我可以帮你阅读论文。", List.of()));
+        gateway.add(decisionTool("m1", "submit_answer",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"你好，我可以帮你阅读论文。\",\"sourceObjectIds\":[]}] }"));
 
         AgentTurnResult result = service.execute(input("你好"));
 
@@ -127,7 +131,8 @@ class AgentLoopServiceTest {
                 new GroundEvidenceService(), messages, new ObjectMapper(), actionResolver,
                 ticketService, capability, null);
         when(assembler.assemble(any())).thenReturn(context(null));
-        gateway.add(new ScriptedDecision("可以直接回答。", List.of()));
+        gateway.add(decisionTool("m1", "submit_answer",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"可以直接回答。\",\"sourceObjectIds\":[]}] }"));
 
         AgentTurnResult result = service.execute(input("冒泡排序的复杂度是多少？"));
 
@@ -138,7 +143,8 @@ class AgentLoopServiceTest {
     @Test
     void selectedContextMayStillReceiveADirectGeneralAnswerWithoutCallingPaperTools() {
         when(assembler.assemble(any())).thenReturn(context(catalog(), Set.of("src-1")));
-        gateway.add(new ScriptedDecision("这个问题与当前选区无关，冒泡排序平均复杂度为 $O(n^2)$。", List.of()));
+        gateway.add(decisionTool("m1", "submit_answer",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"这个问题与当前选区无关，冒泡排序平均复杂度为 $O(n^2)$。\",\"sourceObjectIds\":[]}] }"));
 
         AgentTurnResult result = service.execute(input("冒泡排序的平均复杂度是多少？"));
 
@@ -148,15 +154,30 @@ class AgentLoopServiceTest {
     }
 
     @Test
-    void paperDependentPlainTextCompletesWithoutAForcedEvidenceGate() {
-        when(assembler.assemble(any())).thenReturn(context(catalog()));
-        gateway.add(new ScriptedDecision("式（21）说明了一个结论。", List.of()));
+    void paperDependentAnswerMustRetrieveEvidenceAfterUngroundedSubmissionIsRejected() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "submit_answer",
+                "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"式（21）说明了一个结论。\",\"sourceObjectIds\":[]}] }"));
+        gateway.add(decisionTool("m2", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"formula-meaning\",\"objective\":\"确认式（21）的含义\",\"query\":\"Equation (21)\"}]}"));
+        gateway.add(decisionTool("m3", "submit_answer",
+                "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"式（21）给出准确率结论。\",\"sourceObjectIds\":[\"src-1\"]}] }"));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(new AgentToolExecution(
+                        "{\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
+                                + "\"evidenceNeeds\":[{\"needId\":\"formula-meaning\","
+                                + "\"sourceObjectIds\":[\"src-1\"]}]}",
+                        Set.of("src-1")));
 
         AgentTurnResult result = service.execute(input("论文中的式（21）说明了什么？"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
-        assertThat(result.message()).isEqualTo("式（21）说明了一个结论。");
-        assertThat(result.citations()).isEmpty();
+        assertThat(result.citations()).hasSize(1);
+        assertThat(gateway.requests).hasSize(3);
+        assertThat(gateway.requests.get(1).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("每个答案块都必须绑定已读取的论文来源"));
     }
 
     @Test
@@ -178,6 +199,85 @@ class AgentLoopServiceTest {
         assertThat(result.citations().get(0).citationNumber()).isEqualTo(1);
         assertThat(result.evidence().get(0).sourceObjectId()).isEqualTo("src-1");
         assertThat(result.evidence().get(0).formulaNumber()).isEqualTo("21");
+    }
+
+    @Test
+    void displayFormulaRequiresFormulaEvidenceThatWasActuallyReadable() {
+        PaperSourceCatalog catalog = formulaCatalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认公式\",\"query\":\"Equation 12\"}]}"));
+        gateway.add(decisionTool("m2", "submit_answer", """
+                {"groundingMode":"PAPER","answerBlocks":[
+                {"text":"$$T=R(1-\\\\varepsilon)$$","sourceObjectIds":["src-formula"]}]}
+                """));
+        gateway.add(decisionTool("m3", "submit_answer", """
+                {"groundingMode":"PAPER","answerBlocks":[
+                {"text":"公式（12）用于定义有效吞吐量。","sourceObjectIds":["src-formula"]}]}
+                """));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-formula\"}]}",
+                        Set.of("src-formula")));
+
+        AgentTurnResult result = service.execute(input("公式（12）是什么？"));
+
+        assertThat(result.message()).isEqualTo("公式（12）用于定义有效吞吐量。");
+        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("必须绑定可靠公式文本"));
+    }
+
+    @Test
+    void visuallyReadFormulaMaySupportAnExactDisplayExpression() {
+        PaperSourceCatalog catalog = formulaCatalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认公式\",\"query\":\"Equation 12\"}]}"));
+        gateway.add(decisionTool("m2", "submit_answer", """
+                {"groundingMode":"PAPER","answerBlocks":[
+                {"text":"$$T=R(1-\\\\varepsilon)$$","sourceObjectIds":["src-formula"]}]}
+                """));
+        AgentVisualContent visual = new AgentVisualContent(
+                "src-formula", 3, "FORMULA", "image/png", new byte[]{1}, 200, 80);
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-formula\"}]}",
+                        Set.of("src-formula"), List.of(visual)));
+
+        AgentTurnResult result = service.execute(input("公式（12）是什么？"));
+
+        assertThat(result.message()).isEqualTo("$$T=R(1-\\varepsilon)$$");
+        assertThat(result.evidence()).singleElement()
+                .satisfies(view -> assertThat(view.contentType()).isEqualTo("FORMULA"));
+    }
+
+    @Test
+    void aRetrievedFigureVisualMustBeBoundIntoTheFinalPaperAnswer() {
+        PaperSourceCatalog catalog = figureCatalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"figure\",\"objective\":\"确认图中趋势\","
+                        + "\"query\":\"Figure 2\",\"contentTypes\":[\"FIGURE\"]}]}"));
+        gateway.add(decisionTool("m2", "submit_answer", """
+                {"groundingMode":"PAPER","answerBlocks":[
+                {"text":"图 2 展示频谱效率。","sourceObjectIds":["src-1"]}]}
+                """));
+        gateway.add(decisionTool("m3", "submit_answer", """
+                {"groundingMode":"PAPER","answerBlocks":[
+                {"text":"图 2 展示频谱效率。","sourceObjectIds":["src-figure","src-1"]}]}
+                """));
+        AgentVisualContent visual = new AgentVisualContent(
+                "src-figure", 3, "FIGURE", "image/png", new byte[]{1}, 320, 180);
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(new AgentToolExecution("{\"sources\":[]}",
+                        Set.of("src-figure", "src-1"), List.of(visual)));
+
+        AgentTurnResult result = service.execute(input("图 2 展示了什么？"));
+
+        assertThat(result.evidence()).extracting(view -> view.contentType())
+                .contains("FIGURE", "TEXT");
+        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("FIGURE 视觉来源"));
     }
 
     @Test
@@ -254,7 +354,7 @@ class AgentLoopServiceTest {
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"accuracy\",\"query\":\"accuracy\"}]}"));
         gateway.add(decisionTool("m2", "submit_answer", """
-                {"answerBlocks":[
+                {"groundingMode":"MIXED","answerBlocks":[
                   {"text":"一般而言，准确率越高通常越好。","sourceObjectIds":[]},
                   {"text":"本文报告达到 95% accuracy。","sourceObjectIds":["src-1"]}]}
                 """));
@@ -307,6 +407,85 @@ class AgentLoopServiceTest {
         verify(runtime).registerToolCall(eq("run-1"), eq("paper_action"), anyString(), eq(false), anyString());
         verify(runtime).transitionRun(eq("run-1"), eq(AgentRunStatus.WAITING_CLIENT),
                 anyString(), ArgumentMatchers.isNull(), ArgumentMatchers.isNull());
+        verify(runtime, never()).transitionToolCall(anyString(), eq(AgentToolCallStatus.WAITING_CLIENT),
+                anyString(), ArgumentMatchers.isNull(), ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void modelCanBatchOneHighlightAcrossExplicitSourcesWithIndependentTickets() {
+        PaperSourceCatalog base = catalog();
+        SourceObject second = new SourceObject("src-2", 9, "hash", "parser", 1, SourceContentType.TEXT,
+                "The baseline reaches 90% accuracy.", null, List.of("Results"), "", Map.of());
+        SourceLocator secondLocator = new SourceLocator("loc-2", "src-2", 4, "PDF_NORMALIZED",
+                List.of(new NormalizedBoundingBox(.2, .3, .25, .04)), "reaches 90% accuracy",
+                EvidenceLocator.Precision.TEXT_RANGE);
+        PaperSourceCatalog batchCatalog = new PaperSourceCatalog(9, "hash", "parser", 5,
+                Map.of("src-1", base.objects().get("src-1"), "src-2", second),
+                Map.of("src-1", base.locators().get("src-1"), "src-2", List.of(secondLocator)));
+        when(assembler.assemble(any())).thenReturn(context(batchCatalog, Set.of("src-1", "src-2")));
+        ActionTarget firstTarget = new PaperActionResolver().resolve(batchCatalog, "src-1");
+        ActionTarget secondTarget = new PaperActionResolver().resolve(batchCatalog, "src-2");
+        when(actionResolver.resolve(batchCatalog, "src-1")).thenReturn(firstTarget);
+        when(actionResolver.resolve(batchCatalog, "src-2")).thenReturn(secondTarget);
+        when(ticketService.issue(eq("run-1"), any(), eq(PaperActionType.HIGHLIGHT), any(ActionTarget.class),
+                ArgumentMatchers.isNull(), eq("#ffee58")))
+                .thenAnswer(invocation -> new ActionTicketService.IssuedActionTicket(
+                        "ticket-" + invocation.getArgument(3, ActionTarget.class).sourceObjectId(),
+                        java.time.Instant.now().plusSeconds(60), null));
+        gateway.add(decisionTool("m1", "paper_action", """
+                {"actionType":"HIGHLIGHT","sourceObjectIds":["src-1","src-2"],"color":"#ffee58"}
+                """));
+
+        AgentTurnResult result = service.execute(input("把两个来源都高亮"));
+
+        assertThat(result.status()).isEqualTo("WAITING_CLIENT");
+        assertThat(result.pendingActions()).extracting(AgentPendingAction::target)
+                .containsExactly(firstTarget, secondTarget);
+        verify(ticketService, times(2)).issue(eq("run-1"), any(), eq(PaperActionType.HIGHLIGHT),
+                any(ActionTarget.class), ArgumentMatchers.isNull(), eq("#ffee58"));
+        verify(runtime, times(2)).registerToolCall(eq("run-1"), eq("paper_action"), anyString(),
+                eq(false), anyString());
+    }
+
+    @Test
+    void modelCanRequestDifferentPageActionsInOneOperationsList() {
+        PaperSourceCatalog base = catalog();
+        SourceObject second = new SourceObject("src-2", 9, "hash", "parser", 1, SourceContentType.TEXT,
+                "The baseline reaches 90% accuracy.", null, List.of("Results"), "", Map.of());
+        SourceLocator secondLocator = new SourceLocator("loc-2", "src-2", 4, "PDF_NORMALIZED",
+                List.of(new NormalizedBoundingBox(.2, .3, .25, .04)), "reaches 90% accuracy",
+                EvidenceLocator.Precision.TEXT_RANGE);
+        PaperSourceCatalog batchCatalog = new PaperSourceCatalog(9, "hash", "parser", 5,
+                Map.of("src-1", base.objects().get("src-1"), "src-2", second),
+                Map.of("src-1", base.locators().get("src-1"), "src-2", List.of(secondLocator)));
+        when(assembler.assemble(any())).thenReturn(context(batchCatalog, Set.of("src-1", "src-2")));
+        ActionTarget firstTarget = new PaperActionResolver().resolve(batchCatalog, "src-1");
+        ActionTarget secondTarget = new PaperActionResolver().resolve(batchCatalog, "src-2");
+        when(actionResolver.resolve(batchCatalog, "src-1")).thenReturn(firstTarget);
+        when(actionResolver.resolve(batchCatalog, "src-2")).thenReturn(secondTarget);
+        when(ticketService.issue(eq("run-1"), any(), any(PaperActionType.class), any(ActionTarget.class),
+                ArgumentMatchers.isNull(), eq("#ffee58")))
+                .thenAnswer(invocation -> new ActionTicketService.IssuedActionTicket(
+                        "ticket-" + invocation.getArgument(3, ActionTarget.class).sourceObjectId(),
+                        java.time.Instant.now().plusSeconds(60), null));
+        gateway.add(decisionTool("m1", "paper_action", """
+                {"operations":[
+                  {"actionType":"HIGHLIGHT","sourceObjectId":"src-1","color":"#ffee58"},
+                  {"actionType":"UNDERLINE","sourceObjectId":"src-2","color":"#ffee58"}
+                ]}
+                """));
+
+        AgentTurnResult result = service.execute(input("把第一个来源高亮、第二个来源加下划线"));
+
+        assertThat(result.status()).isEqualTo("WAITING_CLIENT");
+        assertThat(result.pendingActions()).extracting(AgentPendingAction::actionType)
+                .containsExactly(PaperActionType.HIGHLIGHT, PaperActionType.UNDERLINE);
+        assertThat(result.pendingActions()).extracting(AgentPendingAction::target)
+                .containsExactly(firstTarget, secondTarget);
+        verify(ticketService).issue(eq("run-1"), any(), eq(PaperActionType.HIGHLIGHT), eq(firstTarget),
+                ArgumentMatchers.isNull(), eq("#ffee58"));
+        verify(ticketService).issue(eq("run-1"), any(), eq(PaperActionType.UNDERLINE), eq(secondTarget),
+                ArgumentMatchers.isNull(), eq("#ffee58"));
     }
 
     @Test
@@ -325,7 +504,8 @@ class AgentLoopServiceTest {
     @Test
     void clarificationKeepsTheTerminalAnswerAndClarificationTools() {
         when(assembler.assemble(any())).thenReturn(context(null));
-        gateway.add(decisionTool("m1", "submit_answer", "{\"clarification\":\"你希望比较哪两篇论文？\"}"));
+        gateway.add(decisionTool("m1", "submit_answer",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"clarification\":\"你希望比较哪两篇论文？\"}"));
 
         AgentTurnResult result = service.execute(input("帮我比较一下"));
 
@@ -340,13 +520,14 @@ class AgentLoopServiceTest {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"missing\",\"query\":\"missing\"}]}"));
-        gateway.add(new ScriptedDecision("根据论文画像，当前仍可概括其主要思路。", List.of()));
+        gateway.add(decisionTool("m2", "submit_answer",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"当前无法确认。\",\"sourceObjectIds\":[]}] }"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString())).thenThrow(new IllegalArgumentException("source not found"));
 
         AgentTurnResult result = service.execute(input("给出结论"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
-        assertThat(result.message()).contains("主要思路");
+        assertThat(result.message()).isEqualTo("当前无法确认。");
         assertThat(result.citations()).isEmpty();
         assertThat(gateway.requests).hasSize(2);
         assertThat(gateway.requests.get(1).messages()).anyMatch(entry ->
@@ -426,7 +607,7 @@ class AgentLoopServiceTest {
                 "objective":"确认准确率","id":"accuracy"}]}
                 """));
         gateway.add(decisionTool("m3", "submit_answer",
-                "{\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+                "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(new AgentToolExecution(
                         "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
@@ -451,7 +632,7 @@ class AgentLoopServiceTest {
         gateway.add(decisionTool("m2", "retrieve_paper_evidence", request));
         gateway.add(decisionTool("m3", "retrieve_paper_evidence", request));
         gateway.add(decisionTool("m4", "submit_answer",
-                "{\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+                "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(new AgentToolExecution(
                         "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
@@ -476,7 +657,7 @@ class AgentLoopServiceTest {
         gateway.add(decisionTool("m1", "retrieve_paper_evidence", request));
         gateway.add(decisionTool("m2", "retrieve_paper_evidence", request));
         gateway.add(decisionTool("m3", "submit_answer",
-                "{\"answerBlocks\":[{\"text\":\"当前未找到足够证据。\",\"sourceObjectIds\":[]}]}"));
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"当前无法确认。\",\"sourceObjectIds\":[]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(new AgentToolExecution(
                         "{\"status\":\"invalid_request\",\"sources\":[],\"evidenceNeeds\":[],"
@@ -505,7 +686,7 @@ class AgentLoopServiceTest {
         gateway.add(decisionTool("m3", "retrieve_paper_evidence",
                 "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"performance\"}]}"));
         gateway.add(decisionTool("m4", "submit_answer",
-                "{\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+                "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(new AgentToolExecution(
                         "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
@@ -525,14 +706,17 @@ class AgentLoopServiceTest {
     }
 
     @Test
-    void newNeedAfterTheInitialPlanIsBlockedWithoutAnotherRetrieval() {
+    void newNeedAfterTheInitialPlanGetsOneChanceToReturnToTheOriginalId() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
                 "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"accuracy\"}]}"));
         gateway.add(decisionTool("m2", "retrieve_paper_evidence",
                 "{\"needs\":[{\"id\":\"dataset\",\"objective\":\"确认数据集\",\"query\":\"dataset\"}]}"));
-        gateway.add(decisionTool("m3", "submit_answer", "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+        gateway.add(decisionTool("m3", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\","
+                        + "\"query\":\"benchmark accuracy\",\"refinementReason\":\"首批缺少基准细节\"}]}"));
+        gateway.add(decisionTool("m4", "submit_answer", "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(new AgentToolExecution(
                         "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
@@ -542,11 +726,11 @@ class AgentLoopServiceTest {
         AgentTurnResult result = service.execute(input("论文准确率和数据集是什么？"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
-        verify(tools, times(1)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        verify(tools, times(2)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
         assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
                         && entry.content().contains("NEW_NEED_NOT_ALLOWED")
-                        && entry.content().contains("\"status\":\"need_stopped\""));
+                        && entry.content().contains("\"status\":\"invalid_request\""));
     }
 
     @Test
@@ -562,7 +746,7 @@ class AgentLoopServiceTest {
                 "{\"needs\":[{\"id\":\"mechanism\",\"objective\":\"确认论文机制\",\"query\":\"mechanism conclusion\","
                         + "\"refinementReason\":\"第二批来源仍缺少机制结论\"}]}"));
         gateway.add(decisionTool("m4", "submit_answer",
-                "{\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+                "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(
                         new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-1\"}],\"evidenceNeeds\":[{\"needId\":\"mechanism\",\"sourceObjectIds\":[\"src-1\"]}]}", Set.of("src-1")),
@@ -579,6 +763,35 @@ class AgentLoopServiceTest {
     }
 
     @Test
+    void stopsOneNeedAfterFourEffectiveEvidenceReads() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog));
+        gateway.add(decisionTool("m1", "retrieve_paper_evidence",
+                "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认核心公式\",\"query\":\"formula 1\"}]}"));
+        for (int attempt = 2; attempt <= 5; attempt++) {
+            gateway.add(decisionTool("m" + attempt, "retrieve_paper_evidence",
+                    "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认核心公式\","
+                            + "\"query\":\"formula " + attempt + "\","
+                            + "\"refinementReason\":\"上一批未找到可确认的核心公式\"}]}"));
+        }
+        gateway.add(decisionTool("m6", "submit_answer",
+                "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"仅确认公式作用。\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+        when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
+                .thenReturn(
+                        evidenceResult("src-1"), evidenceResult("src-2"),
+                        evidenceResult("src-3"), evidenceResult("src-4"));
+
+        AgentTurnResult result = service.execute(input("核心公式是什么？"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        verify(tools, times(4)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        assertThat(gateway.requests.get(5).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("最多三次有效补检索")
+                        && entry.content().contains("need_stopped"));
+    }
+
+    @Test
     void mixedBatchReportsIndependentNeedProgressWithTopLevelScope() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
@@ -588,7 +801,7 @@ class AgentLoopServiceTest {
                 {"id":"result","objective":"确认结果","query":"missing result"}]}
                 """));
         gateway.add(decisionTool("m2", "submit_answer",
-                "{\"answerBlocks\":[{\"text\":\"机制结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
+                "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"机制结论\",\"sourceObjectIds\":[\"src-1\"]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(new AgentToolExecution(
                         "{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\"}],"
@@ -619,7 +832,8 @@ class AgentLoopServiceTest {
         gateway.add(decisionTool("m2", "retrieve_paper_evidence",
                 "{\"needs\":[{\"id\":\"missing\",\"objective\":\"确认缺失概念\",\"query\":\"missing result\","
                         + "\"refinementReason\":\"首次没有命中，改用结果术语\"}]}"));
-        gateway.add(new ScriptedDecision("当前来源中没有找到该事实。", List.of()));
+        gateway.add(decisionTool("m3", "submit_answer",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"当前无法确认。\",\"sourceObjectIds\":[]}] }"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(
                         new AgentToolExecution("{\"status\":\"not_found\",\"sources\":[],\"evidenceNeeds\":[{\"needId\":\"missing\",\"status\":\"not_found\",\"sourceObjectIds\":[]}]}", Set.of()),
@@ -661,7 +875,8 @@ class AgentLoopServiceTest {
             return run;
         }).when(runtime).transitionRun(eq("run-1"), any(), ArgumentMatchers.nullable(String.class),
                 ArgumentMatchers.nullable(String.class), ArgumentMatchers.nullable(String.class));
-        gateway.add(new ScriptedDecision("迟到的回答不应被写入", List.of()));
+        gateway.add(decisionTool("m1", "submit_answer",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"迟到的回答不应被写入\",\"sourceObjectIds\":[]}] }"));
 
         AgentTurnResult result = service.execute(input("hello"));
 
@@ -669,6 +884,31 @@ class AgentLoopServiceTest {
         assertThat(result.message()).contains("超时");
         verify(messages, times(1)).insert(any(com.research.assistant.entity.ResearchMessage.class));
         assertThat(result.message()).doesNotContain("迟到的回答不应被写入");
+    }
+
+    @Test
+    void lateAnswerAfterCancellationDoesNotPersistAssistantMessage() {
+        when(assembler.assemble(any())).thenReturn(context(null));
+        when(runtime.getTurnForRun("run-1")).thenReturn(turn);
+        doAnswer(invocation -> {
+            AgentRunStatus target = invocation.getArgument(1);
+            if (target == AgentRunStatus.COMPLETED) {
+                run.setStatus(AgentRunStatus.CANCELLED.name());
+                run.setErrorCode("USER_CANCELLED");
+                throw new IllegalStateException("invalid AgentRun transition: CANCELLED -> COMPLETED");
+            }
+            return run;
+        }).when(runtime).transitionRun(eq("run-1"), any(), ArgumentMatchers.nullable(String.class),
+                ArgumentMatchers.nullable(String.class), ArgumentMatchers.nullable(String.class));
+        gateway.add(decisionTool("m1", "submit_answer",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"取消后的迟到回答不应被写入\",\"sourceObjectIds\":[]}] }"));
+
+        AgentTurnResult result = service.execute(input("hello"));
+
+        assertThat(result.status()).isEqualTo(AgentRunStatus.CANCELLED.name());
+        assertThat(result.message()).isEqualTo("已取消回答");
+        verify(messages, times(1)).insert(any(com.research.assistant.entity.ResearchMessage.class));
+        assertThat(result.message()).doesNotContain("取消后的迟到回答不应被写入");
     }
 
     @Test
@@ -697,7 +937,8 @@ class AgentLoopServiceTest {
         AgentRunRecord resumed = new AgentRunRecord();
         resumed.setId(21L); resumed.setRunId("run-1"); resumed.setTurnId(11L); resumed.setStatus("RUNNING"); resumed.setVersion(1);
         when(runtime.transitionRun("run-1", AgentRunStatus.RUNNING, null, null, null)).thenReturn(resumed);
-        gateway.add(new ScriptedDecision("confirmed", List.of()));
+        gateway.add(decisionTool("m1", "submit_answer",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"confirmed\",\"sourceObjectIds\":[]}] }"));
         AgentTurnInput resume = new AgentTurnInput(7L, null, "第一个", null, null, List.of(), List.of(),
                 null, "resume-request", "run-1");
 
@@ -752,6 +993,13 @@ class AgentLoopServiceTest {
         return new ScriptedDecision("", List.of(new AgentToolRequest(id, name, args)));
     }
 
+    private static AgentToolExecution evidenceResult(String sourceId) {
+        return new AgentToolExecution(
+                "{\"sources\":[{\"sourceObjectId\":\"" + sourceId + "\"}],"
+                        + "\"evidenceNeeds\":[{\"needId\":\"formula\",\"sourceObjectIds\":[\""
+                        + sourceId + "\"]}]}", Set.of(sourceId));
+    }
+
     private AgentToolCallRecord toolCall(String name) {
         AgentToolCallRecord call = new AgentToolCallRecord();
         call.setId((long) name.hashCode() & 0xffffL);
@@ -766,6 +1014,30 @@ class AgentLoopServiceTest {
         SourceLocator locator = new SourceLocator("loc-1", "src-1", 3, "PDF_NORMALIZED",
                 List.of(new NormalizedBoundingBox(.1, .2, .3, .04)), "achieves 95% accuracy", EvidenceLocator.Precision.TEXT_RANGE);
         return new PaperSourceCatalog(9, "hash", "parser", 5, Map.of("src-1", source), Map.of("src-1", List.of(locator)));
+    }
+
+    private PaperSourceCatalog formulaCatalog() {
+        SourceObject source = new SourceObject("src-formula", 9, "hash", "parser", 1,
+                SourceContentType.FORMULA, "T = R(1 - epsilon) (12)", null,
+                List.of("System model"), "12", Map.of("textReliable", "false"));
+        SourceLocator locator = new SourceLocator("loc-formula", "src-formula", 3, "PDF_NORMALIZED",
+                List.of(new NormalizedBoundingBox(.1, .2, .3, .08)), "(12)",
+                EvidenceLocator.Precision.FORMULA_REGION);
+        return new PaperSourceCatalog(9, "hash", "parser", 5,
+                Map.of("src-formula", source), Map.of("src-formula", List.of(locator)));
+    }
+
+    private PaperSourceCatalog figureCatalog() {
+        PaperSourceCatalog textCatalog = catalog();
+        SourceObject figure = new SourceObject("src-figure", 9, "hash", "parser", 1,
+                SourceContentType.FIGURE, "Figure 2. Spectral efficiency.", null,
+                List.of("Results"), "", Map.of("visualRegion", "CAPTION_ANCHORED"));
+        SourceLocator locator = new SourceLocator("loc-figure", "src-figure", 3, "PDF_NORMALIZED",
+                List.of(new NormalizedBoundingBox(.5, .2, .4, .3)), "Figure 2. Spectral efficiency.",
+                EvidenceLocator.Precision.VISUAL_REGION);
+        return new PaperSourceCatalog(9, "hash", "parser", 5,
+                Map.of("src-1", textCatalog.objects().get("src-1"), "src-figure", figure),
+                Map.of("src-1", textCatalog.locators().get("src-1"), "src-figure", List.of(locator)));
     }
 
     private static final class FakeGateway implements PaperAgentFrameworkExecutor {

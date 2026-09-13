@@ -1,5 +1,5 @@
 import { onUnmounted, ref } from 'vue'
-import { executeAgentTurn, getAgentRun, uploadAgentAttachment } from '@/api/agent.js'
+import { cancelAgentRun, executeAgentTurn, getAgentRun, uploadAgentAttachment } from '@/api/agent.js'
 import { mapAgentEvidenceList } from '@/utils/evidenceViewModel.js'
 
 export { unionBoundingBoxes } from '@/utils/evidenceViewModel.js'
@@ -7,7 +7,9 @@ export { unionBoundingBoxes } from '@/utils/evidenceViewModel.js'
 export function usePaperAgent() {
   const running = ref(false)
   const error = ref('')
+  const progress = ref({ status: '', phase: 'IDLE', label: '' })
   let controller = null
+  let activeRunId = null
 
   function stopWatching() {
     controller?.abort()
@@ -18,17 +20,45 @@ export function usePaperAgent() {
     return getAgentRun(runId, signal ? { signal } : undefined)
   }
 
-  async function watchRun(runId) {
+  async function watchRun(runId, { onProgress, onActionRequired } = {}) {
     stopWatching()
     controller = new AbortController()
     const signal = controller.signal
+    activeRunId = runId
     running.value = true
     error.value = ''
+    progress.value = { status: 'RUNNING', phase: 'THINKING', label: '思考中…' }
+    const dispatchedActions = new Set()
+    let finalStatus = null
     try {
       for (let attempt = 0; attempt < 360; attempt += 1) {
         const current = await getRun(runId, signal)
-        if (['COMPLETED', 'WAITING_USER', 'WAITING_CLIENT'].includes(current?.status)) return toViewModel(current)
-        if (['FAILED', 'CANCELLED'].includes(current?.status)) {
+        const view = toViewModel(current)
+        const currentProgress = {
+          status: current?.status || '',
+          phase: current?.phase || inferPhase(current),
+          label: current?.progressLabel || inferProgressLabel(current),
+        }
+        progress.value = currentProgress
+        if (typeof onProgress === 'function') onProgress(currentProgress)
+        if (current?.status === 'WAITING_CLIENT') {
+          const actions = view.result?.actions || []
+          const actionKey = actions.map(action => `${action.toolCallId || ''}:${action.ticket || ''}`).join('|')
+          if (actions.length && actionKey && !dispatchedActions.has(actionKey)) {
+            dispatchedActions.add(actionKey)
+            try { await onActionRequired?.(actions, view) } catch (reason) {
+              if (reason?.message !== 'aborted') error.value = reason?.message || '页面操作执行失败'
+            }
+          }
+          await waitForPoll(signal)
+          continue
+        }
+        if (['COMPLETED', 'WAITING_USER', 'CANCELLED'].includes(current?.status)) {
+          finalStatus = current.status
+          return view
+        }
+        if (current?.status === 'FAILED') {
+          finalStatus = current.status
           const terminalError = new Error(current?.message || '论文助手执行失败')
           terminalError.agentTerminal = true
           terminalError.agentRunStatus = current.status
@@ -42,20 +72,30 @@ export function usePaperAgent() {
       throw reason
     } finally {
       if (controller?.signal === signal) controller = null
+      if (activeRunId === runId
+          && ['COMPLETED', 'FAILED', 'CANCELLED', 'WAITING_USER'].includes(finalStatus)) {
+        activeRunId = null
+      }
       running.value = false
+      if (finalStatus) progress.value = {
+        status: finalStatus,
+        phase: finalStatus === 'CANCELLED' ? 'CANCELLED' : 'IDLE',
+        label: finalStatus === 'CANCELLED' ? '已停止' : '',
+      }
     }
   }
 
-  async function run(input, { onAccepted } = {}) {
+  async function run(input, { onAccepted, onProgress, onActionRequired } = {}) {
     stopWatching()
     error.value = ''
     running.value = true
     try {
       const response = await executeAgentTurn(await toApiInput(input))
       const result = toViewModel(response)
+      activeRunId = result.runId
       if (typeof onAccepted === 'function') onAccepted(result)
-      return ['QUEUED', 'RUNNING'].includes(result.status)
-        ? await watchRun(result.runId)
+      return ['QUEUED', 'RUNNING', 'WAITING_CLIENT'].includes(result.status)
+        ? await watchRun(result.runId, { onProgress, onActionRequired })
         : result
     } catch (reason) {
       if (reason?.message !== 'aborted') {
@@ -67,8 +107,15 @@ export function usePaperAgent() {
     }
   }
 
+  async function cancelRun() {
+    const runId = activeRunId
+    if (!runId) return null
+    const response = await cancelAgentRun(runId)
+    return toViewModel(response)
+  }
+
   onUnmounted(stopWatching)
-  return { running, error, run, watchRun, stopWatching }
+  return { running, error, progress, run, watchRun, cancelRun, stopWatching }
 }
 
 function waitForPoll(signal) {
@@ -139,4 +186,20 @@ function toViewModel(response) {
     status: response.status,
     result: { answer: response.message || '', claims, answerBlocks: [], evidence, actions },
   }
+}
+
+function inferPhase(response = {}) {
+  if (response?.status === 'QUEUED') return 'QUEUED'
+  if (response?.status === 'WAITING_CLIENT') return 'EXECUTING_ACTION'
+  if (response?.status === 'WAITING_USER') return 'WAITING_USER'
+  if (response?.status === 'COMPLETED' || response?.status === 'CANCELLED') return 'IDLE'
+  return 'THINKING'
+}
+
+function inferProgressLabel(response = {}) {
+  if (response?.status === 'QUEUED') return '等待中…'
+  if (response?.status === 'WAITING_CLIENT') return '正在执行页面操作…'
+  if (response?.status === 'WAITING_USER') return '等待补充信息…'
+  if (response?.status === 'COMPLETED' || response?.status === 'CANCELLED') return ''
+  return '思考中…'
 }

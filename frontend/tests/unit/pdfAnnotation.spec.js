@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   annotationDisplayColor,
+  annotationPointForPage,
   buildSelectionCommentDraft,
   buildSelectionNoteDraft,
+  formulaUnderlineLineForPage,
   isMarkerAnnotation,
   isCommentAnnotation,
+  quadLineForPage,
   isSelectionNote,
   resizeTextAnnotationQuads,
 } from '@/utils/pdfAnnotation.js'
@@ -13,6 +16,47 @@ const multiLineQuads = [
   { x1: 0.2, y1: 0.4, x2: 0.8, y2: 0.4, x3: 0.8, y3: 0.36, x4: 0.2, y4: 0.36 },
   { x1: 0.1, y1: 0.48, x2: 0.5, y2: 0.48, x3: 0.5, y3: 0.44, x4: 0.1, y4: 0.44 }
 ]
+
+const testViewportPage = {
+  viewport: {
+    width: 100,
+    height: 200,
+    viewBox: [0, 0, 100, 200],
+    convertToViewportPoint: (x, y) => [x, 200 - y],
+  },
+}
+
+describe('Agent annotation coordinate contract', () => {
+  it('converts PDF_NORMALIZED top-left coordinates without a second y flip', () => {
+    expect(annotationPointForPage(0.2, 0.25, testViewportPage, {
+      coordinateSpace: 'PDF_NORMALIZED',
+    })).toEqual([20, 50])
+  })
+
+  it('draws an underline on the visual lower edge for both quad orders', () => {
+    const oldOrder = { x1: 0.1, y1: 0.2, x2: 0.4, y2: 0.2, x3: 0.4, y3: 0.24, x4: 0.1, y4: 0.24 }
+    const newOrder = { x1: 0.1, y1: 0.24, x2: 0.4, y2: 0.24, x3: 0.4, y3: 0.2, x4: 0.1, y4: 0.2 }
+    const coords = { coordinateSpace: 'PDF_NORMALIZED' }
+
+    expect(quadLineForPage(oldOrder, testViewportPage, coords)).toEqual({
+      x1: 10, y1: 48, x2: 40, y2: 48,
+    })
+    expect(quadLineForPage(newOrder, testViewportPage, coords)).toEqual({
+      x1: 10, y1: 48, x2: 40, y2: 48,
+    })
+  })
+
+  it('puts one formula underline below the lowest part of a multi-row region', () => {
+    const formulaQuads = [
+      { x1: .2, y1: .35, x2: .8, y2: .35, x3: .8, y3: .28, x4: .2, y4: .28 },
+      { x1: .36, y1: .48, x2: .64, y2: .48, x3: .64, y3: .40, x4: .36, y4: .40 },
+    ]
+    expect(formulaUnderlineLineForPage(formulaQuads, testViewportPage, {
+      coordinateSpace: 'PDF_NORMALIZED',
+    })).toEqual({ x1: 20, y1: 98.88, x2: 80, y2: 98.88 })
+  })
+
+})
 
 describe('PDF text annotation range resizing', () => {
   it('moves only the first quad start handle for a multi-line selection', () => {
@@ -31,6 +75,59 @@ describe('PDF text annotation range resizing', () => {
     expect(result.changed).toBe(true)
     expect(result.quads[1].x2).toBeCloseTo(0.106)
     expect(result.quads[1].x3).toBeCloseTo(0.106)
+  })
+
+  it('changes the selected line and clamps the start handle to that line', () => {
+    const result = resizeTextAnnotationQuads(multiLineQuads, 'start', 0.95, 0.46)
+
+    expect(result.changed).toBe(true)
+    expect(result.quads).toHaveLength(1)
+    expect(result.quads[0].x1).toBeCloseTo(0.494)
+    expect(result.quads[0].x4).toBeCloseTo(0.494)
+  })
+
+  it('changes the selected line and clamps the end handle to that line', () => {
+    const result = resizeTextAnnotationQuads(multiLineQuads, 'end', 0.01, 0.38)
+
+    expect(result.changed).toBe(true)
+    expect(result.quads).toHaveLength(1)
+    expect(result.quads[0].x2).toBeCloseTo(0.206)
+    expect(result.quads[0].x3).toBeCloseTo(0.206)
+  })
+
+  it('does not merge same-row quads from separate columns into one line', () => {
+    const columns = [
+      { x1: .08, y1: .34, x2: .42, y2: .34, x3: .42, y3: .30, x4: .08, y4: .30 },
+      { x1: .60, y1: .34, x2: .92, y2: .34, x3: .92, y3: .30, x4: .60, y4: .30 },
+    ]
+    const result = resizeTextAnnotationQuads(columns, 'start', .90, .32)
+
+    expect(result.quads).toHaveLength(1)
+    expect(result.quads[0].x1).toBeCloseTo(.9)
+    expect(result.quads[0].x4).toBeCloseTo(.9)
+  })
+
+  it('keeps a narrow double-column gutter out of one visual line', () => {
+    const columns = [
+      { x1: .08, y1: .34, x2: .47, y2: .34, x3: .47, y3: .30, x4: .08, y4: .30 },
+      { x1: .53, y1: .34, x2: .92, y2: .34, x3: .92, y3: .30, x4: .53, y4: .30 },
+    ]
+    const result = resizeTextAnnotationQuads(columns, 'start', .49, .32)
+
+    expect(result.quads).toHaveLength(2)
+    expect(result.quads[0].x1).toBeCloseTo(.464)
+    expect(result.quads[0].x4).toBeCloseTo(.464)
+    expect(result.quads[1].x1).toBeCloseTo(.53)
+  })
+
+  it('keeps a single-column fallback range inside its own column', () => {
+    const leftColumn = [
+      { x1: .08, y1: .34, x2: .42, y2: .34, x3: .42, y3: .30, x4: .08, y4: .30 },
+    ]
+    const result = resizeTextAnnotationQuads(leftColumn, 'start', .90, .32)
+
+    expect(result.quads[0].x1).toBeCloseTo(.414)
+    expect(result.quads[0].x4).toBeCloseTo(.414)
   })
 })
 

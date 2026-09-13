@@ -12,7 +12,7 @@
         <span v-if="source.fullTextAvailable === false" class="evidence-source__legacy">
           该历史记录只保存了证据摘要；请在新对话中重新检索以获得完整依据。
         </span>
-        <details v-if="source.excerptTruncated" open class="evidence-source__full">
+        <details v-if="source.excerptTruncated" class="evidence-source__full">
           <summary>完整依据（可收起）</summary>
           <ResearchMarkdown
             v-if="source.kind === '公式' && source.textFormat === 'LATEX' && source.textReliable"

@@ -420,6 +420,19 @@ describe('answer citations', () => {
       .toBe('同一段答案只应显示一次来源。[1](#evidence-source-a)')
   })
 
+  it('labels a figure source as a figure in the evidence panel', () => {
+    const [source] = buildCitationSources([
+      { text: '图 2 展示频谱效率。', evidenceIds: ['figure-2'] },
+    ], [{
+      evidenceId: 'figure-2', paperId: 201, page: 9, contentType: 'FIGURE',
+      quote: 'Figure 2. Spectral efficiency.', fullText: 'Figure 2. Spectral efficiency.',
+      locator: { precision: 'VISUAL_REGION', targetText: 'Figure 2. Spectral efficiency.',
+        targetBoxes: [{ x: .1, y: .8, width: .8, height: .08 }] },
+    }])
+
+    expect(source.kind).toBe('图')
+  })
+
   it('exposes reliable LaTeX metadata for formula evidence', () => {
     const evidence = [{
       evidenceId: 'eq-21', paperId: 204, page: 6, formulaNumber: '21',

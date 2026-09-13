@@ -28,7 +28,8 @@ class RegionEvidenceModeTest {
 
         assertThat(anchor.kind()).isEqualTo(SelectionAnchorKind.REGION);
         assertThat(evidence.contentMode()).isEqualTo(DocumentBlockContentMode.REGION);
-        assertThat(evidence.text()).contains("未获得可信 LaTeX").doesNotContain("x ? ? y");
+        assertThat(evidence.text()).isEqualTo("公式区域")
+                .doesNotContain("未获得可信", "文本提取不可靠", "x ? ? y");
         assertThat(evidence.structuredContent()).isEmpty();
     }
 

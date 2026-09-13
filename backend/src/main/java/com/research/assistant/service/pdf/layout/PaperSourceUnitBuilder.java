@@ -12,6 +12,10 @@ import java.util.regex.Pattern;
 /** Lightweight same-page grouping for formula families, algorithms and visuals. */
 public class PaperSourceUnitBuilder {
 
+    private static final int MAX_CAPTION_BLOCKS = 6;
+    private static final double COLUMN_BOUNDARY = .5;
+    private static final double COLUMN_TOLERANCE = .012;
+    private static final double MAX_CAPTION_LINE_GAP = .014;
     private static final Pattern FORMULA_MEMBER = Pattern.compile("^(\\d{1,4})([a-z])$", Pattern.CASE_INSENSITIVE);
     private static final Pattern ALGORITHM = Pattern.compile(
             "(?i)^\\s*(algorithm|alg\\.)\\s*(\\d+[a-z]?)\\b.*");
@@ -29,6 +33,10 @@ public class PaperSourceUnitBuilder {
     private static final Pattern VISUAL_REFERENCE = Pattern.compile(
             "(?i)^\\s*(?:in\\s+)?(?:fig(?:ure)?\\.?|table)\\s*[\\dIVX]+[a-z]?\\s+"
                     + "(?:shows|illustrates|depicts|presents|compares|plots|summarizes|lists)\\b.*");
+    private static final Pattern MULTI_FIGURE_REFERENCE = Pattern.compile(
+            "(?i)^\\s*fig(?:ure)?\\.?\\s*[\\dIVX]+[a-z]?\\s+and\\s+"
+                    + "fig(?:ure)?\\.?\\s*[\\dIVX]+[a-z]?\\s*,?\\s*"
+                    + "(?:respectively|shows|illustrates|depicts|presents|compares|plots)\\b.*");
     private static final Pattern FAMILY_LABEL = Pattern.compile(
             "(?i)^Equations \\(\\d+([a-z])–\\d+([a-z])\\)$");
 
@@ -174,6 +182,7 @@ public class PaperSourceUnitBuilder {
             Matcher matcher = ALGORITHM.matcher(start.text());
             if (!matcher.matches() || ALGORITHM_NARRATIVE.matcher(start.text()).matches()) continue;
             List<DocumentBlock> blocks = algorithmBlocks(ordered, index, start, matcher.group(2));
+            if (blocks.isEmpty()) continue;
             PaperSourceUnit candidate = unit("algorithm:" + matcher.group(2) + ":p" + start.page(),
                     PaperSourceUnit.Kind.ALGORITHM, matcher.group(1) + " " + matcher.group(2), blocks);
             if (!isAlgorithmSource(candidate)) continue;
@@ -205,10 +214,13 @@ public class PaperSourceUnitBuilder {
                                                 String number) {
         List<DocumentBlock> nearby = new ArrayList<>();
         nearby.add(start);
-        for (int next = startIndex + 1; next < ordered.size() && nearby.size() < 32; next++) {
+        // Scan the complete remainder of the page before choosing the content
+        // lane.  Reading order on a two-column PDF interleaves the columns, so
+        // a fixed distance from the title can truncate a long algorithm even
+        // though all of its blocks are still on the same physical page.
+        for (int next = startIndex + 1; next < ordered.size(); next++) {
             DocumentBlock candidate = ordered.get(next);
-            if (candidate.page() != start.page()
-                    || candidate.bbox().bottom() - start.bbox().y() > .45) break;
+            if (candidate.page() != start.page()) break;
             Matcher nextAlgorithm = ALGORITHM.matcher(candidate.text());
             if (nextAlgorithm.matches()) {
                 if (!nextAlgorithm.group(2).equalsIgnoreCase(number)
@@ -228,29 +240,64 @@ public class PaperSourceUnitBuilder {
                 .map(Map.Entry::getKey).orElse(start.layoutLane());
 
         List<DocumentBlock> result = new ArrayList<>();
-        result.add(start);
+        if (compatibleWithLane(contentLane, start)) result.add(start);
         for (DocumentBlock candidate : nearby.subList(1, nearby.size())) {
-            if (!compatibleWithLane(contentLane, candidate.layoutLane())) continue;
             boolean titleContinuation = candidate.role() == DocumentBlockRole.HEADING
                     && result.size() == 1
                     && verticalGap(start.bbox(), candidate.bbox()) <= .025;
+            // A malformed line can be labelled FULL when PDF extraction joined a
+            // left-column algorithm line with prose from the right column. Such a
+            // block is not a valid algorithm member: accepting it would both leak
+            // unrelated text into the evidence and make the client highlight span
+            // across the gutter. A genuine full-width algorithm remains supported
+            // when the start and procedural members themselves are FULL/SINGLE.
+            if (!compatibleWithLane(contentLane, candidate)) continue;
             if (candidate.role() == DocumentBlockRole.HEADING
                     && proceduralSignalCount(candidate.text()) == 0 && !titleContinuation
                     || candidate.role() == DocumentBlockRole.CAPTION
                     || candidate.role() == DocumentBlockRole.FIGURE
                     || candidate.role() == DocumentBlockRole.TABLE) break;
-            if (!result.isEmpty()
-                    && verticalGap(result.get(result.size() - 1).bbox(), candidate.bbox()) > .06) break;
+            if (!result.isEmpty()) {
+                DocumentBlock previous = result.get(result.size() - 1);
+                double gap = verticalGap(previous.bbox(), candidate.bbox());
+                if (gap > .06 || isNarrativeAfterProcedure(result, candidate, gap)) break;
+            }
             result.add(candidate);
         }
         return List.copyOf(result);
     }
 
-    private boolean compatibleWithLane(DocumentLayoutLane lane, DocumentLayoutLane candidate) {
-        return lane == candidate || lane == DocumentLayoutLane.FULL
-                || lane == DocumentLayoutLane.SINGLE || lane == DocumentLayoutLane.UNKNOWN
-                || candidate == DocumentLayoutLane.FULL || candidate == DocumentLayoutLane.SINGLE
-                || candidate == DocumentLayoutLane.UNKNOWN;
+    private boolean isNarrativeAfterProcedure(List<DocumentBlock> procedure,
+                                              DocumentBlock candidate,
+                                              double verticalGap) {
+        if (verticalGap <= .025 || candidate.role() != DocumentBlockRole.BODY
+                || proceduralSignalCount(candidate.text()) > 0) return false;
+        int signals = procedure.stream().mapToInt(block -> proceduralSignalCount(block.text())).sum();
+        if (signals < 2) return false;
+        String text = candidate.text() == null ? "" : candidate.text().trim();
+        long proseWords = Pattern.compile("[A-Za-z]{4,}").matcher(text).results().limit(8).count();
+        return proseWords >= 5 && candidate.bbox().width() >= .20;
+    }
+
+    private boolean compatibleWithLane(DocumentLayoutLane lane, DocumentBlock candidate) {
+        DocumentLayoutLane candidateLane = candidate.layoutLane();
+        if (lane == candidateLane || lane == DocumentLayoutLane.FULL
+                || lane == DocumentLayoutLane.SINGLE || lane == DocumentLayoutLane.UNKNOWN) {
+            return true;
+        }
+        if (candidateLane == DocumentLayoutLane.LEFT || candidateLane == DocumentLayoutLane.RIGHT) {
+            return false;
+        }
+        if (lane == DocumentLayoutLane.LEFT) {
+            return candidate.bbox().right() <= COLUMN_BOUNDARY + COLUMN_TOLERANCE;
+        }
+        if (lane == DocumentLayoutLane.RIGHT) {
+            return candidate.bbox().x() >= COLUMN_BOUNDARY - COLUMN_TOLERANCE;
+        }
+        // SINGLE/UNKNOWN/FULL candidates are only ambiguous when their physical
+        // rectangle crosses the central gutter. Keep same-column sparse fixtures
+        // usable while rejecting that cross-column extraction artifact.
+        return true;
     }
 
     private boolean isAlgorithmSource(PaperSourceUnit unit) {
@@ -308,7 +355,7 @@ public class PaperSourceUnitBuilder {
         Map<String, PaperSourceUnit> distinct = new LinkedHashMap<>();
         for (int index = 0; index < ordered.size(); index++) {
             DocumentBlock caption = ordered.get(index);
-            if (VISUAL_REFERENCE.matcher(caption.text()).matches()) continue;
+            if (isVisualReference(caption.text())) continue;
             Matcher matcher = CAPTION.matcher(caption.text());
             if (!matcher.matches()) continue;
             PaperSourceUnit.Kind kind = matcher.group(1).toLowerCase(Locale.ROOT).startsWith("table")
@@ -316,9 +363,17 @@ public class PaperSourceUnitBuilder {
             DocumentBlockRole visualRole = kind == PaperSourceUnit.Kind.TABLE
                     ? DocumentBlockRole.TABLE : DocumentBlockRole.FIGURE;
             List<DocumentBlock> blocks = new ArrayList<>();
-            nearestVisual(ordered, caption, visualRole).ifPresent(blocks::add);
-            blocks.add(caption);
-            adjacentExplanation(ordered, index, caption).ifPresent(blocks::add);
+            java.util.Optional<DocumentBlock> visual = nearestVisual(ordered, caption, visualRole);
+            if (visual.isEmpty() && kind == PaperSourceUnit.Kind.FIGURE) {
+                visual = inferredFigureRegion(ordered, caption);
+            }
+            visual.ifPresent(blocks::add);
+            if (kind == PaperSourceUnit.Kind.FIGURE) {
+                blocks.addAll(figureCaptionBlocks(ordered, index, caption));
+            } else {
+                blocks.add(caption);
+                adjacentExplanation(ordered, index, caption).ifPresent(blocks::add);
+            }
             blocks = blocks.stream().distinct().sorted(Comparator.comparingInt(DocumentBlock::readingOrder)).toList();
             PaperSourceUnit candidate = unit(kind.name().toLowerCase(Locale.ROOT) + ":" + matcher.group(2)
                             + ":p" + caption.page(), kind,
@@ -337,7 +392,8 @@ public class PaperSourceUnitBuilder {
 
     private int visualSourceScore(PaperSourceUnit unit) {
         DocumentBlock caption = unit.blocks().stream()
-                .filter(block -> CAPTION.matcher(block.text()).matches())
+                .filter(block -> CAPTION.matcher(block.text()).matches()
+                        && !isVisualReference(block.text()))
                 .findFirst().orElse(unit.blocks().get(0));
         int score = caption.role() == DocumentBlockRole.CAPTION ? 4 : 0;
         score += (int) unit.blocks().stream()
@@ -347,6 +403,46 @@ public class PaperSourceUnitBuilder {
                 + Math.min(2, caption.text().length() / 80);
     }
 
+    private boolean isVisualReference(String text) {
+        return VISUAL_REFERENCE.matcher(text == null ? "" : text).matches()
+                || MULTI_FIGURE_REFERENCE.matcher(text == null ? "" : text).matches();
+    }
+
+    /**
+     * PDF text extraction commonly splits one printed figure caption into several
+     * adjacent blocks, and mathematical subscripts may be classified as BODY or
+     * FORMULA.  Reassemble only the immediately adjacent same-lane blocks.  The
+     * first layout gap, new caption or explanatory figure-reference sentence ends
+     * the caption, so nearby analysis remains an independent TEXT source.
+     */
+    private List<DocumentBlock> figureCaptionBlocks(List<DocumentBlock> ordered,
+                                                    int captionIndex,
+                                                    DocumentBlock caption) {
+        List<DocumentBlock> result = new ArrayList<>();
+        result.add(caption);
+        DocumentBlock previous = caption;
+        for (int next = captionIndex + 1;
+             next < ordered.size() && result.size() < MAX_CAPTION_BLOCKS;
+             next++) {
+            DocumentBlock candidate = ordered.get(next);
+            if (candidate.page() != caption.page()
+                    || !compatibleLane(caption, candidate)
+                    || CAPTION.matcher(candidate.text()).matches()
+                    || isVisualReference(candidate.text())
+                    || !captionContinuationRole(candidate.role())
+                    || verticalGap(previous.bbox(), candidate.bbox()) > MAX_CAPTION_LINE_GAP) break;
+            result.add(candidate);
+            previous = candidate;
+        }
+        return List.copyOf(result);
+    }
+
+    private boolean captionContinuationRole(DocumentBlockRole role) {
+        return role == DocumentBlockRole.CAPTION
+                || role == DocumentBlockRole.BODY
+                || role == DocumentBlockRole.FORMULA;
+    }
+
     private java.util.Optional<DocumentBlock> nearestVisual(List<DocumentBlock> ordered,
                                                             DocumentBlock caption,
                                                             DocumentBlockRole role) {
@@ -354,6 +450,55 @@ public class PaperSourceUnitBuilder {
                 .filter(block -> compatibleLane(caption, block))
                 .filter(block -> verticalGap(caption.bbox(), block.bbox()) <= .12)
                 .min(Comparator.comparingDouble(block -> verticalGap(caption.bbox(), block.bbox())));
+    }
+
+    /**
+     * PDFBox can read a figure caption while exposing no FIGURE block, especially for
+     * vector charts.  In that case preserve the caption as the semantic index and add
+     * one conservative same-column region above it for visual inspection.  This is a
+     * locator fallback only; it does not invent searchable text or interpret the image.
+     */
+    private java.util.Optional<DocumentBlock> inferredFigureRegion(List<DocumentBlock> ordered,
+                                                                    DocumentBlock caption) {
+        NormalizedBoundingBox captionBox = caption.bbox();
+        double laneLeft;
+        double laneRight;
+        if (caption.layoutLane() == DocumentLayoutLane.LEFT) {
+            laneLeft = .04;
+            laneRight = .49;
+        } else if (caption.layoutLane() == DocumentLayoutLane.RIGHT) {
+            laneLeft = .51;
+            laneRight = .96;
+        } else {
+            laneLeft = Math.max(.03, captionBox.x() - .02);
+            laneRight = Math.min(.97, captionBox.right() + .02);
+        }
+
+        double lowerBound = Math.max(.04, captionBox.y() - .34);
+        double precedingProseBottom = ordered.stream()
+                .filter(block -> block.page() == caption.page())
+                .filter(block -> compatibleLane(caption, block))
+                .filter(block -> block.bbox().bottom() <= captionBox.y())
+                .filter(block -> block.bbox().right() > laneLeft && block.bbox().x() < laneRight)
+                .filter(block -> block.role() == DocumentBlockRole.BODY
+                        || block.role() == DocumentBlockRole.ABSTRACT
+                        || block.role() == DocumentBlockRole.HEADING)
+                .filter(block -> block.text().strip().length() >= 40)
+                .mapToDouble(block -> block.bbox().bottom())
+                .filter(bottom -> bottom < captionBox.y() - .06)
+                .max().orElse(lowerBound);
+        double top = Math.max(lowerBound, precedingProseBottom + .008);
+        double bottom = captionBox.y() - .006;
+        if (bottom - top < .06 || laneRight - laneLeft < .12) return java.util.Optional.empty();
+
+        NormalizedBoundingBox box = new NormalizedBoundingBox(
+                laneLeft, top, laneRight - laneLeft, bottom - top);
+        return java.util.Optional.of(new DocumentBlock(
+                caption.id() + ":visual-region", caption.page(), box,
+                DocumentBlockRole.FIGURE, Math.max(0, caption.readingOrder() - 1),
+                caption.sectionPath(), "", null, null,
+                Math.min(.75, caption.confidence()), DocumentBlockContentMode.REGION,
+                MathContentProfile.none(""), caption.layoutLane()));
     }
 
     private java.util.Optional<DocumentBlock> adjacentExplanation(List<DocumentBlock> ordered,

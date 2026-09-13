@@ -143,7 +143,13 @@ public class AiCapabilityService {
         var first = model.chat(ChatRequest.builder().messages(
                         SystemMessage.from("请使用值 READY 调用一次 capability_echo。"),
                         UserMessage.from("执行能力测试。"))
-                .toolSpecifications(tool).toolChoice(ToolChoice.AUTO).build());
+                // The probe is testing whether the endpoint can execute a tool, not
+                // whether the model happens to choose one.  AUTO is especially
+                // unreliable for Kimi coding models when thinking is disabled: a
+                // valid text response is returned instead of the requested probe
+                // call, which would incorrectly invalidate the whole capability
+                // record and block paper understanding.
+                .toolSpecifications(tool).toolChoice(ToolChoice.REQUIRED).build());
         if (!first.aiMessage().hasToolExecutionRequests()) {
             throw new IllegalStateException("MODEL_DID_NOT_CALL_TOOL");
         }

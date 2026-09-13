@@ -58,7 +58,7 @@ class PaperLayoutSemanticEnricherTest {
                 "This paper introduces a grounded workflow."
         ));
 
-        assertThat(enriched.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v5");
+        assertThat(enriched.parserVersion()).isEqualTo("pdfbox-layout-v1+semantic-v6");
         assertThat(enriched.blocks()).extracting(DocumentBlock::readingOrder)
                 .containsExactlyElementsOf(java.util.stream.IntStream
                         .range(0, enriched.blocks().size()).boxed().toList());
@@ -140,6 +140,24 @@ class PaperLayoutSemanticEnricherTest {
         assertThat(enriched.blocks()).anySatisfy(block -> {
             assertThat(block.text()).contains("Based on Lemma 6");
             assertThat(block.role()).isEqualTo(DocumentBlockRole.BODY);
+        });
+    }
+
+    @Test
+    void reclassifiesAHeadingLikeNumberedEquationAsFormula() {
+        PaperLayoutArtifact raw = new PaperLayoutArtifact(
+                206L, "c".repeat(64), "pdfbox-layout-v1", .9,
+                Instant.parse("2026-08-12T00:00:00Z"), 1,
+                List.of(new DocumentBlock("equation-heading", 1,
+                        new NormalizedBoundingBox(.14, .25, .42, .02),
+                        DocumentBlockRole.HEADING, 1, List.of(),
+                        "H = [H1 H2 … HN]. (12)", null, null, .88)));
+
+        PaperLayoutArtifact enriched = enricher.enrich(raw, PaperLayoutHints.empty());
+
+        assertThat(enriched.blocks()).singleElement().satisfies(block -> {
+            assertThat(block.role()).isEqualTo(DocumentBlockRole.FORMULA);
+            assertThat(block.contentMode()).isEqualTo(DocumentBlockContentMode.REGION);
         });
     }
 

@@ -35,7 +35,7 @@ test.describe('阶段 2：研究档案证据复现', () => {
 
     await sources.locator('.evidence-source__jump').first().click()
     await expect(page).toHaveURL(/\/research\/184\?.*page=1/)
-    await expect(page.locator('.evidence-focus-preview polygon')).toHaveCount(2, { timeout: 10_000 })
+    await expect(page.locator('.evidence-focus-preview polygon')).toHaveCount(1, { timeout: 10_000 })
 
     await page.goto('/archive', { waitUntil: 'domcontentloaded' })
     await page.locator('.conversation-card').first().click()

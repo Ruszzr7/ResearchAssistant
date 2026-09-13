@@ -19,6 +19,10 @@ export function mapAgentEvidenceItem(item = {}) {
       ? raw.focusRects : raw?.rects
     const rects = validBoxes(rawContentRects)
     const focusRects = validBoxes(rawFocusRects?.length ? rawFocusRects : rects)
+    // Keep the parser's physical rectangles for citations and page actions.  The
+    // display geometry is a derived view only: adjacent lines from one source are
+    // painted as one readable region without changing the trusted action target.
+    const displayRects = mergeDisplayBoxes(rects)
     const pageNumber = Number(raw?.pageNumber ?? raw?.page ?? item.page)
     const targetText = String(raw?.targetText ?? '').trim() || fullText
     return {
@@ -29,15 +33,18 @@ export function mapAgentEvidenceItem(item = {}) {
       targetText,
       targetBoxes: rects,
       contentBoxes: rects,
+      displayBoxes: displayRects,
       focusBoxes: focusRects,
       rects,
       targetBbox: unionBoundingBoxes(rects),
+      displayBbox: unionBoundingBoxes(displayRects),
       focusBbox: unionBoundingBoxes(focusRects),
       precision: raw?.precision || 'BLOCK',
     }
   }).filter(locator => Number.isInteger(locator.pageNumber) && locator.pageNumber > 0)
   const first = locators[0] || {}
   const primaryBoxes = first.targetBoxes || []
+  const primaryDisplayBoxes = first.displayBoxes || mergeDisplayBoxes(primaryBoxes)
   const primaryFocusBoxes = first.focusBoxes || primaryBoxes
   const contentType = String(item.contentType || 'TEXT').toUpperCase()
   const textFormat = String(item.textFormat || 'PLAIN_TEXT').toUpperCase()
@@ -66,8 +73,10 @@ export function mapAgentEvidenceItem(item = {}) {
       targetText: first.targetText || fullText || quote,
       targetBoxes: primaryBoxes,
       contentBoxes: first.contentBoxes || primaryBoxes,
+      displayBoxes: primaryDisplayBoxes,
       focusBoxes: primaryFocusBoxes,
       targetBbox: first.targetBbox || unionBoundingBoxes(primaryBoxes),
+      displayBbox: first.displayBbox || unionBoundingBoxes(primaryDisplayBoxes),
       focusBbox: first.focusBbox || unionBoundingBoxes(primaryFocusBoxes),
       precision: first.precision || item.locator?.precision,
       formulaNumber: item.formulaNumber || '',
@@ -102,6 +111,49 @@ export function evidenceLocators(item = {}) {
 export function validBoxes(boxes) {
   return (boxes || []).filter(box => Number.isFinite(Number(box?.x))
     && Number.isFinite(Number(box?.y)) && Number(box?.width) > 0 && Number(box?.height) > 0)
+}
+
+/**
+ * Build display-only regions from adjacent physical rectangles.  PDF layout
+ * blocks may be split into several line boxes; showing every fragment as an
+ * independent dashed rectangle makes a complete citation look incomplete.
+ * Only boxes on the same visual column and with a small vertical gap merge.
+ * Raw targetBoxes remain untouched for evidence identity and page actions.
+ */
+export function mergeDisplayBoxes(boxes, { maxVerticalGap = 0.028 } = {}) {
+  const ordered = validBoxes(boxes)
+    .slice()
+    .sort((first, second) => Number(first.y) - Number(second.y)
+      || Number(first.x) - Number(second.x))
+  const groups = []
+  for (const box of ordered) {
+    const candidate = [...groups].reverse().find(group => (
+      boxesShareDisplayColumn(group.bounds, box)
+      && displayVerticalGap(group.bounds, box) <= maxVerticalGap
+    ))
+    if (candidate) {
+      candidate.boxes.push(box)
+      candidate.bounds = unionBoundingBoxes(candidate.boxes)
+    } else {
+      groups.push({ boxes: [box], bounds: box })
+    }
+  }
+  return groups.map(group => unionBoundingBoxes(group.boxes)).filter(Boolean)
+}
+
+function boxesShareDisplayColumn(first, second) {
+  if (!first || !second) return false
+  const firstLeft = Number(first.x)
+  const firstRight = firstLeft + Number(first.width)
+  const secondLeft = Number(second.x)
+  const secondRight = secondLeft + Number(second.width)
+  const overlap = Math.max(0, Math.min(firstRight, secondRight) - Math.max(firstLeft, secondLeft))
+  const narrower = Math.max(0.0001, Math.min(Number(first.width), Number(second.width)))
+  return overlap / narrower >= 0.55 || Math.abs(firstLeft - secondLeft) <= 0.035
+}
+
+function displayVerticalGap(first, second) {
+  return Number(second.y) - (Number(first.y) + Number(first.height))
 }
 
 /**

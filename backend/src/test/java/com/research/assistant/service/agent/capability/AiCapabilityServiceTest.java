@@ -55,7 +55,7 @@ class AiCapabilityServiceTest {
         assertThat(result.pdf()).isFalse();
         ArgumentCaptor<ChatRequest> requests = ArgumentCaptor.forClass(ChatRequest.class);
         verify(model, times(3)).chat(requests.capture());
-        assertThat(requests.getAllValues().get(0).toolChoice()).isEqualTo(ToolChoice.AUTO);
+        assertThat(requests.getAllValues().get(0).toolChoice()).isEqualTo(ToolChoice.REQUIRED);
         assertThat(requests.getAllValues().get(1).messages().toString()).contains("ImageContent");
         verify(mapper).insert(any(AiModelCapabilityRecord.class));
     }

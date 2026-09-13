@@ -153,6 +153,7 @@ public class PaperServiceImpl implements PaperService {
             String oldPdfPath = existing.getPdfPath();
             paper.setId(paperId);
             populatePdfFields(paper, stored, existing.getYear());
+            paper.setProcessingStatus("PENDING");
             if (paperMapper.updateById(paper) != 1) {
                 throw new IllegalStateException("论文记录更新失败");
             }
@@ -175,9 +176,8 @@ public class PaperServiceImpl implements PaperService {
         paper.setPageCount(stored.pageCount());
         // 异步提取 PDF 文本（暂存于 aiSummary，阶段三由 LLM 结构化）
         String extracted = pdfExtractor.extract(stored.storedName());
-        if (!extracted.isEmpty()) {
-            paper.setAiSummary(extracted);
-        }
+        // aiSummary 当前保存的是 PDF 派生文本，替换文件时不能沿用旧文档内容。
+        paper.setAiSummary(extracted.isEmpty() ? null : extracted);
         // 若年份为空或历史默认值，使用出版信息行提取真实年份；识别不到时保持为空，
         // 不再把授权下载时间等首页年份误认为出版年份。
         if (existingYear == null || existingYear == 2025) {
@@ -216,6 +216,7 @@ public class PaperServiceImpl implements PaperService {
                 // 阅读状态、置顶、阅读进度和已有分析属于服务端状态，覆盖元数据时保留原值。
                 preserveServerManagedFields(paper, duplicate);
                 populatePdfFields(paper, stored, duplicate.getYear());
+                paper.setProcessingStatus("PENDING");
                 if (paperMapper.updateById(paper) != 1) {
                     throw new IllegalStateException("论文记录更新失败");
                 }

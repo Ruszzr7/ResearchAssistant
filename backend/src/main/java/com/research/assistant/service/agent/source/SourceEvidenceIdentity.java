@@ -63,7 +63,12 @@ public final class SourceEvidenceIdentity {
         if (first == null || second == null
                 || first.paperId() != second.paperId()
                 || !first.documentHash().equals(second.documentHash())
-                || !first.parserVersion().equals(second.parserVersion())) return false;
+                || !first.parserVersion().equals(second.parserVersion())
+                // A structured object carries a different evidence contract from
+                // a plain text span.  In particular, a figure caption may share
+                // its text with a TEXT span while the figure owns the visual
+                // region and must remain addressable for image retrieval.
+                || first.contentType() != second.contentType()) return false;
         String a = comparableText(first.rawContent());
         String b = comparableText(second.rawContent());
         if (a.length() < 40 || b.length() < 40

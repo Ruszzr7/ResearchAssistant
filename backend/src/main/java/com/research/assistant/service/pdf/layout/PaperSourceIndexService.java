@@ -36,6 +36,7 @@ public class PaperSourceIndexService {
         List<DocumentBlock> ordered = artifact.blocks().stream()
                 .sorted(Comparator.comparingInt(DocumentBlock::readingOrder)).toList();
         List<FormulaContextBuilder.FormulaContext> formulaContexts = formulaContextBuilder.build(artifact);
+        List<FormulaLabel> definitionLabels = definitionLabels(ordered);
         List<SourceAnchor> textAnchors = ordered.stream()
                 .filter(block -> block.contentMode() == DocumentBlockContentMode.TEXT)
                 .map(block -> anchor(artifact, block, SourceAnchor.Kind.TEXT_RANGE,
@@ -49,7 +50,8 @@ public class PaperSourceIndexService {
             while (matcher.find()) {
                 String number = matcher.group(1);
                 if (isDefinition(ordered, block, matcher.start())) {
-                    SourceAnchor definition = formulaAnchor(artifact, ordered, block, number, formulaContexts);
+                    SourceAnchor definition = formulaAnchor(artifact, ordered, block, number,
+                            formulaContexts, definitionLabels);
                     StatementOwner owner = nearestOwner(ordered, statementOwners, block);
                     EquationEntity.Relation relation = owner == null
                             ? EquationEntity.Relation.OTHER
@@ -186,11 +188,19 @@ public class PaperSourceIndexService {
                                        List<DocumentBlock> blocks,
                                        DocumentBlock label,
                                        String number,
-                                       List<FormulaContextBuilder.FormulaContext> formulaContexts) {
+                                       List<FormulaContextBuilder.FormulaContext> formulaContexts,
+                                       List<FormulaLabel> definitionLabels) {
         NormalizedBoundingBox labelBox = formulaLabelBox(label);
         FormulaContextBuilder.FormulaContext context = formulaContextBuilder
                 .find(formulaContexts, label, number).orElse(null);
-        if (context != null) {
+        // A singleton context only proves that the numbered baseline was found.
+        // PDFBox often emits a fraction's numerator/denominator as separate
+        // blocks, and an overlapping lead-in sentence can prevent the context
+        // builder from joining them. Fall through to the local component scan
+        // so the physical region still covers the whole displayed equation.
+        if (context != null && context.blocks().size() > 1
+                && context.blocks().stream().allMatch(block -> belongsToFormula(
+                number, label, block, definitionLabels))) {
             NormalizedBoundingBox bbox = padded(context.bbox(), .006);
             return new SourceAnchor(sourceId(artifact, "equation:" + number), label.page(),
                     SourceAnchor.Kind.FORMULA_REGION, bbox, List.of(bbox), context.text(),
@@ -205,6 +215,11 @@ public class PaperSourceIndexService {
                 .filter(block -> Math.abs(block.readingOrder() - label.readingOrder()) <= 10)
                 .filter(block -> sameColumn(labelBox, block.bbox()))
                 .filter(block -> verticalGap(labelBox, block.bbox()) <= 0.060)
+                // A nearby mathematical block can belong to the next/previous
+                // displayed equation when PDFBox has split its rows.  Resolve
+                // ownership against all numbered definitions before adding it;
+                // one physical block must never be published in two equations.
+                .filter(block -> belongsToFormula(number, label, block, definitionLabels))
                 .forEach(components::add);
         components.sort(Comparator.comparingInt(DocumentBlock::readingOrder));
         List<NormalizedBoundingBox> componentBoxes = components.stream()
@@ -222,6 +237,75 @@ public class PaperSourceIndexService {
         return new SourceAnchor(sourceId(artifact, "equation:" + number), label.page(),
                 SourceAnchor.Kind.FORMULA_REGION, bbox, List.of(bbox), sourceText,
                 label.id(), reliableRegion ? label.confidence() : Math.min(label.confidence(), .55));
+    }
+
+    /**
+     * Collects only physical blocks that carry a numbered display definition.
+     * Equation references in prose are deliberately excluded by isDefinition.
+     */
+    private List<FormulaLabel> definitionLabels(List<DocumentBlock> blocks) {
+        List<FormulaLabel> result = new ArrayList<>();
+        for (DocumentBlock block : blocks) {
+            Matcher matcher = EQUATION.matcher(block.text());
+            while (matcher.find()) {
+                if (isDefinition(blocks, block, matcher.start())) {
+                    result.add(new FormulaLabel(matcher.group(1), block));
+                }
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    /**
+     * Assign an unnumbered math fragment to its nearest numbered display on the
+     * same page/column.  If two different equations are equally close, leave the
+     * fragment out rather than risking cross-equation geometry.
+     */
+    private boolean belongsToFormula(String number,
+                                     DocumentBlock label,
+                                     DocumentBlock candidate,
+                                     List<FormulaLabel> definitionLabels) {
+        if (candidate == null || label == null || candidate.bbox() == null) return false;
+        if (candidate.id().equals(label.id())) return true;
+        List<String> candidateNumbers = equationLabels(candidate);
+        if (!candidateNumbers.isEmpty()) return candidateNumbers.contains(number);
+
+        List<FormulaLabel> owners = definitionLabels.stream()
+                .filter(owner -> owner.block().page() == candidate.page())
+                .filter(owner -> compatibleFormulaLane(owner.block(), candidate))
+                .filter(owner -> sameColumn(formulaLabelBox(owner.block()), candidate.bbox()))
+                .sorted(Comparator.comparingDouble(owner -> formulaDistance(
+                        candidate.bbox(), formulaLabelBox(owner.block()))))
+                .toList();
+        if (owners.isEmpty()) return false;
+        FormulaLabel best = owners.get(0);
+        if (owners.size() > 1) {
+            double bestDistance = formulaDistance(candidate.bbox(), formulaLabelBox(best.block()));
+            FormulaLabel second = owners.get(1);
+            double secondDistance = formulaDistance(candidate.bbox(), formulaLabelBox(second.block()));
+            if (!best.number().equalsIgnoreCase(second.number())
+                    && secondDistance - bestDistance <= .012) return false;
+        }
+        return best.number().equalsIgnoreCase(number);
+    }
+
+    private List<String> equationLabels(DocumentBlock block) {
+        List<String> result = new ArrayList<>();
+        Matcher matcher = EQUATION.matcher(block.text());
+        while (matcher.find()) result.add(matcher.group(1));
+        return List.copyOf(result);
+    }
+
+    private boolean compatibleFormulaLane(DocumentBlock first, DocumentBlock second) {
+        return first.layoutLane() == second.layoutLane()
+                || first.layoutLane() == DocumentLayoutLane.FULL
+                || second.layoutLane() == DocumentLayoutLane.FULL;
+    }
+
+    private double formulaDistance(NormalizedBoundingBox first, NormalizedBoundingBox second) {
+        double firstCenter = first.y() + first.height() / 2.0;
+        double secondCenter = second.y() + second.height() / 2.0;
+        return Math.abs(firstCenter - secondCenter);
     }
 
     private boolean formulaComponent(DocumentBlock block) {
@@ -361,4 +445,6 @@ public class PaperSourceIndexService {
     }
 
     private record StatementOwner(String kind, String number, DocumentBlock block) { }
+
+    private record FormulaLabel(String number, DocumentBlock block) { }
 }

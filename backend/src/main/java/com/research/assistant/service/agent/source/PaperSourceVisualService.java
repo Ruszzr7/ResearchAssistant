@@ -64,7 +64,7 @@ public class PaperSourceVisualService {
                             java.util.stream.Collectors.toList()))
                     .forEach((page, locators) -> requests.add(new CropRequest(
                             sourceId, page, source.contentType().name(),
-                            source.provenance().containsKey("sourceUnitKind"), union(locators))));
+                            source.provenance().containsKey("sourceUnitKind"), union(source, locators))));
         }
         requests.sort(Comparator.comparingInt((CropRequest request) ->
                         priority(request.contentType(), request.completeUnit()))
@@ -95,8 +95,25 @@ public class PaperSourceVisualService {
         }
     }
 
-    private static NormalizedBoundingBox union(List<SourceLocator> locators) {
-        List<NormalizedBoundingBox> boxes = locators.stream().flatMap(locator -> locator.rects().stream()).toList();
+    private static NormalizedBoundingBox union(SourceObject source, List<SourceLocator> locators) {
+        // Figure locators expose caption rectangles to the UI while focusRects
+        // retain the separate plot/illustration region needed by the model.
+        // Other source types continue to render their complete content region;
+        // in particular, a formula focus rect may contain only its number.
+        List<NormalizedBoundingBox> boxes;
+        if (source.contentType() == SourceContentType.FIGURE) {
+            // The model needs the actual figure to read its curves/labels and the
+            // complete caption to resolve the figure number and title.  The UI
+            // still receives caption-only rects from SourceLocator; this union is
+            // used only for the model-facing visual crop.
+            boxes = new ArrayList<>();
+            for (SourceLocator locator : locators) {
+                boxes.addAll(locator.focusRects());
+                boxes.addAll(locator.rects());
+            }
+        } else {
+            boxes = locators.stream().flatMap(locator -> locator.rects().stream()).toList();
+        }
         if (boxes.isEmpty()) throw new IllegalArgumentException("source locator has no rectangle");
         double left = boxes.stream().mapToDouble(NormalizedBoundingBox::x).min().orElse(0);
         double top = boxes.stream().mapToDouble(NormalizedBoundingBox::y).min().orElse(0);

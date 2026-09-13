@@ -139,6 +139,7 @@ class PaperServiceImplTest {
         duplicate.setId(8L);
         duplicate.setDoi("10.1000/old-2");
         duplicate.setPdfPath("old.pdf");
+        duplicate.setProcessingStatus("COMPLETED");
         when(paperMapper.selectByDoi("10.1000/old-2")).thenReturn(duplicate);
         AtomicReference<Paper> updated = new AtomicReference<>();
         doAnswer(invocation -> {
@@ -154,6 +155,7 @@ class PaperServiceImplTest {
                 replacement, true);
 
         assertThat(result.getPdfPath()).isNotEqualTo("old.pdf");
+        assertThat(updated.get().getProcessingStatus()).isEqualTo("PENDING");
         assertThat(papers.resolve("old.pdf")).doesNotExist();
         assertThat(papers.resolve(result.getPdfPath())).isRegularFile();
     }

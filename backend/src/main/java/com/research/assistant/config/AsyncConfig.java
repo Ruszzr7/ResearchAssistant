@@ -42,7 +42,7 @@ public class AsyncConfig {
 
     /** Agent turns must outlive the originating HTTP request and page lifecycle. */
     @Bean(name = "agentTurnExecutor")
-    public TaskExecutor agentTurnExecutor() {
+    public AsyncTaskExecutor agentTurnExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(8);

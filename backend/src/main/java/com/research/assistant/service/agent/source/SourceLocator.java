@@ -17,8 +17,10 @@ public record SourceLocator(
 ) {
     /**
      * Backwards-compatible constructor for callers that only provide one set of
-     * rectangles.  The same geometry is both the complete content area and the
-     * UI focus area for ordinary text/visual evidence.
+     * rectangles. The same geometry is both the complete content area and the
+     * secondary focus area. A formula may use focusRects for its printed number;
+     * a figure may use them for the model-only image crop while rects remain the
+     * complete caption geometry shown in the UI.
      */
     public SourceLocator(String locatorId,
                          String sourceObjectId,

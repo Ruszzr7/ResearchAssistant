@@ -9,6 +9,7 @@ import com.research.assistant.dto.agent.AgentActionReceiptResult;
 import com.research.assistant.service.agent.core.AgentLoopService;
 import com.research.assistant.service.agent.core.AgentRunEventService;
 import com.research.assistant.service.agent.core.AgentTurnSubmissionService;
+import com.research.assistant.service.agent.core.AgentRunCancellationService;
 import com.research.assistant.service.agent.action.AgentActionReceiptService;
 import com.research.assistant.service.agent.action.AgentActionTicketRenewalService;
 import com.research.assistant.dto.agent.AgentPendingAction;
@@ -32,16 +33,19 @@ public class AgentTurnController {
     private final AgentRunEventService eventService;
     private final AgentActionReceiptService receiptService;
     private final AgentActionTicketRenewalService renewalService;
+    private final AgentRunCancellationService cancellationService;
 
     public AgentTurnController(AgentLoopService loopService, AgentTurnSubmissionService submissionService,
                                AgentRunEventService eventService,
                                AgentActionReceiptService receiptService,
-                               AgentActionTicketRenewalService renewalService) {
+                               AgentActionTicketRenewalService renewalService,
+                               AgentRunCancellationService cancellationService) {
         this.loopService = loopService;
         this.submissionService = submissionService;
         this.eventService = eventService;
         this.receiptService = receiptService;
         this.renewalService = renewalService;
+        this.cancellationService = cancellationService;
     }
 
     @PostMapping
@@ -52,6 +56,11 @@ public class AgentTurnController {
     @GetMapping("/runs/{runId}")
     public Result<AgentTurnResult> status(@PathVariable String runId) {
         return Result.ok(loopService.currentResult(runId));
+    }
+
+    @PostMapping("/runs/{runId}/cancel")
+    public Result<AgentTurnResult> cancel(@PathVariable String runId) {
+        return Result.ok(cancellationService.cancel(runId));
     }
 
     @GetMapping("/runs/{runId}/events")

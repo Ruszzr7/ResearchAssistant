@@ -57,7 +57,7 @@ class PaperLayoutRecoveryRegionEvalTest {
                     org.assertj.core.api.Assertions.assertThat(source.provenance().get("source"))
                             .isEqualTo("VISUAL_FALLBACK");
                     org.assertj.core.api.Assertions.assertThat(source.rawContent())
-                            .contains("请查看原始页面区域");
+                            .doesNotContain("请查看原始页面区域", "文本提取不可靠", "未获得可信");
                 }
                 org.assertj.core.api.Assertions.assertThat(locators)
                         .extracting(locator -> locator.pageNumber())

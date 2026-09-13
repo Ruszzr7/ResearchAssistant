@@ -2,11 +2,16 @@ import { h } from 'vue'
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePaperAgent, unionBoundingBoxes } from '@/composables/usePaperAgent.js'
-import { mapAgentEvidenceItem, selectEvidenceFocusBoxes } from '@/utils/evidenceViewModel.js'
+import {
+  mapAgentEvidenceItem,
+  mergeDisplayBoxes,
+  selectEvidenceFocusBoxes,
+} from '@/utils/evidenceViewModel.js'
 
 const mocks = vi.hoisted(() => ({
   executeAgentTurn: vi.fn(),
   getAgentRun: vi.fn(),
+  cancelAgentRun: vi.fn(),
   uploadAgentAttachment: vi.fn(),
 }))
 
@@ -22,6 +27,7 @@ describe('usePaperAgent', () => {
       .mockResolvedValueOnce({ attachmentId: 'file-1' })
       .mockResolvedValueOnce({ attachmentId: 'formula-1' })
     mocks.getAgentRun.mockReset()
+    mocks.cancelAgentRun.mockReset()
   })
 
   it('unions fragmented locator boxes for a coarse scroll fallback', () => {
@@ -65,6 +71,30 @@ describe('usePaperAgent', () => {
     expect(mapped.locator.targetBoxes).toEqual([{ x: .2, y: .3, width: .55, height: .08 }])
     expect(mapped.locator.focusBoxes).toEqual([{ x: .68, y: .32, width: .07, height: .02 }])
     expect(mapped.locator.focusBbox).toEqual({ x: .68, y: .32, width: .07, height: .02 })
+  })
+
+  it('merges adjacent same-column lines only for display', () => {
+    const lines = [
+      { x: .08, y: .20, width: .35, height: .018 },
+      { x: .08, y: .222, width: .35, height: .018 },
+      { x: .56, y: .20, width: .35, height: .018 },
+    ]
+    expect(mergeDisplayBoxes(lines)).toEqual([
+      { x: .08, y: .2, width: .35, height: .04 },
+      { x: .56, y: .2, width: .35, height: .018 },
+    ])
+    const mapped = mapAgentEvidenceItem({
+      sourceObjectId: 'text-1', paperId: 7, quote: '完整段落', fullText: '完整段落',
+      locators: [{ pageNumber: 3, rects: lines.slice(0, 2) }],
+    })
+    expect(mapped.locator.targetBoxes).toHaveLength(2)
+    expect(mapped.locator.displayBoxes).toEqual([
+      { x: .08, y: .2, width: .35, height: .04 },
+    ])
+    expect(mergeDisplayBoxes([
+      { x: .08, y: .2, width: .84, height: .06 },
+      { x: .08, y: .2, width: .12, height: .018 },
+    ])).toEqual([{ x: .08, y: .2, width: .84, height: .06 }])
   })
 
   it('prefers every authoritative locator box over a partial PDFium text match', () => {
@@ -161,6 +191,43 @@ describe('usePaperAgent', () => {
     wrapper.unmount()
   })
 
+  it('dispatches waiting page actions once and keeps polling until the run completes', async () => {
+    mocks.executeAgentTurn.mockResolvedValueOnce({
+      turnId: 'turn-1', runId: 'run-1', status: 'RUNNING', message: null,
+      citations: [], evidence: [], pendingActions: [],
+    })
+    const action = {
+      toolCallId: 'tool-1', ticket: 'ticket-1', actionType: 'HIGHLIGHT',
+      target: { paperId: 7, pageNumber: 3, rects: [{ x: .1, y: .2, width: .3, height: .04 }] },
+    }
+    mocks.getAgentRun
+      .mockResolvedValueOnce({
+        turnId: 'turn-1', runId: 'run-1', status: 'WAITING_CLIENT', message: '正在执行页面操作。',
+        citations: [], evidence: [], pendingActions: [action],
+      })
+      .mockResolvedValueOnce({
+        turnId: 'turn-1', runId: 'run-1', status: 'COMPLETED', message: '操作完成',
+        citations: [], evidence: [], pendingActions: [],
+      })
+    let agent
+    const wrapper = mount({ setup() { agent = usePaperAgent(); return () => h('div') } })
+    const onActionRequired = vi.fn()
+    const resultPromise = agent.run({
+      paperId: 7, researchSessionId: 9, userMessage: '高亮', attachments: [],
+    }, { onActionRequired })
+
+    await vi.waitFor(() => expect(onActionRequired).toHaveBeenCalledTimes(1))
+    expect(agent.running.value).toBe(true)
+    expect(onActionRequired).toHaveBeenCalledWith(
+      [expect.objectContaining({ ticket: 'ticket-1', type: 'HIGHLIGHT' })],
+      expect.objectContaining({ status: 'WAITING_CLIENT' }),
+    )
+    const result = await resultPromise
+    expect(result.status).toBe('COMPLETED')
+    expect(mocks.getAgentRun).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
   it('marks persisted failed and cancelled runs as terminal recovery errors', async () => {
     mocks.getAgentRun.mockResolvedValueOnce({
       turnId: 'turn-1', runId: 'failed-run', status: 'FAILED', message: '模型调用失败',
@@ -175,6 +242,35 @@ describe('usePaperAgent', () => {
       message: '模型调用失败', agentTerminal: true, agentRunStatus: 'FAILED',
     })
     expect(mocks.getAgentRun).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('returns a cancelled terminal result without treating it as a polling error', async () => {
+    mocks.executeAgentTurn.mockResolvedValueOnce({
+      turnId: 'turn-1', runId: 'run-1', status: 'RUNNING', message: null,
+      citations: [], evidence: [], pendingActions: [],
+    })
+    let resolveRun
+    mocks.getAgentRun.mockImplementationOnce(() => new Promise(resolve => { resolveRun = resolve }))
+    mocks.cancelAgentRun.mockResolvedValueOnce({
+      turnId: 'turn-1', runId: 'run-1', status: 'CANCELLED', message: '已取消回答',
+      citations: [], evidence: [], pendingActions: [],
+    })
+    let agent
+    const wrapper = mount({ setup() { agent = usePaperAgent(); return () => h('div') } })
+    const runPromise = agent.run({ paperId: 7, researchSessionId: 9, userMessage: '可取消', attachments: [] })
+    await vi.waitFor(() => expect(mocks.getAgentRun).toHaveBeenCalledWith(
+      'run-1', expect.objectContaining({ signal: expect.any(AbortSignal) })))
+    const cancelled = await agent.cancelRun()
+
+    expect(mocks.cancelAgentRun).toHaveBeenCalledWith('run-1')
+    expect(cancelled.status).toBe('CANCELLED')
+    resolveRun({
+      turnId: 'turn-1', runId: 'run-1', status: 'CANCELLED', message: '已取消回答',
+      citations: [], evidence: [], pendingActions: [],
+    })
+    await expect(runPromise).resolves.toMatchObject({ status: 'CANCELLED' })
+    expect(agent.error.value).toBe('')
     wrapper.unmount()
   })
 })

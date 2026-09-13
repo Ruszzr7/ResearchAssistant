@@ -13,6 +13,7 @@ import com.research.assistant.service.agent.source.SourceEvidenceQuality;
 import com.research.assistant.service.agent.source.SourceObject;
 import com.research.assistant.service.memory.PaperGlobalProfile;
 import com.research.assistant.service.memory.PaperMemoryClaim;
+import com.research.assistant.service.memory.PaperUnderstandingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -48,6 +49,9 @@ public class PaperReadToolRegistry {
     static final int MAX_RESULT_BYTES = 16 * 1024;
     private static final Pattern SUBFORMULA_NUMBER = Pattern.compile("^(\\d{1,4})([a-z])$",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern FORMULA_TARGET = Pattern.compile(
+            "(?i)^(?:(?:公式(?:编号)?|方程(?:式)?(?:编号)?)\\s*|(?:eq(?:uation)?|formula)\\.?\\s*)?"
+                    + "\\(?([0-9]{1,4}[a-z]?)\\)?$");
     private static final String EVIDENCE_SCHEMA = """
             {"type":"object","properties":{
             "needs":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{
@@ -60,9 +64,9 @@ public class PaperReadToolRegistry {
             "pageHints":{"type":"array","minItems":1,"maxItems":2,"uniqueItems":true,"items":{"type":"integer","minimum":1},"description":"有明确依据时填写可能所在的页码或连续页码范围。"},
             "cursor":{"type":"integer","minimum":0,"maximum":10000,"description":"仅使用上一次返回的 nextCursor 继续读取该 Need 的候选页。"},
             "profileClaimRefs":{"type":"array","minItems":1,"maxItems":4,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":40},"description":"画像返回的可信 claimRef；直接复用其已绑定来源。"},
-            "contentTypes":{"type":"array","minItems":1,"maxItems":5,"uniqueItems":true,"items":{"type":"string","enum":["TEXT","FORMULA","TABLE","FIGURE","ALGORITHM"]},"description":"有明确依据时限制来源内容类型。"},
+            "contentTypes":{"type":"array","minItems":1,"maxItems":5,"uniqueItems":true,"items":{"type":"string","enum":["TEXT","FORMULA","TABLE","FIGURE","ALGORITHM"]},"description":"有明确依据时限制来源内容类型。用户直接询问某个图或图中趋势时必须包含 FIGURE；返回的 FIGURE 来源会自动附加实际图像区域。"},
             "sourceObjectIds":{"type":"array","minItems":1,"maxItems":4,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":160},"description":"已知可信来源 ID；直接读取，不要重新搜索。"},
-            "includeVisual":{"type":"boolean","description":"只有需要检查页面二维布局时才附加来源关联的局部图像。"},
+            "includeVisual":{"type":"boolean","description":"需要核对图表内容、页面二维布局或文本不可靠的公式时，附加与来源绑定的局部图像。"},
             "refinementReason":{"type":"string","minLength":1,"maxLength":240,"description":"补检索时说明上一批来源还缺少什么，以及为何新条件可能得到不同证据；首次调用省略。"}},
             "required":["id","objective"],"additionalProperties":false}},
             "pageRanges":{"type":"array","minItems":1,"maxItems":2,"description":"需要直接读取的连续页码范围，每个范围最多两页。","items":{"type":"object","properties":{"startPage":{"type":"integer","minimum":1},"endPage":{"type":"integer","minimum":1}},"required":["startPage","endPage"],"additionalProperties":false}},
@@ -87,7 +91,7 @@ public class PaperReadToolRegistry {
 
     public List<AgentToolDefinition> definitions() {
         return List.of(new AgentToolDefinition("retrieve_paper_evidence",
-                "从当前论文检索可引用的原文证据。先把最终答案需要成立的独立事实拆成 1～4 个 needs，并在首次调用中一次提交；首次有效检索后 Need ID 集合冻结。每个 Need 都要提供稳定唯一的 id、中文中立的 objective，以及 query、sourceObjectIds 或 profileClaimRefs 中至少一种检索锚点。query、keywords 和 targets 使用论文原文术语、变量、数值或公式编号；targets 只做词面核对。收到来源后由 Agent 阅读并判断语义充分性；只对未解决 Need 保持原 id 和 objective，补检索时填写 refinementReason 并改变有效检索条件。若返回 hasMore=true，使用同一 Need 的 nextCursor 继续读取候选页；若没有新来源、游标已耗尽或 stopRecommended=true，停止该 Need 并使用 submit_answer。不要重复请求、新建同方向 Need，或把检索状态当成论文结论。", EVIDENCE_SCHEMA));
+                "从当前论文检索可引用的原文证据。先把最终答案需要成立的独立事实拆成 1～4 个 needs，并在首次调用中一次提交；首次有效检索后 Need ID 集合冻结。每个 Need 都要提供稳定唯一的 id、中文中立的 objective，以及 query、sourceObjectIds 或 profileClaimRefs 中至少一种检索锚点。query、keywords 和 targets 使用论文原文术语、变量、数值或公式编号；targets 只做词面核对。用户直接询问图或图中趋势时，该 Need 必须使用 contentTypes=[\"FIGURE\"]，实际图像区域会随 FIGURE 来源一起返回；解释图的正文可作为另一个 TEXT Need。回答精确公式时优先限制 FORMULA，公式文本不可靠时工具会自动返回局部图像。收到来源后由 Agent 阅读并判断语义充分性；只对未解决 Need 保持原 id 和 objective，补检索时填写 refinementReason 并改变有效检索条件。若返回 hasMore=true，使用同一 Need 的 nextCursor 继续读取候选页；若没有新来源、游标已耗尽或 stopRecommended=true，停止该 Need并使用 submit_answer。不要重复请求、新建同方向 Need，或把检索状态当成论文结论。", EVIDENCE_SCHEMA));
     }
 
     /** Compatibility entry point; model-facing tools no longer vary by message keywords. */
@@ -715,6 +719,13 @@ public class PaperReadToolRegistry {
     private static boolean targetMatches(SourceObject source, String target) {
         String normalizedTarget = SourceObject.normalize(target).toLowerCase(Locale.ROOT);
         String formulaNumber = SourceObject.normalize(source.formulaNumber()).toLowerCase(Locale.ROOT);
+        Matcher formulaTargetMatcher = FORMULA_TARGET.matcher(normalizedTarget);
+        if (source.contentType() == SourceContentType.FORMULA && formulaTargetMatcher.matches()) {
+            String requestedNumber = formulaTargetMatcher.group(1).toLowerCase(Locale.ROOT);
+            return java.util.Arrays.stream(formulaNumber.split(","))
+                    .map(String::strip)
+                    .anyMatch(requestedNumber::equals);
+        }
         String formulaTarget = normalizedTarget.replaceAll("^[\\(\\[]|[\\)\\]]$", "");
         if (!formulaNumber.isBlank() && formulaNumber.equals(formulaTarget)) return true;
         String searchable = (source.normalizedContent() + " "
@@ -729,6 +740,7 @@ public class PaperReadToolRegistry {
         PaperMemoryRecord memory = memoryMapper.selectLatest(catalog.paperId());
         if (memory == null || memory.getProfileJson() == null
                 || !catalog.documentHash().equals(memory.getDocumentHash())
+                || !PaperUnderstandingService.PIPELINE_VERSION.equals(memory.getUnderstandingVersion())
                 || !catalog.parserVersion().equals(memory.getLayoutParserVersion())) return ProfileClaimIndex.EMPTY;
         try {
             PaperGlobalProfile profile = objectMapper.readValue(memory.getProfileJson(), PaperGlobalProfile.class);

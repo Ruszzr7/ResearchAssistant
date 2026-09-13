@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.entity.PaperMemoryRecord;
 import com.research.assistant.mapper.PaperMemoryMapper;
 import com.research.assistant.service.agent.source.PaperSourceCatalog;
+import com.research.assistant.service.memory.PaperUnderstandingService;
 import com.research.assistant.service.agent.source.SourceContentType;
 import com.research.assistant.service.agent.source.SourceObject;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ class PaperOverviewToolRegistryTest {
         memory.setDocumentHash("hash");
         memory.setLayoutParserVersion("parser");
         memory.setStatus("READY");
+        memory.setUnderstandingVersion(PaperUnderstandingService.PIPELINE_VERSION);
         memory.setProfileQualityJson("{\"usable\":true,\"issues\":[]}");
         memory.setProfileJson("""
                 {
@@ -63,5 +65,22 @@ class PaperOverviewToolRegistryTest {
         assertThat(execution.resultJson()).doesNotContain(
                 "documentHash", "qualityIssues", "evidenceBlockIds", "confidence",
                 "sectionDigests", "sourceChunkIds", "generatedAt");
+    }
+
+    @Test
+    void rejectsProfileFromAnOlderUnderstandingPipeline() throws Exception {
+        PaperMemoryMapper mapper = mock(PaperMemoryMapper.class);
+        PaperMemoryRecord memory = new PaperMemoryRecord();
+        memory.setDocumentHash("hash");
+        memory.setLayoutParserVersion("parser");
+        memory.setUnderstandingVersion("paper-understanding-old");
+        memory.setProfileJson("{}");
+        when(mapper.selectLatest(9L)).thenReturn(memory);
+        PaperSourceCatalog catalog = new PaperSourceCatalog(9L, "hash", "parser", 1, Map.of(), Map.of());
+
+        JsonNode json = objectMapper.readTree(
+                new PaperOverviewToolRegistry(mapper, objectMapper).execute(9L, catalog).resultJson());
+
+        assertThat(json.path("status").asText()).isEqualTo("stale");
     }
 }

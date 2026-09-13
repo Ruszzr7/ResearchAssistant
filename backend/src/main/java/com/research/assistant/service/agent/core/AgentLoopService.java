@@ -41,17 +41,19 @@ import java.util.LinkedHashSet;
 
 @Service
 public class AgentLoopService {
+    private static final int MAX_EFFECTIVE_EVIDENCE_ATTEMPTS_PER_NEED = 4;
 
     // Interactive paper answers retain a final liveness boundary if a provider call stalls.
     // Normal Agent decisions are not constrained by a tool-round workflow budget.
     private static final AgentRunBudget DEFAULT_BUDGET = AgentRunBudget.defaults();
     private static final String ANSWER_SCHEMA = """
             {"type":"object","properties":{
+            "groundingMode":{"type":"string","enum":["PAPER","GENERAL_KNOWLEDGE","MIXED"],"description":"PAPER 表示回答依赖当前论文；GENERAL_KNOWLEDGE 表示完全不依赖论文；MIXED 表示同时包含两者。"},
             "answerBlocks":{"type":"array","items":{"type":"object","properties":{
-            "text":{"type":"string","description":"完整的 GitHub 风格 Markdown。数学使用 $...$ 或 $$...$$；不要添加数字引用标记。对论文未提供某内容的判断，只能在实际检索后表述为未找到足够证据。"},"sourceObjectIds":{"type":"array","description":"支持本答案块的、且已在当前论文版本上下文中实际读取的来源 ID；一般解释或检索后的证据限制可填写空数组。","items":{"type":"string"}}},
+            "text":{"type":"string","description":"完整的 GitHub 风格 Markdown。数学使用 $...$ 或 $$...$$；不要添加数字引用标记。只写已由对应来源支持的内容，无法确认的细节直接省略。"},"sourceObjectIds":{"type":"array","description":"支持本答案块的、且已在当前论文版本上下文中实际读取的来源 ID；不依赖论文原文的回答可填写空数组。","items":{"type":"string"}}},
             "required":["text","sourceObjectIds"],"additionalProperties":false}},
             "clarification":{"type":"string","description":"仅当请求确实存在歧义时提出一个简短的中文澄清问题；此时留空或省略 answerBlocks。"}},
-            "required":[],"additionalProperties":false}
+            "required":["groundingMode"],"additionalProperties":false}
             """;
     private static final String CLARIFICATION_SCHEMA = """
             {"type":"object","properties":{"question":{"type":"string","description":"需要用户补充的简短中文问题。"}},
@@ -169,12 +171,13 @@ public class AgentLoopService {
         // disable ordinary chat; the actual model invocation remains the source of truth.
 
         Set<String> readSources = new LinkedHashSet<>(context.preReadSourceIds());
+        Set<String> visuallyReadSources = new LinkedHashSet<>();
         Map<String, AgentToolExecution> readToolCache = new HashMap<>();
         EvidenceReadState evidenceReadState = new EvidenceReadState();
         List<AgentToolDefinition> definitions = new ArrayList<>();
         List<AgentSkillBinding> skills = skillRegistry.bindings(context, input.userMessage());
         definitions.add(new AgentToolDefinition("submit_answer",
-                "所有正常回答都必须使用本工具提交。使用有序的 answerBlocks 提交最终答案；依赖论文的回答只能绑定实际读取且支持该块的 sourceObjectIds，一般解释使用空数组。每个块都应是完整的 GitHub 风格 Markdown；每个块只放一个事实性陈述或一组紧密相关的陈述，行内 LaTeX 使用 $...$，独立 LaTeX 使用 $$...$$，不要添加数字引用标记。画像、摘要或一次未命中都不能证明论文未讨论某内容；只有实际执行原文证据检索后，才能谨慎表述“当前未找到足够证据”，不得把未找到改写为确定不存在。", ANSWER_SCHEMA));
+                "所有正常回答都必须使用本工具提交。先如实声明 groundingMode：当前论文的内容、方法、创新、公式、图表或结论属于 PAPER；完全不依赖论文的知识属于 GENERAL_KNOWLEDGE；两者并存时使用 MIXED。使用有序的 answerBlocks 提交最终答案；PAPER 回答的每个块都必须绑定实际读取且支持该块的 sourceObjectIds，MIXED 中只有完全不依赖论文的块可以使用空数组。包含 $$...$$ 或 \\[...\\] 完整展示公式的论文答案块，必须绑定可靠公式文本或已实际读取图像的公式来源。每个块只放一个事实性陈述或一组紧密相关的陈述。画像、摘要或一次未命中都不能代替原文证据；只写已确认的内容，不要输出检索过程、来源说明或内部诊断段落。", ANSWER_SCHEMA));
         definitions.add(new AgentToolDefinition("ask_clarification",
                 "仅当页面操作或答案实质依赖缺失或含糊的用户意图时，提出一个简短的自然语言澄清问题。普通可解问题不要使用。",
                 CLARIFICATION_SCHEMA));
@@ -182,7 +185,7 @@ public class AgentLoopService {
         try {
             AgentFrameworkResult frameworkResult = frameworkExecutor.execute(messages, definitions, skills,
                     request -> executeFrameworkTool(context, turn, run.getRunId(), readSources,
-                            readToolCache, evidenceReadState, input.userMessage(), request),
+                            visuallyReadSources, readToolCache, evidenceReadState, input.userMessage(), request),
                     (toolCallId, skillName, argumentsJson, instructions) -> persistSkillActivation(
                             run.getRunId(), toolCallId, skillName, argumentsJson, instructions),
                     trace -> runtimeService.recordModelCall(run.getRunId(), trace));
@@ -196,13 +199,10 @@ public class AgentLoopService {
                     if (evidenceReadState.hasUsableEvidence()) {
                         throw new IllegalStateException("GROUNDING_SUBMISSION_REQUIRED：已读取论文证据，最终答案必须使用 submit_answer");
                     }
-                    // A direct Markdown answer remains valid when no usable paper evidence
-                    // was loaded in this run.
                 }
-                if (evidenceReadState.hasUsableEvidence()) {
-                    throw new IllegalStateException("GROUNDING_SUBMISSION_REQUIRED：已读取论文证据，最终答案必须使用 submit_answer");
-                }
-                return completeDirectAnswer(turn, run.getRunId(), frameworkResult.content());
+                // 即使是通用问题也必须走 submit_answer，统一保存终态并避免模型
+                // 绕过结构化校验直接写入对话历史。
+                throw new IllegalStateException("ANSWER_SUBMISSION_REQUIRED：最终答案必须使用 submit_answer");
             }
             throw new IllegalStateException("模型返回了空响应");
         } catch (Exception error) {
@@ -220,6 +220,7 @@ public class AgentLoopService {
                                         AgentTurnRecord turn,
                                         String runId,
                                         Set<String> readSources,
+                                        Set<String> visuallyReadSources,
                                         Map<String, AgentToolExecution> readToolCache,
                                         EvidenceReadState evidenceReadState,
                                         String evidenceFocus,
@@ -261,7 +262,8 @@ public class AgentLoopService {
                     saveAssistantMessage(turn, runId, "CLARIFICATION", clarification, null);
                     return toolResult(resultJson);
                 }
-                GroundedAnswer grounded = parseAndGround(request.argumentsJson(), context, readSources);
+                GroundedAnswer grounded = parseAndGround(request.argumentsJson(), context, readSources,
+                        visuallyReadSources, evidenceReadState.requiredFigureSourceIds);
                 List<AgentEvidenceView> evidence = evidenceViews(grounded, context);
                 AgentTurnResult completed = new AgentTurnResult(turn.getTurnId(), runId,
                         AgentRunStatus.COMPLETED.name(), grounded.answer(), grounded.bindings(), evidence);
@@ -276,22 +278,39 @@ public class AgentLoopService {
                 return toolResult(resultJson);
             }
             if (actionSkillTool.supports(request.name())) {
-                PaperActionSkillTool.PreparedAction preparedAction = actionSkillTool.prepare(context.sourceCatalog(),
-                        readSources, request.argumentsJson(), objectMapper);
-                ActionTicketService.IssuedActionTicket issued = ticketService.issue(runId, call,
-                        preparedAction.type(), preparedAction.target(), preparedAction.content(), preparedAction.color());
-                AgentPendingAction action = new AgentPendingAction(call.getToolCallId(), preparedAction.type(),
-                        preparedAction.target(), preparedAction.content(), preparedAction.color(),
-                        issued.ticket(), issued.expiresAt());
+                List<PaperActionSkillTool.PreparedAction> preparedActions = actionSkillTool.prepare(
+                        context.sourceCatalog(), readSources, request.argumentsJson(), objectMapper);
+                List<AgentPendingAction> actions = new ArrayList<>();
+                for (int targetIndex = 0; targetIndex < preparedActions.size(); targetIndex++) {
+                    PaperActionSkillTool.PreparedAction preparedAction = preparedActions.get(targetIndex);
+                    AgentToolCallRecord actionCall = call;
+                    if (targetIndex > 0) {
+                        // One model action may name several explicit sources. Keep one
+                        // ticket/tool-call per physical target so the existing annotation
+                        // idempotency key and receipt protocol remain atomic per target.
+                        String targetArguments = actionArgumentsForTarget(request.argumentsJson(), preparedAction);
+                        actionCall = runtimeService.registerToolCall(runId, request.name(), targetArguments,
+                                false, runId + ":" + request.id() + ":target:" + targetIndex);
+                        actionCall = runtimeService.transitionToolCall(actionCall.getToolCallId(),
+                                AgentToolCallStatus.RUNNING, null, null, null);
+                    }
+                    ActionTicketService.IssuedActionTicket issued = ticketService.issue(runId, actionCall,
+                            preparedAction.type(), preparedAction.target(), preparedAction.content(), preparedAction.color());
+                    actions.add(new AgentPendingAction(actionCall.getToolCallId(), preparedAction.type(),
+                            preparedAction.target(), preparedAction.content(), preparedAction.color(),
+                            issued.ticket(), issued.expiresAt()));
+                }
                 AgentTurnResult waiting = new AgentTurnResult(turn.getTurnId(), runId,
-                        AgentRunStatus.WAITING_CLIENT.name(), "正在执行页面操作。", List.of(), List.of(), List.of(action));
+                        AgentRunStatus.WAITING_CLIENT.name(), "正在执行页面操作。", List.of(), List.of(), actions);
                 String resultJson = writeResult(waiting);
                 if (!transitionRunBeforePersistingResult(runId, AgentRunStatus.WAITING_CLIENT, resultJson)) {
                     failLateToolCall(call);
                     return toolResult(writeResult(currentResult(runId)));
                 }
-                runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.WAITING_CLIENT,
-                        resultJson, null, null);
+                // ActionTicketService.issue atomically stores the ticket and moves the
+                // tool call to WAITING_CLIENT.  Repeating the same transition here makes
+                // the state machine reject the call and leaves a WAITING_CLIENT run with
+                // a FAILED tool call, which can never accept the browser receipt.
                 return toolResult(resultJson);
             }
             if (profileSkillTool != null && profileSkillTool.supports(request.name())) {
@@ -331,6 +350,12 @@ public class AgentLoopService {
                 result = addEvidenceProgress(result, effectiveArguments, evidenceReadState);
             }
             readSources.addAll(result.sourceObjectIds());
+            result.visuals().forEach(visual -> {
+                visuallyReadSources.add(visual.sourceObjectId());
+                if ("FIGURE".equals(visual.contentType())) {
+                    evidenceReadState.requiredFigureSourceIds.add(visual.sourceObjectId());
+                }
+            });
             runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED,
                     result.resultJson(), null, null);
             return result;
@@ -383,17 +408,27 @@ public class AgentLoopService {
         return argumentsJson;
     }
 
-    private AgentTurnResult completeDirectAnswer(AgentTurnRecord turn, String runId, String content) {
-        String answer = stripModelCitationMarkers(content == null ? "" : content.trim());
-        if (answer.isBlank()) throw new IllegalStateException("助手返回了空的直接答案");
-        AgentTurnResult completed = new AgentTurnResult(turn.getTurnId(), runId,
-                AgentRunStatus.COMPLETED.name(), answer, List.of(), List.of());
-        String resultJson = writeResult(completed);
-        if (!transitionRunBeforePersistingResult(runId, AgentRunStatus.COMPLETED, resultJson)) {
-            return currentResult(runId);
+    private String actionArgumentsForTarget(String argumentsJson,
+                                            PaperActionSkillTool.PreparedAction preparedAction) {
+        try {
+            JsonNode parsed = objectMapper.readTree(argumentsJson);
+            if (!parsed.isObject()) throw new IllegalArgumentException("页面操作参数必须是对象");
+            com.fasterxml.jackson.databind.node.ObjectNode target;
+            if (parsed.path("operations").isArray() && preparedAction.operationIndex() >= 0
+                    && preparedAction.operationIndex() < parsed.path("operations").size()) {
+                JsonNode operation = parsed.path("operations").get(preparedAction.operationIndex());
+                if (!operation.isObject()) throw new IllegalArgumentException("页面操作参数必须是对象");
+                target = ((com.fasterxml.jackson.databind.node.ObjectNode) operation).deepCopy();
+            } else {
+                target = (com.fasterxml.jackson.databind.node.ObjectNode) parsed;
+            }
+            target.remove("sourceObjectIds");
+            target.put("sourceObjectId", preparedAction.target().sourceObjectId());
+            target.remove("operations");
+            return objectMapper.writeValueAsString(target);
+        } catch (Exception error) {
+            throw new IllegalArgumentException("页面操作参数无效", error);
         }
-        saveAssistantMessage(turn, runId, "CHAT", answer, resultJson);
-        return completed;
     }
 
     private AgentToolExecution validateEvidenceContinuation(String argumentsJson, EvidenceReadState state) {
@@ -432,11 +467,22 @@ public class AgentLoopService {
                     .distinct()
                     .toList();
             if (!newNeedIds.isEmpty()) {
-                return stoppedEvidenceResult(newNeedIds,
-                        "首次有效检索后 Need 集合已冻结；本次未执行底层检索。",
-                        newNeedIds.stream().map(id -> evidenceIssue(id, "id", "NEW_NEED_NOT_ALLOWED",
-                                "首次有效检索后不得用新 ID 重述原需求；请基于已读证据回答，或沿用原 ID 做一次有效补检索。"))
-                                .toList());
+                state.newNeedViolationCount++;
+                List<Map<String, Object>> newNeedIssues = newNeedIds.stream()
+                        .map(id -> evidenceIssue(id, "id", "NEW_NEED_NOT_ALLOWED",
+                                "首次有效检索后不得用新 ID 重述原需求；请沿用原 ID 和 objective，填写 refinementReason，并修改有效检索条件。"))
+                        .toList();
+                if (state.newNeedViolationCount >= 2) {
+                    return stoppedEvidenceResult(newNeedIds,
+                            "连续两次新建未规划 Need；本次未执行底层检索。", newNeedIssues);
+                }
+                return toolResult(objectMapper.writeValueAsString(Map.of(
+                        "status", "invalid_request",
+                        "sources", List.of(),
+                        "evidenceNeeds", List.of(),
+                        "issues", newNeedIssues,
+                        "usage", "请修正一次：沿用首次计划中的 Need ID 和 objective 做补检索，不要新建同方向 Need。"
+                )));
             }
             List<String> repeatedlyInvalidNeedIds = requestedNeedIds.stream()
                     .filter(id -> state.validationFailureCountsByNeed.getOrDefault(id, 0) >= 2)
@@ -447,10 +493,21 @@ public class AgentLoopService {
                 return stoppedEvidenceResult(repeatedlyInvalidNeedIds,
                         "该 Need 连续两次违反补检索契约；本次未执行底层检索。", issues);
             }
+            List<String> exhaustedNeedIds = requestedNeedIds.stream()
+                    .filter(id -> state.requestCountsByNeed.getOrDefault(id, 0)
+                            >= MAX_EFFECTIVE_EVIDENCE_ATTEMPTS_PER_NEED)
+                    .distinct()
+                    .toList();
+            if (!exhaustedNeedIds.isEmpty()) {
+                state.stoppedNeedIds.addAll(exhaustedNeedIds);
+                return stoppedEvidenceResult(exhaustedNeedIds,
+                        "该 Need 已完成首次检索和最多三次有效补检索；本次未再扫描更多候选。",
+                        List.of());
+            }
             if (issues.isEmpty() && !requestedNeedIds.isEmpty()
                     && requestedNeedIds.stream().allMatch(state.stoppedNeedIds::contains)) {
                 return stoppedEvidenceResult(requestedNeedIds,
-                        "该 Need 已收到停止信号；本次未再次执行检索，请基于已读证据回答并说明限制。",
+                        "该 Need 已收到停止信号；本次未再次执行检索，请仅基于已读证据回答，不要输出检索状态说明。",
                         List.of());
             }
             if (issues.isEmpty()) return null;
@@ -494,7 +551,7 @@ public class AgentLoopService {
         payload.put("sources", List.of());
         payload.put("evidenceNeeds", stoppedNeeds);
         if (!issues.isEmpty()) payload.put("issues", issues);
-        payload.put("usage", "不得继续改写或新建同方向 Need；现在使用 submit_answer 回答，并如实说明证据限制。");
+        payload.put("usage", "不得继续改写或新建同方向 Need；现在使用 submit_answer，仅提交已读证据支持的内容。");
         return toolResult(objectMapper.writeValueAsString(payload));
     }
 
@@ -674,8 +731,8 @@ public class AgentLoopService {
                         progressState = sourceIds.isEmpty() ? "no_match" : "same_sources";
                         nextAction = "stop";
                         reason = sourceIds.isEmpty()
-                                ? "补检索仍未返回候选来源，请停止该检索方向并说明证据限制。"
-                                : "补检索只返回该 Need 已读来源，请停止该检索方向并说明证据限制。";
+                                ? "补检索仍未返回候选来源，请停止该检索方向并仅基于已读内容回答。"
+                                : "补检索只返回该 Need 已读来源，请停止该检索方向并仅基于已读内容回答。";
                     }
                     com.fasterxml.jackson.databind.node.ObjectNode progress =
                             objectMapper.createObjectNode();
@@ -781,6 +838,8 @@ public class AgentLoopService {
         private final Map<String, Integer> validationFailureCountsByNeed = new LinkedHashMap<>();
         private final Set<String> plannedNeedIds = new LinkedHashSet<>();
         private final Set<String> stoppedNeedIds = new LinkedHashSet<>();
+        private final Set<String> requiredFigureSourceIds = new LinkedHashSet<>();
+        private int newNeedViolationCount;
 
         private void markUsableEvidence() {
             usableEvidence = true;
@@ -824,8 +883,14 @@ public class AgentLoopService {
                 content, List.of(), List.of());
     }
 
-    private GroundedAnswer parseAndGround(String json, AgentContextSnapshot context, Set<String> readSources) throws Exception {
+    private GroundedAnswer parseAndGround(String json, AgentContextSnapshot context, Set<String> readSources,
+                                          Set<String> visuallyReadSources,
+                                          Set<String> requiredFigureSourceIds) throws Exception {
         JsonNode root = objectMapper.readTree(json);
+        String groundingMode = requiredText(root, "groundingMode");
+        if (!Set.of("PAPER", "GENERAL_KNOWLEDGE", "MIXED").contains(groundingMode)) {
+            throw new IllegalArgumentException("groundingMode 必须是 PAPER、GENERAL_KNOWLEDGE 或 MIXED");
+        }
         JsonNode blocks = root.path("answerBlocks");
         if (!blocks.isArray() || blocks.isEmpty()) throw new IllegalArgumentException("answerBlocks 不能为空");
         StringBuilder answer = new StringBuilder();
@@ -838,6 +903,12 @@ public class AgentLoopService {
             int end = answer.length();
             JsonNode sourceIds = block.path("sourceObjectIds");
             if (!sourceIds.isArray()) throw new IllegalArgumentException("sourceObjectIds 必须是数组");
+            if ("PAPER".equals(groundingMode) && sourceIds.isEmpty()) {
+                throw new IllegalArgumentException("PAPER 回答的每个答案块都必须绑定已读取的论文来源");
+            }
+            if ("GENERAL_KNOWLEDGE".equals(groundingMode) && !sourceIds.isEmpty()) {
+                throw new IllegalArgumentException("GENERAL_KNOWLEDGE 回答不应绑定论文来源");
+            }
             for (JsonNode sourceNode : sourceIds) {
                 String sourceId = sourceNode.asText("").trim();
                 if (sourceId.isEmpty()) throw new IllegalArgumentException("sourceObjectId 不能为空");
@@ -846,10 +917,42 @@ public class AgentLoopService {
                 }
                 requests.add(new CitationRequest(start, end, sourceId, null, List.of()));
             }
+            if (!sourceIds.isEmpty() && containsDisplayMath(text)
+                    && !hasReliableFormulaSupport(sourceIds, context, visuallyReadSources)) {
+                throw new IllegalArgumentException(
+                        "包含完整展示公式的论文答案块必须绑定可靠公式文本，或绑定已实际读取图像的公式来源");
+            }
+        }
+        if ("MIXED".equals(groundingMode) && requests.isEmpty()) {
+            throw new IllegalArgumentException("MIXED 回答至少需要一个论文来源");
+        }
+        if (!requiredFigureSourceIds.isEmpty() && requests.stream()
+                .noneMatch(request -> requiredFigureSourceIds.contains(request.sourceObjectId()))) {
+            throw new IllegalArgumentException(
+                    "已读取实际图像的论文回答必须绑定至少一条本轮 FIGURE 视觉来源");
         }
         if (requests.isEmpty()) return new GroundedAnswer(answer.toString(), List.of(), List.of());
         if (context.sourceCatalog() == null) throw new IllegalArgumentException("论文来源不可用");
         return evidenceService.ground(answer.toString(), requests, context.sourceCatalog());
+    }
+
+    private static boolean containsDisplayMath(String text) {
+        return text.contains("$$") || text.contains("\\[");
+    }
+
+    private static boolean hasReliableFormulaSupport(JsonNode sourceIds, AgentContextSnapshot context,
+                                                     Set<String> visuallyReadSources) {
+        if (context.sourceCatalog() == null) return false;
+        for (JsonNode sourceNode : sourceIds) {
+            String sourceId = sourceNode.asText("").trim();
+            SourceObject source = context.sourceCatalog().objects().get(sourceId);
+            if (source == null || source.contentType()
+                    != com.research.assistant.service.agent.source.SourceContentType.FORMULA) continue;
+            boolean textReliable = Boolean.parseBoolean(
+                    source.provenance().getOrDefault("textReliable", "false"));
+            if (textReliable || visuallyReadSources.contains(sourceId)) return true;
+        }
+        return false;
     }
 
     static String stripModelCitationMarkers(String value) {

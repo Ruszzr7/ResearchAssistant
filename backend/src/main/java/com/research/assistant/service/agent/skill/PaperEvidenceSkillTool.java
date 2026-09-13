@@ -10,6 +10,7 @@ import com.research.assistant.service.agent.core.AgentVisualContent;
 import com.research.assistant.service.agent.core.PaperReadToolRegistry;
 import com.research.assistant.service.agent.source.PaperSourceCatalog;
 import com.research.assistant.service.agent.source.PaperSourceVisualService;
+import com.research.assistant.service.agent.source.SourceEvidenceQuality;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -56,15 +57,24 @@ public class PaperEvidenceSkillTool {
         try {
             JsonNode arguments = objectMapper.readTree(argumentsJson);
             Set<Integer> visualNeeds = visualNeedIndexes(arguments.path("needs"));
-            if (visualNeeds.isEmpty()) return evidence;
-
             ObjectNode payload = (ObjectNode) objectMapper.readTree(evidence.resultJson());
             if ("invalid_request".equals(payload.path("status").asText())) return evidence;
-            List<String> visualSourceIds = visualSourceIds(payload.path("evidenceNeeds"), visualNeeds);
+            Set<String> visualSourceIds = new LinkedHashSet<>(
+                    visualSourceIds(payload.path("evidenceNeeds"), visualNeeds));
+            // Unreliable formula text is never sufficient for an exact expression.
+            // Attach its existing page crop automatically instead of expecting the
+            // model to infer a parser-quality flag and issue another read.
+            for (String sourceId : evidence.sourceObjectIds()) {
+                var source = catalog.objects().get(sourceId);
+                if (source != null && "VISUAL_ONLY".equals(SourceEvidenceQuality.status(source))) {
+                    visualSourceIds.add(sourceId);
+                }
+            }
+            if (visualSourceIds.isEmpty()) return evidence;
             List<AgentVisualContent> visuals;
             String unavailableReason = null;
             try {
-                visuals = visualService.render(catalog, visualSourceIds);
+                visuals = visualService.render(catalog, new ArrayList<>(visualSourceIds));
             } catch (RuntimeException visualFailure) {
                 visuals = List.of();
                 unavailableReason = "source_visual_unavailable";
@@ -91,7 +101,15 @@ public class PaperEvidenceSkillTool {
         if (!needs.isArray()) return Set.of();
         Set<Integer> indexes = new LinkedHashSet<>();
         for (int index = 0; index < needs.size(); index++) {
-            if (needs.get(index).path("includeVisual").asBoolean(false)) indexes.add(index);
+            JsonNode need = needs.get(index);
+            boolean figureRequested = false;
+            for (JsonNode type : need.path("contentTypes")) {
+                if ("FIGURE".equals(type.asText())) {
+                    figureRequested = true;
+                    break;
+                }
+            }
+            if (need.path("includeVisual").asBoolean(false) || figureRequested) indexes.add(index);
         }
         return Set.copyOf(indexes);
     }

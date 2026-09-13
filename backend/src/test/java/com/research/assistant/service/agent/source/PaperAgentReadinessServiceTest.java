@@ -48,6 +48,7 @@ class PaperAgentReadinessServiceTest {
         PaperMemoryRecord memory = new PaperMemoryRecord();
         memory.setPaperId(7L);
         memory.setDocumentHash("a".repeat(64));
+        memory.setLayoutParserVersion("parser-v1");
         memory.setStructureJson("{}");
         memory.setStatus(PaperUnderstandingService.STATUS_PARTIAL);
         memory.setUnderstandingAttemptCount(2);

@@ -52,7 +52,10 @@ class PaperSourceVisualServiceTest {
         Map<String, List<SourceLocator>> locators = new LinkedHashMap<>();
         locators.put("text", List.of(locator("text", .1)));
         locators.put("formula", List.of(locator("formula", .3)));
-        locators.put("figure", List.of(locator("figure", .5)));
+        locators.put("figure", List.of(new SourceLocator("loc-figure", "figure", 1, "PDF_NORMALIZED",
+                List.of(new NormalizedBoundingBox(.1, .80, .7, .06)),
+                List.of(new NormalizedBoundingBox(.1, .20, .7, .30)),
+                "Figure 1. Caption", EvidenceLocator.Precision.VISUAL_REGION)));
         PaperSourceCatalog catalog = new PaperSourceCatalog(9, PdfDocumentFingerprint.sha256(pdfPath.toFile()),
                 "parser", 1, objects, locators);
 
@@ -66,6 +69,8 @@ class PaperSourceVisualServiceTest {
             assertThat(visual.width()).isLessThanOrEqualTo(PaperSourceVisualService.MAX_WIDTH);
             assertThat(visual.height()).isLessThanOrEqualTo(PaperSourceVisualService.MAX_HEIGHT);
         });
+        assertThat(visuals.stream().filter(visual -> visual.sourceObjectId().equals("figure"))
+                .findFirst().orElseThrow().height()).isGreaterThan(700);
     }
 
     private SourceObject source(String id, SourceContentType type) {

@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 @Component
 public class PaperLayoutSemanticEnricher {
 
-    static final String VERSION = "semantic-v5";
+    static final String VERSION = "semantic-v6";
 
     private static final Pattern ABSTRACT_START = Pattern.compile(
             "(?i)^\\s*(?:abstract|summary)\\b[\\s.:-]*");
@@ -262,6 +262,14 @@ public class PaperLayoutSemanticEnricher {
                     role = DocumentBlockRole.CAPTION;
                 } else if (!inAbstract && CAPTION.matcher(text).matches()) {
                     role = DocumentBlockRole.CAPTION;
+                // PDFBox occasionally labels a displayed equation as HEADING when its
+                // equation number is extracted on the same line.  A numbered equation
+                // is an addressable formula, not a section heading; classify it before
+                // the generic heading branch so the equation index can create the
+                // canonical source object.
+                } else if (hasNumberedEquationDefinition(text)) {
+                    inAbstract = false;
+                    role = DocumentBlockRole.FORMULA;
                 } else if (block.role() == DocumentBlockRole.HEADING) {
                     inAbstract = false;
                     role = DocumentBlockRole.HEADING;

@@ -53,12 +53,15 @@ public class PaperAgentReadinessService {
         }
         boolean localReady = artifact != null && memory != null
                 && artifact.documentHash().equals(memory.getDocumentHash())
+                && artifact.parserVersion().equals(memory.getLayoutParserVersion())
                 && memory.getStructureJson() != null && !memory.getStructureJson().isBlank();
         int attempts = memory == null || memory.getUnderstandingAttemptCount() == null
                 ? 0 : Math.max(0, memory.getUnderstandingAttemptCount());
         String memoryStatus = memory == null ? "NOT_STARTED" : memory.getStatus();
         boolean profileReady = memory != null
+                && localReady
                 && PaperUnderstandingService.STATUS_READY.equals(memoryStatus)
+                && PaperUnderstandingService.PIPELINE_VERSION.equals(memory.getUnderstandingVersion())
                 && memory.getProfileJson() != null && !memory.getProfileJson().isBlank()
                 && qualityReady(memory.getProfileQualityJson());
         boolean failed = PaperUnderstandingService.STATUS_PARTIAL.equals(memoryStatus)

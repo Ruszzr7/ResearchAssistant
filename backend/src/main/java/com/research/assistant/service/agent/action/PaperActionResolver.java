@@ -16,8 +16,16 @@ public class PaperActionResolver {
         if (locators.stream().anyMatch(locator -> locator.pageNumber() != page)) {
             throw new IllegalArgumentException("操作目标跨越多个页面，需要先澄清目标");
         }
+        String targetText = locators.stream().map(SourceLocator::targetText)
+                .filter(text -> text != null && !text.isBlank())
+                .collect(java.util.stream.Collectors.joining("\n"));
+        com.research.assistant.service.pdf.layout.EvidenceLocator.Precision precision = locators.stream()
+                .map(SourceLocator::precision)
+                .findFirst()
+                .orElse(com.research.assistant.service.pdf.layout.EvidenceLocator.Precision.BLOCK);
         return new ActionTarget(catalog.paperId(), catalog.documentHash(), sourceObjectId, page,
                 locators.stream().map(SourceLocator::locatorId).toList(),
-                locators.stream().flatMap(locator -> locator.rects().stream()).toList());
+                locators.stream().flatMap(locator -> locator.rects().stream()).toList(),
+                targetText, precision);
     }
 }

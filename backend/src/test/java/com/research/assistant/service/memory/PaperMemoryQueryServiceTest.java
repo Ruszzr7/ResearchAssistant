@@ -5,6 +5,8 @@ import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperMemoryRecord;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.PaperMemoryMapper;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifactService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -47,6 +49,7 @@ class PaperMemoryQueryServiceTest {
         record.setId(61L);
         record.setPaperId(6L);
         record.setStatus(PaperUnderstandingService.STATUS_PARTIAL);
+        record.setUnderstandingVersion(PaperUnderstandingService.PIPELINE_VERSION);
         record.setStageText("部分就绪");
         record.setRevision(3);
         record.setTotalChunks(5);
@@ -68,6 +71,34 @@ class PaperMemoryQueryServiceTest {
         assertThat(view.profileReady()).isTrue();
         assertThat(view.profile().researchProblem()).isEqualTo("Problem");
         assertThat(view.lastErrorCode()).isEqualTo("CHUNK_SUMMARY_PARTIAL");
+    }
+
+    @Test
+    void shouldAllowRetryWhenProfileBelongsToAnOlderPdfVersion() throws Exception {
+        Paper paper = new Paper();
+        paper.setId(6L);
+        paper.setPdfPath("new.pdf");
+        PaperMemoryRecord record = new PaperMemoryRecord();
+        record.setId(61L);
+        record.setPaperId(6L);
+        record.setStatus(PaperUnderstandingService.STATUS_READY);
+        record.setDocumentHash("old-hash");
+        record.setLayoutParserVersion("parser");
+        record.setUnderstandingVersion(PaperUnderstandingService.PIPELINE_VERSION);
+        record.setProfileQualityJson("{\"ready\":true}");
+        record.setProfileJson(objectMapper.writeValueAsString(profile()));
+        PaperLayoutArtifactService artifacts = mock(PaperLayoutArtifactService.class);
+        when(paperMapper.selectById(6L)).thenReturn(paper);
+        when(memoryMapper.selectLatest(6L)).thenReturn(record);
+        when(artifacts.latestArtifact(6L)).thenReturn(new PaperLayoutArtifact(
+                6L, "new-hash", "parser", 1, Instant.now(), 1, List.of()));
+
+        PaperMemoryStatusView view = new PaperMemoryQueryService(
+                paperMapper, memoryMapper, objectMapper, artifacts).status(6L);
+
+        assertThat(view.profileReady()).isFalse();
+        assertThat(view.canStart()).isTrue();
+        assertThat(view.canRetry()).isTrue();
     }
 
     private PaperGlobalProfile profile() {

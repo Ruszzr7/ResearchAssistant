@@ -54,7 +54,7 @@ test.describe('阶段 0：论文阅读核心链路', () => {
     await expect(claims.locator('.evidence-source__jump').first()).toContainText('正文 · p.1')
 
     await claims.locator('.evidence-source__jump').first().click()
-    await expect(page.locator('.evidence-focus-preview polygon')).toHaveCount(2, { timeout: 10_000 })
+    await expect(page.locator('.evidence-focus-preview polygon')).toHaveCount(1, { timeout: 10_000 })
 
     await claims.locator('.evidence-source__jump').nth(1).click()
     await expect(claims.locator('.evidence-source__formula')).toContainText('x =')

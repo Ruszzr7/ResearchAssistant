@@ -49,15 +49,25 @@ public class AgentActionTicketRenewalService {
         }
         try {
             JsonNode args = objectMapper.readTree(call.getArgumentsJson());
-            String sourceId = required(args, "sourceObjectId");
-            PaperActionType type = actionType(call.getToolName());
+            // A heterogeneous batch keeps the first operation on the parent
+            // tool call; child calls store a singular operation object. Renew
+            // the parent ticket from that first operation.
+            JsonNode operation = args.path("operations").isArray()
+                    && !args.path("operations").isEmpty() ? args.path("operations").get(0) : args;
+            String sourceId = optional(operation, "sourceObjectId");
+            if (sourceId == null && operation.path("sourceObjectIds").isArray()
+                    && !operation.path("sourceObjectIds").isEmpty()) {
+                sourceId = optional(operation.path("sourceObjectIds").get(0));
+            }
+            if (sourceId == null) throw new IllegalArgumentException("sourceObjectId is required");
+            PaperActionType type = actionType(call.getToolName(), operation);
             PaperSourceCatalog catalog = sourceService.latest(runDocumentPaperId(run));
             if (run.getDocumentHash() == null || !run.getDocumentHash().equals(catalog.documentHash())) {
                 throw new IllegalArgumentException("PDF version changed; action ticket cannot be renewed");
             }
             ActionTarget target = resolver.resolve(catalog, sourceId);
-            String content = optional(args, "content");
-            String color = optional(args, "color");
+            String content = optional(operation, "content");
+            String color = optional(operation, "color");
             var issued = ticketService.issue(runId, call, type, target, content, color);
             return new AgentPendingAction(toolCallId, type, target, content, color, issued.ticket(), issued.expiresAt());
         } catch (IllegalArgumentException error) {
@@ -76,7 +86,16 @@ public class AgentActionTicketRenewalService {
         return session.getPrimaryPaperId();
     }
 
-    private static PaperActionType actionType(String name) {
+    private static PaperActionType actionType(String name, JsonNode arguments) {
+        if ("paper_action".equals(name)) {
+            String value = optional(arguments, "actionType");
+            if (value == null) throw new IllegalArgumentException("actionType is required");
+            try {
+                return PaperActionType.valueOf(value.toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException error) {
+                throw new IllegalArgumentException("actionType is invalid", error);
+            }
+        }
         return switch (name) {
             case "jump_to_source" -> PaperActionType.JUMP;
             case "highlight_source" -> PaperActionType.HIGHLIGHT;
@@ -95,6 +114,11 @@ public class AgentActionTicketRenewalService {
 
     private static String optional(JsonNode node, String name) {
         String value = node.path(name).asText("").trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    private static String optional(JsonNode node) {
+        String value = node == null ? "" : node.asText("").trim();
         return value.isEmpty() ? null : value;
     }
 }

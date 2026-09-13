@@ -121,6 +121,121 @@ class PaperSourceIndexServiceTest {
     }
 
     @Test
+    void formulaAnchorIncludesTheLowestRowOfAFractionLikeDisplayEquation() {
+        MathContentProfile math = new MathContentProfile(
+                MathContentLevel.LIGHT, .30, 3, List.of(), "test");
+        PaperLayoutArtifact artifact = artifact(List.of(
+                new DocumentBlock("formula-main", 4, new NormalizedBoundingBox(.13, .682, .35, .008),
+                        DocumentBlockRole.FORMULA, 125, List.of("SINR"),
+                        "Rbar = B log(1 + fraction). (6)", null, null, .88,
+                        DocumentBlockContentMode.REGION, null, DocumentLayoutLane.LEFT),
+                new DocumentBlock("formula-sum", 4, new NormalizedBoundingBox(.308, .675, .018, .024),
+                        DocumentBlockRole.BODY, 124, List.of("SINR"), "sum", null, null, .88,
+                        DocumentBlockContentMode.TEXT, math, DocumentLayoutLane.LEFT),
+                new DocumentBlock("formula-denominator", 4,
+                        new NormalizedBoundingBox(.144, .686, .242, .035),
+                        DocumentBlockRole.BODY, 126, List.of("SINR"),
+                        "n,k 2 k-1 g n,k p n,j + 1 j=1", null, null, .88,
+                        DocumentBlockContentMode.TEXT, math, DocumentLayoutLane.LEFT),
+                block("following-prose", 4, 130, DocumentBlockRole.BODY,
+                        "The achievable throughput is then evaluated.")));
+
+        SourceAnchor anchor = service.build(artifact).equations().stream()
+                .filter(equation -> equation.number().equals("6"))
+                .findFirst().orElseThrow().definition();
+
+        assertThat(anchor.bbox().bottom()).isGreaterThan(.72);
+        assertThat(anchor.targetText()).contains("n,k 2 k-1 g n,k p n,j + 1 j=1");
+    }
+
+    @Test
+    void formulaAnchorFallsBackToNearbyComponentsWhenAnOverlappingLeadInSplitsTheContext() {
+        MathContentProfile math = new MathContentProfile(
+                MathContentLevel.LIGHT, .35, 2, List.of(), "test");
+        PaperLayoutArtifact artifact = artifact(List.of(
+                new DocumentBlock("lead-in", 5, new NormalizedBoundingBox(.06, .30, .34, .035),
+                        DocumentBlockRole.BODY, 10, List.of("Model"),
+                        "as follows: pseudo inverse components", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""), DocumentLayoutLane.LEFT),
+                new DocumentBlock("formula-number", 5, new NormalizedBoundingBox(.10, .332, .38, .008),
+                        DocumentBlockRole.FORMULA, 11, List.of("Model"),
+                        "M = m1 / m2 (13)", null, null, .9,
+                        DocumentBlockContentMode.REGION, null, DocumentLayoutLane.LEFT),
+                new DocumentBlock("denominator", 5, new NormalizedBoundingBox(.14, .342, .28, .025),
+                        DocumentBlockRole.BODY, 12, List.of("Model"),
+                        "H m1 m2", null, null, .9,
+                        DocumentBlockContentMode.TEXT, math, DocumentLayoutLane.LEFT)));
+
+        SourceAnchor anchor = service.build(artifact).equations().stream()
+                .filter(equation -> equation.number().equals("13"))
+                .findFirst().orElseThrow().definition();
+
+        assertThat(anchor.bbox().bottom()).isGreaterThan(.367);
+        assertThat(anchor.targetText()).contains("H m1 m2");
+    }
+
+    @Test
+    void doesNotShareSplitRowsBetweenAdjacentNumberedFormulas() {
+        MathContentProfile math = new MathContentProfile(
+                MathContentLevel.LIGHT, .35, 2, List.of(), "test");
+        PaperLayoutArtifact artifact = artifact(List.of(
+                new DocumentBlock("formula12", 5,
+                        new NormalizedBoundingBox(.14, .249, .342, .008),
+                        DocumentBlockRole.FORMULA, 172, List.of("Model"),
+                        "Hbar = [Hbar Hbar Hbar ... Hbar]. (12)", null, null, .9,
+                        DocumentBlockContentMode.REGION, null, DocumentLayoutLane.LEFT),
+                new DocumentBlock("formula12-subscripts", 5,
+                        new NormalizedBoundingBox(.195, .255, .174, .021),
+                        DocumentBlockRole.BODY, 173, List.of("Model"),
+                        "1 2 3 N N×N", null, null, .9,
+                        DocumentBlockContentMode.TEXT, math, DocumentLayoutLane.LEFT),
+                new DocumentBlock("formula12-prose", 5,
+                        new NormalizedBoundingBox(.063, .272, .419, .024),
+                        DocumentBlockRole.BODY, 174, List.of("Model"),
+                        "Finally, the matrix is used in the next step.", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                        DocumentLayoutLane.LEFT),
+                new DocumentBlock("formula13-bracket", 5,
+                        new NormalizedBoundingBox(.217, .298, .216, .024),
+                        DocumentBlockRole.FORMULA, 175, List.of("Model"),
+                        "[ ]", null, null, .9,
+                        DocumentBlockContentMode.REGION, null, DocumentLayoutLane.LEFT),
+                new DocumentBlock("formula13-prose", 5,
+                        new NormalizedBoundingBox(.063, .304, .342, .029),
+                        DocumentBlockRole.BODY, 176, List.of("Model"),
+                        "as follows: pseudo inverse components", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                        DocumentLayoutLane.LEFT),
+                new DocumentBlock("formula13", 5,
+                        new NormalizedBoundingBox(.099, .332, .382, .008),
+                        DocumentBlockRole.FORMULA, 177, List.of("Model"),
+                        "M = = ... (13)", null, null, .9,
+                        DocumentBlockContentMode.REGION, null, DocumentLayoutLane.LEFT),
+                new DocumentBlock("formula13-denominator", 5,
+                        new NormalizedBoundingBox(.141, .341, .279, .010),
+                        DocumentBlockRole.BODY, 178, List.of("Model"),
+                        "H m1 m2 mN", null, null, .9,
+                        DocumentBlockContentMode.TEXT, math, DocumentLayoutLane.LEFT)));
+
+        PaperSourceIndex index = service.build(artifact);
+        EquationEntity formula12 = index.equations().stream()
+                .filter(equation -> equation.number().equals("12"))
+                .findFirst().orElseThrow();
+        EquationEntity formula13 = index.equations().stream()
+                .filter(equation -> equation.number().equals("13"))
+                .findFirst().orElseThrow();
+
+        assertThat(formula12.definition().targetText())
+                .contains("Hbar =", "N×N")
+                .doesNotContain("[ ]");
+        assertThat(formula13.definition().targetText())
+                .contains("[ ]", "M =")
+                .doesNotContain("N×N");
+        assertThat(formula12.definition().bbox().bottom())
+                .isLessThan(formula13.definition().bbox().y());
+    }
+
+    @Test
     void assignsEquationsWithinTheirOwnColumnBeforeBuildingUnifiedDocumentOrder() {
         PaperLayoutArtifact artifact = artifact(List.of(
                 new DocumentBlock("lemma3", 5, new NormalizedBoundingBox(.52, .60, .40, .03),
@@ -237,11 +352,131 @@ class PaperSourceIndexServiceTest {
         assertThat(algorithm.blocks()).extracting(DocumentBlock::id)
                 .containsExactly("algorithm", "step1", "step2");
         assertThat(figure.blocks()).extracting(DocumentBlock::id)
-                .containsExactly("figure", "caption", "explanation")
-                .doesNotContain("unrelated");
-        assertThat(figure.boxes()).hasSize(3);
+                .containsExactly("figure", "caption")
+                .doesNotContain("explanation", "unrelated");
+        assertThat(figure.boxes()).hasSize(2);
         assertThat(table.blocks()).extracting(DocumentBlock::id)
                 .containsExactly("table", "table-caption", "table-explanation");
+    }
+
+    @Test
+    void keepsALongSameLaneAlgorithmUntilItsStructuralBoundary() {
+        List<DocumentBlock> blocks = new java.util.ArrayList<>();
+        blocks.add(new DocumentBlock("algorithm", 3,
+                new NormalizedBoundingBox(.08, .08, .40, .03), DocumentBlockRole.BODY, 1,
+                List.of("Method"), "Algorithm 8 Iterative allocation", null, null, .9,
+                DocumentBlockContentMode.TEXT, MathContentProfile.none(""), DocumentLayoutLane.LEFT));
+        for (int index = 1; index <= 20; index++) {
+            blocks.add(new DocumentBlock("step-" + index, 3,
+                    new NormalizedBoundingBox(.08, .12 + index * .034, .40, .025),
+                    DocumentBlockRole.BODY, index + 1, List.of("Method"),
+                    index + ". Update the allocation variables.", null, null, .9,
+                    DocumentBlockContentMode.TEXT, MathContentProfile.none(""), DocumentLayoutLane.LEFT));
+        }
+        blocks.add(new DocumentBlock("next-section", 3,
+                new NormalizedBoundingBox(.08, .84, .40, .03), DocumentBlockRole.HEADING, 23,
+                List.of("Results"), "IV. Results", null, null, .9,
+                DocumentBlockContentMode.TEXT, MathContentProfile.none(""), DocumentLayoutLane.LEFT));
+
+        PaperSourceUnit algorithm = service.build(artifact(blocks)).sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.ALGORITHM).findFirst().orElseThrow();
+
+        assertThat(algorithm.blocks()).extracting(DocumentBlock::id)
+                .hasSize(21)
+                .contains("step-20")
+                .doesNotContain("next-section");
+    }
+
+    @Test
+    void stopsLongAlgorithmBeforeSeparatedNarrativeInTheSameLane() {
+        List<DocumentBlock> blocks = List.of(
+                new DocumentBlock("algorithm", 7, new NormalizedBoundingBox(.08, .10, .40, .025),
+                        DocumentBlockRole.BODY, 1, List.of("Method"),
+                        "Algorithm 2 User clustering", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""), DocumentLayoutLane.LEFT),
+                new DocumentBlock("step-1", 7, new NormalizedBoundingBox(.08, .14, .40, .025),
+                        DocumentBlockRole.BODY, 2, List.of("Method"),
+                        "1. Initialize the user sets.", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""), DocumentLayoutLane.LEFT),
+                new DocumentBlock("step-2", 7, new NormalizedBoundingBox(.08, .18, .40, .025),
+                        DocumentBlockRole.BODY, 3, List.of("Method"),
+                        "2. Update the clusters and end.", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""), DocumentLayoutLane.LEFT),
+                new DocumentBlock("narrative", 7, new NormalizedBoundingBox(.08, .25, .40, .045),
+                        DocumentBlockRole.BODY, 4, List.of("Method"),
+                        "The following paragraph explains why the resulting user clusters improve performance.",
+                        null, null, .9, DocumentBlockContentMode.TEXT,
+                        MathContentProfile.none(""), DocumentLayoutLane.LEFT));
+
+        PaperSourceUnit algorithm = service.build(artifact(blocks)).sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.ALGORITHM)
+                .findFirst().orElseThrow();
+
+        assertThat(algorithm.blocks()).extracting(DocumentBlock::id)
+                .containsExactly("algorithm", "step-1", "step-2")
+                .doesNotContain("narrative");
+    }
+
+    @Test
+    void excludesAFullWidthCrossColumnExtractionArtifactFromAlgorithmSource() {
+        List<DocumentBlock> blocks = List.of(
+                new DocumentBlock("algorithm", 3, new NormalizedBoundingBox(.08, .20, .40, .03),
+                        DocumentBlockRole.BODY, 1, List.of("Method"),
+                        "Algorithm 2 User clustering", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                        DocumentLayoutLane.LEFT),
+                new DocumentBlock("step1", 3, new NormalizedBoundingBox(.08, .24, .40, .03),
+                        DocumentBlockRole.BODY, 2, List.of("Method"),
+                        "1. Initialize the user sets.", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                        DocumentLayoutLane.LEFT),
+                new DocumentBlock("mixed", 3, new NormalizedBoundingBox(.08, .28, .84, .04),
+                        DocumentBlockRole.BODY, 3, List.of("Method"),
+                        "2. Select users. Right-column prose must not enter this algorithm.",
+                        null, null, .9, DocumentBlockContentMode.TEXT,
+                        MathContentProfile.none(""), DocumentLayoutLane.FULL),
+                new DocumentBlock("step2", 3, new NormalizedBoundingBox(.08, .31, .40, .03),
+                        DocumentBlockRole.BODY, 4, List.of("Method"),
+                        "2. Update the selected cluster.", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                        DocumentLayoutLane.LEFT));
+
+        PaperSourceUnit algorithm = service.build(artifact(blocks)).sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.ALGORITHM)
+                .findFirst().orElseThrow();
+
+        assertThat(algorithm.blocks()).extracting(DocumentBlock::id)
+                .containsExactly("algorithm", "step1", "step2")
+                .doesNotContain("mixed");
+        assertThat(algorithm.text()).doesNotContain("Right-column prose");
+    }
+
+    @Test
+    void addsCaptionAnchoredFigureRegionWhenVectorFigureHasNoFigureBlock() {
+        List<DocumentBlock> blocks = List.of(
+                new DocumentBlock("prose", 4, new NormalizedBoundingBox(.06, .10, .42, .08),
+                        DocumentBlockRole.BODY, 1, List.of("Results"),
+                        "The following experiment compares the achievable rates under several schemes.",
+                        null, null, .9, DocumentBlockContentMode.TEXT,
+                        MathContentProfile.none(""), DocumentLayoutLane.LEFT),
+                new DocumentBlock("caption", 4, new NormalizedBoundingBox(.06, .44, .42, .04),
+                        DocumentBlockRole.CAPTION, 2, List.of("Results"),
+                        "Fig. 3. Achievable rate comparison.", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                        DocumentLayoutLane.LEFT));
+
+        PaperSourceUnit figure = service.build(artifact(blocks)).sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.FIGURE)
+                .findFirst().orElseThrow();
+
+        assertThat(figure.text()).isEqualTo("Fig. 3. Achievable rate comparison.");
+        assertThat(figure.blocks()).extracting(DocumentBlock::id)
+                .containsExactly("caption:visual-region", "caption");
+        DocumentBlock region = figure.blocks().get(0);
+        assertThat(region.role()).isEqualTo(DocumentBlockRole.FIGURE);
+        assertThat(region.contentMode()).isEqualTo(DocumentBlockContentMode.REGION);
+        assertThat(region.bbox().height()).isGreaterThan(.20);
+        assertThat(region.bbox().right()).isLessThanOrEqualTo(.49);
     }
 
     @Test
@@ -278,7 +513,62 @@ class PaperSourceIndexServiceTest {
         assertThat(figures).singleElement().satisfies(unit -> {
             assertThat(unit.label()).isEqualTo("Fig. 7");
             assertThat(unit.blocks()).extracting(DocumentBlock::id)
-                    .containsExactly("caption", "reference");
+                    .contains("caption")
+                    .doesNotContain("reference");
+        });
+    }
+
+    @Test
+    void rebuildsWrappedFigureCaptionAcrossBodyAndFormulaBlocks() {
+        List<DocumentBlock> blocks = List.of(
+                new DocumentBlock("caption", 4, new NormalizedBoundingBox(.52, .28, .41, .012),
+                        DocumentBlockRole.CAPTION, 1, List.of("Results"),
+                        "FIGURE 2. Spectral efficiency for N = 3", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                        DocumentLayoutLane.RIGHT),
+                new DocumentBlock("caption-line-2", 4, new NormalizedBoundingBox(.52, .296, .40, .012),
+                        DocumentBlockRole.BODY, 2, List.of("Results"),
+                        "and R = OMA throughput with 50% bandwidth.", null, null, .9,
+                        DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                        DocumentLayoutLane.RIGHT),
+                new DocumentBlock("caption-line-3", 4, new NormalizedBoundingBox(.52, .312, .36, .012),
+                        DocumentBlockRole.FORMULA, 3, List.of("Results"),
+                        "The cluster-heads are distributed within 150m of the BS.", null, null, .9,
+                        DocumentBlockContentMode.REGION, MathContentProfile.none(""),
+                        DocumentLayoutLane.RIGHT),
+                new DocumentBlock("analysis", 4, new NormalizedBoundingBox(.52, .36, .41, .08),
+                        DocumentBlockRole.BODY, 4, List.of("Results"),
+                        "Figure 2 shows that the proposed method improves spectral efficiency.",
+                        null, null, .9, DocumentBlockContentMode.TEXT, MathContentProfile.none(""),
+                        DocumentLayoutLane.RIGHT));
+
+        PaperSourceUnit figure = service.build(artifact(blocks)).sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.FIGURE)
+                .findFirst().orElseThrow();
+
+        assertThat(figure.text()).contains("FIGURE 2", "50% bandwidth", "distributed within 150m")
+                .doesNotContain("proposed method improves");
+        assertThat(figure.blocks()).extracting(DocumentBlock::id)
+                .contains("caption", "caption-line-2", "caption-line-3")
+                .doesNotContain("analysis");
+    }
+
+    @Test
+    void rejectsMultiFigureNarrativeReferenceAsCaption() {
+        List<DocumentBlock> blocks = List.of(
+                block("reference", 4, 1, DocumentBlockRole.CAPTION,
+                        "Fig. 5 and Fig. 6, respectively. In Figs. 5-6, the cluster-heads improve."),
+                block("caption", 4, 2, DocumentBlockRole.CAPTION,
+                        "FIGURE 5. Spectral efficiency of the proposed method."));
+
+        List<PaperSourceUnit> figures = service.build(artifact(blocks)).sourceUnits().stream()
+                .filter(unit -> unit.kind() == PaperSourceUnit.Kind.FIGURE).toList();
+
+        assertThat(figures).singleElement().satisfies(unit -> {
+            assertThat(unit.label()).isEqualTo("FIGURE 5");
+            assertThat(unit.blocks()).extracting(DocumentBlock::id)
+                    .contains("caption")
+                    .doesNotContain("reference");
         });
     }
 

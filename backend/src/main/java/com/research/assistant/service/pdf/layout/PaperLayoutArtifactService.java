@@ -80,7 +80,19 @@ public class PaperLayoutArtifactService {
     }
 
     public PaperLayoutArtifact latestArtifact(Long paperId) {
-        PaperLayoutArtifactRecord record = artifactMapper.selectLatestReady(paperId);
+        Paper paper = paperMapper.selectById(paperId);
+        if (paper == null) return null;
+        File pdf;
+        try {
+            pdf = fileResolver.resolveRequired(paper.getPdfPath());
+        } catch (IllegalArgumentException unavailable) {
+            return null;
+        }
+        String documentHash = PdfDocumentFingerprint.sha256(pdf);
+        String artifactVersion = parser.parserVersion() + "+" + semanticEnricher.version()
+                + "+" + mathContentEnricher.version();
+        // 不向来源目录暴露旧 PDF 或旧解析器生成的最新历史制品。
+        PaperLayoutArtifactRecord record = artifactMapper.selectReady(paperId, documentHash, artifactVersion);
         return record == null ? null : fromRecord(record);
     }
 

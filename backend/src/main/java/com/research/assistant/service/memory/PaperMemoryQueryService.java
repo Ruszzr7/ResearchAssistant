@@ -5,7 +5,10 @@ import com.research.assistant.entity.Paper;
 import com.research.assistant.entity.PaperMemoryRecord;
 import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.mapper.PaperMemoryMapper;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifact;
+import com.research.assistant.service.pdf.layout.PaperLayoutArtifactService;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -18,13 +21,24 @@ public class PaperMemoryQueryService {
     private final PaperMapper paperMapper;
     private final PaperMemoryMapper memoryMapper;
     private final ObjectMapper objectMapper;
+    private final PaperLayoutArtifactService artifactService;
 
+    /** Constructor retained for focused tests and small embedders. */
     public PaperMemoryQueryService(PaperMapper paperMapper,
                                    PaperMemoryMapper memoryMapper,
                                    ObjectMapper objectMapper) {
+        this(paperMapper, memoryMapper, objectMapper, null);
+    }
+
+    @Autowired
+    public PaperMemoryQueryService(PaperMapper paperMapper,
+                                   PaperMemoryMapper memoryMapper,
+                                   ObjectMapper objectMapper,
+                                   PaperLayoutArtifactService artifactService) {
         this.paperMapper = paperMapper;
         this.memoryMapper = memoryMapper;
         this.objectMapper = objectMapper;
+        this.artifactService = artifactService;
     }
 
     public PaperMemoryStatusView status(Long paperId) {
@@ -43,7 +57,8 @@ public class PaperMemoryQueryService {
         int completed = count(record.getCompletedChunks());
         int failed = count(record.getFailedChunks());
         String status = safe(record.getStatus(), PaperMemoryService.STATUS_STRUCTURED);
-        boolean profileReady = record.getProfileJson() != null && !record.getProfileJson().isBlank()
+        boolean profileReady = compatibleWithCurrentPaper(paperId, record)
+                && record.getProfileJson() != null && !record.getProfileJson().isBlank()
                 && profileQualityReady(record.getProfileQualityJson());
         PaperGlobalProfile profile = profileReady ? readProfile(record.getProfileJson()) : null;
         profileReady = profile != null;
@@ -66,6 +81,19 @@ public class PaperMemoryQueryService {
                 !active && !profileReady,
                 retry, safe(record.getLastErrorCode(), ""), profile,
                 toInstant(record.getUpdatedAt()));
+    }
+
+    private boolean compatibleWithCurrentPaper(Long paperId, PaperMemoryRecord record) {
+        if (!PaperUnderstandingService.PIPELINE_VERSION.equals(record.getUnderstandingVersion())) return false;
+        if (artifactService == null) return true;
+        try {
+            PaperLayoutArtifact artifact = artifactService.latestArtifact(paperId);
+            return artifact != null
+                    && artifact.documentHash().equals(record.getDocumentHash())
+                    && artifact.parserVersion().equals(record.getLayoutParserVersion());
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
     }
 
     private PaperGlobalProfile readProfile(String json) {

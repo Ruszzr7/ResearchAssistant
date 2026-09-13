@@ -51,6 +51,7 @@ public final class AgentRunFailureClassifier {
     public static String userMessage(String code) {
         if (code == null) return "论文助手执行失败，请稍后重试";
         return switch (code) {
+            case "USER_CANCELLED" -> "已取消回答";
             case "QUEUE_TIMEOUT" -> "论文助手排队时间过长，请稍后重试";
             case "RUN_TIMEOUT", "MODEL_TIMEOUT" -> "模型响应超时，请稍后重试";
             case "MODEL_OVERLOADED" -> "模型服务当前繁忙，请稍后重试";
