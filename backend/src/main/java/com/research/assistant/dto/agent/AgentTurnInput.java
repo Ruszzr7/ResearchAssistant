@@ -14,6 +14,9 @@ public record AgentTurnInput(
         String clientRequestId,
         String resumeRunId
 ) {
+    public static final int MAX_USER_MESSAGE_CHARACTERS = 2_000;
+    public static final int MAX_ATTACHMENTS = 2;
+
     public AgentTurnInput {
         attachmentIds = attachmentIds == null ? List.of() : List.copyOf(attachmentIds);
         formulaAttachmentIds = formulaAttachmentIds == null ? List.of() : List.copyOf(formulaAttachmentIds);
@@ -25,8 +28,12 @@ public record AgentTurnInput(
         if (userMessage == null && explicitAction == null) {
             throw new IllegalArgumentException("userMessage or explicitAction is required");
         }
-        if (attachmentIds.size() > 3) throw new IllegalArgumentException("at most 3 attachments are allowed");
-        if (formulaAttachmentIds.size() > 8) throw new IllegalArgumentException("at most 8 formula attachments are allowed");
+        if (userMessage != null && userMessage.length() > MAX_USER_MESSAGE_CHARACTERS) {
+            throw new IllegalArgumentException("输入内容过长");
+        }
+        if (attachmentIds.size() + formulaAttachmentIds.size() > MAX_ATTACHMENTS) {
+            throw new IllegalArgumentException("每条消息最多添加 2 个附件");
+        }
     }
 
     private static String normalize(String value) {

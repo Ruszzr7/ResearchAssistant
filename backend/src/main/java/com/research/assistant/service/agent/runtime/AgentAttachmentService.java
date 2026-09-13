@@ -26,7 +26,11 @@ import java.util.UUID;
 @Service
 public class AgentAttachmentService {
 
-    static final long MAX_ATTACHMENT_BYTES = 20L * 1024 * 1024;
+    static final long MAX_ATTACHMENT_BYTES = 10L * 1024 * 1024;
+    static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
+    static final long MAX_TEXT_BYTES = 1L * 1024 * 1024;
+    static final long MAX_TURN_ATTACHMENT_BYTES = 10L * 1024 * 1024;
+    static final int MAX_FORMULA_TEXT_CHARACTERS = 2_000;
     private static final Set<String> ALLOWED_MEDIA_TYPES = Set.of(
             "application/pdf", "text/plain", "text/markdown", "text/csv", "application/json",
             "application/xml", "application/yaml", "application/x-tex", "application/x-latex",
@@ -84,6 +88,17 @@ public class AgentAttachmentService {
         return attachmentIds.stream().distinct().map(id -> requireForSession(sessionId, id)).toList();
     }
 
+    public List<AgentAttachmentRecord> requireForTurn(long sessionId, List<String> attachmentIds) {
+        List<AgentAttachmentRecord> records = requireForSession(sessionId, attachmentIds);
+        if (records.size() > 2) throw new IllegalArgumentException("每条消息最多添加 2 个附件");
+        long totalBytes = records.stream().mapToLong(record -> record.getSizeBytes() == null
+                ? 0 : record.getSizeBytes()).sum();
+        if (totalBytes > MAX_TURN_ATTACHMENT_BYTES) {
+            throw new IllegalArgumentException("附件总大小不能超过 10 MB");
+        }
+        return records;
+    }
+
     private AgentAttachmentRecord requireForSession(long sessionId, String id) {
         AgentAttachmentRecord record = attachmentMapper.selectByAttachmentId(id);
         if (record == null || record.getSessionId() == null || record.getSessionId() != sessionId) {
@@ -96,11 +111,19 @@ public class AgentAttachmentService {
                                                 String kind, String originalName,
                                                 String mediaType, byte[] content) {
         if (content == null || content.length == 0) throw new IllegalArgumentException("attachment content is required");
-        if (content.length > MAX_ATTACHMENT_BYTES) throw new IllegalArgumentException("attachment exceeds 20 MiB");
         String normalizedMediaType = normalizeMediaType(mediaType, originalName);
         String normalizedKind = requireText(kind, "kind").toUpperCase(Locale.ROOT);
         if (!Set.of("FILE", "FORMULA_IMAGE", "FORMULA_TEXT", "SELECTION_EXPORT").contains(normalizedKind)) {
             throw new IllegalArgumentException("unsupported attachment kind: " + normalizedKind);
+        }
+        long maxBytes = normalizedMediaType.startsWith("image/") ? MAX_IMAGE_BYTES
+                : (isTextMediaType(normalizedMediaType) ? MAX_TEXT_BYTES : MAX_ATTACHMENT_BYTES);
+        if (content.length > maxBytes) throw new IllegalArgumentException("附件过大");
+        if ("FORMULA_TEXT".equals(normalizedKind)) {
+            String formula = new String(content, StandardCharsets.UTF_8).trim();
+            if (formula.length() > MAX_FORMULA_TEXT_CHARACTERS) {
+                throw new IllegalArgumentException("附件内容过长");
+            }
         }
 
         String attachmentId = UUID.randomUUID().toString();
@@ -254,15 +277,22 @@ public class AgentAttachmentService {
     private static String extractPreview(String mediaType, byte[] content) {
         try {
             String value;
-            if (mediaType.startsWith("text/") || Set.of("application/json", "application/xml",
-                    "application/yaml", "application/x-tex", "application/x-latex").contains(mediaType)) {
+            if (isTextMediaType(mediaType)) {
                 value = new String(content, StandardCharsets.UTF_8);
             } else return null;
             value = value.replace("\u0000", "").trim();
-            return value.isEmpty() ? null : value.substring(0, Math.min(value.length(), 12_000));
+            if (value.length() > 3_000) throw new IllegalArgumentException("附件内容过长");
+            return value.isEmpty() ? null : value;
+        } catch (IllegalArgumentException limit) {
+            throw limit;
         } catch (Exception unreadable) {
             return null;
         }
+    }
+
+    private static boolean isTextMediaType(String mediaType) {
+        return mediaType.startsWith("text/") || Set.of("application/json", "application/xml",
+                "application/yaml", "application/x-tex", "application/x-latex").contains(mediaType);
     }
 
     private static String sha256(byte[] content) {

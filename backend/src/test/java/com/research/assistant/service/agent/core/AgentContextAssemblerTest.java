@@ -3,10 +3,9 @@ package com.research.assistant.service.agent.core;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.dto.agent.AgentSelectedContent;
 import com.research.assistant.dto.agent.AgentTurnInput;
-import com.research.assistant.entity.AgentToolCallRecord;
+import com.research.assistant.entity.AgentConversationSummaryRecord;
 import com.research.assistant.entity.ResearchMessage;
 import com.research.assistant.entity.ResearchSession;
-import com.research.assistant.mapper.AgentToolCallMapper;
 import com.research.assistant.mapper.PaperMemoryMapper;
 import com.research.assistant.mapper.ResearchMessageMapper;
 import com.research.assistant.mapper.ResearchSessionMapper;
@@ -42,7 +41,8 @@ class AgentContextAssemblerTest {
         ResearchSession session = new ResearchSession(); session.setId(7L); session.setPrimaryPaperId(null);
         when(sessions.selectById(7L)).thenReturn(session);
         ResearchMessage prior = new ResearchMessage(); prior.setRole("USER"); prior.setContent("only-session-seven");
-        when(messages.selectFinalAfter(7L, 0)).thenReturn(List.of(prior));
+        ResearchMessage reply = new ResearchMessage(); reply.setRole("ASSISTANT"); reply.setContent("session-seven-answer");
+        when(messages.selectFinalAfter(7L, 0)).thenReturn(List.of(prior, reply));
 
         AgentContextSnapshot result = assembler.assemble(input(7L, null));
 
@@ -56,108 +56,6 @@ class AgentContextAssemblerTest {
                 .contains("如果现有论文上下文不足，只回答已经确认的内容")
                 .doesNotContain("证据限制");
         verify(messages).selectFinalAfter(7L, 0);
-    }
-
-    @Test
-    void rehydratesRecentPaperReadsAndMakesOnlyCurrentSourcesCitable() {
-        ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
-        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
-        AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
-        PaperMemoryMapper memories = mock(PaperMemoryMapper.class);
-        PaperSourceCatalogService sources = mock(PaperSourceCatalogService.class);
-        AgentToolCallMapper toolCalls = mock(AgentToolCallMapper.class);
-        ResearchSession session = new ResearchSession(); session.setId(7L); session.setPrimaryPaperId(9L);
-        when(sessions.selectById(7L)).thenReturn(session);
-        SourceObject source = new SourceObject("src-1", 9L, "hash", "parser", 1,
-                SourceContentType.TEXT, "论文原文证据", null, List.of("Results"), "", Map.of());
-        PaperSourceCatalog catalog = new PaperSourceCatalog(9L, "hash", "parser", 1,
-                Map.of("src-1", source), Map.of());
-        when(sources.latest(9L)).thenReturn(catalog);
-        when(messages.selectFinalAfter(7L, 0)).thenReturn(List.of());
-        AgentToolCallRecord historical = new AgentToolCallRecord();
-        historical.setToolCallId("tool-1");
-        historical.setToolName("retrieve_paper_evidence");
-        historical.setArgumentsJson("{\"needs\":[{\"id\":\"accuracy\",\"query\":\"准确率\"}]}");
-        historical.setResultJson("{\"status\":\"found\",\"sources\":[{\"sourceObjectId\":\"src-1\",\"content\":\"论文原文证据\"}]}");
-        when(toolCalls.selectRecentCompletedPaperReads(7L, "hash", "parser", 8))
-                .thenReturn(List.of(historical));
-
-        AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
-                sources, new ObjectMapper(), null, null, null, toolCalls);
-
-        AgentContextSnapshot result = assembler.assemble(input(7L, null));
-
-        assertThat(result.messages()).extracting(AgentChatEntry::content)
-                .anyMatch(content -> content.contains("历史论文能力结果")
-                        && content.contains("论文原文证据"));
-        assertThat(result.preReadSourceIds()).containsExactly("src-1");
-        assertThat(result.snapshotJson()).contains("\"rehydratedPaperReadCount\":1",
-                "\"rehydratedSourceCount\":1");
-    }
-
-    @Test
-    void rehydratesSkillActivationAsAnOfficialToolTranscript() {
-        ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
-        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
-        AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
-        PaperMemoryMapper memories = mock(PaperMemoryMapper.class);
-        PaperSourceCatalogService sources = mock(PaperSourceCatalogService.class);
-        AgentToolCallMapper toolCalls = mock(AgentToolCallMapper.class);
-        ResearchSession session = new ResearchSession(); session.setId(7L); session.setPrimaryPaperId(9L);
-        when(sessions.selectById(7L)).thenReturn(session);
-        PaperSourceCatalog catalog = new PaperSourceCatalog(9L, "hash", "parser", 1, Map.of(), Map.of());
-        when(sources.latest(9L)).thenReturn(catalog);
-        when(messages.selectFinalAfter(7L, 0)).thenReturn(List.of());
-        AgentToolCallRecord activation = new AgentToolCallRecord();
-        activation.setToolCallId("activation-1");
-        activation.setToolName("activate_skill");
-        activation.setArgumentsJson("{\"skill_name\":\"paper-evidence\"}");
-        activation.setResultJson("{\"skillName\":\"paper-evidence\",\"instructions\":\"Use original evidence.\"}");
-        when(toolCalls.selectRecentCompletedSkillActivations(7L, "hash", "parser", 0, 3))
-                .thenReturn(List.of(activation));
-
-        AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
-                sources, new ObjectMapper(), null, null, null, toolCalls);
-
-        AgentContextSnapshot result = assembler.assemble(input(7L, null));
-
-        assertThat(result.messages()).anyMatch(message ->
-                message.role() == AgentChatEntry.Role.ASSISTANT_TOOL
-                        && message.toolName().equals("activate_skill"));
-        assertThat(result.messages()).anyMatch(message ->
-                message.role() == AgentChatEntry.Role.TOOL
-                        && message.content().equals("Use original evidence.")
-                        && "paper-evidence".equals(message.attributes().get("activated_skill")));
-        assertThat(result.snapshotJson()).contains("\"rehydratedSkillActivationCount\":1");
-    }
-
-    @Test
-    void doesNotRestoreProfileCandidateIdsToTheCitationSet() {
-        ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
-        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
-        AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
-        PaperMemoryMapper memories = mock(PaperMemoryMapper.class);
-        PaperSourceCatalogService sources = mock(PaperSourceCatalogService.class);
-        AgentToolCallMapper toolCalls = mock(AgentToolCallMapper.class);
-        ResearchSession session = new ResearchSession(); session.setId(7L); session.setPrimaryPaperId(9L);
-        when(sessions.selectById(7L)).thenReturn(session);
-        SourceObject source = new SourceObject("p1-b1", 9L, "hash", "parser", 1,
-                SourceContentType.TEXT, "profile evidence", null, List.of("Results"), "", Map.of());
-        PaperSourceCatalog catalog = new PaperSourceCatalog(9L, "hash", "parser", 1,
-                Map.of("p1-b1", source), Map.of());
-        when(sources.latest(9L)).thenReturn(catalog);
-        AgentToolCallRecord profile = new AgentToolCallRecord();
-        profile.setToolName("read_paper_profile");
-        profile.setResultJson("{\"candidateSourceObjectIds\":[\"p1-b1\",\"stale\"]}");
-        when(toolCalls.selectRecentCompletedPaperReads(7L, "hash", "parser", 8))
-                .thenReturn(List.of(profile));
-
-        AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
-                sources, new ObjectMapper(), null, null, null, toolCalls);
-
-        AgentContextSnapshot result = assembler.assemble(input(7L, null));
-
-        assertThat(result.preReadSourceIds()).isEmpty();
     }
 
     @Test
@@ -195,6 +93,98 @@ class AgentContextAssemblerTest {
 
         assertThatThrownBy(() -> assembler.assemble(input(7L, null)))
                 .isInstanceOf(PaperUnderstandingNotReadyException.class);
+    }
+
+    @Test
+    void keepsStructuredSummaryAndRecentAnswerSourceHandlesButDoesNotMakeThemPreRead() {
+        ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
+        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
+        AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
+        PaperMemoryMapper memories = mock(PaperMemoryMapper.class);
+        PaperSourceCatalogService sources = mock(PaperSourceCatalogService.class);
+        ResearchSession session = new ResearchSession(); session.setId(7L); session.setPrimaryPaperId(9L);
+        when(sessions.selectById(7L)).thenReturn(session);
+        SourceObject source = new SourceObject("src-result", 9L, "hash", "parser", 1,
+                SourceContentType.TEXT, "实验结果", null, List.of("Results"), "", Map.of());
+        when(sources.latest(9L)).thenReturn(new PaperSourceCatalog(9L, "hash", "parser", 1,
+                Map.of(source.sourceObjectId(), source), Map.of()));
+        AgentConversationSummaryRecord summary = new AgentConversationSummaryRecord();
+        summary.setRevision(2);
+        summary.setCoveredThroughMessageId(10L);
+        summary.setSummaryJson("{\"currentGoal\":[\"核对实验\"],\"userPreferences\":[],"
+                + "\"confirmedConclusions\":[],\"rejectedOrCorrectedConclusions\":[],"
+                + "\"referencedObjects\":[],\"unresolvedQuestions\":[]}");
+        when(summaries.latest(7L)).thenReturn(summary);
+        ResearchMessage user = message("USER", "上轮问题");
+        ResearchMessage assistant = message("ASSISTANT", "上轮回答");
+        assistant.setEvidenceJson("{\"evidence\":[{\"sourceObjectId\":\"src-result\"}]}");
+        when(messages.selectFinalAfter(7L, 10L)).thenReturn(List.of(user, assistant));
+        AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
+                sources, new ObjectMapper());
+
+        AgentContextSnapshot result = assembler.assemble(input(7L, null));
+
+        assertThat(result.messages()).extracting(AgentChatEntry::content)
+                .anyMatch(content -> content.contains("核对实验"))
+                .anyMatch(content -> content.contains("上轮回答") && content.contains("src-result")
+                        && content.contains("重新引用前必须再次读取"));
+        assertThat(result.preReadSourceIds()).isEmpty();
+    }
+
+    @Test
+    void excludesPreviousRunSkillProfileEvidenceAndToolTranscriptFromTheNextRun() {
+        ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
+        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
+        AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
+        PaperMemoryMapper memories = mock(PaperMemoryMapper.class);
+        PaperSourceCatalogService sources = mock(PaperSourceCatalogService.class);
+        ResearchSession session = new ResearchSession();
+        session.setId(7L);
+        when(sessions.selectById(7L)).thenReturn(session);
+
+        ResearchMessage previousUser = message("USER", "上一轮问题");
+        ResearchMessage previousAssistant = message("ASSISTANT", "上一轮最终回答");
+        previousAssistant.setEvidenceJson("{\"evidence\":[{\"sourceObjectId\":\"src-old\","
+                + "\"content\":\"FULL_EVIDENCE_BODY\"}]}");
+        ResearchMessage runStatus = message("SYSTEM", "FULL_SKILL_INSTRUCTIONS FULL_PROFILE_BODY "
+                + "FULL_TOOL_JSON");
+        runStatus.setMessageType("RUN_STATUS");
+        when(messages.selectFinalAfter(7L, 0)).thenReturn(List.of(previousUser, previousAssistant, runStatus));
+        AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
+                sources, new ObjectMapper());
+
+        AgentContextSnapshot result = assembler.assemble(input(7L, null));
+        String modelContext = result.messages().toString();
+
+        assertThat(modelContext).contains("上一轮最终回答")
+                .doesNotContain("FULL_SKILL_INSTRUCTIONS", "FULL_PROFILE_BODY", "FULL_EVIDENCE_BODY",
+                        "FULL_TOOL_JSON");
+    }
+
+    @Test
+    void rejectsWhenTheMandatoryLatestTurnWouldExceedTheHardLimit() {
+        ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
+        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
+        AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
+        PaperMemoryMapper memories = mock(PaperMemoryMapper.class);
+        PaperSourceCatalogService sources = mock(PaperSourceCatalogService.class);
+        ResearchSession session = new ResearchSession(); session.setId(7L);
+        when(sessions.selectById(7L)).thenReturn(session);
+        when(messages.selectFinalAfter(7L, 0)).thenReturn(List.of(
+                message("USER", "old question"), message("ASSISTANT", "x".repeat(60_000))));
+        AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
+                sources, new ObjectMapper());
+
+        assertThatThrownBy(() -> assembler.assemble(input(7L, null)))
+                .hasMessage("最近一轮对话内容过长");
+    }
+
+    private static ResearchMessage message(String role, String content) {
+        ResearchMessage message = new ResearchMessage();
+        message.setRole(role);
+        message.setMessageType("CHAT");
+        message.setContent(content);
+        return message;
     }
 
     private AgentTurnInput input(long sessionId, AgentSelectedContent selection) {

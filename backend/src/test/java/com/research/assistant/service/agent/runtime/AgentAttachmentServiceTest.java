@@ -64,6 +64,32 @@ class AgentAttachmentServiceTest {
     }
 
     @Test
+    void enforcesPerTypeAndPerTurnAttachmentLimits() {
+        AgentAttachmentMapper attachmentMapper = mock(AgentAttachmentMapper.class);
+        AgentTurnMapper turnMapper = mock(AgentTurnMapper.class);
+        AgentTurnRecord turn = new AgentTurnRecord();
+        turn.setTurnId("turn-11");
+        turn.setSessionId(3L);
+        when(turnMapper.selectById(11L)).thenReturn(turn);
+        AgentAttachmentService service = new AgentAttachmentService(
+                attachmentMapper, turnMapper, tempDir.toString());
+
+        assertThatThrownBy(() -> service.store(11L, "FILE", "figure.png", "image/png",
+                new byte[(int) AgentAttachmentService.MAX_IMAGE_BYTES + 1]))
+                .hasMessage("附件过大");
+        assertThatThrownBy(() -> service.store(11L, "FILE", "notes.txt", "text/plain",
+                new byte[(int) AgentAttachmentService.MAX_TEXT_BYTES + 1]))
+                .hasMessage("附件过大");
+
+        AgentAttachmentRecord first = attachment("first", 3L, 6L * 1024 * 1024);
+        AgentAttachmentRecord second = attachment("second", 3L, 5L * 1024 * 1024);
+        when(attachmentMapper.selectByAttachmentId("first")).thenReturn(first);
+        when(attachmentMapper.selectByAttachmentId("second")).thenReturn(second);
+        assertThatThrownBy(() -> service.requireForTurn(3L, List.of("first", "second")))
+                .hasMessage("附件总大小不能超过 10 MB");
+    }
+
+    @Test
     void stagesByConversationAndClaimsExactlyOneTurn() {
         AgentAttachmentMapper attachmentMapper = mock(AgentAttachmentMapper.class);
         AgentTurnMapper turnMapper = mock(AgentTurnMapper.class);
@@ -119,5 +145,13 @@ class AgentAttachmentServiceTest {
         service.deleteAfterCommitBySession(3L);
 
         assertThat(tempDir.resolve(staged.getStoragePath())).doesNotExist();
+    }
+
+    private static AgentAttachmentRecord attachment(String id, long sessionId, long size) {
+        AgentAttachmentRecord record = new AgentAttachmentRecord();
+        record.setAttachmentId(id);
+        record.setSessionId(sessionId);
+        record.setSizeBytes(size);
+        return record;
     }
 }

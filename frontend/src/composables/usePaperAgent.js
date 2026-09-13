@@ -1,6 +1,12 @@
 import { onUnmounted, ref } from 'vue'
 import { cancelAgentRun, executeAgentTurn, getAgentRun, uploadAgentAttachment } from '@/api/agent.js'
 import { mapAgentEvidenceList } from '@/utils/evidenceViewModel.js'
+import { MAX_CHAT_ATTACHMENTS, MAX_CHAT_ATTACHMENTS_BYTES } from '@/utils/chatAttachments.js'
+import {
+  MAX_AGENT_MESSAGE_CHARACTERS,
+  MAX_FORMULA_SELECTION_CHARACTERS,
+  MAX_TEXT_SELECTION_CHARACTERS,
+} from '@/utils/agentTurn.js'
 
 export { unionBoundingBoxes } from '@/utils/evidenceViewModel.js'
 
@@ -132,13 +138,17 @@ async function toApiInput(request) {
   const paperId = Number(request.paperId)
   const sessionId = Number(request.researchSessionId)
   if (!Number.isInteger(sessionId) || sessionId <= 0) throw new Error('研究对话尚未创建')
-  const uploaded = await Promise.all((request.attachments || []).map(item => (
+  const attachments = request.attachments || []
+  if (attachments.length > MAX_CHAT_ATTACHMENTS) throw new Error('每条消息最多添加 2 个附件')
+  if (attachments.reduce((sum, item) => sum + Number(item.size || item.rawFile?.size || 0), 0)
+      > MAX_CHAT_ATTACHMENTS_BYTES) throw new Error('附件总大小不能超过 10 MB')
+  const uploaded = await Promise.all(attachments.map(item => (
     uploadAgentAttachment(sessionId, item)
   )))
   const attachmentIds = []
   const formulaAttachmentIds = []
   uploaded.forEach((item, index) => {
-    if (request.attachments[index]?.kind === 'FORMULA_TEXT') formulaAttachmentIds.push(item.attachmentId)
+    if (attachments[index]?.kind === 'FORMULA_TEXT') formulaAttachmentIds.push(item.attachmentId)
     else attachmentIds.push(item.attachmentId)
   })
   const contextParts = []
@@ -152,6 +162,12 @@ async function toApiInput(request) {
     exactText: anchor.targetText || anchor.text,
     sourceObjectIds: [anchor.sourceObjectId || anchor.anchorId].filter(Boolean),
   } : null
+  const selectedText = String(selectedContent?.exactText || '')
+  const selectionLimit = String(selectedContent?.contentType || '').toUpperCase().includes('FORMULA')
+    ? MAX_FORMULA_SELECTION_CHARACTERS
+    : MAX_TEXT_SELECTION_CHARACTERS
+  if (selectedText.length > selectionLimit) throw new Error('选取内容过长')
+  if (String(request.userMessage || '').trim().length > MAX_AGENT_MESSAGE_CHARACTERS) throw new Error('输入内容过长')
   if (anchor && !selectedContent && (anchor.targetText || anchor.text)) {
     contextParts.unshift(`当前选区：\n${anchor.targetText || anchor.text}`)
   }

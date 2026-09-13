@@ -763,7 +763,7 @@ class AgentLoopServiceTest {
     }
 
     @Test
-    void stopsOneNeedAfterFourEffectiveEvidenceReads() {
+    void stopsOneNeedAfterThreeEffectiveEvidenceReads() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
@@ -784,10 +784,10 @@ class AgentLoopServiceTest {
         AgentTurnResult result = service.execute(input("核心公式是什么？"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
-        verify(tools, times(4)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        verify(tools, times(3)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
         assertThat(gateway.requests.get(5).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("最多三次有效补检索")
+                        && entry.content().contains("本轮证据检索已达到三次")
                         && entry.content().contains("need_stopped"));
     }
 

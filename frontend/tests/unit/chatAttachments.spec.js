@@ -36,4 +36,15 @@ describe('chat attachment preparation', () => {
       rawFile,
     })
   })
+
+  it('rejects oversized text and image attachments instead of truncating them', async () => {
+    await expect(prepareChatAttachment({
+      name: 'notes.txt', type: 'text/plain', size: 10,
+      text: async () => '字'.repeat(3_001),
+    })).rejects.toThrow('附件内容过长')
+
+    await expect(prepareChatAttachment({
+      name: 'figure.png', type: 'image/png', size: 5 * 1024 * 1024 + 1,
+    })).rejects.toThrow('附件过大')
+  })
 })

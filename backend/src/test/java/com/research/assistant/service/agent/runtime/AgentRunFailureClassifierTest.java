@@ -18,6 +18,10 @@ class AgentRunFailureClassifierTest {
                 .isEqualTo("ANSWER_SUBMISSION_REQUIRED");
         assertThat(AgentRunFailureClassifier.classify(new RuntimeException("socket connection reset")).code())
                 .isEqualTo("MODEL_CONNECTION_FAILED");
+        assertThat(AgentRunFailureClassifier.classify(new RuntimeException("CONTEXT_BUDGET_EXCEEDED")).code())
+                .isEqualTo("CONTEXT_BUDGET_EXCEEDED");
+        assertThat(AgentRunFailureClassifier.classify(new RuntimeException("TOOL_CALL_LIMIT_EXCEEDED")).code())
+                .isEqualTo("AGENT_CALL_LIMIT");
     }
 
     @Test

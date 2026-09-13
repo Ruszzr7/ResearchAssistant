@@ -9,6 +9,7 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.output.TokenUsage;
 import dev.langchain4j.skills.DefaultSkill;
 import org.junit.jupiter.api.Test;
 
@@ -82,7 +83,7 @@ class LangChain4jPaperAgentExecutorTest {
         assertThat(result.toolCalls()).isEqualTo(2);
         assertThat(executed).containsExactly("retrieve_paper_evidence", "submit_answer");
         assertThat(requests).hasSize(2).allSatisfy(request ->
-                assertThat(request.toolChoice()).isEqualTo(ToolChoice.AUTO));
+                assertThat(request.toolChoice()).isEqualTo(ToolChoice.REQUIRED));
         assertThat(requests.get(1).messages().toString()).contains("evidence");
     }
 
@@ -146,6 +147,8 @@ class LangChain4jPaperAgentExecutorTest {
         assertThat(result.content()).isEqualTo("FINAL");
         assertThat(result.toolCalls()).isEqualTo(1);
         assertThat(requests).hasSize(2);
+        assertThat(requests).allSatisfy(request ->
+                assertThat(request.toolChoice()).isEqualTo(ToolChoice.REQUIRED));
         assertThat(requests.get(1).messages().toString())
                 .contains("没有调用任何工具", "论文画像 Skill", "证据 Skill", "submit_answer");
     }
@@ -270,8 +273,79 @@ class LangChain4jPaperAgentExecutorTest {
         assertThat(traces.get(0).ordinal()).isEqualTo(1);
         assertThat(traces.get(0).status()).isEqualTo("COMPLETED");
         assertThat(traces.get(0).messageCount()).isEqualTo(2);
+        assertThat(traces.get(0).estimatedPromptTokensBefore()).isPositive();
+        assertThat(traces.get(0).estimatedPromptTokens()).isPositive();
+        assertThat(traces.get(0).cumulativeEstimatedPromptTokens())
+                .isEqualTo(traces.get(0).estimatedPromptTokens());
+        assertThat(traces.get(0).maxEstimatedPromptTokens())
+                .isEqualTo(traces.get(0).estimatedPromptTokens());
+        assertThat(traces.get(0).responseKind()).isEqualTo("TOOL_CALL");
+        assertThat(traces.get(0).responseTextCharacters()).isZero();
         assertThat(traces.toString()).doesNotContain("secret", "question", "done");
         assertThat(calls).hasValue(1);
+    }
+
+    @Test
+    void preservesUsageAndClassifiesTextWhenProtocolRecoveryStillFails() {
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                return ChatResponse.builder()
+                        .aiMessage(AiMessage.from("普通文本回答"))
+                        .tokenUsage(new TokenUsage(11, 3))
+                        .build();
+            }
+        };
+        LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
+                mock(com.research.assistant.service.ai.LangChain4jModelFactory.class), new ObjectMapper());
+        List<AgentModelCallTrace> traces = new ArrayList<>();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> executor.execute(model,
+                List.of(AgentChatEntry.system("system"), AgentChatEntry.user("question")),
+                List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
+                request -> new AgentToolExecution("unused", Set.of()), traces::add))
+                .isInstanceOf(AgentFrameworkExecutionException.class)
+                .hasMessageContaining("ANSWER_SUBMISSION_REQUIRED")
+                .satisfies(error -> {
+                    AgentFrameworkExecutionException failure = (AgentFrameworkExecutionException) error;
+                    assertThat(failure.usage().modelCalls()).isEqualTo(2);
+                    assertThat(failure.usage().toolCalls()).isZero();
+                    assertThat(failure.usage().promptTokens()).isEqualTo(22);
+                    assertThat(failure.usage().completionTokens()).isEqualTo(6);
+                });
+
+        assertThat(traces).hasSize(2).allSatisfy(trace -> {
+            assertThat(trace.responseKind()).isEqualTo("TEXT");
+            assertThat(trace.responseTextCharacters()).isPositive();
+            assertThat(trace.toolCount()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void rejectsAnOversizedModelRequestBeforeCallingTheProvider() {
+        AtomicInteger calls = new AtomicInteger();
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                calls.incrementAndGet();
+                return response("submit-1", "submit_answer", "{\"answerBlocks\":[]}");
+            }
+        };
+        LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
+                mock(com.research.assistant.service.ai.LangChain4jModelFactory.class), new ObjectMapper());
+        List<AgentModelCallTrace> traces = new ArrayList<>();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> executor.execute(model,
+                List.of(AgentChatEntry.system("x".repeat(60_000)), AgentChatEntry.user("question")),
+                List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
+                request -> new AgentToolExecution("unused", Set.of()), traces::add))
+                .hasMessageContaining("CONTEXT_BUDGET_EXCEEDED");
+
+        assertThat(calls).hasValue(0);
+        assertThat(traces).singleElement().satisfies(trace -> {
+            assertThat(trace.status()).isEqualTo("FAILED");
+            assertThat(trace.estimatedPromptTokens()).isGreaterThan(16_000);
+        });
     }
 
     @Test
@@ -405,6 +479,76 @@ class LangChain4jPaperAgentExecutorTest {
     }
 
     @Test
+    void completesProfileThenTwoEvidenceReadsBeforeSubmittingWithoutAnotherModel() {
+        List<ChatRequest> requests = new ArrayList<>();
+        List<AgentModelCallTrace> traces = new ArrayList<>();
+        List<String> activations = new ArrayList<>();
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse doChat(ChatRequest request) {
+                requests.add(request);
+                return switch (requests.size()) {
+                    case 1 -> response("activate-profile", "activate_skill",
+                            "{\"skill_name\":\"paper-profile\"}");
+                    case 2 -> response("profile-1", "read_paper_profile", "{}");
+                    case 3 -> response("activate-evidence", "activate_skill",
+                            "{\"skill_name\":\"paper-evidence\"}");
+                    case 4 -> response("read-1", "retrieve_paper_evidence", "{}");
+                    case 5 -> response("read-2", "retrieve_paper_evidence", "{}");
+                    case 6 -> response("submit-1", "submit_answer", "{\"answerBlocks\":[]}");
+                    default -> throw new AssertionError("unexpected model call");
+                };
+            }
+        };
+        AgentSkillBinding profile = new AgentSkillBinding(
+                DefaultSkill.builder().name("paper-profile")
+                        .description("Read the cached paper profile")
+                        .content("Use read_paper_profile to plan the evidence request.").build(),
+                List.of(new AgentToolDefinition("read_paper_profile", "read profile",
+                        objectSchema("profile"))));
+        AgentSkillBinding evidence = new AgentSkillBinding(
+                DefaultSkill.builder().name("paper-evidence")
+                        .description("Read original paper evidence")
+                        .content("Use retrieve_paper_evidence for original text.").build(),
+                List.of(new AgentToolDefinition("retrieve_paper_evidence", "read evidence",
+                        objectSchema("needs"))));
+        LangChain4jPaperAgentExecutor executor = new LangChain4jPaperAgentExecutor(
+                mock(com.research.assistant.service.ai.LangChain4jModelFactory.class), new ObjectMapper());
+
+        AgentFrameworkResult result = executor.execute(model,
+                List.of(AgentChatEntry.system("system"), AgentChatEntry.user("explain the paper")),
+                List.of(new AgentToolDefinition("submit_answer", "finish", objectSchema("answerBlocks"))),
+                List.of(profile, evidence),
+                request -> switch (request.name()) {
+                    case "read_paper_profile" -> new AgentToolExecution(
+                            "{\"status\":\"ready\",\"profile\":\"PROFILE_BODY "
+                                    + "PROFILE_BODY ".repeat(1_200) + "\"}", Set.of());
+                    case "retrieve_paper_evidence" -> new AgentToolExecution(
+                            "{\"status\":\"found\",\"sources\":["
+                                    + source(request.id().contains("2") ? "src-second" : "src-first",
+                                    request.id().contains("2") ? "SECOND_EVIDENCE_BODY " : "FIRST_EVIDENCE_BODY ")
+                                    + "]}",
+                            Set.of(request.id().contains("2") ? "src-second" : "src-first"));
+                    case "submit_answer" -> new AgentToolExecution("FINAL", Set.of());
+                    default -> throw new AssertionError("unexpected tool " + request.name());
+                },
+                (id, name, arguments, instructions) -> activations.add(name),
+                traces::add);
+
+        assertThat(result.content()).isEqualTo("FINAL");
+        assertThat(requests).hasSize(6);
+        assertThat(activations).containsExactly("paper-profile", "paper-evidence");
+        assertThat(traces).hasSize(6).allSatisfy(trace ->
+                assertThat(trace.estimatedPromptTokens()).isLessThanOrEqualTo(
+                        AgentRunContextHarness.HARD_INPUT_TOKENS));
+        assertThat(traces).anyMatch(AgentModelCallTrace::compacted);
+        assertThat(requests.get(4).messages().toString())
+                .contains("论文画像已读取并消费", "src-first");
+        assertThat(requests.get(5).messages().toString())
+                .contains("src-first", "src-second");
+    }
+
+    @Test
     void retriesOnlyTransientToolFailures() {
         assertThat(LangChain4jPaperAgentExecutor.isRetryable(
                 new IllegalArgumentException("source was not read"))).isFalse();
@@ -422,6 +566,12 @@ class LangChain4jPaperAgentExecutorTest {
         return "{\"type\":\"object\",\"properties\":{\"" + required
                 + "\":{\"type\":\"string\"}},\"required\":[\"" + required
                 + "\"],\"additionalProperties\":false}";
+    }
+
+    private static String source(String sourceId, String prefix) {
+        return "{\"sourceObjectId\":\"" + sourceId + "\",\"page\":3,"
+                + "\"contentType\":\"TEXT\",\"content\":\""
+                + prefix + prefix.repeat(1_300) + "\",\"contentComplete\":true}";
     }
 
     private static List<String> toolNames(ChatRequest request) {

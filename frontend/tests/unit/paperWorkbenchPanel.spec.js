@@ -33,6 +33,8 @@ vi.mock('@/api/researchArchive.js', () => ({
 }))
 vi.mock('@/utils/chatAttachments.js', () => ({
   CHAT_ATTACHMENT_ACCEPT: '.pdf,.txt,.md,.tex',
+  MAX_CHAT_ATTACHMENTS: 2,
+  MAX_CHAT_ATTACHMENTS_BYTES: 10 * 1024 * 1024,
   prepareChatAttachment: mocks.prepareChatAttachment,
 }))
 vi.mock('@/composables/usePaperAgent.js', () => ({

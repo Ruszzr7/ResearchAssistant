@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
@@ -154,5 +155,59 @@ class DocumentAttachmentParserServiceTest {
         verify(attachments).updateExtraction(record, "PARSED", "结构化 PDF 内容",
                 "{\"source\":\"document-api\",\"mode\":\"page-images\"}");
         Files.deleteIfExists(pdf);
+    }
+
+    @Test
+    void rejectsPdfOverTwentyPagesBeforeCallingTheModel() throws Exception {
+        Path pdf = Files.createTempFile("agent-attachment-test", ".pdf");
+        try (PDDocument document = new PDDocument()) {
+            for (int page = 0; page < 21; page++) document.addPage(new PDPage());
+            document.save(pdf.toFile());
+        }
+        AgentAttachmentService attachments = mock(AgentAttachmentService.class);
+        AiCapabilityService capabilities = mock(AiCapabilityService.class);
+        LangChain4jModelFactory factory = mock(LangChain4jModelFactory.class);
+        AgentAttachmentRecord record = binaryRecord("attachment-long-pdf", "application/pdf", "long.pdf");
+        when(attachments.resolveContent(record)).thenReturn(pdf);
+
+        assertThatThrownBy(() -> new DocumentAttachmentParserService(attachments, capabilities, factory)
+                .resolve(record, "概括 PDF"))
+                .hasMessage("附件页数过多");
+        org.mockito.Mockito.verifyNoInteractions(factory);
+        Files.deleteIfExists(pdf);
+    }
+
+    @Test
+    void rejectsOversizedModelExtractionInsteadOfSavingATruncatedPreview() throws Exception {
+        Path image = Files.createTempFile("agent-attachment-test", ".png");
+        Files.write(image, Base64.getDecoder().decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="));
+        AgentAttachmentService attachments = mock(AgentAttachmentService.class);
+        AiCapabilityService capabilities = mock(AiCapabilityService.class);
+        LangChain4jModelFactory factory = mock(LangChain4jModelFactory.class);
+        ChatModel model = mock(ChatModel.class);
+        AgentAttachmentRecord record = binaryRecord("attachment-long-output", "image/png", "figure.png");
+        when(attachments.resolveContent(record)).thenReturn(image);
+        when(factory.createPaperUnderstandingModel()).thenReturn(model);
+        when(model.chat(any(dev.langchain4j.model.chat.request.ChatRequest.class)))
+                .thenReturn(ChatResponse.builder().aiMessage(
+                        dev.langchain4j.data.message.AiMessage.from("字".repeat(3_001))).build());
+
+        assertThatThrownBy(() -> new DocumentAttachmentParserService(attachments, capabilities, factory)
+                .resolve(record, "解释图片"))
+                .hasMessage("附件内容过长");
+        org.mockito.Mockito.verify(attachments, org.mockito.Mockito.never()).updateExtraction(
+                any(), org.mockito.ArgumentMatchers.eq("PARSED"), any(), any());
+        Files.deleteIfExists(image);
+    }
+
+    private static AgentAttachmentRecord binaryRecord(String id, String mediaType, String name) {
+        AgentAttachmentRecord record = new AgentAttachmentRecord();
+        record.setAttachmentId(id);
+        record.setSessionId(7L);
+        record.setMediaType(mediaType);
+        record.setOriginalName(name);
+        record.setExtractionStatus("PENDING");
+        return record;
     }
 }

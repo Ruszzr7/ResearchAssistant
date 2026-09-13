@@ -266,7 +266,7 @@
             class="assistant-composer__input"
             type="textarea"
             :rows="3"
-            maxlength="4000"
+            maxlength="2000"
             resize="none"
             :disabled="!memoryReady"
             :placeholder="!memoryReady
@@ -292,7 +292,7 @@
                 type="button"
                 title="添加附件（PDF、Word、JPG、PNG）"
                 aria-label="添加附件"
-                :disabled="!memoryReady || preparingAttachment || pendingContextCount >= 3"
+                :disabled="!memoryReady || preparingAttachment || pendingContextCount >= MAX_CHAT_ATTACHMENTS"
                 @click="openAttachmentPicker"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 12.8 14.9 6.4a3.3 3.3 0 0 1 4.7 4.7l-8.1 8.1a5 5 0 0 1-7.1-7.1l8.3-8.3" /></svg>
@@ -301,7 +301,7 @@
                 type="button"
                 title="输入 LaTeX"
                 aria-label="输入 LaTeX"
-                :disabled="!memoryReady || (pendingContextCount >= 3 && editingFormulaIndex == null)"
+                :disabled="!memoryReady || (pendingContextCount >= MAX_CHAT_ATTACHMENTS && editingFormulaIndex == null)"
                 @click="toggleLatexEditor"
               >x<sup>2</sup></button>
               <span>Shift+Enter 换行</span>
@@ -340,7 +340,12 @@ import ResearchMarkdown from '@/components/ResearchMarkdown.vue'
 import EvidenceSourceList from '@/components/EvidenceSourceList.vue'
 import { buildCitationSources, buildCitedAnswer } from '@/utils/answerCitations.js'
 import { mapResearchMessageView } from '@/utils/researchMessageView.js'
-import { CHAT_ATTACHMENT_ACCEPT, prepareChatAttachment } from '@/utils/chatAttachments.js'
+import {
+  CHAT_ATTACHMENT_ACCEPT,
+  MAX_CHAT_ATTACHMENTS,
+  MAX_CHAT_ATTACHMENTS_BYTES,
+  prepareChatAttachment,
+} from '@/utils/chatAttachments.js'
 import { usePaperAgent } from '@/composables/usePaperAgent.js'
 import {
   detectTextLanguage,
@@ -591,13 +596,13 @@ function handleComposerEnter(event) {
 }
 
 function openAttachmentPicker() {
-  if (!memoryReady.value || preparingAttachment.value || pendingContextCount.value >= 3) return
+  if (!memoryReady.value || preparingAttachment.value || pendingContextCount.value >= MAX_CHAT_ATTACHMENTS) return
   attachmentInputRef.value?.click()
 }
 
 async function handleAttachmentFiles(event) {
   const input = event?.target
-  const remaining = Math.max(0, 3 - pendingContextCount.value)
+  const remaining = Math.max(0, MAX_CHAT_ATTACHMENTS - pendingContextCount.value)
   const files = Array.from(input?.files || []).slice(0, remaining)
   if (!files.length) return
   preparingAttachment.value = true
@@ -605,12 +610,15 @@ async function handleAttachmentFiles(event) {
     for (const file of files) {
       try {
         const attachment = await prepareChatAttachment(file)
+        const totalBytes = [...pendingAttachments.value, attachment]
+          .reduce((sum, item) => sum + Number(item.size || 0), 0)
+        if (totalBytes > MAX_CHAT_ATTACHMENTS_BYTES) throw new Error('附件总大小不能超过 10 MB')
         pendingAttachments.value.push(attachment)
       } catch (reason) {
         ElMessage.warning(requestErrorMessage(reason, `附件「${file.name}」读取失败`))
       }
     }
-    if (Number(input?.files?.length || 0) > remaining) ElMessage.info('每条消息最多添加 3 个附件')
+    if (Number(input?.files?.length || 0) > remaining) ElMessage.info('每条消息最多添加 2 个附件')
   } finally {
     preparingAttachment.value = false
     if (input) input.value = ''
@@ -626,7 +634,7 @@ async function toggleLatexEditor() {
     closeLatexEditor()
     return
   }
-  if (pendingContextCount.value >= 3) return
+  if (pendingContextCount.value >= MAX_CHAT_ATTACHMENTS) return
   editingFormulaIndex.value = null
   latexDraft.value = ''
   latexEditorVisible.value = true
@@ -639,10 +647,10 @@ function insertLatex() {
   const index = editingFormulaIndex.value
   if (Number.isInteger(index) && index >= 0 && index < pendingFormulas.value.length) {
     pendingFormulas.value[index] = latex
-  } else if (pendingContextCount.value < 3) {
+  } else if (pendingContextCount.value < MAX_CHAT_ATTACHMENTS) {
     pendingFormulas.value.push(latex)
   } else {
-    ElMessage.info('每条消息最多添加 3 项附件或公式')
+    ElMessage.info('每条消息最多添加 2 项附件或公式')
     return
   }
   closeLatexEditor()
@@ -704,6 +712,12 @@ async function sendSelectionMessage() {
   const content = question.value.trim() || (attachments.length ? '请分析所附附件。' : '')
   const anchor = activeSelectionAnchor.value
   if (!content || running.value || !memoryReady.value) return
+  const selectedText = String(anchor?.targetText || anchor?.text || '')
+  const selectionLimit = String(anchor?.contentType || '').toUpperCase().includes('FORMULA') ? 2000 : 4000
+  if (selectedText.length > selectionLimit) {
+    selectionChatError.value = '选取内容过长'
+    return
+  }
   let contextInherited = false
 
   let sessionId

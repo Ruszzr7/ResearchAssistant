@@ -17,6 +17,7 @@ import com.research.assistant.service.agent.runtime.AgentRuntimeService;
 import com.research.assistant.service.agent.runtime.AgentToolCallStatus;
 import com.research.assistant.service.agent.runtime.AgentRunFailureClassifier;
 import com.research.assistant.service.agent.runtime.AgentAttachmentService;
+import com.research.assistant.service.agent.runtime.AgentConversationSummaryService;
 import com.research.assistant.service.agent.source.CitationRequest;
 import com.research.assistant.service.agent.source.GroundEvidenceService;
 import com.research.assistant.service.agent.source.GroundedAnswer;
@@ -41,7 +42,8 @@ import java.util.LinkedHashSet;
 
 @Service
 public class AgentLoopService {
-    private static final int MAX_EFFECTIVE_EVIDENCE_ATTEMPTS_PER_NEED = 4;
+    private static final int MAX_EFFECTIVE_EVIDENCE_ATTEMPTS_PER_NEED = 3;
+    private static final int MAX_EFFECTIVE_EVIDENCE_CALLS_PER_RUN = 3;
 
     // Interactive paper answers retain a final liveness boundary if a provider call stalls.
     // Normal Agent decisions are not constrained by a tool-round workflow budget.
@@ -74,6 +76,7 @@ public class AgentLoopService {
     private final AiCapabilityService capabilityService;
     private final AgentAttachmentService attachmentService;
     private final AgentSkillRegistry skillRegistry;
+    private final AgentConversationSummaryService summaryService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public AgentLoopService(AgentRuntimeService runtimeService, AgentContextAssembler contextAssembler,
@@ -83,7 +86,8 @@ public class AgentLoopService {
                             ResearchMessageMapper messageMapper, ObjectMapper objectMapper,
                             ActionTicketService ticketService,
                             AiCapabilityService capabilityService, AgentAttachmentService attachmentService,
-                            AgentSkillRegistry skillRegistry) {
+                            AgentSkillRegistry skillRegistry,
+                            AgentConversationSummaryService summaryService) {
         this.runtimeService = runtimeService;
         this.contextAssembler = contextAssembler;
         this.snapshotService = snapshotService;
@@ -98,6 +102,7 @@ public class AgentLoopService {
         this.capabilityService = capabilityService;
         this.attachmentService = attachmentService;
         this.skillRegistry = skillRegistry;
+        this.summaryService = summaryService;
     }
 
     /** Constructor retained for focused tests and small embedders. */
@@ -111,7 +116,7 @@ public class AgentLoopService {
                 new PaperEvidenceSkillTool(toolRegistry), null, new PaperActionSkillTool(actionResolver),
                 evidenceService, messageMapper, objectMapper, ticketService, capabilityService, attachmentService,
                 new AgentSkillRegistry(new PaperEvidenceSkillTool(toolRegistry), null,
-                        new PaperActionSkillTool(actionResolver), java.nio.file.Path.of("../skills")));
+                        new PaperActionSkillTool(actionResolver), java.nio.file.Path.of("../skills")), null);
     }
 
     public AgentTurnResult execute(AgentTurnInput input) {
@@ -205,6 +210,11 @@ public class AgentLoopService {
                 throw new IllegalStateException("ANSWER_SUBMISSION_REQUIRED：最终答案必须使用 submit_answer");
             }
             throw new IllegalStateException("模型返回了空响应");
+        } catch (AgentFrameworkExecutionException failure) {
+            AgentFrameworkResult usage = failure.usage();
+            runtimeService.recordUsage(run.getRunId(), usage.modelCalls(), usage.toolCalls(),
+                    usage.promptTokens(), usage.completionTokens());
+            throw failure;
         } catch (Exception error) {
             AgentRunRecord current = runtimeService.getRun(run.getRunId());
             if (AgentRunStatus.RUNNING.name().equals(current.getStatus())) {
@@ -338,6 +348,7 @@ public class AgentLoopService {
                 synchronized (readToolCache) {
                     result = readToolCache.get(cacheKey);
                     if (result == null) {
+                        evidenceReadState.effectiveEvidenceCalls++;
                         result = evidenceSkillTool.execute(context.sourceCatalog(), request.name(), effectiveArguments);
                         readToolCache.put(cacheKey, result);
                     }
@@ -435,6 +446,15 @@ public class AgentLoopService {
         try {
             JsonNode needs = objectMapper.readTree(argumentsJson).path("needs");
             if (!needs.isArray()) return null;
+            if (state.effectiveEvidenceCalls >= MAX_EFFECTIVE_EVIDENCE_CALLS_PER_RUN) {
+                List<String> ids = new ArrayList<>();
+                needs.forEach(need -> {
+                    String id = need.path("id").asText("").trim();
+                    if (!id.isBlank()) ids.add(id);
+                });
+                state.stoppedNeedIds.addAll(ids);
+                return stoppedEvidenceResult(ids, "本轮证据检索已达到三次，请基于已读来源回答。", List.of());
+            }
             List<Map<String, Object>> issues = new ArrayList<>();
             List<String> requestedNeedIds = new ArrayList<>();
             for (int index = 0; index < needs.size(); index++) {
@@ -501,7 +521,7 @@ public class AgentLoopService {
             if (!exhaustedNeedIds.isEmpty()) {
                 state.stoppedNeedIds.addAll(exhaustedNeedIds);
                 return stoppedEvidenceResult(exhaustedNeedIds,
-                        "该 Need 已完成首次检索和最多三次有效补检索；本次未再扫描更多候选。",
+                        "该 Need 已完成首次检索和最多两次有效补检索；本次未再扫描更多候选。",
                         List.of());
             }
             if (issues.isEmpty() && !requestedNeedIds.isEmpty()
@@ -840,6 +860,7 @@ public class AgentLoopService {
         private final Set<String> stoppedNeedIds = new LinkedHashSet<>();
         private final Set<String> requiredFigureSourceIds = new LinkedHashSet<>();
         private int newNeedViolationCount;
+        private int effectiveEvidenceCalls;
 
         private void markUsableEvidence() {
             usableEvidence = true;
@@ -1116,6 +1137,10 @@ public class AgentLoopService {
         message.setEvidenceSchemaVersion(evidenceJson == null ? null : "ground-evidence-v2");
         messageMapper.insert(message);
         if (!"CLARIFICATION".equals(type)) runtimeService.bindFinalMessage(turn.getTurnId(), message.getMessageKey());
+        if ("CHAT".equals(type) && summaryService != null) {
+            try { summaryService.scheduleIfNeeded(turn.getSessionId()); }
+            catch (RuntimeException ignored) { /* summary failure never changes a completed answer */ }
+        }
     }
 
     private ResearchMessage baseMessage(long sessionId, String role, String type, String content,

@@ -20,6 +20,13 @@ public final class AgentRunFailureClassifier {
                 || combined.contains("rate_limit") || combined.contains("429")) {
             return new Failure("MODEL_OVERLOADED", "模型服务当前繁忙，请稍后重试");
         }
+        if (combined.contains("context_budget_exceeded")) {
+            return new Failure("CONTEXT_BUDGET_EXCEEDED", "当前上下文内容过长，请缩小输入范围");
+        }
+        if (combined.contains("model_call_limit_exceeded")
+                || combined.contains("tool_call_limit_exceeded")) {
+            return new Failure("AGENT_CALL_LIMIT", "论文助手调用次数已达上限，请缩小问题范围后重试");
+        }
         if (combined.contains("max tool") || combined.contains("tool calling round")) {
             return new Failure("TOOL_ROUND_LIMIT", "模型工具调用进入异常循环，请缩小问题范围后重试");
         }
@@ -55,6 +62,8 @@ public final class AgentRunFailureClassifier {
             case "QUEUE_TIMEOUT" -> "论文助手排队时间过长，请稍后重试";
             case "RUN_TIMEOUT", "MODEL_TIMEOUT" -> "模型响应超时，请稍后重试";
             case "MODEL_OVERLOADED" -> "模型服务当前繁忙，请稍后重试";
+            case "CONTEXT_BUDGET_EXCEEDED" -> "当前上下文内容过长，请缩小输入范围";
+            case "AGENT_CALL_LIMIT" -> "论文助手调用次数已达上限，请缩小问题范围后重试";
             case "TOOL_ROUND_LIMIT" -> "模型工具调用进入异常循环，请缩小问题范围后重试";
             case "TOOL_OUTPUT_OVERSIZE" -> "论文读取结果过大，请缩小页码或问题范围";
             case "ANSWER_SUBMISSION_REQUIRED" -> "模型未通过结构化答案提交，请重试";
