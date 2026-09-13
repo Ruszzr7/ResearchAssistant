@@ -62,28 +62,6 @@ public class ResearchMetrics {
         }
     }
 
-    public void ragIndexFinished(String outcome, int chunkCount, long startedAtNanos) {
-        counter("research.rag.index", "outcome", outcome).increment();
-        if (chunkCount > 0) {
-            counter("research.rag.indexed.chunks").increment(chunkCount);
-        }
-        timer("research.rag.index.duration", "outcome", outcome)
-                .record(Duration.ofNanos(Math.max(0, System.nanoTime() - startedAtNanos)));
-    }
-
-    public void ragRetrievalFinished(String outcome, int resultCount, long startedAtNanos) {
-        counter("research.rag.retrieve", "outcome", safeOutcome(outcome)).increment();
-        if (resultCount > 0) {
-            counter("research.rag.retrieved.chunks").increment(resultCount);
-        }
-        timer("research.rag.retrieve.duration", "outcome", safeOutcome(outcome))
-                .record(Duration.ofNanos(Math.max(0, System.nanoTime() - startedAtNanos)));
-    }
-
-    public void ragEvidenceValidated(String status) {
-        counter("research.rag.evidence", "status", safeOutcome(status)).increment();
-    }
-
     public void synthesisQualityFinished(String operation, String outcome) {
         counter("research.synthesis.quality", "operation", safeOutcome(operation),
                 "outcome", safeOutcome(outcome)).increment();

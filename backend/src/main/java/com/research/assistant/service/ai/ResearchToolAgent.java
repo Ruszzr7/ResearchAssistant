@@ -17,19 +17,15 @@ public interface ResearchToolAgent {
     /**
      * 标签建议。
      */
-    @SystemMessage("你是一位学术文献分类专家。请根据论文标题、摘要以及从用户论文库召回的相关片段，建议 3-5 个精准的技术关键词标签。")
+    @SystemMessage("你是一位学术文献分类专家。请根据论文标题和摘要，建议 3-5 个精准的技术关键词标签。")
     @UserMessage("""
             论文标题：{{title}}
             摘要：{{abstract}}
 
-            用户论文库中相关片段：
-            {{relatedSnippets}}
-
             请返回 JSON：{"tags":["tag1", "tag2", ...]}
             """)
     Result<TagSuggestionResult> suggestTags(@V("title") String title,
-                                            @V("abstract") String abstractText,
-                                            @V("relatedSnippets") String relatedSnippets);
+                                            @V("abstract") String abstractText);
 
     /**
      * 文件夹推荐。

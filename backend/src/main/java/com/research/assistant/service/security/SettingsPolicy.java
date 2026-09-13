@@ -25,12 +25,7 @@ public final class SettingsPolicy {
 
     private static final Set<String> ALLOWED_KEYS = Set.of(
             "ai_provider", "ai_channel", "api_key", "base_url", "model",
-            "rag_enabled",
             "translation_provider", "deepl_auth_key", "deepl_api_base_url"
-    );
-
-    private static final Set<String> BOOLEAN_KEYS = Set.of(
-            "rag_enabled"
     );
 
     private static final Set<String> URL_KEYS = Set.of(
@@ -98,10 +93,6 @@ public final class SettingsPolicy {
         if (value == null || value.isBlank()) return;
         if (CONTROL_CHARS.matcher(value).find()) {
             throw new IllegalArgumentException("设置值包含非法控制字符: " + key);
-        }
-        if (BOOLEAN_KEYS.contains(key)
-                && !"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
-            throw new IllegalArgumentException("设置项必须是 true 或 false: " + key);
         }
         if ("translation_provider".equals(key) && !"deepl".equalsIgnoreCase(value)) {
             throw new IllegalArgumentException("不支持的翻译服务: " + value);

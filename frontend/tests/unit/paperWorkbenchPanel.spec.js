@@ -85,15 +85,13 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     mocks.state.cancelRun.mockReset()
   })
 
-  it('uses one unified research conversation and leaves comparison as an interface', async () => {
+  it('uses one unified research conversation', async () => {
     const wrapper = mountPanel()
     await flushPromises()
 
     expect(wrapper.find('.product-tabs').exists()).toBe(false)
     expect(wrapper.get('.assistant-context-header').text()).toContain('论文助手')
     expect(wrapper.get('.assistant-context-header').text()).toContain('连续科研对话')
-    await wrapper.get('.comparison-paper-action').trigger('click')
-    expect(wrapper.emitted('add-comparison-paper')).toHaveLength(1)
     expect(mocks.state.run).not.toHaveBeenCalled()
   })
 

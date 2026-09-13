@@ -81,26 +81,6 @@ CREATE TABLE paper_tag (
     PRIMARY KEY (paper_id, tag_id)
 );
 
-CREATE TABLE paper_chunk (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    paper_id BIGINT NOT NULL,
-    index_version INT NOT NULL DEFAULT 1,
-    chunk_key VARCHAR(160) NOT NULL,
-    source_type VARCHAR(32) NOT NULL DEFAULT 'PDF_TEXT',
-    chunk_order INT NOT NULL DEFAULT 0,
-    page_start INT,
-    page_end INT,
-    char_start INT,
-    char_end INT,
-    content_hash CHAR(64) NOT NULL,
-    chunk_type VARCHAR(32) NOT NULL,
-    content TEXT NOT NULL,
-    embedding_json TEXT NOT NULL,
-    source VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (paper_id, index_version, chunk_key)
-);
-
 CREATE TABLE paper_layout_artifact (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     paper_id BIGINT NOT NULL,
@@ -169,26 +149,6 @@ CREATE TABLE paper_formula_region (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (paper_id, document_hash, parser_version, page_number, region_key),
     FOREIGN KEY (paper_id) REFERENCES paper(id) ON DELETE CASCADE
-);
-
-CREATE TABLE rag_index_state (
-    paper_id BIGINT PRIMARY KEY,
-    active_version INT,
-    next_version INT NOT NULL DEFAULT 0,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE rag_index_version (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    paper_id BIGINT NOT NULL,
-    version_no INT NOT NULL,
-    status VARCHAR(16) NOT NULL,
-    chunk_count INT NOT NULL DEFAULT 0,
-    error VARCHAR(1000),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    activated_at TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (paper_id, version_no)
 );
 
 CREATE TABLE paper_annotation (

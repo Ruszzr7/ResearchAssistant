@@ -58,9 +58,6 @@ app:
   ai:
     # Long-paper understanding uses a separate request deadline from chat.
     paper-request-timeout-seconds: ${APP_AI_PAPER_REQUEST_TIMEOUT_SECONDS:150}
-  rag:
-    index-retention: ${RAG_INDEX_RETENTION:7d}
-    index-cleanup-cron: ${RAG_INDEX_CLEANUP_CRON:0 45 3 * * *}
   async:
     # 生产环境启动时将上次未完成任务标记为 FAILED；测试环境关闭，避免触碰测试数据。
     mark-orphaned-on-startup: true

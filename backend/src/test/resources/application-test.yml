@@ -19,8 +19,6 @@ app:
     pdf-dir: ${java.io.tmpdir}/research-assistant-test/papers
     figures-dir: ${java.io.tmpdir}/research-assistant-test/figures
     agent-attachments-dir: ${java.io.tmpdir}/research-assistant-test/agent-attachments
-  rag:
-    index-retention: 7d
   async:
     mark-orphaned-on-startup: false
     max-inflight: 4

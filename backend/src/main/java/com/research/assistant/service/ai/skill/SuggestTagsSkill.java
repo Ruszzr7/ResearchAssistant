@@ -5,7 +5,6 @@ import com.research.assistant.mapper.PaperMapper;
 import com.research.assistant.service.LLMService;
 import com.research.assistant.service.ai.ResearchToolAgent;
 import com.research.assistant.service.cache.RecommendationCache;
-import com.research.assistant.service.rag.RagRetrievalService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -28,16 +27,13 @@ public class SuggestTagsSkill implements Skill<Long, List<String>> {
     private final ResearchToolAgent researchToolAgent;
     private final LLMService llmService;
     private final RecommendationCache recommendationCache;
-    private final RagRetrievalService ragRetrievalService;
 
     public SuggestTagsSkill(PaperMapper paperMapper, @Lazy ResearchToolAgent researchToolAgent,
-                            LLMService llmService, RecommendationCache recommendationCache,
-                            RagRetrievalService ragRetrievalService) {
+                            LLMService llmService, RecommendationCache recommendationCache) {
         this.paperMapper = paperMapper;
         this.researchToolAgent = researchToolAgent;
         this.llmService = llmService;
         this.recommendationCache = recommendationCache;
-        this.ragRetrievalService = ragRetrievalService;
     }
 
     @Override
@@ -67,13 +63,10 @@ public class SuggestTagsSkill implements Skill<Long, List<String>> {
         }
 
         String abstractText = paper.getAbstractText() != null ? paper.getAbstractText() : "";
-        String relatedSnippets = ragRetrievalService.retrieveAndRerankAsContext(
-                paper.getTitle() + "\n" + abstractText, 8, 0.65);
 
         List<String> tags;
         try {
-            var result = researchToolAgent.suggestTags(
-                    paper.getTitle(), abstractText, relatedSnippets);
+            var result = researchToolAgent.suggestTags(paper.getTitle(), abstractText);
             if (result != null && result.content() != null && result.content().getTags() != null) {
                 tags = result.content().getTags().stream()
                         .map(String::trim)
@@ -85,7 +78,6 @@ public class SuggestTagsSkill implements Skill<Long, List<String>> {
         } catch (Exception e) {
             log.warn("Agent 标签建议失败，回退到字符串解析: {}", e.getMessage());
             String prompt = "论文标题：" + paper.getTitle() + "\n摘要：" + abstractText
-                    + relatedSnippets
                     + "\n\n请为这篇论文建议 3-5 个标签（技术关键词），用逗号分隔，只返回标签列表。";
             String result = llmService.chat("你是一位学术文献分类专家。为论文建议精准的分类标签。", prompt);
             tags = Arrays.stream(result.split("[，,]+")).map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());

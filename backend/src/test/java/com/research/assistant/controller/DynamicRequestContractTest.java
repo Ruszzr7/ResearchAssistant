@@ -3,10 +3,7 @@ package com.research.assistant.controller;
 import com.research.assistant.common.GlobalExceptionHandler;
 import com.research.assistant.common.PaperFileValidationException;
 import com.research.assistant.entity.Paper;
-import com.research.assistant.service.ArxivFetcher;
-import com.research.assistant.service.AsyncTaskService;
 import com.research.assistant.service.PaperService;
-import com.research.assistant.service.SearchService;
 import com.research.assistant.service.ReadingProgressService;
 import com.research.assistant.service.metadata.MetadataEnrichmentService;
 import com.research.assistant.service.ai.workflow.WorkflowService;
@@ -49,12 +46,8 @@ class DynamicRequestContractTest {
     @Mock private MetadataEnrichmentService metadataEnrichmentService;
     @Mock private WorkflowService workflowService;
     @Mock private PaperLayoutArtifactService layoutArtifactService;
-    @Mock private SearchService searchService;
-    @Mock private ArxivFetcher arxivFetcher;
-    @Mock private AsyncTaskService asyncTaskService;
 
     private MockMvc paperMvc;
-    private MockMvc searchMvc;
     private MockMvc workflowMvc;
 
     @BeforeEach
@@ -63,9 +56,6 @@ class DynamicRequestContractTest {
         paperMvc = MockMvcBuilders.standaloneSetup(new PaperController(
                 paperService, readingProgressService, metadataEnrichmentService, workflowService,
                 layoutArtifactService))
-                .setControllerAdvice(advice).build();
-        searchMvc = MockMvcBuilders.standaloneSetup(new SearchController(
-                searchService, paperService, arxivFetcher, asyncTaskService))
                 .setControllerAdvice(advice).build();
         workflowMvc = MockMvcBuilders.standaloneSetup(new WorkflowController(workflowService))
                 .setControllerAdvice(advice).build();
@@ -158,39 +148,6 @@ class DynamicRequestContractTest {
                                 "file", "broken.bin", "application/octet-stream", "bad".getBytes())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("文件不是有效的 PDF，或 PDF 无法打开"));
-    }
-
-    @Test
-    void searchExecuteRequiresKeywords() throws Exception {
-        searchMvc.perform(post("/api/search/execute")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"domain\":\"machine learning\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400));
-    }
-
-    @Test
-    void searchExecutePreservesCompatibleFieldNames() throws Exception {
-        when(searchService.executeSearch(any())).thenReturn(List.of());
-
-        searchMvc.perform(post("/api/search/execute")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"keywords_en\":[\"graph neural network\"],\"paper_type\":[\"conference\"]}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200));
-
-        ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass(Map.class);
-        verify(searchService).executeSearch(captor.capture());
-        assertThat(captor.getValue().get("keywords_en")).isEqualTo(List.of("graph neural network"));
-    }
-
-    @Test
-    void searchImportRejectsPaperWithoutTitle() throws Exception {
-        searchMvc.perform(post("/api/search/import")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"papers\":[{\"authors\":\"A\"}]}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400));
     }
 
     @Test

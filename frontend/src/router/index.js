@@ -9,7 +9,6 @@ const loadLibraryView = () => import('@/views/LibraryView.vue')
 const routes = [
   { path: '/',          name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
   { path: '/library',   name: 'library',   component: loadLibraryView },
-  { path: '/search',    name: 'search',    component: () => import('@/views/SearchView.vue') },
   { path: '/research/:paperId?', name: 'research', component: () => import('@/views/PaperResearchView.vue') },
   { path: '/workbench', redirect: to => legacyWorkbenchRedirect(to, 'analysis') },
   { path: '/analysis',  redirect: to => legacyWorkbenchRedirect(to, 'analysis') },

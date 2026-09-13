@@ -492,7 +492,6 @@
         @capture-mode-change="selectWorkbenchCaptureMode"
         @jump-evidence="jumpToEvidence"
         @execute-actions="executeAgentActions"
-        @add-comparison-paper="openComparisonPaperInterface"
         @research-session-change="$emit('research-session-change', $event)"
       />
 
@@ -1689,10 +1688,6 @@ async function resolvePendingSelectionContext(selection) {
   } finally {
     if (requestId === selectionContextRequestId) selectionContextLoading.value = false
   }
-}
-
-function openComparisonPaperInterface() {
-  ElMessage.info('对比文献接口已预留，后续将在当前对话中添加文献')
 }
 
 async function jumpToEvidence(item) {

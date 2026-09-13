@@ -2,7 +2,6 @@ package com.research.assistant.controller;
 
 import com.research.assistant.common.Result;
 import com.research.assistant.dto.WorkflowConfirmRequest;
-import com.research.assistant.dto.WorkflowLiteratureSurveyRequest;
 import com.research.assistant.dto.WorkflowPaperImportRequest;
 import com.research.assistant.service.ai.workflow.WorkflowService;
 import com.research.assistant.service.async.AsyncTaskResult;
@@ -32,14 +31,6 @@ public class WorkflowController {
                                                    @RequestHeader(value = "Idempotency-Key", required = false)
                                                    String idempotencyKey) {
         String taskId = workflowService.submitPaperImport(request.getPaperId(), idempotencyKey);
-        return Result.ok(Map.of("taskId", taskId));
-    }
-
-    @PostMapping("/literature-survey")
-    public Result<Map<String, String>> literatureSurvey(@RequestBody @Valid WorkflowLiteratureSurveyRequest request,
-                                                        @RequestHeader(value = "Idempotency-Key", required = false)
-                                                        String idempotencyKey) {
-        String taskId = workflowService.submitLiteratureSurvey(request.getQuery(), idempotencyKey);
         return Result.ok(Map.of("taskId", taskId));
     }
 

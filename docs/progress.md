@@ -13,7 +13,7 @@
 - PDF.js 负责渲染，PDFium 负责选择和搜索，PDFBox 负责服务端版面事实。
 - 论文事实由当前 PDF 版本的本轮 evidence 支撑；会话历史和论文画像只帮助理解与检索。
 - PDF 页面操作覆盖高亮、下划线、笔记、批注和跳转；所有目标由服务端当前版本来源解析，成功以客户端真实回执为准。
-- 项目简化已移除写作助手、旧独立论文对比、Gap 分析、自然语言计划、BibTeX/Obsidian/Zotero 导出、引用网络扩展和废弃的 RAG 诊断；论文研究页保留“添加对比文献”入口，等待后续统一实现。
+- 项目简化已移除写作助手、文章对比、外部文献检索、Gap 分析、自然语言计划、BibTeX/Obsidian/Zotero 导出、引用网络扩展和废弃的 RAG 诊断。
 
 ## 主要里程碑
 
@@ -383,3 +383,19 @@
 - 当前真实配置 `kimi-for-coding` 测试结果为 `VERIFIED`：chat、toolCalling、continuousTools、toolImageContinuation、structured、image 均为 `true`，pdf 为 `false`，有效期至 2026-09-21；PDF 不支持时按既有设计使用结构化文本和局部图片。
 - 使用草稿配置传入明显无效模型名后，当前供应商仍返回能力成功，说明该兼容端点忽略或改写 model 参数，项目无法据此可靠制造“模型不存在”响应；测试前后保存模型仍为 `kimi-for-coding`。论文 15、研究会话 46、Agent turn/run 82 的计数保持不变，仅新增一条按配置签名隔离的能力探测记录。
 - `AiCapabilityServiceTest` 与 `SettingsControllerContractTest` 通过；能力探测不会保存草稿设置，也不承担论文解析或理解质量验收。
+
+## 2026-09-14 产品范围精简：移除文章对比与外部文献检索
+
+- 删除论文研究页“添加对比文献”占位入口；该入口此前只显示预留提示，没有业务实现或持久化数据。
+- 删除独立文献检索页面、导航、快捷键、`/api/search` 接口、多源检索适配器及 `literature-survey` 专用 Skill/Workflow；同步删除只覆盖该功能的测试。
+- 删除仅供已退役多源检索使用的 OpenAlex/Semantic Scholar 查询器，以及零引用的旧任务抽屉组件和未使用 Logo；arXiv/Crossref 元数据补全、任务中心和当前 Logo 保持不变。
+- 明确保留论文上传与 `paper-import` 工作流、文库元数据补全、任务中心、PDF 阅读、论文内证据检索、Agent 回答/引用和页面操作链路；未修改历史 Flyway 迁移或已有数据库数据。
+- 定向后端测试 `WorkflowRegistryTest`、`CoreControllerContractTest`、`DynamicRequestContractTest` 共 11 项通过；`paperWorkbenchPanel.spec.js` 28 项通过，前端生产构建通过，删除符号全局引用扫描和 `git diff --check` 通过。
+- 清除旧日志、崩溃日志、临时验收文件、构建产物、测试结果和空目录；保留论文数据、数据库备份、活动运行目录和前端依赖。补充 `MetadataEnrichmentServiceTest` 后，后端定向测试共 14 项通过；验证完成后再次清除 `target/dist`。
+
+## 2026-09-14 移除旧 RAG 子系统
+
+- 审计确认论文问答、稳定来源、图片/公式证据和页面操作均不依赖旧 RAG；旧索引构建没有生产入口，本机 `paper_chunk`、`rag_index_state`、`rag_index_version` 三表均为 0 条记录。
+- 标签推荐解除唯一残余依赖，继续仅根据论文标题和摘要工作；删除旧 RAG 的分片、索引、检索、校验、实体、Mapper、配置、指标和对应测试。
+- 新增 V42 迁移删除三张旧空表和 `rag_enabled` 设置，不修改历史迁移；PaperSource、论文画像、版面制品和 Agent 证据链保持不变。
+- 后端全量测试 573 项执行、0 失败、0 错误、19 项按条件跳过；删除符号引用扫描仅剩历史建表迁移和 V42 清理迁移，`git diff --check` 通过。

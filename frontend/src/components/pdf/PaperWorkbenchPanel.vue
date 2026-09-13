@@ -23,7 +23,6 @@
               @click="selectCaptureMode('formula')"
             >公式框选</button>
           </div>
-          <button type="button" class="comparison-paper-action" @click="$emit('add-comparison-paper')">＋ 添加对比文献</button>
         </div>
       </section>
 
@@ -376,7 +375,7 @@ const props = defineProps({
 const emit = defineEmits([
   'clear-selection', 'clear-formula', 'retry-formula', 'confirm-formula',
   'capture-mode-change', 'jump-evidence', 'research-session-change',
-  'add-comparison-paper', 'execute-actions',
+  'execute-actions',
 ])
 
 const { running, progress: agentProgress, run, watchRun, cancelRun } = usePaperAgent()
@@ -1118,17 +1117,6 @@ section { padding: 14px 16px; border-bottom: 1px solid var(--ra-border-light); }
 .assistant-context-header b { font-size: 14px; letter-spacing:-.15px; }
 .assistant-context-header small { overflow: hidden; color: var(--ra-text-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .assistant-context-header__actions { display: flex; min-width: 0; flex: 0 0 auto; align-items: center; gap: 7px; }
-.assistant-context-header .comparison-paper-action {
-  flex: 0 0 auto;
-  padding: 4px 7px;
-  border: 1px solid var(--ra-border);
-  border-radius: 8px;
-  color: var(--ra-link);
-  background: transparent;
-  cursor: pointer;
-  font-size: 9px;
-  white-space: nowrap;
-}
 .memory-status { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; padding-block: 9px; background: color-mix(in srgb, var(--ra-link) 5%, var(--ra-panel-bg)); }
 .memory-orbit { position: relative; flex: 0 0 24px; width: 24px; height: 24px; border: 1px solid color-mix(in srgb, var(--ra-link) 28%, transparent); border-radius: 50%; animation: memory-orbit 1.4s linear infinite; }
 .memory-orbit::before, .memory-orbit span { position: absolute; border-radius: 50%; background: var(--ra-link); content: ''; }

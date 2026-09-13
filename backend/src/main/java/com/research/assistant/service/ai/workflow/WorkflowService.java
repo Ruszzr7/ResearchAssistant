@@ -18,17 +18,6 @@ public class WorkflowService {
     }
 
     /**
-     * 提交文献调研流水线。
-     */
-    public String submitLiteratureSurvey(String query) {
-        return submitLiteratureSurvey(query, null);
-    }
-
-    public String submitLiteratureSurvey(String query, String idempotencyKey) {
-        return workflowEngine.submitRecoverable("literature-survey", Map.of("query", query), idempotencyKey);
-    }
-
-    /**
      * 用户确认后继续工作流。
      */
     public String confirm(String taskId, Map<String, Object> userInput) {

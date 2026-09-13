@@ -97,7 +97,7 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Collection, Document, Expand, Fold, House, Moon, QuestionFilled,
-  Reading, Search, Setting, Sunny, Tickets,
+  Reading, Setting, Sunny, Tickets,
 } from '@element-plus/icons-vue'
 import { useTheme } from '@/stores/themeStore'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
@@ -118,9 +118,8 @@ const globalMessageConfig = Object.freeze({ max: 2, duration: 1800, grouping: tr
 const navigationItems = [
   { label: '看板', route: '/', shortcut: 'Ctrl+1', icon: House },
   { label: '文库管理', route: '/library', shortcut: 'Ctrl+2', icon: Collection },
-  { label: '文献检索', route: '/search', shortcut: 'Ctrl+3', icon: Search },
-  { label: '论文助手', route: '/research', shortcut: 'Ctrl+4', icon: Reading },
-  { label: '研究档案', route: '/archive', shortcut: 'Ctrl+5', icon: Document },
+  { label: '论文助手', route: '/research', shortcut: 'Ctrl+3', icon: Reading },
+  { label: '研究档案', route: '/archive', shortcut: 'Ctrl+4', icon: Document },
 ]
 
 function routeIsActive(target) {
@@ -148,15 +147,13 @@ const showPalette = ref(false)
 const routeCommands = [
   { id: 'dashboard', title: '打开看板', subtitle: '首页数据面板', route: '/', shortcut: 'Ctrl+1', shortcutKey: '1', keywords: ['看板', 'dashboard', '首页'] },
   { id: 'library', title: '打开文库管理', subtitle: '论文库与文件夹', route: '/library', shortcut: 'Ctrl+2', shortcutKey: '2', keywords: ['文库', 'library', '论文'] },
-  { id: 'search', title: '打开文献检索', subtitle: 'AI 检索与多源搜索', route: '/search', shortcut: 'Ctrl+3', shortcutKey: '3', keywords: ['检索', 'search', '文献'] },
-  { id: 'workbench', title: '打开论文助手', subtitle: '基于论文理解的连续科研对话', route: '/research', shortcut: 'Ctrl+4', shortcutKey: '4', keywords: ['助手', '对话', '分析', 'analysis', '论文助手'] },
-  { id: 'archive', title: '打开研究档案', subtitle: '对话、分析与证据记录', route: '/archive', shortcut: 'Ctrl+5', shortcutKey: '5', keywords: ['档案', 'archive', '研究', '对话'] },
+  { id: 'workbench', title: '打开论文助手', subtitle: '基于论文理解的连续科研对话', route: '/research', shortcut: 'Ctrl+3', shortcutKey: '3', keywords: ['助手', '对话', '分析', 'analysis', '论文助手'] },
+  { id: 'archive', title: '打开研究档案', subtitle: '对话、分析与证据记录', route: '/archive', shortcut: 'Ctrl+4', shortcutKey: '4', keywords: ['档案', 'archive', '研究', '对话'] },
 ]
 
 const commands = [
   ...routeCommands,
   { id: 'tasks', title: '查看后台任务', subtitle: '异步任务与工作流', route: '/tasks', shortcut: '', keywords: ['任务', 'task', '工作流'] },
-  { id: 'search-quick', title: '全局搜索论文…', subtitle: '跳转到文献检索', action: () => router.push('/search'), shortcut: 'Ctrl+Shift+F', keywords: ['搜索', 'search', '论文'] },
   { id: 'settings', title: '打开设置', subtitle: 'API 与模型配置', route: '/settings', shortcut: '', keywords: ['设置', 'settings', 'api'] },
   { id: 'theme', title: '切换主题', subtitle: '亮色 / 暗色', action: toggleTheme, shortcut: '', keywords: ['主题', 'theme', '暗色', '亮色'] },
 ]
@@ -168,17 +165,14 @@ function onCommandExecute(cmd) {
 
 const shortcutList = [
   { desc: '打开命令面板', keys: 'Ctrl + K' },
-  { desc: '全局搜索论文', keys: 'Ctrl + Shift + F' },
   { desc: '打开看板', keys: 'Ctrl + 1' },
   { desc: '打开文库管理', keys: 'Ctrl + 2' },
-  { desc: '打开文献检索', keys: 'Ctrl + 3' },
-  { desc: '打开论文助手', keys: 'Ctrl + 4' },
-  { desc: '打开研究档案', keys: 'Ctrl + 5' },
+  { desc: '打开论文助手', keys: 'Ctrl + 3' },
+  { desc: '打开研究档案', keys: 'Ctrl + 4' },
 ]
 
 useKeyboardShortcuts([
   { key: 'k', ctrl: true, whenTyping: false, action: () => { showPalette.value = true } },
-  { key: 'F', ctrl: true, shift: true, whenTyping: false, action: () => router.push('/search') },
   ...routeCommands.map(cmd => ({
     key: cmd.shortcutKey,
     ctrl: true,

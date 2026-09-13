@@ -97,7 +97,7 @@ public class SuggestFolderSkill implements Skill<SuggestFolderInput, Map<String,
         }
 
         // 文件夹推荐直接使用已经填充的元数据和目录树，只进行一次结构化 LLM 调用。
-        // 这里不再额外做 RAG 召回，避免导入流程等待向量检索和二次重排序。
+        // 这里不做额外召回，避免导入流程等待不必要的检索和二次重排序。
         Map<String, Object> result = doSuggestFolder(title, abstractText, keywords);
         if (cacheKey != null) {
             recommendationCache.put("folder", cacheKey, result);

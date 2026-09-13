@@ -16,10 +16,7 @@ public class WorkflowRegistry {
     private Map<String, WorkflowDefinition> definitions;
 
     public WorkflowRegistry() {
-        this.definitions = Map.of(
-                "paper-import", paperImport(),
-                "literature-survey", literatureSurvey()
-        );
+        this.definitions = Map.of("paper-import", paperImport());
     }
 
     public WorkflowDefinition get(String key) {
@@ -62,42 +59,4 @@ public class WorkflowRegistry {
         );
     }
 
-    private static WorkflowDefinition literatureSurvey() {
-        Map<String, Object> importArgs = new HashMap<>();
-        importArgs.put("selected", "{{input.selected}}");
-        importArgs.put("folderId", "{{input.folderId}}");
-
-        return new WorkflowDefinition(
-                "literature-survey",
-                "文献调研",
-                "把自然语言检索目标转换为检索要素，多源检索并去重，等待用户确认后批量导入本地文库。",
-                List.of(
-                        new WorkflowStepDefinition(
-                                "提炼检索要素",
-                                Skills.EXTRACT_SEARCH_ELEMENTS,
-                                Map.of("query", "{{context.query}}"),
-                                "elements"
-                        ),
-                        new WorkflowStepDefinition(
-                                "多源检索与去重",
-                                Skills.MULTI_SOURCE_SEARCH,
-                                Map.of("elements", "{{prev}}"),
-                                "candidates"
-                        ),
-                        new WorkflowStepDefinition(
-                                "等待用户确认",
-                                Skills.PREPARE_SURVEY_CONFIRMATION,
-                                Map.of("candidates", "{{prev}}"),
-                                "pendingSelection",
-                                true
-                        ),
-                        new WorkflowStepDefinition(
-                                "批量入库",
-                                Skills.IMPORT_SELECTED_PAPERS,
-                                importArgs,
-                                "imported"
-                        )
-                )
-        );
-    }
 }
