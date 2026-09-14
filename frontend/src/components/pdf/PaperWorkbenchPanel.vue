@@ -39,12 +39,12 @@
           <small v-if="!memoryReady">理解完成后即可开始提问。</small>
         </div>
         <button
-          v-if="memoryCanStart"
+          v-if="memoryCanStart || memoryBusy"
           type="button"
           class="memory-status__action"
-          :disabled="memoryStarting"
+          :disabled="memoryBusy"
           @click="startMemoryUnderstanding"
-        >{{ memoryStarting ? '启动中…' : (memoryStatus?.status === 'RETRY_REQUIRED' ? '重试' : '开始理解') }}</button>
+        >{{ memoryBusy ? '理解中…' : (memoryStatus?.status === 'RETRY_REQUIRED' ? '重试' : '开始理解') }}</button>
       </section>
 
       <div
@@ -419,7 +419,10 @@ const memoryStatus = ref({
   conversationReady: false,
 })
 const memoryStarting = ref(false)
-const memoryActive = computed(() => memoryStatus.value?.status === 'UNDERSTANDING')
+const memorySubmitted = ref(false)
+const memoryRemoteActive = computed(() => memoryStatus.value?.status === 'UNDERSTANDING')
+const memoryBusy = computed(() => memoryStarting.value || memorySubmitted.value || memoryRemoteActive.value)
+const memoryActive = computed(() => memoryBusy.value)
 const memoryReady = computed(() => Boolean(memoryStatus.value?.conversationReady))
 const memoryCanStart = computed(() => ['NOT_STARTED', 'SOURCE_READY', 'RETRY_REQUIRED', 'UNAVAILABLE'].includes(memoryStatus.value?.status))
 const showMemoryStatus = computed(() => true)
@@ -494,6 +497,8 @@ watch(() => props.researchSessionId, nextId => {
   }
 })
 watch(() => props.paper.id, () => {
+  memorySubmitted.value = false
+  memoryStarting.value = false
   fixedTextSelection.value = null
   contentStageExpanded.value = true
   collapseAfterFormulaConfirm.value = false
@@ -522,12 +527,34 @@ async function loadMemoryStatus() {
   try {
     const status = await getPaperMemoryStatus(paperId)
     if (Number(props.paper.id) !== paperId) return
-    memoryStatus.value = status
-    if (status?.status === 'UNDERSTANDING') {
+    const waitingForBackend = memorySubmitted.value
+      && ['NOT_STARTED', 'SOURCE_READY', 'UNAVAILABLE'].includes(status?.status)
+    if (waitingForBackend) {
+      memoryStatus.value = {
+        ...status,
+        status: 'UNDERSTANDING',
+        statusText: '正在理解论文',
+      }
+    } else {
+      memoryStatus.value = status
+    }
+    if (['PROFILE_READY', 'FALLBACK_READY', 'RETRY_REQUIRED', 'FILE_MISSING'].includes(status?.status)) {
+      memorySubmitted.value = false
+    }
+    if (status?.status === 'UNDERSTANDING' || memorySubmitted.value) {
       memoryPollTimer = setTimeout(() => { void loadMemoryStatus() }, 1800)
     }
   } catch {
     if (Number(props.paper.id) !== paperId) return
+    if (memoryBusy.value) {
+      memoryStatus.value = {
+        ...memoryStatus.value,
+        status: 'UNDERSTANDING',
+        statusText: '正在理解论文',
+      }
+      memoryPollTimer = setTimeout(() => { void loadMemoryStatus() }, 1800)
+      return
+    }
     memoryStatus.value = {
       status: 'UNAVAILABLE',
       statusText: '论文理解尚未启动',
@@ -537,20 +564,26 @@ async function loadMemoryStatus() {
 }
 
 async function startMemoryUnderstanding() {
-  if (memoryStarting.value || !memoryCanStart.value) return
+  if (memoryBusy.value || !memoryCanStart.value) return
+  const previousStatus = { ...memoryStatus.value }
   memoryStarting.value = true
+  memorySubmitted.value = true
+  memoryStatus.value = {
+    ...memoryStatus.value,
+    status: 'UNDERSTANDING',
+    statusText: '正在理解论文',
+  }
   try {
-    await startPaperUnderstanding(
-      props.paper.id,
-      `paper-memory-ui:${props.paper.id}:${Date.now()}`,
-    )
+    await startPaperUnderstanding(props.paper.id)
     memoryStatus.value = {
       ...memoryStatus.value,
       status: 'UNDERSTANDING',
-      statusText: '论文理解任务已提交',
+      statusText: '正在理解论文',
     }
     memoryPollTimer = setTimeout(() => { void loadMemoryStatus() }, 800)
   } catch (reason) {
+    memorySubmitted.value = false
+    memoryStatus.value = previousStatus
     ElMessage.error(requestErrorMessage(reason, '论文理解任务启动失败'))
   } finally {
     memoryStarting.value = false

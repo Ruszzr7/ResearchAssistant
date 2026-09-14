@@ -7,9 +7,10 @@ for %%I in ("%SCRIPT_DIR%..") do set "PROJECT_DIR=%%~fI"
 set "FRONTEND_DIR=%PROJECT_DIR%\frontend"
 set "RUNTIME_DIR=%PROJECT_DIR%\runtime"
 set "FRONTEND_PID_FILE=%RUNTIME_DIR%\frontend.pid"
-set "FRONTEND_PORT=5173"
 
+if exist "%SCRIPT_DIR%local-config.cmd" call "%SCRIPT_DIR%local-config.cmd"
 if not exist "%RUNTIME_DIR%" md "%RUNTIME_DIR%" >nul 2>&1
+if not defined FRONTEND_PORT set "FRONTEND_PORT=5173"
 if /i "%~1"=="--stop" goto stop_frontend
 
 if not exist "%FRONTEND_DIR%\package.json" (
@@ -23,7 +24,7 @@ if not errorlevel 1 (
   if defined FRONTEND_EXISTING_PID (
     call :frontend_ready
     if not errorlevel 1 (
-      echo [INFO] Frontend is already ready: http://127.0.0.1:5173
+      echo [INFO] Frontend is already ready: http://127.0.0.1:!FRONTEND_PORT!
       exit /b 0
     )
     echo [INFO] The project frontend is already starting; waiting for HTTP readiness...
@@ -77,7 +78,7 @@ if not exist "%FRONTEND_DIR%\node_modules" (
 set "FRONTEND_LOG=%RUNTIME_DIR%\frontend.log"
 set "FRONTEND_ERROR_LOG=%RUNTIME_DIR%\frontend-error.log"
 echo [INFO] Starting frontend with Node.js: !NODE_EXE!
-powershell.exe -NoProfile -Command "$quote = [char]34; $command = 'call ' + $quote + $env:NPM_CMD + $quote + ' run dev -- --host 127.0.0.1 --strictPort'; $proc = Start-Process -FilePath $env:ComSpec -ArgumentList @('/d','/s','/c',$command) -WorkingDirectory $env:FRONTEND_DIR -RedirectStandardOutput $env:FRONTEND_LOG -RedirectStandardError $env:FRONTEND_ERROR_LOG -PassThru -WindowStyle Hidden; [IO.File]::WriteAllText($env:FRONTEND_PID_FILE, [string]$proc.Id, [Text.Encoding]::ASCII)"
+powershell.exe -NoProfile -Command "$quote = [char]34; $command = 'call ' + $quote + $env:NPM_CMD + $quote + ' run dev -- --host 127.0.0.1 --port ' + $env:FRONTEND_PORT + ' --strictPort'; $proc = Start-Process -FilePath $env:ComSpec -ArgumentList @('/d','/s','/c',$command) -WorkingDirectory $env:FRONTEND_DIR -RedirectStandardOutput $env:FRONTEND_LOG -RedirectStandardError $env:FRONTEND_ERROR_LOG -PassThru -WindowStyle Hidden; [IO.File]::WriteAllText($env:FRONTEND_PID_FILE, [string]$proc.Id, [Text.Encoding]::ASCII)"
 if errorlevel 1 (
   echo [ERROR] Failed to start the frontend.
   exit /b 1
@@ -97,7 +98,7 @@ goto wait_frontend_loop
 :frontend_start_ready
 call :find_frontend_pid
 if defined FRONTEND_EXISTING_PID >"%FRONTEND_PID_FILE%" echo !FRONTEND_EXISTING_PID!
-echo [OK] Frontend is ready: http://127.0.0.1:5173
+echo [OK] Frontend is ready: http://127.0.0.1:!FRONTEND_PORT!
 exit /b 0
 
 :frontend_start_timeout
@@ -148,7 +149,7 @@ if "!STOP_RESULT!"=="0" (echo [OK] Frontend stopped.) else (echo [INFO] Stale fr
 exit /b 0
 
 :frontend_ready
-powershell.exe -NoProfile -Command "try { $response = Invoke-WebRequest -Uri 'http://127.0.0.1:5173/' -UseBasicParsing -TimeoutSec 2; if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) { exit 0 } } catch {}; exit 1" >nul 2>&1
+powershell.exe -NoProfile -Command "try { $uri = 'http://127.0.0.1:' + $env:FRONTEND_PORT + '/'; $response = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 2; if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) { exit 0 } } catch {}; exit 1" >nul 2>&1
 exit /b %ERRORLEVEL%
 
 :port_listening

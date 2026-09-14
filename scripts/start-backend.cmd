@@ -7,10 +7,12 @@ for %%I in ("%SCRIPT_DIR%..") do set "PROJECT_DIR=%%~fI"
 set "BACKEND_DIR=%PROJECT_DIR%\backend"
 set "RUNTIME_DIR=%PROJECT_DIR%\runtime"
 set "BACKEND_PID_FILE=%RUNTIME_DIR%\backend.pid"
-set "BACKEND_PORT=8080"
 set "APP_STORAGE_PDF_DIR=%PROJECT_DIR%\data\papers"
 
+if exist "%SCRIPT_DIR%local-config.cmd" call "%SCRIPT_DIR%local-config.cmd"
 if not exist "%RUNTIME_DIR%" md "%RUNTIME_DIR%" >nul 2>&1
+if not defined BACKEND_PORT set "BACKEND_PORT=8080"
+if not defined SERVER_PORT set "SERVER_PORT=!BACKEND_PORT!"
 if not defined RA_DB_HOST set "RA_DB_HOST=127.0.0.1"
 if not defined RA_DB_PORT set "RA_DB_PORT=3306"
 if not defined RA_DATABASE_NAME set "RA_DATABASE_NAME=research_assistant"
@@ -52,7 +54,7 @@ set "PATH=!JAVA_HOME!\bin;!PATH!"
 set "BACKEND_LOG=%RUNTIME_DIR%\backend.log"
 set "BACKEND_ERROR_LOG=%RUNTIME_DIR%\backend-error.log"
 echo [INFO] Starting backend with JDK: !JAVA_HOME!
-powershell.exe -NoProfile -Command "$quote = [char]34; $command = 'call ' + $quote + $env:BACKEND_DIR + '\mvnw.cmd' + $quote + ' spring-boot:run -DskipTests'; $proc = Start-Process -FilePath $env:ComSpec -ArgumentList @('/d','/s','/c',$command) -WorkingDirectory $env:BACKEND_DIR -RedirectStandardOutput $env:BACKEND_LOG -RedirectStandardError $env:BACKEND_ERROR_LOG -PassThru -WindowStyle Hidden; [IO.File]::WriteAllText($env:BACKEND_PID_FILE, [string]$proc.Id, [Text.Encoding]::ASCII)"
+powershell.exe -NoProfile -Command "$quote = [char]34; $command = 'call ' + $quote + $env:BACKEND_DIR + '\mvnw.cmd' + $quote; if (-not [string]::IsNullOrWhiteSpace($env:RA_MAVEN_REPO)) { $repoArg = '-Dmaven.repo.local=' + $env:RA_MAVEN_REPO; $command += ' ' + $quote + $repoArg + $quote }; $command += ' spring-boot:run -DskipTests'; $proc = Start-Process -FilePath $env:ComSpec -ArgumentList @('/d','/s','/c',$command) -WorkingDirectory $env:BACKEND_DIR -RedirectStandardOutput $env:BACKEND_LOG -RedirectStandardError $env:BACKEND_ERROR_LOG -PassThru -WindowStyle Hidden; [IO.File]::WriteAllText($env:BACKEND_PID_FILE, [string]$proc.Id, [Text.Encoding]::ASCII)"
 if errorlevel 1 (
   echo [ERROR] Failed to start the backend.
   exit /b 1
@@ -71,7 +73,7 @@ goto wait_backend_ready
 :backend_start_ready
 call :find_backend_pid
 if defined BACKEND_EXISTING_PID >"%BACKEND_PID_FILE%" echo !BACKEND_EXISTING_PID!
-echo [OK] Backend is ready: http://127.0.0.1:8080
+echo [OK] Backend is ready: http://127.0.0.1:!BACKEND_PORT!
 exit /b 0
 
 :backend_start_timeout
@@ -115,7 +117,7 @@ for /f "delims=" %%I in ('powershell.exe -NoProfile -Command "$all = @(Get-CimIn
 exit /b 0
 
 :backend_healthy
-powershell.exe -NoProfile -Command "try { $response = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/actuator/health' -TimeoutSec 2; if ($response.status -eq 'UP') { exit 0 } } catch {}; exit 1" >nul 2>&1
+powershell.exe -NoProfile -Command "try { $uri = 'http://127.0.0.1:' + $env:BACKEND_PORT + '/actuator/health'; $response = Invoke-RestMethod -Uri $uri -TimeoutSec 2; if ($response.status -eq 'UP') { exit 0 } } catch {}; exit 1" >nul 2>&1
 exit /b %ERRORLEVEL%
 
 :port_listening

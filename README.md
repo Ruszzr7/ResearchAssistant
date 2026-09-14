@@ -58,6 +58,8 @@ scripts\stop-all.cmd
 
 `start-backend.cmd` 在后端未运行时启动后端，在后端已运行时重启后端。默认使用数据库 `3306`、后端 `8080`、前端 `5173`。脚本会等待端口和健康检查就绪；若端口被其他项目占用，会拒绝启动且不会结束不属于本项目的进程。因此不同项目不同时占用这些端口即可互不影响。
 
+若本机已有其他项目占用默认端口，可创建不会提交到 Git 的 `scripts\local-config.cmd`。所有启动和停止脚本都会读取该文件；可在其中设置 `RA_DB_PORT`、`BACKEND_PORT`、`FRONTEND_PORT`、`VITE_BACKEND_TARGET`、`MYSQL_HOME` 和 `MYSQL_DEFAULTS_FILE`。设置 `RA_DB_STANDALONE=true` 后，数据库脚本只启动配置文件指定的独立实例，不会启停 Windows MySQL 服务。项目级 npm 缓存和 Maven 仓库也可以分别通过 `npm_config_cache`、`RA_MAVEN_REPO` 指向本机目录；未设置时继续使用 npm/Maven 的系统默认位置。
+
 前端地址为 `http://127.0.0.1:5173`，后端健康检查为 `http://127.0.0.1:8080/actuator/health`。模型供应商、通道、Base URL、模型和 API Key 在设置页配置。
 
 本地导入的论文默认保存在项目根目录的 `data/papers`。文献库工具栏中的文件夹按钮可直接用系统文件管理器打开该目录；数据库只保存文件名，不保存绑定当前电脑的绝对路径。

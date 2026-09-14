@@ -7,6 +7,7 @@ for %%I in ("%SCRIPT_DIR%..") do set "PROJECT_DIR=%%~fI"
 set "RUNTIME_DIR=%PROJECT_DIR%\runtime"
 set "DATABASE_PID_FILE=%RUNTIME_DIR%\database.pid"
 
+if exist "%SCRIPT_DIR%local-config.cmd" call "%SCRIPT_DIR%local-config.cmd"
 if not exist "%RUNTIME_DIR%" md "%RUNTIME_DIR%" >nul 2>&1
 if not defined RA_DB_HOST set "RA_DB_HOST=127.0.0.1"
 if not defined RA_DB_PORT set "RA_DB_PORT=3306"
@@ -31,8 +32,12 @@ if not errorlevel 1 (
   exit /b 1
 )
 
-call :discover_service
-if errorlevel 1 exit /b 1
+if /i "!RA_DB_STANDALONE!"=="true" (
+  set "MYSQL_SERVICE="
+) else (
+  call :discover_service
+  if errorlevel 1 exit /b 1
+)
 if defined MYSQL_SERVICE (
   call :start_service
 ) else (

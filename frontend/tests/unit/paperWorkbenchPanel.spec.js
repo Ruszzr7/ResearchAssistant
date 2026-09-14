@@ -182,8 +182,12 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.get('.memory-status__action').trigger('click')
     await flushPromises()
 
-    expect(mocks.startPaperUnderstanding).toHaveBeenCalledWith(1, expect.stringMatching(/^paper-memory-ui:1:/))
-    expect(wrapper.get('.memory-status').text()).toContain('任务已提交')
+    expect(mocks.startPaperUnderstanding).toHaveBeenCalledWith(1)
+    expect(wrapper.get('.memory-status').text()).toContain('正在理解论文')
+    expect(wrapper.get('.memory-status__action').text()).toContain('理解中')
+    expect(wrapper.get('.memory-status__action').attributes()).toHaveProperty('disabled')
+    await wrapper.get('.memory-status__action').trigger('click')
+    expect(mocks.startPaperUnderstanding).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 
@@ -197,7 +201,9 @@ describe('PaperWorkbenchPanel paper-reading workspace', () => {
     await wrapper.get('.memory-status__action').trigger('click')
     await flushPromises()
 
-    expect(mocks.startPaperUnderstanding).toHaveBeenCalledWith(1, expect.stringMatching(/^paper-memory-ui:1:/))
+    expect(mocks.startPaperUnderstanding).toHaveBeenCalledWith(1)
+    expect(wrapper.get('.memory-status__action').text()).toContain('理解中')
+    expect(wrapper.get('.memory-status__action').attributes()).toHaveProperty('disabled')
     wrapper.unmount()
   })
 
