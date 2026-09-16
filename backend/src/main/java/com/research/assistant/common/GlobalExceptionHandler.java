@@ -41,6 +41,12 @@ public class GlobalExceptionHandler {
         return response(HttpStatus.BAD_REQUEST, e.getMessage());
     }
 
+    @ExceptionHandler(PaperMetadataValidationException.class)
+    public ResponseEntity<Result<Void>> handlePaperMetadataValidation(PaperMetadataValidationException e) {
+        log.warn("paper_metadata_validation_failed field={}", e.getField());
+        return response(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
     @ExceptionHandler(AsyncTaskCapacityException.class)
     public ResponseEntity<Result<Void>> handleTaskCapacity(AsyncTaskCapacityException e) {
         log.warn("async_capacity_rejected type={}", typeOf(e));
@@ -126,7 +132,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<Result<Void>> handleDataAccess(DataAccessException e) {
-        log.error("database_operation_failed type={} requestId={}", typeOf(e), requestId());
+        Throwable cause = deepestCause(e);
+        log.error("database_operation_failed type={} causeType={} cause={} requestId={}",
+                typeOf(e), cause.getClass().getSimpleName(), safeCauseMessage(cause), requestId());
         return response(HttpStatus.INTERNAL_SERVER_ERROR, "数据库操作失败，请稍后重试");
     }
 
@@ -146,5 +154,18 @@ public class GlobalExceptionHandler {
 
     private String requestId() {
         return MDC.get("requestId");
+    }
+
+    private Throwable deepestCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
+        return current;
+    }
+
+    private String safeCauseMessage(Throwable throwable) {
+        String message = throwable == null ? "" : throwable.getMessage();
+        if (message == null) return "";
+        String normalized = message.replaceAll("[\\r\\n\\t]+", " ").trim();
+        return normalized.length() <= 500 ? normalized : normalized.substring(0, 500);
     }
 }

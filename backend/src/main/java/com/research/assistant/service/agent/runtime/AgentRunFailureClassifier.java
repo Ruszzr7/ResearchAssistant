@@ -1,9 +1,19 @@
 package com.research.assistant.service.agent.runtime;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.util.Locale;
 
 /** Stable failure codes and user-facing messages for background Agent runs. */
 public final class AgentRunFailureClassifier {
+
+    public static final String PROVIDER_TRANSIENT = "PROVIDER_TRANSIENT";
+    public static final String PROJECT_SCHEDULER = "PROJECT_SCHEDULER";
+    public static final String PROJECT_LIMIT = "PROJECT_LIMIT";
+    public static final String MODEL_PROTOCOL = "MODEL_PROTOCOL";
+    public static final String PROJECT_INTERNAL = "PROJECT_INTERNAL";
+    public static final String USER_ACTION = "USER_ACTION";
+    public static final String UNKNOWN = "UNKNOWN";
 
     private AgentRunFailureClassifier() {
     }
@@ -46,13 +56,71 @@ public final class AgentRunFailureClassifier {
         if (combined.contains("capability_not_verified") || combined.contains("did_not_call_tool")) {
             return new Failure("MODEL_TOOL_CALLING_UNAVAILABLE", "当前对话模型未通过Agent工具调用测试");
         }
-        if (combined.contains("empty response") || combined.contains("empty direct answer")) {
+        if (combined.contains("empty response") || combined.contains("empty direct answer")
+                || combined.contains("空响应")) {
             return new Failure("MODEL_EMPTY_RESPONSE", "模型未返回有效内容，请重试");
         }
         if (combined.contains("connect") || combined.contains("network") || combined.contains("socket")) {
             return new Failure("MODEL_CONNECTION_FAILED", "模型服务连接失败，请检查API设置或稍后重试");
         }
         return new Failure("AGENT_INTERNAL_ERROR", "论文助手执行失败，请稍后重试");
+    }
+
+    /**
+     * Rebuilds the stable classification for a persisted run without exposing
+     * the original provider or prompt text.
+     */
+    public static Failure fromCode(String code) {
+        String normalized = code == null || code.isBlank() ? "AGENT_INTERNAL_ERROR" : code.trim();
+        return new Failure(normalized, userMessage(normalized), categoryFor(normalized), retryableFor(normalized));
+    }
+
+    public static String categoryFor(String code) {
+        if (code == null) return UNKNOWN;
+        return switch (code) {
+            case "MODEL_TIMEOUT", "RUN_TIMEOUT", "MODEL_OVERLOADED", "MODEL_CONNECTION_FAILED",
+                    "MODEL_EMPTY_RESPONSE" -> PROVIDER_TRANSIENT;
+            case "QUEUE_TIMEOUT" -> PROJECT_SCHEDULER;
+            case "CONTEXT_BUDGET_EXCEEDED", "AGENT_CALL_LIMIT", "TOOL_ROUND_LIMIT",
+                    "TOOL_OUTPUT_OVERSIZE" -> PROJECT_LIMIT;
+            case "ANSWER_SUBMISSION_REQUIRED", "EVIDENCE_SUBMISSION_REQUIRED", "EVIDENCE_VALIDATION_FAILED",
+                    "MODEL_TOOL_CALLING_UNAVAILABLE", "AGENT_PROTOCOL_ERROR" -> MODEL_PROTOCOL;
+            case "USER_CANCELLED" -> USER_ACTION;
+            case "AGENT_DISPATCH_FAILED", "AGENT_INTERNAL_ERROR" -> PROJECT_INTERNAL;
+            default -> UNKNOWN;
+        };
+    }
+
+    /** True only when a single bounded retry is a reasonable default. */
+    public static boolean retryableFor(String code) {
+        return switch (categoryFor(code)) {
+            case PROVIDER_TRANSIENT, PROJECT_SCHEDULER -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Resolves a watchdog timeout when the worker's exception raced the timeout
+     * scanner. A NOT_SENT trace proves the provider was not called.
+     */
+    public static Failure classifyTimeoutTrace(JsonNode trace, Integer maxModelCalls) {
+        if (trace != null && trace.isArray()) {
+            for (int index = trace.size() - 1; index >= 0; index--) {
+                JsonNode call = trace.get(index);
+                if (!"FAILED".equals(call.path("status").asText())) continue;
+                if (!"NOT_SENT".equals(call.path("responseKind").asText())) break;
+                int ordinal = call.path("ordinal").asInt(0);
+                int maxCalls = maxModelCalls == null ? 0 : maxModelCalls;
+                if (maxCalls > 0 && ordinal > maxCalls) {
+                    return fromCode("AGENT_CALL_LIMIT");
+                }
+                if (call.path("estimatedPromptTokens").asInt(0) > 16_000) {
+                    return fromCode("CONTEXT_BUDGET_EXCEEDED");
+                }
+                break;
+            }
+        }
+        return fromCode("RUN_TIMEOUT");
     }
 
     public static String userMessage(String code) {
@@ -78,6 +146,9 @@ public final class AgentRunFailureClassifier {
         };
     }
 
-    public record Failure(String code, String userMessage) {
+    public record Failure(String code, String userMessage, String category, boolean retryable) {
+        public Failure(String code, String userMessage) {
+            this(code, userMessage, categoryFor(code), retryableFor(code));
+        }
     }
 }

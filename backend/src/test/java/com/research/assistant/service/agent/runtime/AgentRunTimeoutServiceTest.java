@@ -1,7 +1,9 @@
 package com.research.assistant.service.agent.runtime;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.entity.AgentRunRecord;
 import com.research.assistant.mapper.AgentRunMapper;
+import com.research.assistant.service.agent.core.AgentTurnSubmissionService;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -30,6 +32,22 @@ class AgentRunTimeoutServiceTest {
         verify(runtime, never()).transitionRun(org.mockito.ArgumentMatchers.eq("active"),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void cancelsTheActiveWorkerAfterTheDurableTimeoutWins() {
+        AgentRunMapper mapper = mock(AgentRunMapper.class);
+        AgentRuntimeService runtime = mock(AgentRuntimeService.class);
+        AgentTurnSubmissionService submissions = mock(AgentTurnSubmissionService.class);
+        AgentRunRecord expired = run("expired", LocalDateTime.now().minusSeconds(190), 180_000L);
+        when(mapper.selectRunning()).thenReturn(List.of(expired));
+        when(mapper.selectQueued()).thenReturn(List.of());
+
+        new AgentRunTimeoutService(mapper, runtime, new ObjectMapper(), submissions).timeoutExpiredRuns();
+
+        verify(runtime).transitionRun("expired", AgentRunStatus.FAILED, null,
+                "RUN_TIMEOUT", "agent run exceeded 180000 ms");
+        verify(submissions).cancelExecution("expired");
     }
 
     @Test
@@ -65,6 +83,40 @@ class AgentRunTimeoutServiceTest {
 
         verify(runtime).transitionRun("queued", AgentRunStatus.FAILED, null,
                 "QUEUE_TIMEOUT", "agent run queue exceeded 120000 ms");
+    }
+
+    @Test
+    void preservesAContextGuardWhenTheWatchdogWinsTheWorkerRace() {
+        AgentRunMapper mapper = mock(AgentRunMapper.class);
+        AgentRuntimeService runtime = mock(AgentRuntimeService.class);
+        AgentRunRecord expired = run("context", LocalDateTime.now().minusSeconds(130), 120_000L);
+        expired.setMaxModelCalls(7);
+        expired.setModelTraceJson("[{\"ordinal\":7,\"status\":\"FAILED\","
+                + "\"estimatedPromptTokens\":16209,\"responseKind\":\"NOT_SENT\"}]");
+        when(mapper.selectRunning()).thenReturn(List.of(expired));
+        when(mapper.selectQueued()).thenReturn(List.of());
+
+        new AgentRunTimeoutService(mapper, runtime).timeoutExpiredRuns();
+
+        verify(runtime).transitionRun("context", AgentRunStatus.FAILED, null,
+                "CONTEXT_BUDGET_EXCEEDED", "CONTEXT_BUDGET_EXCEEDED: 当前上下文内容过长，请缩小输入范围");
+    }
+
+    @Test
+    void preservesTheCallGuardWhenTheLastModelRequestWasNotSent() {
+        AgentRunMapper mapper = mock(AgentRunMapper.class);
+        AgentRuntimeService runtime = mock(AgentRuntimeService.class);
+        AgentRunRecord expired = run("calls", LocalDateTime.now().minusSeconds(130), 120_000L);
+        expired.setMaxModelCalls(7);
+        expired.setModelTraceJson("[{\"ordinal\":8,\"status\":\"FAILED\","
+                + "\"estimatedPromptTokens\":11000,\"responseKind\":\"NOT_SENT\"}]");
+        when(mapper.selectRunning()).thenReturn(List.of(expired));
+        when(mapper.selectQueued()).thenReturn(List.of());
+
+        new AgentRunTimeoutService(mapper, runtime).timeoutExpiredRuns();
+
+        verify(runtime).transitionRun("calls", AgentRunStatus.FAILED, null,
+                "AGENT_CALL_LIMIT", "AGENT_CALL_LIMIT: 论文助手调用次数已达上限，请缩小问题范围后重试");
     }
 
     private AgentRunRecord run(String id, LocalDateTime startedAt, long timeoutMs) {

@@ -38,7 +38,7 @@ public class PaperLayoutSemanticEnricher {
     private static final Pattern TABLE_CAPTION = Pattern.compile(
             "(?i)^\\s*table\\s+(?:[IVXLC]+|\\d+)[.:\\s].*");
     private static final Pattern NUMBERED_HEADING = Pattern.compile(
-            "(?i)^\\s*(?:(?:[IVXLC]+|\\d+(?:\\.\\d+)*)\\.|appendix(?:\\s+[A-Z])?)\\s*[A-Z].*");
+            "(?i)^\\s*(?:(?:[IVXLC]+|\\d+(?:\\.\\d+)*)\\.?\\s+|appendix(?:\\s+[A-Z])?\\s*)[A-Z].*");
     private static final Pattern PROOF_HEADING = Pattern.compile(
             "(?i)^\\s*(?:proof\\s+of\\s+)?(?:lemma|theorem|proposition|corollary)\\s*\\d+.*");
     private static final Pattern EQUATION_NUMBER = Pattern.compile(".*\\(\\d+[a-z]?\\)\\s*$");
@@ -172,7 +172,7 @@ public class PaperLayoutSemanticEnricher {
                 .filter(block -> ABSTRACT_START.matcher(block.text()).find())
                 .mapToDouble(block -> block.bbox().y())
                 .min()
-                .orElse(0.34);
+                .orElse(Math.min(0.36, titleBottom + 0.09));
         Set<String> authorTokens = tokens(authorsHint);
         LinkedHashSet<String> result = new LinkedHashSet<>();
 

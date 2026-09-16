@@ -54,7 +54,7 @@ class MetadataEnrichmentServiceTest {
                 Abstract—This paper studies reliable low-latency communication.
                 """.formatted(LOCAL_TITLE);
         String metadataText = firstPage + "\n[15] Schulman et al., arXiv:1707.06347.";
-        when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(5)))
+        when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(2)))
                 .thenReturn(new PdfExtractor.MetadataTextExtraction(firstPage, metadataText));
         when(paperDocumentReviewer.review(firstPage, metadataText))
                 .thenReturn(new PaperDocumentReviewer.Review(PaperDocumentReviewer.Status.PAPER, ""));
@@ -87,7 +87,7 @@ class MetadataEnrichmentServiceTest {
                 DOI: 10.1109/LWC.2024.3373826
                 Abstract—This paper studies reliable low-latency communication.
                 """.formatted(LOCAL_TITLE);
-        when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(5)))
+        when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(2)))
                 .thenReturn(new PdfExtractor.MetadataTextExtraction(firstPage, firstPage));
         when(paperDocumentReviewer.review(firstPage, firstPage))
                 .thenReturn(new PaperDocumentReviewer.Review(PaperDocumentReviewer.Status.PAPER, ""));
@@ -115,7 +115,7 @@ class MetadataEnrichmentServiceTest {
     void shouldStopMetadataLookupForClearlyNonPaperPdf() throws Exception {
         MultipartFile file = mock(MultipartFile.class);
         String diagram = "Time Slot (Duration T) Signal Transmission BS User Scheduling CSI Feedback";
-        when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(5)))
+        when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(2)))
                 .thenReturn(new PdfExtractor.MetadataTextExtraction(diagram, diagram));
         when(paperDocumentReviewer.review(diagram, diagram))
                 .thenReturn(new PaperDocumentReviewer.Review(
@@ -129,5 +129,57 @@ class MetadataEnrichmentServiceTest {
         verify(identifierExtractor, never()).extract(org.mockito.ArgumentMatchers.anyString());
         verify(crossrefFetcher, never()).fetch(org.mockito.ArgumentMatchers.anyString());
         verify(arxivFetcher, never()).getMetadata(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void shouldPreferEmbeddedAndLayoutMetadataAndInspectEmbeddedSubjectForDoi() throws Exception {
+        MultipartFile file = mock(MultipartFile.class);
+        String firstPage = "Abstract\nMapReduce processes large datasets.\n1 Introduction";
+        PdfDocumentMetadata documentMetadata = new PdfDocumentMetadata(
+                "MapReduce: Simplified Data Processing on Large Clusters",
+                "Jeffrey Dean, Sanjay Ghemawat",
+                "MapReduce processes large datasets.",
+                "https://doi.acm.org/10.1145/1327452.1327492",
+                null);
+        when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(2)))
+                .thenReturn(new PdfExtractor.MetadataTextExtraction(
+                        firstPage, firstPage, documentMetadata));
+        when(paperDocumentReviewer.review(firstPage, firstPage))
+                .thenReturn(new PaperDocumentReviewer.Review(PaperDocumentReviewer.Status.PAPER, ""));
+        when(identifierExtractor.extract(firstPage + "\n" + documentMetadata.subject()))
+                .thenReturn(new IdentifierResult("10.1145/1327452.1327492", null));
+        when(crossrefFetcher.fetch("10.1145/1327452.1327492"))
+                .thenThrow(new RuntimeException("offline"));
+
+        EnrichmentResult result = service.enrichFromPdf(file);
+
+        assertEquals("MapReduce: Simplified Data Processing on Large Clusters", result.getTitle());
+        assertEquals(true, result.getAuthors().contains("Jeffrey Dean"));
+        assertEquals("10.1145/1327452.1327492", result.getDoi());
+        assertEquals("MapReduce processes large datasets.", result.getAbstractText());
+    }
+
+    @Test
+    void shouldKeepSpecificPdfTitleWhenRegistryReturnsOnlyAnAbbreviation() throws Exception {
+        MultipartFile file = mock(MultipartFile.class);
+        String firstPage = "MapReduce: Simplified Data Processing on Large Clusters\n"
+                + "Jeffrey Dean, Sanjay Ghemawat\nAbstract MapReduce processes large datasets.";
+        PdfDocumentMetadata documentMetadata = new PdfDocumentMetadata(
+                "MapReduce: Simplified Data Processing on Large Clusters",
+                "Jeffrey Dean, Sanjay Ghemawat", "MapReduce processes large datasets.",
+                "10.1145/1327452.1327492", null);
+        when(pdfExtractor.extractMetadataTextExtraction(eq(file), eq(2)))
+                .thenReturn(new PdfExtractor.MetadataTextExtraction(firstPage, firstPage, documentMetadata));
+        when(paperDocumentReviewer.review(firstPage, firstPage))
+                .thenReturn(new PaperDocumentReviewer.Review(PaperDocumentReviewer.Status.PAPER, ""));
+        when(identifierExtractor.extract(firstPage + "\n" + documentMetadata.subject()))
+                .thenReturn(new IdentifierResult("10.1145/1327452.1327492", null));
+        when(crossrefFetcher.fetch("10.1145/1327452.1327492")).thenReturn(Map.of(
+                "title", "MapReduce", "authors", "Jeffrey Dean, Sanjay Ghemawat",
+                "year", "2008", "doi", "10.1145/1327452.1327492"));
+
+        EnrichmentResult result = service.enrichFromPdf(file);
+
+        assertEquals("MapReduce: Simplified Data Processing on Large Clusters", result.getTitle());
     }
 }

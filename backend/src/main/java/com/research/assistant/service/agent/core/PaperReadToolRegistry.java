@@ -93,7 +93,7 @@ public class PaperReadToolRegistry {
 
     public List<AgentToolDefinition> definitions() {
         return List.of(new AgentToolDefinition("retrieve_paper_evidence",
-                "从当前论文检索可引用的原文证据。先把最终答案需要成立的独立事实拆成 1～4 个 needs，并在首次调用中一次提交；首次有效检索后 Need ID 集合冻结。每个 Need 都要提供稳定唯一的 id、中文中立的 objective，以及 query、sourceObjectIds 或 profileClaimRefs 中至少一种检索锚点。query、keywords 和 targets 使用论文原文术语、变量名、数值或公式编号；targets 只做词面核对。用户直接询问图或图中趋势时，该 Need 必须使用 contentTypes=[\"FIGURE\"]，并在 targets/query 中保留明确的 Fig./Figure 编号；实际图像区域会随匹配的 FIGURE 来源一起返回。解释图的正文可作为另一个 TEXT Need。回答精确公式时优先限制 FORMULA，公式文本不可靠时工具会自动返回局部图像。收到来源后由 Agent 阅读并判断语义充分性；只对未解决 Need 保持原 id 和 objective，补检索时填写 refinementReason 并改变有效检索条件。若返回 coverageState=LEXICAL_TARGETS_COVERED，或明确返回了目标图/图题，停止该 Need 并使用 submit_answer；不要为了穷尽候选而继续检索。若返回 hasMore=true，只有仍缺少目标或正文时才使用同一 Need 的 nextCursor 继续读取候选页；若没有新来源、游标已耗尽或 stopRecommended=true，停止该 Need并使用 submit_answer。discussesFigure/discussedBy 中的来源 ID 只是关系定位提示，不是本次已读取或可引用的来源；引用前必须把该 ID 作为 sourceObjectIds 重新交给本工具读取。不要重复请求、新建同方向 Need，或把检索状态当成论文结论。", EVIDENCE_SCHEMA));
+                "从当前论文检索可引用的原文证据。把最终答案需要成立的独立事实表示为 1～4 个 needs；每个 Need 提供稳定的 id、中文中立 objective，以及 query、sourceObjectIds 或 profileClaimRefs 中至少一种锚点。query、keywords 和 targets 应使用论文原文术语、变量名、数值或公式编号。直接询问图或图中趋势时使用 contentTypes=[\"FIGURE\"] 并保留明确图号；回答精确公式时优先限制 FORMULA，文本不可靠时工具会自动返回局部图像。返回任意可用原文来源后，先根据来源内容判断语义是否充分；targets 只是词面提示，不要求逐项命中，也不要因为仍有候选来源就分页穷举。只有存在明确事实缺口时，才沿用或新增 Need，并通过 refinementReason 或改变查询条件继续检索；信息足够时调用 finish_research。完全相同的请求是幂等的，不会重复扫描。discussesFigure/discussedBy 中的来源 ID 只是定位提示，引用前仍需把该 ID 交给本工具实际读取。不要把检索状态当成论文结论。", EVIDENCE_SCHEMA));
     }
 
     /** Compatibility entry point; model-facing tools no longer vary by message keywords. */
@@ -419,7 +419,14 @@ public class PaperReadToolRegistry {
             // counting returned IDs would then skip an unseen candidate in the middle.
             int nextCandidate = nextCandidateCursor(candidatePage, selectedById.keySet(),
                     candidateOffset);
-            boolean hasMore = nextCandidate < eligibleHits.size();
+            boolean candidatePageHasMore = nextCandidate < eligibleHits.size();
+            // A broad search can produce dozens of lexical candidates. Once this
+            // page has returned usable content, exposing every remaining ranked
+            // hit turns pagination into an accidental workflow: the model keeps
+            // calling the tool even though it already has material to judge the
+            // Need. Continue only when the current Need received no source at
+            // all; a real semantic gap can always use a changed query or target.
+            boolean hasMore = candidatePageHasMore && returnedIds.isEmpty();
             value.put("hasMore", hasMore);
             if (hasMore) {
                 value.put("nextCursor", nextCandidate);
@@ -444,9 +451,11 @@ public class PaperReadToolRegistry {
     private static String coverageState(List<String> returnedIds, List<String> targets,
                                         List<String> missingTargets, boolean hasMore) {
         if (returnedIds.isEmpty()) return hasMore ? "DEFERRED" : "NO_MATCH";
-        if (targets.isEmpty()) return "SOURCES_AVAILABLE";
-        if (missingTargets.isEmpty()) return "LEXICAL_TARGETS_COVERED";
-        return hasMore ? "LEXICAL_TARGETS_PARTIAL_MORE" : "LEXICAL_TARGETS_PARTIAL";
+        // targets are lexical hints for ranking and audit; they are not a
+        // requirement to find every spelling in the paper. Once usable source
+        // content is returned, report it as available and let the Agent judge
+        // semantic sufficiency from the content itself.
+        return "SOURCES_AVAILABLE";
     }
 
     private List<RetrievalHit> search(PaperSourceCatalog catalog, PaperSearchRequest request,
@@ -1023,7 +1032,7 @@ public class PaperReadToolRegistry {
         if (source.provenance().containsKey("discussesFigure")
                 || source.provenance().containsKey("discussedBy")) {
             value.put("relationUsage",
-                    "关系字段中的来源 ID 仅用于定位，不代表本次已读取或可引用；引用关联来源前必须用 sourceObjectIds 重新读取。只有本结果 sources 中实际返回的来源才可绑定到 submit_answer。");
+                    "关系字段中的来源 ID 仅用于定位，不代表本次已读取或可引用；引用关联来源前必须用 sourceObjectIds 重新读取。只有本结果 sources 中实际返回的来源才会获得最终回答的引用标签。");
         }
         String textFormat = source.provenance().getOrDefault("textFormat", "PLAIN_TEXT");
         boolean textReliable = Boolean.parseBoolean(source.provenance().getOrDefault("textReliable",

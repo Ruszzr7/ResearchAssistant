@@ -37,7 +37,9 @@ export function usePaperAgent() {
     const dispatchedActions = new Set()
     let finalStatus = null
     try {
-      for (let attempt = 0; attempt < 360; attempt += 1) {
+      // The backend owns the durable run deadline. Keep the foreground watcher
+      // longer than that deadline so it cannot invent an earlier client timeout.
+      for (let attempt = 0; attempt < 960; attempt += 1) {
         const current = await getRun(runId, signal)
         const view = toViewModel(current)
         const currentProgress = {

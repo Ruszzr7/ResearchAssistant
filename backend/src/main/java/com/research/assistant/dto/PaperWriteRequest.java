@@ -20,7 +20,7 @@ public class PaperWriteRequest {
     private Integer year;
     @Size(max = 500, message = "来源长度不能超过 500")
     private String source;
-    @Size(max = 500, message = "DOI 长度不能超过 500")
+    @Size(max = 200, message = "DOI 长度不能超过 200")
     private String doi;
     @Size(max = 100, message = "arXiv ID 长度不能超过 100")
     private String arxivId;

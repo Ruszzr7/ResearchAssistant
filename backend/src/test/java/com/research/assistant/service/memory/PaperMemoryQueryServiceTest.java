@@ -44,6 +44,7 @@ class PaperMemoryQueryServiceTest {
     void shouldExposePartialCoverageAndValidatedProfile() throws Exception {
         Paper paper = new Paper();
         paper.setId(6L);
+        paper.setTitle("Paper");
         paper.setPdfPath("paper.pdf");
         PaperMemoryRecord record = new PaperMemoryRecord();
         record.setId(61L);
@@ -95,6 +96,29 @@ class PaperMemoryQueryServiceTest {
 
         PaperMemoryStatusView view = new PaperMemoryQueryService(
                 paperMapper, memoryMapper, objectMapper, artifacts).status(6L);
+
+        assertThat(view.profileReady()).isFalse();
+        assertThat(view.canStart()).isTrue();
+        assertThat(view.canRetry()).isTrue();
+    }
+
+    @Test
+    void shouldAllowRetryWhenSavedProfileUsesAnOlderPaperTitle() throws Exception {
+        Paper paper = new Paper();
+        paper.setId(6L);
+        paper.setTitle("Corrected title");
+        paper.setPdfPath("paper.pdf");
+        PaperMemoryRecord record = new PaperMemoryRecord();
+        record.setId(61L);
+        record.setPaperId(6L);
+        record.setStatus(PaperUnderstandingService.STATUS_READY);
+        record.setUnderstandingVersion(PaperUnderstandingService.PIPELINE_VERSION);
+        record.setProfileQualityJson("{\"ready\":true}");
+        record.setProfileJson(objectMapper.writeValueAsString(profile()));
+        when(paperMapper.selectById(6L)).thenReturn(paper);
+        when(memoryMapper.selectLatest(6L)).thenReturn(record);
+
+        PaperMemoryStatusView view = service.status(6L);
 
         assertThat(view.profileReady()).isFalse();
         assertThat(view.canStart()).isTrue();

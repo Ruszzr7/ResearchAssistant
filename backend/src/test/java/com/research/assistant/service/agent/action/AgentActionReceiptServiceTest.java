@@ -78,6 +78,23 @@ class AgentActionReceiptServiceTest {
     }
 
     @Test
+    void acceptsPdfiumFirstAndLastRowsInsideTheTrustedTextSpan() {
+        List<SourceLocator> locators = List.of(new SourceLocator("loc", "src", 7, "PDF_NORMALIZED",
+                List.of(
+                        new NormalizedBoundingBox(.08, .10, .40, .03),
+                        new NormalizedBoundingBox(.09, .30, .38, .03)),
+                "algorithm", EvidenceLocator.Precision.TEXT_RANGE));
+        Map<String, Object> coordinates = Map.of(
+                "page", 7,
+                "rects", List.of(
+                        Map.of("x", .10, "y", .14, "width", .35, "height", .015),
+                        Map.of("x", .10, "y", .28, "width", .35, "height", .015)));
+
+        assertThatCode(() -> AgentActionReceiptService.validateClientCoordinates(
+                coordinates, locators, PaperActionType.HIGHLIGHT)).doesNotThrowAnyException();
+    }
+
+    @Test
     void rejectsNaturalSelectionRowsThatCrossIntoAnotherColumn() {
         List<SourceLocator> locators = List.of(new SourceLocator("loc", "src", 7, "PDF_NORMALIZED",
                 List.of(
@@ -111,7 +128,11 @@ class AgentActionReceiptServiceTest {
             call.setActionTicketHash(invocation.getArgument(2)); call.setStatus("WAITING_CLIENT"); return 1;
         });
         when(calls.selectByToolCallId("tool-1")).thenReturn(call);
-        when(calls.selectByRunId("run-1")).thenReturn(List.of(call));
+        AgentToolCallRecord rejectedPlan = new AgentToolCallRecord();
+        rejectedPlan.setRunId("run-1"); rejectedPlan.setToolCallId("rejected-plan");
+        rejectedPlan.setReadOnly(false); rejectedPlan.setStatus("FAILED");
+        rejectedPlan.setActionTicketHash(null);
+        when(calls.selectByRunId("run-1")).thenReturn(List.of(rejectedPlan, call));
         ActionTicketService tickets = new ActionTicketService(calls, json);
         ActionTarget target = new ActionTarget(9, "hash", "src", 2, List.of("loc"),
                 List.of(new NormalizedBoundingBox(.1, .2, .3, .04)));
@@ -129,7 +150,7 @@ class AgentActionReceiptServiceTest {
                 "论文报告达到 95% accuracy。",
                 List.of(new CitationBinding("cite-1", 1, 0, 24, "src", "target", List.of("loc"))),
                 List.of(new AgentEvidenceView(1, "src", 9L, "target", catalog().locators().get("src"))),
-                List.of())));
+                List.of(), "CONTENT_AND_ACTION")));
         when(runtime.getRun("run-1")).thenReturn(run);
         AgentTurnRecord turn = new AgentTurnRecord(); turn.setId(3L); turn.setTurnId("turn-1"); turn.setSessionId(5L);
         when(runtime.getTurnForRun("run-1")).thenReturn(turn);
@@ -164,6 +185,8 @@ class AgentActionReceiptServiceTest {
         assertThat(messageCaptor.getValue().getMessageType()).isEqualTo("CHAT");
         assertThat(messageCaptor.getValue().getContent()).contains("论文报告达到 95% accuracy。", "已完成高亮");
         assertThat(messageCaptor.getValue().getEvidenceJson()).contains("src");
+        assertThat(json.readTree(messageCaptor.getValue().getEvidenceJson()).path("outputMode").asText())
+                .isEqualTo("CONTENT_AND_ACTION");
     }
 
     private PaperSourceCatalog catalog() {

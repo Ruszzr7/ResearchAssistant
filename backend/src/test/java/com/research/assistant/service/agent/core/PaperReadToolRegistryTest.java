@@ -43,7 +43,7 @@ class PaperReadToolRegistryTest {
         assertThat(schema.at("/properties/needs").isObject()).isTrue();
         assertThat(schema.at("/properties/searches").isMissingNode()).isTrue();
         assertThat(registry.definitions().get(0).description())
-                .contains("独立事实", "objective", "词面核对");
+                .contains("独立事实", "objective", "完全相同");
         assertThat(schema.at("/properties/needs/items/properties/targets").isObject()).isTrue();
         assertThat(schema.at("/properties/needs/items/properties/includeVisual/type").asText())
                 .isEqualTo("boolean");
@@ -210,7 +210,7 @@ class PaperReadToolRegistryTest {
         assertThat(json.at("/evidenceNeeds/0/targetCoverage/matchedTargets").toString())
                 .contains("Fig. 8");
         assertThat(json.at("/evidenceNeeds/0/coverageState").asText())
-                .isEqualTo("LEXICAL_TARGETS_COVERED");
+                .isEqualTo("SOURCES_AVAILABLE");
     }
 
     @Test
@@ -374,7 +374,7 @@ class PaperReadToolRegistryTest {
     }
 
     @Test
-    void exposesAStableNextCursorInsteadOfSilentlyDroppingCandidateSources() throws Exception {
+    void stopsBroadPaginationWhenTheNeedAlreadyHasUsableSources() throws Exception {
         PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
         PaperSourceCatalog catalog = catalogWithThreeSources();
         when(sourceService.search(eq(catalog), any())).thenReturn(List.of(
@@ -389,19 +389,14 @@ class PaperReadToolRegistryTest {
                 "{\"needs\":[{\"id\":\"need\",\"objective\":\"确认事实\",\"query\":\"fact\"}],\"maxEvidence\":1}")
                 .resultJson());
         assertThat(first.at("/evidenceNeeds/0/candidateCount").asInt()).isEqualTo(3);
-        assertThat(first.at("/evidenceNeeds/0/hasMore").asBoolean()).isTrue();
-        assertThat(first.at("/evidenceNeeds/0/nextCursor").asInt()).isEqualTo(1);
+        assertThat(first.at("/evidenceNeeds/0/hasMore").asBoolean()).isFalse();
+        assertThat(first.at("/evidenceNeeds/0/nextCursor").isMissingNode()).isTrue();
 
-        JsonNode next = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
-                catalog, "retrieve_paper_evidence",
-                "{\"needs\":[{\"id\":\"need\",\"objective\":\"确认事实\",\"query\":\"fact\",\"cursor\":1}],\"maxEvidence\":1}")
-                .resultJson());
-        assertThat(next.at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-2");
-        assertThat(next.at("/evidenceNeeds/0/hasMore").asBoolean()).isTrue();
+        assertThat(first.at("/evidenceNeeds/0/coverageState").asText()).isEqualTo("SOURCES_AVAILABLE");
     }
 
     @Test
-    void nextCursorDoesNotSkipAnUnexposedCandidateSharedWithAnotherNeed() throws Exception {
+    void explicitMissingTargetsDoNotForcePaginationWhenSourcesAreAvailable() throws Exception {
         PaperSourceCatalogService sourceService = mock(PaperSourceCatalogService.class);
         PaperSourceCatalog catalog = catalogWithThreeSources();
         when(sourceService.search(eq(catalog), any())).thenReturn(
@@ -414,23 +409,14 @@ class PaperReadToolRegistryTest {
 
         JsonNode first = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
                 catalog, "retrieve_paper_evidence",
-                "{\"needs\":[{\"id\":\"first\",\"objective\":\"确认第一事实\",\"query\":\"first\"},"
+                "{\"needs\":[{\"id\":\"first\",\"objective\":\"确认第一事实\",\"query\":\"first\",\"targets\":[\"missing\"]},"
                         + "{\"id\":\"shared\",\"objective\":\"确认共享事实\",\"query\":\"shared\"}],"
                         + "\"maxEvidence\":2}").resultJson());
 
         assertThat(first.at("/evidenceNeeds/0/sourceObjectIds").toString())
                 .contains("src-1", "src-3");
-        assertThat(first.at("/evidenceNeeds/0/nextCursor").asInt()).isEqualTo(1);
-
-        when(sourceService.search(eq(catalog), any())).thenReturn(
-                List.of(new RetrievalHit("src-1", .95, List.of("TOKEN")),
-                        new RetrievalHit("src-2", .90, List.of("TOKEN")),
-                        new RetrievalHit("src-3", .85, List.of("TOKEN"))));
-        JsonNode next = objectMapper.readTree(new PaperReadToolRegistry(sourceService, objectMapper).execute(
-                catalog, "retrieve_paper_evidence",
-                "{\"needs\":[{\"id\":\"first\",\"objective\":\"确认第一事实\",\"query\":\"first\",\"cursor\":1}],"
-                        + "\"maxEvidence\":1}").resultJson());
-        assertThat(next.at("/evidenceNeeds/0/sourceObjectIds/0").asText()).isEqualTo("src-2");
+        assertThat(first.at("/evidenceNeeds/0/hasMore").asBoolean()).isFalse();
+        assertThat(first.at("/evidenceNeeds/0/nextCursor").isMissingNode()).isTrue();
     }
 
     @Test
@@ -571,7 +557,7 @@ class PaperReadToolRegistryTest {
         assertThat(json.at("/evidenceNeeds/0/targetCoverage/matchedTargets").toString()).contains("21");
         assertThat(json.at("/evidenceNeeds/0/targetCoverage/missingTargets").toString()).contains("22");
         assertThat(json.at("/evidenceNeeds/0/coverageState").asText())
-                .isEqualTo("LEXICAL_TARGETS_PARTIAL");
+                .isEqualTo("SOURCES_AVAILABLE");
         assertThat(json.at("/evidenceNeeds/0/contentComplete").asBoolean()).isTrue();
         assertThat(json.has("exhausted")).isFalse();
     }

@@ -8,6 +8,7 @@ import com.research.assistant.entity.AgentToolCallRecord;
 import com.research.assistant.mapper.AgentToolCallMapper;
 import com.research.assistant.mapper.AgentRunMapper;
 import com.research.assistant.entity.AgentRunRecord;
+import com.research.assistant.service.agent.runtime.AgentRunFailureClassifier;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -76,7 +77,25 @@ public class AgentRunEventService {
         data.put("runId", runId);
         data.put("status", state.status());
         data.put("message", state.message());
-        if (run.getErrorCode() != null) data.put("errorCode", run.getErrorCode());
+        if (run.getErrorCode() != null) {
+            data.put("errorCode", run.getErrorCode());
+            AgentRunFailureClassifier.Failure failure = AgentRunFailureClassifier.fromCode(run.getErrorCode());
+            if ("RUN_TIMEOUT".equals(run.getErrorCode())) {
+                try {
+                    JsonNode trace = run.getModelTraceJson() == null || run.getModelTraceJson().isBlank()
+                            ? null : objectMapper.readTree(run.getModelTraceJson());
+                    failure = AgentRunFailureClassifier.classifyTimeoutTrace(trace, run.getMaxModelCalls());
+                    if (!"RUN_TIMEOUT".equals(failure.code())) {
+                        data.put("inferredErrorCode", failure.code());
+                        data.put("inferredMessage", failure.userMessage());
+                    }
+                } catch (Exception ignored) {
+                    // Keep the durable timeout classification when old traces are unavailable.
+                }
+            }
+            data.put("failureCategory", failure.category());
+            data.put("retryable", failure.retryable());
+        }
         if (run.getErrorMessage() != null) data.put("errorMessage", run.getErrorMessage());
         return data;
     }
@@ -107,8 +126,24 @@ public class AgentRunEventService {
             data.put("durationMs", Math.max(0, Duration.between(call.getStartedAt(), call.getCompletedAt()).toMillis()));
         }
         if (call.getErrorCode() != null) data.put("errorCode", call.getErrorCode());
+        if (call.getErrorMessage() != null && !call.getErrorMessage().isBlank()) {
+            data.put("errorMessage", call.getErrorMessage().length() <= 500
+                    ? call.getErrorMessage() : call.getErrorMessage().substring(0, 500));
+        }
         appendReadResultDiagnostics(data, call.getResultJson());
+        appendSkillActivationDiagnostics(data, call.getToolName(), call.getResultJson());
         return data;
+    }
+
+    private void appendSkillActivationDiagnostics(Map<String, Object> data, String toolName, String resultJson) {
+        if (!"activate_skill".equals(toolName) || resultJson == null || resultJson.isBlank()) return;
+        try {
+            JsonNode result = objectMapper.readTree(resultJson);
+            String skillName = result.path("skillName").asText("").trim();
+            if (!skillName.isBlank()) data.put("skillName", skillName);
+        } catch (Exception ignored) {
+            // Activation diagnostics are best effort and must never break event delivery.
+        }
     }
 
     private void appendReadResultDiagnostics(Map<String, Object> data, String resultJson) {

@@ -26,6 +26,8 @@ import java.util.Set;
 @Service
 public class MetadataEnrichmentService {
 
+    private static final int METADATA_PAGE_LIMIT = 2;
+
     private static final Logger log = LoggerFactory.getLogger(MetadataEnrichmentService.class);
 
     private final PdfExtractor pdfExtractor;
@@ -58,8 +60,9 @@ public class MetadataEnrichmentService {
      * @return 补全结果
      */
     public EnrichmentResult enrichFromPdf(MultipartFile file) {
-        PdfExtractor.MetadataTextExtraction texts = pdfExtractor.extractMetadataTextExtraction(file, 5);
-        return enrichFromText(texts.identityText(), texts.metadataText());
+        PdfExtractor.MetadataTextExtraction texts = pdfExtractor.extractMetadataTextExtraction(
+                file, METADATA_PAGE_LIMIT);
+        return enrichFromText(texts.identityText(), texts.metadataText(), texts.documentMetadata());
     }
 
     /**
@@ -78,17 +81,19 @@ public class MetadataEnrichmentService {
             throw new RuntimeException("论文未上传 PDF");
         }
         PdfExtractor.MetadataTextExtraction texts = pdfExtractor
-                .extractMetadataTextExtraction(paper.getPdfPath(), 5);
-        return enrichFromText(texts.identityText(), texts.metadataText());
+                .extractMetadataTextExtraction(paper.getPdfPath(), METADATA_PAGE_LIMIT);
+        return enrichFromText(texts.identityText(), texts.metadataText(), texts.documentMetadata());
     }
 
     /**
      * 身份标识只来自首页；前几页文本仅用于本地标题、摘要、关键词等兜底信息。
     * 这样参考文献中的 arXiv / DOI 不会覆盖当前 PDF 的元数据。
      */
-    private EnrichmentResult enrichFromText(String identityText, String metadataText) {
+    private EnrichmentResult enrichFromText(String identityText, String metadataText,
+                                            PdfDocumentMetadata documentMetadata) {
         EnrichmentResult result = new EnrichmentResult();
-        PdfMetadataHeuristics.Metadata localMetadata = pdfMetadataHeuristics.extract(metadataText);
+        PdfMetadataHeuristics.Metadata localMetadata = mergeLocalMetadata(
+                documentMetadata, pdfMetadataHeuristics.extract(metadataText));
         PaperDocumentReviewer.Review documentReview = paperDocumentReviewer.review(identityText, metadataText);
         result.setDocumentType(documentReview.status().name());
         if (documentReview.status() == PaperDocumentReviewer.Status.NOT_PAPER) {
@@ -96,7 +101,11 @@ public class MetadataEnrichmentService {
             result.setMessage(documentReview.message());
             return result;
         }
-        IdentifierResult ids = identifierExtractor.extract(identityText);
+        String identifierText = identityText;
+        if (documentMetadata != null && hasText(documentMetadata.subject())) {
+            identifierText = identifierText + "\n" + documentMetadata.subject();
+        }
+        IdentifierResult ids = identifierExtractor.extract(identifierText);
 
         if (ids.getDoi() != null) {
             try {
@@ -108,6 +117,7 @@ public class MetadataEnrichmentService {
                 result.setDoi(ids.getDoi());
                 fillFromCrossref(result, meta);
                 fillFromPdfFallback(result, localMetadata);
+                preferSpecificLocalTitle(result, localMetadata);
                 result.setFound(true);
                 result.setMessage(withDocumentReviewMessage("已从 Crossref 补全元数据", documentReview));
             } catch (Exception e) {
@@ -133,6 +143,7 @@ public class MetadataEnrichmentService {
                 result.setFoundArxivId(ids.getArxivId());
                 fillFromArxiv(result, meta);
                 fillFromPdfFallback(result, localMetadata);
+                preferSpecificLocalTitle(result, localMetadata);
                 result.setFound(true);
                 result.setMessage(withDocumentReviewMessage("已从 arXiv 补全元数据", documentReview));
             } catch (Exception e) {
@@ -158,6 +169,25 @@ public class MetadataEnrichmentService {
                 ? "已从 PDF 提取标题和摘要，请核对其他元数据"
                 : "未识别到 DOI 或 arXiv ID", documentReview));
         return result;
+    }
+
+    private PdfMetadataHeuristics.Metadata mergeLocalMetadata(
+            PdfDocumentMetadata document, PdfMetadataHeuristics.Metadata heuristic) {
+        PdfDocumentMetadata safeDocument = document == null ? PdfDocumentMetadata.empty() : document;
+        PdfMetadataHeuristics.Metadata safeHeuristic = heuristic == null
+                ? new PdfMetadataHeuristics.Metadata(null, null, null, null, null, null)
+                : heuristic;
+        return new PdfMetadataHeuristics.Metadata(
+                firstText(safeDocument.title(), safeHeuristic.title()),
+                firstText(safeDocument.authors(), safeHeuristic.authors()),
+                safeHeuristic.year(),
+                firstText(safeDocument.abstractText(), safeHeuristic.abstractText()),
+                safeHeuristic.source(),
+                firstText(safeDocument.keywords(), safeHeuristic.keywords()));
+    }
+
+    private String firstText(String preferred, String fallback) {
+        return hasText(preferred) ? preferred : fallback;
     }
 
     private String withDocumentReviewMessage(String message, PaperDocumentReviewer.Review review) {
@@ -199,6 +229,25 @@ public class MetadataEnrichmentService {
         }
         if (result.getKeywords() == null || result.getKeywords().isBlank()) {
             result.setKeywords(localMetadata.keywords());
+        }
+    }
+
+    /**
+     * Some registries publish only a one-word series label although the PDF carries the full
+     * title. Preserve the external result in normal cases and replace only a strict prefix-like
+     * abbreviation with a substantially more descriptive local title.
+     */
+    private void preferSpecificLocalTitle(EnrichmentResult result,
+                                          PdfMetadataHeuristics.Metadata localMetadata) {
+        if (localMetadata == null || !hasReliableTitle(localMetadata.title())
+                || !hasText(result.getTitle())) return;
+        Set<String> externalTokens = titleTokens(result.getTitle());
+        Set<String> localTokens = titleTokens(localMetadata.title());
+        String externalCompact = compactTitle(result.getTitle());
+        String localCompact = compactTitle(localMetadata.title());
+        if (externalTokens.size() <= 2 && localTokens.size() >= externalTokens.size() + 3
+                && localCompact.contains(externalCompact)) {
+            result.setTitle(localMetadata.title());
         }
     }
 

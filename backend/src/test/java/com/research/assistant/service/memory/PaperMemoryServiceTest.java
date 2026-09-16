@@ -121,6 +121,26 @@ class PaperMemoryServiceTest {
     }
 
     @Test
+    void shouldRebuildCachedStructureWhenPaperTitleChanges() throws Exception {
+        PaperMemoryRecord cached = record(48L, objectMapper.writeValueAsString(structure));
+        cached.setRevision(4);
+        paper.setTitle("Corrected paper title");
+        PaperStructure rebuilt = new PaperStructureBuilder(objectMapper).build(paper, artifact);
+        when(memoryMapper.selectVersion(
+                9L, "b".repeat(64), "parser+semantic", PaperStructure.SCHEMA_VERSION))
+                .thenReturn(cached);
+        when(structureBuilder.build(paper, artifact)).thenReturn(rebuilt);
+
+        PaperMemoryState state = service.ensureStructure(9L, false);
+
+        assertThat(state.revision()).isEqualTo(5);
+        assertThat(state.structure().metadata().title()).isEqualTo("Corrected paper title");
+        assertThat(cached.getProfileJson()).isNull();
+        assertThat(cached.getUnderstandingVersion()).isNull();
+        verify(memoryMapper).updateById(cached);
+    }
+
+    @Test
     void shouldRebuildParseableCacheThatInventsABlockIdentity() throws Exception {
         com.fasterxml.jackson.databind.node.ObjectNode root = (com.fasterxml.jackson.databind.node.ObjectNode)
                 objectMapper.readTree(objectMapper.writeValueAsString(structure));

@@ -39,6 +39,19 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
 
     @Override
     public PaperLayoutArtifact parse(Long paperId, File file, String documentHash) {
+        return parseInternal(paperId, file, documentHash, null);
+    }
+
+    /** Parse only the leading pages for import-time metadata extraction. */
+    public PaperLayoutArtifact parseFirstPages(Long paperId, File file, String documentHash, int maxPages) {
+        if (maxPages <= 0) {
+            return parse(paperId, file, documentHash);
+        }
+        return parseInternal(paperId, file, documentHash, maxPages);
+    }
+
+    private PaperLayoutArtifact parseInternal(Long paperId, File file, String documentHash,
+                                              Integer maxPages) {
         if (file == null || !file.isFile()) {
             throw new IllegalArgumentException("PDF 文件不存在");
         }
@@ -47,7 +60,7 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
         }
         try (PDDocument document = Loader.loadPDF(file)) {
             GlyphCollector collector = new GlyphCollector();
-            List<PageGlyphs> pages = collector.collect(document);
+            List<PageGlyphs> pages = collector.collect(document, maxPages);
             DocumentGutterProfile documentGutter = detectDocumentGutter(pages);
             List<DocumentBlock> blocks = new ArrayList<>();
             List<Double> pageConfidences = new ArrayList<>();
@@ -84,7 +97,8 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
                     parserVersion(),
                     average(pageConfidences),
                     Instant.now(),
-                    document.getNumberOfPages(),
+                    maxPages == null ? document.getNumberOfPages()
+                            : Math.min(maxPages, document.getNumberOfPages()),
                     blocks
             );
         } catch (IOException e) {
@@ -217,6 +231,20 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
                     break;
                 }
             }
+            // A decorative drop cap has the baseline of the second or third prose row even
+            // though its top aligns with the first row. Attach only a single tall letter to
+            // that first row so reading order remains "MapReduce", rather than
+            // "apReduce ... MUsers". Normal text and mathematical symbols still use the
+            // baseline clustering above.
+            if (isDropCapGlyph(glyph, medianHeight)) {
+                RowBand topAlignedTarget = rows.stream()
+                        .filter(row -> topAligned(glyph, row, medianHeight))
+                        .filter(row -> horizontallyAdjacent(glyph, row, medianHeight))
+                        .min(Comparator.comparingDouble(row -> Math.abs(
+                                glyph.top() - row.top())))
+                        .orElse(null);
+                if (topAlignedTarget != null) target = topAlignedTarget;
+            }
             if (target == null) {
                 target = new RowBand();
                 rows.add(target);
@@ -224,6 +252,24 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
             target.add(glyph);
         }
         return rows;
+    }
+
+    private boolean isDropCapGlyph(Glyph glyph, double medianHeight) {
+        String text = normalizeGlyphText(glyph.text()).trim();
+        return text.codePointCount(0, text.length()) == 1
+                && Character.isUpperCase(text.codePointAt(0))
+                && glyph.height() >= Math.max(12, medianHeight * 1.8);
+    }
+
+    private boolean topAligned(Glyph glyph, RowBand row, double medianHeight) {
+        return Math.abs(glyph.top() - row.top()) <= Math.max(3, medianHeight * .45);
+    }
+
+    private boolean horizontallyAdjacent(Glyph glyph, RowBand row, double medianHeight) {
+        double rowLeft = row.glyphs().stream().mapToDouble(Glyph::left).min().orElse(Double.NaN);
+        double rowRight = row.glyphs().stream().mapToDouble(Glyph::right).max().orElse(Double.NaN);
+        double gap = Math.max(rowLeft - glyph.right(), glyph.left() - rowRight);
+        return Double.isFinite(gap) && gap >= -medianHeight && gap <= medianHeight * 1.5;
     }
 
     private Gutter detectStableGutter(List<RowBand> rows, double pageWidth) {
@@ -414,6 +460,52 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
     }
 
     private List<VisualLine> orderDoubleColumn(List<VisualLine> lines) {
+        double columnStart = detectColumnBodyStart(lines);
+        if (Double.isFinite(columnStart)) {
+            List<VisualLine> frontMatter = lines.stream()
+                    .filter(line -> line.top() < columnStart)
+                    .sorted(Comparator.comparingDouble(VisualLine::top)
+                            .thenComparingDouble(VisualLine::left))
+                    .toList();
+            List<VisualLine> body = lines.stream()
+                    .filter(line -> line.top() >= columnStart)
+                    .toList();
+            List<VisualLine> result = new ArrayList<>(lines.size());
+            result.addAll(frontMatter);
+            result.addAll(orderDoubleColumnRegion(body));
+            return List.copyOf(result);
+        }
+        return orderDoubleColumnRegion(lines);
+    }
+
+    /**
+     * Keeps title, byline and full-width abstract in physical top-to-bottom order until
+     * several paired left/right rows establish that the real two-column body has begun.
+     */
+    private double detectColumnBodyStart(List<VisualLine> lines) {
+        List<VisualLine> left = lines.stream().filter(line -> line.lane() == Lane.LEFT)
+                .sorted(Comparator.comparingDouble(VisualLine::top)).toList();
+        List<VisualLine> right = lines.stream().filter(line -> line.lane() == Lane.RIGHT)
+                .sorted(Comparator.comparingDouble(VisualLine::top)).toList();
+        if (left.size() < 3 || right.size() < 3) return Double.NaN;
+        double medianHeight = median(lines.stream().map(line -> line.bottom() - line.top()).toList());
+        double rowTolerance = Math.max(2.5, medianHeight * 0.55);
+        List<Double> pairedRows = new ArrayList<>();
+        for (VisualLine leftLine : left) {
+            boolean paired = right.stream().anyMatch(rightLine ->
+                    Math.abs(rightLine.top() - leftLine.top()) <= rowTolerance);
+            if (paired) pairedRows.add(leftLine.top());
+        }
+        double runSpan = Math.max(36, medianHeight * 5.0);
+        for (int index = 0; index + 2 < pairedRows.size(); index++) {
+            if (pairedRows.get(index + 2) - pairedRows.get(index) <= runSpan) {
+                return pairedRows.get(index);
+            }
+        }
+        return Double.NaN;
+    }
+
+    private List<VisualLine> orderDoubleColumnRegion(List<VisualLine> lines) {
         List<VisualLine> left = lines.stream()
                 .filter(line -> line.lane() == Lane.LEFT)
                 .sorted(Comparator.comparingDouble(VisualLine::top)
@@ -774,6 +866,10 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
             return baseline;
         }
 
+        double top() {
+            return glyphs.stream().mapToDouble(Glyph::top).min().orElse(Double.NaN);
+        }
+
         List<Glyph> glyphs() {
             return glyphs;
         }
@@ -799,10 +895,13 @@ public class PdfBoxPaperLayoutParser implements PaperLayoutParser {
             setSuppressDuplicateOverlappingText(true);
         }
 
-        List<PageGlyphs> collect(PDDocument document) throws IOException {
+        List<PageGlyphs> collect(PDDocument document, Integer maxPages) throws IOException {
             pages.clear();
             pageNumber = 0;
             glyphOrder = 0;
+            setStartPage(1);
+            setEndPage(maxPages == null ? Integer.MAX_VALUE
+                    : Math.min(maxPages, document.getNumberOfPages()));
             getText(document);
             return List.copyOf(pages);
         }

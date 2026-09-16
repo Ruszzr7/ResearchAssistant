@@ -82,7 +82,7 @@ class PaperWholePaperModelCallTest {
         assertThat(prompt.getValue()).contains("页面视觉内容提供");
         assertThat(prompt.getValue()).contains("evidenceSpanIds");
         assertThat(prompt.getValue())
-                .contains("paper-memory-whole-v12-visual-fallback")
+                .contains("paper-memory-whole-v13-bounded-recovery")
                 .contains("提交前逐条检查 keyFindings")
                 .contains("找不到直接正文证据就删除该 finding");
         assertThat(prompt.getValue()).doesNotContain("unique source text");

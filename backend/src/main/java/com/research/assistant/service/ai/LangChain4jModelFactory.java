@@ -63,7 +63,7 @@ public class LangChain4jModelFactory {
         return cachedModel("chat", true);
     }
 
-    /** Agent turns use one provider attempt and a bounded visible answer. */
+    /** Agent turns allow one bounded provider retry and a bounded visible answer. */
     public ChatModel createAgentChatModel() {
         return cachedModel("agent", false);
     }
@@ -153,12 +153,12 @@ public class LangChain4jModelFactory {
 
     private ChatModel buildChatModel(AiSettings settings, boolean retry, boolean agent) {
         AiProviderProfile profile = profile(settings);
-        int outputLimit = agent ? Math.min(profile.defaultMaxOutputTokens(), 2048)
+        int outputLimit = agent ? Math.min(profile.defaultMaxOutputTokens(), 4096)
                 : profile.defaultMaxOutputTokens();
         if ("GEMINI_NATIVE".equals(settings.transport())) {
             var builder = GoogleAiGeminiChatModel.builder()
                     .apiKey(settings.apiKey()).modelName(settings.model())
-                    .timeout(Duration.ofSeconds(agent ? 80 : 60)).maxRetries(retry ? 1 : 0)
+                    .timeout(Duration.ofSeconds(agent ? 80 : 60)).maxRetries(agent || retry ? 1 : 0)
                     .maxOutputTokens(outputLimit);
             if (!settings.baseUrl().isBlank()) builder.baseUrl(settings.baseUrl());
             if (profile.temperature() != null) builder.temperature(profile.temperature());
@@ -166,7 +166,7 @@ public class LangChain4jModelFactory {
         }
         var builder = OpenAiChatModel.builder()
                 .baseUrl(settings.baseUrl()).apiKey(settings.apiKey()).modelName(settings.model())
-                .timeout(Duration.ofSeconds(agent ? 80 : 60)).maxRetries(retry ? 1 : 0);
+                .timeout(Duration.ofSeconds(agent ? 80 : 60)).maxRetries(agent || retry ? 1 : 0);
         applyChatPolicy(builder, profile, agent);
         if (profile.tokenLimitParameter() == TokenLimitParameter.MAX_COMPLETION_TOKENS) {
             builder.maxCompletionTokens(outputLimit);

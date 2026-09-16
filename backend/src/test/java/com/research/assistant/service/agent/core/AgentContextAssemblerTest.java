@@ -51,7 +51,7 @@ class AgentContextAssemblerTest {
                 .contains("GitHub 风格 Markdown", "$...$", "$$...$$", "###")
                 .contains("不要使用【标题】这类方括号标题", "不要输出未包裹的伪 LaTeX")
                 .contains("能力描述是使用规则的权威来源")
-                .contains("根据答案的实际依据选择 groundingMode")
+                .contains("调用 finish_research", "直接输出最终 Markdown", "[S1]")
                 .contains("论文画像只用于确定方向和设计 Need")
                 .contains("如果现有论文上下文不足，只回答已经确认的内容")
                 .doesNotContain("证据限制");
@@ -162,7 +162,7 @@ class AgentContextAssemblerTest {
     }
 
     @Test
-    void rejectsWhenTheMandatoryLatestTurnWouldExceedTheHardLimit() {
+    void leavesRecentTurnSelectionToTheContextBudgeter() {
         ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
         ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
         AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
@@ -175,8 +175,13 @@ class AgentContextAssemblerTest {
         AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
                 sources, new ObjectMapper());
 
-        assertThatThrownBy(() -> assembler.assemble(input(7L, null)))
-                .hasMessage("最近一轮对话内容过长");
+        AgentContextSnapshot result = assembler.assemble(input(7L, null));
+
+        assertThat(result.messages()).extracting(AgentChatEntry::content)
+                .contains("question")
+                .anyMatch(content -> content != null && content.length() >= 60_000);
+        assertThat(result.snapshotJson()).contains("\"droppedRecentTurnCount\":0")
+                .contains("\"contextBudgetOwner\":\"AgentRunContextHarness\"");
     }
 
     private static ResearchMessage message(String role, String content) {

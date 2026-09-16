@@ -22,9 +22,10 @@ describe('PDF workbench split layout', () => {
   it('keeps the approved assistant ratio and lets wide PDF pages scroll when needed', () => {
     const minimumPdfWidth = completePdfPaneWidth(918, 22)
     expect(minimumPdfWidth).toBe(940)
+    expect(workbenchWidthForContainer(1200, 0.65, 820)).toBe(477)
     expect(workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(972)
     expect(1920 - 8 - workbenchWidthForContainer(1920, 0.65, minimumPdfWidth)).toBe(940)
-    expect(workbenchWidthForContainer(1200, 0.65, minimumPdfWidth)).toBe(320)
+    expect(workbenchWidthForContainer(1200, 0.65, minimumPdfWidth)).toBe(477)
   })
 
   it('reserves enough width for the complete PDF toolbar even before a page is measured', () => {

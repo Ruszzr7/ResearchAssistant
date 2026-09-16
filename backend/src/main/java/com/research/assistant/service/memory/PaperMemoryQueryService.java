@@ -61,6 +61,9 @@ public class PaperMemoryQueryService {
                 && record.getProfileJson() != null && !record.getProfileJson().isBlank()
                 && profileQualityReady(record.getProfileQualityJson());
         PaperGlobalProfile profile = profileReady ? readProfile(record.getProfileJson()) : null;
+        if (profile != null && !sameTitle(paper.getTitle(), profile.title())) {
+            profile = null;
+        }
         profileReady = profile != null;
         int progress = switch (status) {
             case PaperUnderstandingService.STATUS_READY -> profileReady ? 100 : 95;
@@ -112,6 +115,15 @@ public class PaperMemoryQueryService {
         } catch (Exception exception) {
             return false;
         }
+    }
+
+    private boolean sameTitle(String current, String cached) {
+        return normalizeTitle(current).equals(normalizeTitle(cached));
+    }
+
+    private String normalizeTitle(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim()
+                .toLowerCase(java.util.Locale.ROOT);
     }
 
     private String defaultStage(String status) {

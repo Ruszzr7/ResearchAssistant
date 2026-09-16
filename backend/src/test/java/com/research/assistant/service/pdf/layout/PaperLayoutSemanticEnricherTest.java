@@ -162,6 +162,28 @@ class PaperLayoutSemanticEnricherTest {
     }
 
     @Test
+    void endsAbstractAtPunctuationlessNumberedIntroduction() {
+        PaperLayoutArtifact raw = new PaperLayoutArtifact(
+                209L, "f".repeat(64), "pdfbox-layout-v1", .9,
+                Instant.parse("2026-09-14T00:00:00Z"), 1,
+                List.of(
+                        block(0, 1, .08, .20, .84, .02,
+                                "Abstract This paper presents a system."),
+                        block(1, 1, .08, .28, .41, .02, "1 Introduction"),
+                        block(2, 1, .08, .30, .41, .02, "The system is motivated by scale.")));
+
+        PaperLayoutArtifact enriched = enricher.enrich(raw, PaperLayoutHints.empty());
+
+        assertThat(enriched.blocks()).anySatisfy(block -> {
+            assertThat(block.text()).isEqualTo("1 Introduction");
+            assertThat(block.role()).isEqualTo(DocumentBlockRole.HEADING);
+        });
+        assertThat(enriched.blocks().stream()
+                .filter(block -> block.role() == DocumentBlockRole.ABSTRACT))
+                .allMatch(block -> !block.text().contains("Introduction"));
+    }
+
+    @Test
     void separatesExplicitFigureCaptionFromUnconfirmedFigureDiscussion() {
         PaperLayoutArtifact raw = new PaperLayoutArtifact(
                 207L, "d".repeat(64), "pdfbox-layout-v1", .9,

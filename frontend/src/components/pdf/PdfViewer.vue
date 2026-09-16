@@ -1958,12 +1958,15 @@ async function executeTicketedAgentAction(action) {
   const trustedBoxes = validEvidenceBoxes(action.target?.rects)
   let boxes = trustedBoxes
   let textAnchor = null
+  let receiptCoordinates = null
   try {
     if (!Number.isInteger(page) || page < 1 || Number(action.target?.paperId) !== Number(props.paper.id)) {
       throw new Error('操作目标不属于当前论文')
     }
     await goToPage(page)
-    await waitForEvidencePage(page)
+    if (!await waitForEvidencePage(page)) {
+      throw new Error('目标页尚未完成渲染，请重新打开论文后重试')
+    }
     const formulaRegion = action.target?.precision === 'FORMULA_REGION'
       || String(action.target?.sourceObjectId || '').startsWith('eq:')
     // Agent 下划线统一沿用普通页面文字选取。公式来源仍用于证据跳转，
@@ -2019,7 +2022,7 @@ async function executeTicketedAgentAction(action) {
       await nextTick()
       scrollEvidenceIntoView(page, boxes)
     }
-    const receiptCoordinates = { page }
+    receiptCoordinates = { page }
     if (boxes.length) {
       receiptCoordinates.coordinateSpace = 'PDF_NORMALIZED'
       receiptCoordinates.rects = boxes
@@ -2029,14 +2032,10 @@ async function executeTicketedAgentAction(action) {
       // 让服务端和重新加载后的渲染都沿用普通 PDFium 文本下划线。
       receiptCoordinates.geometryKind = 'TEXT_RANGE'
     }
-    const receipt = await submitAgentActionReceipt({
-      ticket: action.ticket,
-      success: true,
-      actualCoordinates: receiptCoordinates,
-    })
-    await loadAnnotations()
-    ElMessage.success(receipt?.message || '页面操作已完成')
   } catch (reason) {
+    // Only a local execution failure is a negative client receipt. A server
+    // rejection of a success receipt leaves the action waiting so reopening the
+    // paper can recompute and resubmit the physical selection.
     try {
       await submitAgentActionReceipt({
         ticket: action.ticket,
@@ -2046,6 +2045,18 @@ async function executeTicketedAgentAction(action) {
       })
     } catch { /* The original error is more useful to the user. */ }
     ElMessage.error(requestErrorMessage(reason, '页面操作失败'))
+    return false
+  }
+  try {
+    const receipt = await submitAgentActionReceipt({
+      ticket: action.ticket,
+      success: true,
+      actualCoordinates: receiptCoordinates,
+    })
+    await loadAnnotations()
+    ElMessage.success(receipt?.message || '页面操作已完成')
+  } catch (reason) {
+    ElMessage.error(`操作结果确认失败，可重新打开论文后重试：${requestErrorMessage(reason)}`)
     return false
   }
   return true

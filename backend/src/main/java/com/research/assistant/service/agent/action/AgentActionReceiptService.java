@@ -73,8 +73,8 @@ public class AgentActionReceiptService {
             failRun(payload.runId(), "PDF version changed before action receipt");
             throw new IllegalArgumentException("PDF version changed; action was not accepted");
         }
-        var source = catalog.requireObject(payload.sourceObjectId());
-        var locators = catalog.requireLocators(source.sourceObjectId());
+        catalog.requireObject(payload.sourceObjectId());
+        var locators = actionLocators(catalog, payload);
         validateClientCoordinates(request.actualCoordinates(), locators, payload.actionType());
 
         Long annotationId = payload.actionType().createsAnnotation()
@@ -83,7 +83,7 @@ public class AgentActionReceiptService {
         String resultJson = actionResultJson(payload, annotationId, message);
         runtimeService.transitionToolCall(call.getToolCallId(), AgentToolCallStatus.COMPLETED, resultJson, null, null);
         boolean allFinished = toolCallMapper.selectByRunId(payload.runId()).stream()
-                .filter(tool -> !Boolean.TRUE.equals(tool.getReadOnly()))
+                .filter(tool -> tool.getActionTicketHash() != null && !tool.getActionTicketHash().isBlank())
                 .allMatch(tool -> AgentToolCallStatus.COMPLETED.name().equals(tool.getStatus())
                         || tool.getToolCallId().equals(payload.toolCallId()));
         String completionMessage = allFinished ? completionMessage(payload.runId(), message) : message;
@@ -96,7 +96,7 @@ public class AgentActionReceiptService {
                                    Map<String, Object> actualCoordinates) {
         PaperAnnotation existing = annotationMapper.selectByAgentToolCallId(payload.toolCallId());
         if (existing != null) return existing.getId();
-        var locators = catalog.requireLocators(payload.sourceObjectId());
+        var locators = actionLocators(catalog, payload);
         PaperAnnotation annotation = new PaperAnnotation();
         annotation.setPaperId(payload.paperId());
         annotation.setType(payload.actionType().name());
@@ -158,19 +158,34 @@ public class AgentActionReceiptService {
         return coordinates;
     }
 
+    private static List<com.research.assistant.service.agent.source.SourceLocator> actionLocators(
+            PaperSourceCatalog catalog, ActionTicketPayload payload) {
+        List<com.research.assistant.service.agent.source.SourceLocator> available =
+                catalog.requireLocators(payload.sourceObjectId());
+        if (payload.locatorIds().isEmpty()) return available;
+        List<com.research.assistant.service.agent.source.SourceLocator> selected = available.stream()
+                .filter(locator -> payload.locatorIds().contains(locator.locatorId()))
+                .toList();
+        if (selected.isEmpty() || selected.size() != payload.locatorIds().size()) {
+            throw new IllegalArgumentException("操作目标的定位信息已经失效");
+        }
+        return selected;
+    }
+
     private void completeRun(String runId, String text) {
         AgentRunRecord run = runtimeService.getRun(runId);
         AgentTurnResult pending = pendingResult(run);
-        boolean composite = hasPendingAnswer(pending);
+        boolean composite = hasPendingContent(pending);
         if (AgentRunStatus.WAITING_CLIENT.name().equals(run.getStatus())) {
             runtimeService.transitionRun(runId, AgentRunStatus.RUNNING, null, null, null);
         }
         try {
             AgentTurnRecord turn = runtimeService.getTurnForRun(runId);
             String finalText = composite ? merge(pending.message(), text) : text;
-            AgentTurnResult result = new AgentTurnResult(turn.getTurnId(), runId, AgentRunStatus.COMPLETED.name(),
+                AgentTurnResult result = new AgentTurnResult(turn.getTurnId(), runId, AgentRunStatus.COMPLETED.name(),
                     finalText, composite ? pending.citations() : List.of(),
-                    composite ? pending.evidence() : List.of());
+                    composite ? pending.evidence() : List.of(), List.of(),
+                    pending == null ? "ACTION_ONLY" : pending.outputMode());
             String resultJson = objectMapper.writeValueAsString(result);
             ResearchMessage message = new ResearchMessage();
             message.setSessionId(turn.getSessionId()); message.setMessageKey("agent-assistant-" + UUID.randomUUID());
@@ -192,7 +207,7 @@ public class AgentActionReceiptService {
     private void failRun(String runId, String error) {
         AgentRunRecord run = runtimeService.getRun(runId);
         AgentTurnResult pending = pendingResult(run);
-        boolean composite = hasPendingAnswer(pending);
+        boolean composite = hasPendingContent(pending);
         if (AgentRunStatus.WAITING_CLIENT.name().equals(run.getStatus())) {
             runtimeService.transitionRun(runId, AgentRunStatus.RUNNING, null, null, null);
             if (!composite) {
@@ -203,7 +218,8 @@ public class AgentActionReceiptService {
                 AgentTurnRecord turn = runtimeService.getTurnForRun(runId);
                 String finalText = merge(pending.message(), "页面操作失败：" + error);
                 AgentTurnResult result = new AgentTurnResult(turn.getTurnId(), runId,
-                        AgentRunStatus.FAILED.name(), finalText, pending.citations(), pending.evidence());
+                        AgentRunStatus.FAILED.name(), finalText, pending.citations(), pending.evidence(),
+                        List.of(), pending.outputMode());
                 String resultJson = objectMapper.writeValueAsString(result);
                 ResearchMessage message = new ResearchMessage();
                 message.setSessionId(turn.getSessionId()); message.setMessageKey("agent-assistant-" + UUID.randomUUID());
@@ -229,9 +245,8 @@ public class AgentActionReceiptService {
         }
     }
 
-    private static boolean hasPendingAnswer(AgentTurnResult result) {
-        return result != null && result.message() != null && !result.message().isBlank()
-                && !"正在执行页面操作。".equals(result.message());
+    private static boolean hasPendingContent(AgentTurnResult result) {
+        return result != null && "CONTENT_AND_ACTION".equals(result.outputMode());
     }
 
     private static String merge(String answer, String actionStatus) {
@@ -311,14 +326,12 @@ public class AgentActionReceiptService {
         if (parsed.size() != actualRects.size()) {
             throw new IllegalArgumentException("client receipt rectangles are invalid");
         }
-        for (int index = 0; index < parsed.size(); index++) {
-            NormalizedBoundingBox actual = parsed.get(index);
-            if (expectedRects.stream().anyMatch(expected -> overlaps(actual, expected))) continue;
-            // PDFium 的自然选区是连续字符范围；解析器偶尔会在同一算法/段落内
-            // 漏掉一个物理行。首尾行仍必须直接命中可信来源；只有夹在两者之间、
-            // 且仍在同一栏水平范围内的中间行才可作为连续选区通过。
-            boolean intermediate = index > 0 && index < parsed.size() - 1;
-            if (intermediate && withinTrustedTextSpan(actual, expectedRects)) continue;
+        // PDFium returns glyph-line rectangles while the parser stores semantic
+        // blocks. Validate the selected range as one physical envelope instead
+        // of requiring every glyph line to overlap a parser rectangle.
+        NormalizedBoundingBox actualEnvelope = envelope(parsed);
+        NormalizedBoundingBox expectedEnvelope = envelope(expectedRects);
+        if (!sameTrustedRegion(actualEnvelope, expectedEnvelope)) {
             throw new IllegalArgumentException("client receipt rectangles are outside the trusted target");
         }
         if (textAction) {
@@ -352,6 +365,30 @@ public class AgentActionReceiptService {
         return value instanceof Number number ? number.doubleValue() : null;
     }
 
+    private static NormalizedBoundingBox envelope(List<NormalizedBoundingBox> rects) {
+        double left = rects.stream().mapToDouble(NormalizedBoundingBox::x).min().orElse(0);
+        double top = rects.stream().mapToDouble(NormalizedBoundingBox::y).min().orElse(0);
+        double right = rects.stream().mapToDouble(NormalizedBoundingBox::right).max().orElse(left);
+        double bottom = rects.stream().mapToDouble(NormalizedBoundingBox::bottom).max().orElse(top);
+        return new NormalizedBoundingBox(left, top, right - left, bottom - top);
+    }
+
+    private static boolean sameTrustedRegion(NormalizedBoundingBox actual,
+                                             NormalizedBoundingBox expected) {
+        if (!overlaps(actual, expected)) return false;
+        double horizontalIntersection = Math.max(0,
+                Math.min(actual.right(), expected.right()) - Math.max(actual.x(), expected.x()));
+        double verticalIntersection = Math.max(0,
+                Math.min(actual.bottom(), expected.bottom()) - Math.max(actual.y(), expected.y()));
+        double horizontalCoverage = horizontalIntersection / Math.max(actual.width(), .000001);
+        double verticalCoverage = verticalIntersection / Math.max(actual.height(), .000001);
+        return horizontalCoverage >= .50 && verticalCoverage >= .20
+                && actual.x() >= expected.x() - .04
+                && actual.right() <= expected.right() + .04
+                && actual.y() >= expected.y() - .03
+                && actual.bottom() <= expected.bottom() + .03;
+    }
+
     private static boolean overlaps(NormalizedBoundingBox actual, NormalizedBoundingBox expected) {
         double left = Math.max(actual.x(), expected.x());
         double top = Math.max(actual.y(), expected.y());
@@ -360,20 +397,6 @@ public class AgentActionReceiptService {
         double intersection = Math.max(0, right - left) * Math.max(0, bottom - top);
         double area = actual.width() * actual.height();
         return area > 0 && intersection / area >= 0.12;
-    }
-
-    private static boolean withinTrustedTextSpan(NormalizedBoundingBox actual,
-                                                 List<NormalizedBoundingBox> expected) {
-        if (expected.isEmpty()) return false;
-        double left = expected.stream().mapToDouble(NormalizedBoundingBox::x).min().orElse(0);
-        double top = expected.stream().mapToDouble(NormalizedBoundingBox::y).min().orElse(0);
-        double right = expected.stream().mapToDouble(NormalizedBoundingBox::right).max().orElse(0);
-        double bottom = expected.stream().mapToDouble(NormalizedBoundingBox::bottom).max().orElse(0);
-        double horizontalIntersection = Math.max(0, Math.min(actual.right(), right) - Math.max(actual.x(), left));
-        double horizontalCoverage = actual.width() <= 0 ? 0 : horizontalIntersection / actual.width();
-        return horizontalCoverage >= .75
-                && actual.y() >= top - .01
-                && actual.bottom() <= bottom + .01;
     }
 
     private static String successMessage(PaperActionType type) {

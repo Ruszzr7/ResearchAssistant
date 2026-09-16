@@ -1,6 +1,7 @@
 package com.research.assistant.service.agent.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.research.assistant.dto.agent.AgentExplicitAction;
 import com.research.assistant.dto.agent.AgentPendingAction;
 import com.research.assistant.dto.agent.AgentTurnInput;
@@ -31,6 +32,8 @@ import org.mockito.ArgumentMatchers;
 
 import java.util.ArrayDeque;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
@@ -110,39 +113,31 @@ class AgentLoopServiceTest {
     @Test
     void ordinaryChatCompletesWithoutEvidenceGate() {
         when(assembler.assemble(any())).thenReturn(context(null));
-        gateway.add(decisionTool("m1", "submit_answer",
-                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"你好，我可以帮你阅读论文。\",\"sourceObjectIds\":[]}] }"));
+        gateway.add(decisionTool("m1", "finish_research", "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"responseMode\":\"CONTENT\"}"));
+        gateway.add(new ScriptedDecision("你好，我可以帮你阅读论文。", List.of()));
 
         AgentTurnResult result = service.execute(input("你好"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
         assertThat(result.message()).contains("阅读论文");
         assertThat(result.citations()).isEmpty();
+        assertThat(gateway.requests.get(0).tools()).extracting(AgentToolDefinition::name)
+                .containsExactly("finish_research", "ask_clarification");
         verify(runtime).transitionRun(eq("run-1"), eq(AgentRunStatus.COMPLETED), anyString(),
                 ArgumentMatchers.isNull(), ArgumentMatchers.isNull());
     }
 
     @Test
-    void rejectsDecodedControlCharacterAndAcceptsTheCorrectedSubmission() {
+    void keepsValidLatexInPlainMarkdownFinalOutput() {
         when(assembler.assemble(any())).thenReturn(context(null));
-        String malformedArguments = "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"$"
-                + "\\" + "u0005" + "psilon$\",\"sourceObjectIds\":[]}]}";
-        String validArguments = "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"answerBlocks\":[{\"text\":\"修复后的 $"
-                + "\\" + "\\" + "varepsilon$\",\"sourceObjectIds\":[]}]}";
-        gateway.add(decisionTool("bad-submit", "submit_answer", malformedArguments));
-        gateway.add(decisionTool("good-submit", "submit_answer", validArguments));
+        gateway.add(new ScriptedDecision("修复后的 $\\varepsilon$", List.of()));
 
         AgentTurnResult result = service.execute(input("解释公式"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
         assertThat(result.message()).contains("修复后的 $\\varepsilon$")
                 .doesNotContain(Character.toString((char) 0x0005));
-        assertThat(gateway.requests).hasSize(2);
-        assertThat(gateway.requests.get(1).messages()).anyMatch(entry ->
-                entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("U+0005")
-                        && entry.content().contains("合法 JSON 转义"));
-        verify(runtime, times(2)).registerToolCall(eq("run-1"), eq("submit_answer"), anyString(), eq(true), anyString());
+        assertThat(gateway.requests).hasSize(1);
     }
 
     @Test
@@ -200,7 +195,7 @@ class AgentLoopServiceTest {
         assertThat(gateway.requests).hasSize(3);
         assertThat(gateway.requests.get(1).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("每个答案块都必须绑定已读取的论文来源"));
+                        && entry.content().contains("paper_evidence_required"));
     }
 
     @Test
@@ -225,7 +220,7 @@ class AgentLoopServiceTest {
     }
 
     @Test
-    void displayFormulaRequiresFormulaEvidenceThatWasActuallyReadable() {
+    void displayFormulaWithoutReliableEvidenceIsOmittedDeterministically() {
         PaperSourceCatalog catalog = formulaCatalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
@@ -234,24 +229,18 @@ class AgentLoopServiceTest {
                 {"groundingMode":"PAPER","answerBlocks":[
                 {"text":"$$T=R(1-\\\\varepsilon)$$","sourceObjectIds":["src-formula"]}]}
                 """));
-        gateway.add(decisionTool("m3", "submit_answer", """
-                {"groundingMode":"PAPER","answerBlocks":[
-                {"text":"公式（12）用于定义有效吞吐量。","sourceObjectIds":["src-formula"]}]}
-                """));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-formula\"}]}",
                         Set.of("src-formula")));
 
         AgentTurnResult result = service.execute(input("公式（12）是什么？"));
 
-        assertThat(result.message()).isEqualTo("公式（12）用于定义有效吞吐量。");
-        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
-                entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("必须绑定可靠公式文本"));
+        assertThat(result.message()).isEqualTo("（当前已读来源不足以可靠展示该公式）");
+        assertThat(gateway.requests).hasSize(2);
     }
 
     @Test
-    void visuallyReadFormulaMaySupportAnExactDisplayExpression() {
+    void visuallyReadFormulaIsAutomaticallyBoundToAnExactDisplayExpression() {
         PaperSourceCatalog catalog = formulaAndTextCatalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
@@ -259,10 +248,6 @@ class AgentLoopServiceTest {
         gateway.add(decisionTool("m2", "submit_answer", """
                 {"groundingMode":"PAPER","answerBlocks":[
                 {"text":"$$T=R(1-\\\\varepsilon)$$","sourceObjectIds":["src-1"]}]}
-                """));
-        gateway.add(decisionTool("m3", "submit_answer", """
-                {"groundingMode":"PAPER","answerBlocks":[
-                {"text":"$$T=R(1-\\\\varepsilon)$$","sourceObjectIds":["src-formula"]}]}
                 """));
         AgentVisualContent visual = new AgentVisualContent(
                 "src-formula", 3, "FORMULA", "image/png", new byte[]{1}, 200, 80);
@@ -273,12 +258,11 @@ class AgentLoopServiceTest {
         AgentTurnResult result = service.execute(input("公式（12）是什么？"));
 
         assertThat(result.message()).isEqualTo("$$T=R(1-\\varepsilon)$$");
-        assertThat(result.evidence()).singleElement()
-                .satisfies(view -> assertThat(view.contentType()).isEqualTo("FORMULA"));
-        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
-                entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("src-formula")
-                        && entry.content().contains("不要重新检索"));
+        assertThat(result.evidence()).anySatisfy(view -> {
+            assertThat(view.sourceObjectId()).isEqualTo("src-formula");
+            assertThat(view.contentType()).isEqualTo("FORMULA");
+        });
+        assertThat(gateway.requests).hasSize(2);
     }
 
     @Test
@@ -292,10 +276,6 @@ class AgentLoopServiceTest {
                 {"groundingMode":"PAPER","answerBlocks":[
                 {"text":"图 2 展示频谱效率。","sourceObjectIds":["src-1"]}]}
                 """));
-        gateway.add(decisionTool("m3", "submit_answer", """
-                {"groundingMode":"PAPER","answerBlocks":[
-                {"text":"图 2 展示频谱效率。","sourceObjectIds":["src-figure","src-1"]}]}
-                """));
         AgentVisualContent visual = new AgentVisualContent(
                 "src-figure", 3, "FIGURE", "image/png", new byte[]{1}, 320, 180);
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
@@ -306,9 +286,7 @@ class AgentLoopServiceTest {
 
         assertThat(result.evidence()).extracting(view -> view.contentType())
                 .contains("FIGURE", "TEXT");
-        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
-                entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("FIGURE 视觉来源"));
+        assertThat(gateway.requests).hasSize(2);
     }
 
     @Test
@@ -427,6 +405,8 @@ class AgentLoopServiceTest {
         gateway.add(decisionTool("m1", "paper_action", """
                 {"actionType":"HIGHLIGHT","sourceObjectId":"src-1","color":"#ffee58"}
                 """));
+        gateway.add(decisionTool("m2", "finish_research", "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"responseMode\":\"ACTION_ONLY\"}"));
+        gateway.add(new ScriptedDecision("页面操作计划已准备。", List.of()));
 
         AgentTurnResult result = service.execute(input("把当前选区高亮"));
 
@@ -443,6 +423,35 @@ class AgentLoopServiceTest {
     }
 
     @Test
+    void actionOutputCannotFinishUntilAnActionPlanExists() {
+        PaperSourceCatalog catalog = catalog();
+        when(assembler.assemble(any())).thenReturn(context(catalog, Set.of("src-1")));
+        ActionTarget target = new PaperActionResolver().resolve(catalog, "src-1");
+        when(actionResolver.resolve(catalog, "src-1")).thenReturn(target);
+        when(ticketService.issue(eq("run-1"), any(), eq(PaperActionType.HIGHLIGHT), eq(target),
+                ArgumentMatchers.isNull(), ArgumentMatchers.isNull()))
+                .thenReturn(new ActionTicketService.IssuedActionTicket(
+                        "ticket", java.time.Instant.now().plusSeconds(60), null));
+        gateway.add(decisionTool("m1", "finish_research",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"responseMode\":\"ACTION_ONLY\"}"));
+        gateway.add(decisionTool("m2", "paper_action",
+                "{\"actionType\":\"HIGHLIGHT\",\"sourceObjectId\":\"src-1\"}"));
+        gateway.add(decisionTool("m3", "finish_research",
+                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"responseMode\":\"ACTION_ONLY\"}"));
+        gateway.add(new ScriptedDecision("等待页面执行。", List.of()));
+
+        AgentTurnResult result = service.execute(input("把当前选区高亮"));
+
+        assertThat(result.status()).isEqualTo("WAITING_CLIENT");
+        assertThat(result.outputMode()).isEqualTo("ACTION_ONLY");
+        assertThat(result.pendingActions()).singleElement()
+                .satisfies(action -> assertThat(action.target()).isEqualTo(target));
+        assertThat(gateway.requests.get(1).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("action_plan_required"));
+    }
+
+    @Test
     void modelCanSubmitAGroundedAnswerAndPageActionTogether() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog, Set.of("src-1")));
@@ -453,10 +462,11 @@ class AgentLoopServiceTest {
                 .thenReturn(new ActionTicketService.IssuedActionTicket(
                         "ticket", java.time.Instant.now().plusSeconds(60), null));
         gateway.add(decisionTool("m1", "paper_action", """
-                {"actionType":"HIGHLIGHT","sourceObjectId":"src-1","color":"#ffee58",
-                 "answer":{"groundingMode":"PAPER","answerBlocks":[
-                   {"text":"论文报告达到 95% accuracy。","sourceObjectIds":["src-1"]}]}}
+                {"actionType":"HIGHLIGHT",
+                 "sourceObjectId":"src-1","color":"#ffee58"}
                 """));
+        gateway.add(decisionTool("m2", "finish_research", "{\"groundingMode\":\"PAPER\",\"responseMode\":\"CONTENT_AND_ACTION\"}"));
+        gateway.add(new ScriptedDecision("论文报告达到 95% accuracy。[S1]", List.of()));
 
         AgentTurnResult result = service.execute(input("准确率是多少？并高亮对应原文"));
 
@@ -466,6 +476,41 @@ class AgentLoopServiceTest {
                 .satisfies(citation -> assertThat(citation.sourceObjectId()).isEqualTo("src-1"));
         assertThat(result.evidence()).singleElement()
                 .satisfies(evidence -> assertThat(evidence.sourceObjectId()).isEqualTo("src-1"));
+        assertThat(result.pendingActions()).singleElement()
+                .satisfies(action -> assertThat(action.target()).isEqualTo(target));
+    }
+
+    @Test
+    void compositeAnswerAndActionMayUseDifferentPreviouslyReadSources() {
+        PaperSourceCatalog base = catalog();
+        SourceObject second = new SourceObject("src-2", 9, "hash", "parser", 1, SourceContentType.TEXT,
+                "The diagram explains the workflow.", null, List.of("Method"), "", Map.of());
+        SourceLocator secondLocator = new SourceLocator("loc-2", "src-2", 4, "PDF_NORMALIZED",
+                List.of(new NormalizedBoundingBox(.2, .3, .25, .04)), "workflow",
+                EvidenceLocator.Precision.TEXT_RANGE);
+        PaperSourceCatalog compositeCatalog = new PaperSourceCatalog(9, "hash", "parser", 5,
+                Map.of("src-1", base.objects().get("src-1"), "src-2", second),
+                Map.of("src-1", base.locators().get("src-1"), "src-2", List.of(secondLocator)));
+        when(assembler.assemble(any())).thenReturn(context(compositeCatalog,
+                new LinkedHashSet<>(List.of("src-1", "src-2"))));
+        ActionTarget target = new PaperActionResolver().resolve(compositeCatalog, "src-2");
+        when(actionResolver.resolve(compositeCatalog, "src-2")).thenReturn(target);
+        when(ticketService.issue(eq("run-1"), any(), eq(PaperActionType.HIGHLIGHT), eq(target),
+                ArgumentMatchers.isNull(), eq("#ffee58")))
+                .thenReturn(new ActionTicketService.IssuedActionTicket(
+                        "ticket", java.time.Instant.now().plusSeconds(60), null));
+        gateway.add(decisionTool("m1", "paper_action", """
+                {"actionType":"HIGHLIGHT",
+                 "sourceObjectId":"src-2","color":"#ffee58"}
+                """));
+        gateway.add(decisionTool("m2", "finish_research", "{\"groundingMode\":\"PAPER\",\"responseMode\":\"CONTENT_AND_ACTION\"}"));
+        gateway.add(new ScriptedDecision("论文报告达到 95% accuracy。[S1]", List.of()));
+
+        AgentTurnResult result = service.execute(input("回答结果，并高亮方法流程图说明"));
+
+        assertThat(result.status()).isEqualTo("WAITING_CLIENT");
+        assertThat(result.citations()).singleElement()
+                .satisfies(citation -> assertThat(citation.sourceObjectId()).isEqualTo("src-1"));
         assertThat(result.pendingActions()).singleElement()
                 .satisfies(action -> assertThat(action.target()).isEqualTo(target));
     }
@@ -492,8 +537,11 @@ class AgentLoopServiceTest {
                         "ticket-" + invocation.getArgument(3, ActionTarget.class).sourceObjectId(),
                         java.time.Instant.now().plusSeconds(60), null));
         gateway.add(decisionTool("m1", "paper_action", """
-                {"actionType":"HIGHLIGHT","sourceObjectIds":["src-1","src-2"],"color":"#ffee58"}
+                {"actionType":"HIGHLIGHT",
+                 "sourceObjectIds":["src-1","src-2"],"color":"#ffee58"}
                 """));
+        gateway.add(decisionTool("m2", "finish_research", "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"responseMode\":\"ACTION_ONLY\"}"));
+        gateway.add(new ScriptedDecision("页面操作计划已准备。", List.of()));
 
         AgentTurnResult result = service.execute(input("把两个来源都高亮"));
 
@@ -533,6 +581,8 @@ class AgentLoopServiceTest {
                   {"actionType":"UNDERLINE","sourceObjectId":"src-2","color":"#ffee58"}
                 ]}
                 """));
+        gateway.add(decisionTool("m2", "finish_research", "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"responseMode\":\"ACTION_ONLY\"}"));
+        gateway.add(new ScriptedDecision("页面操作计划已准备。", List.of()));
 
         AgentTurnResult result = service.execute(input("把第一个来源高亮、第二个来源加下划线"));
 
@@ -563,15 +613,15 @@ class AgentLoopServiceTest {
     @Test
     void clarificationKeepsTheTerminalAnswerAndClarificationTools() {
         when(assembler.assemble(any())).thenReturn(context(null));
-        gateway.add(decisionTool("m1", "submit_answer",
-                "{\"groundingMode\":\"GENERAL_KNOWLEDGE\",\"clarification\":\"你希望比较哪两篇论文？\"}"));
+        gateway.add(decisionTool("m1", "ask_clarification",
+                "{\"question\":\"你希望比较哪两篇论文？\"}"));
 
         AgentTurnResult result = service.execute(input("帮我比较一下"));
 
         assertThat(result.status()).isEqualTo("WAITING_USER");
         assertThat(result.message()).isEqualTo("你希望比较哪两篇论文？");
         assertThat(gateway.requests.get(0).tools()).extracting(AgentToolDefinition::name)
-                .containsExactly("submit_answer", "ask_clarification");
+                .containsExactly("finish_research", "ask_clarification");
     }
 
     @Test
@@ -594,18 +644,26 @@ class AgentLoopServiceTest {
     }
 
     @Test
-    void plainMarkdownAfterSuccessfulEvidenceReadFailsTheGroundingContract() {
+    void plainMarkdownAfterSuccessfulEvidenceReadIsSavedWithFallbackEvidence() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence", "{\"needs\":[{\"id\":\"accuracy\",\"query\":\"accuracy\"}]}"));
-        gateway.add(new ScriptedDecision("论文报告的方法准确率为 95%。", List.of()));
+        gateway.add(decisionTool("m2", "finish_research", "{\"groundingMode\":\"PAPER\",\"responseMode\":\"CONTENT\"}"));
+        gateway.add(new ScriptedDecision("论文报告的方法准确率为 95%。[S1]", List.of()));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(new AgentToolExecution("{\"sources\":[{\"sourceObjectId\":\"src-1\"}]}", Set.of("src-1")));
 
-        assertThatThrownBy(() -> service.execute(input("论文准确率是多少？")))
-                .hasMessageContaining("GROUNDING_SUBMISSION_REQUIRED");
-        verify(runtime).transitionRun(eq("run-1"), eq(AgentRunStatus.FAILED),
-                ArgumentMatchers.isNull(), eq("EVIDENCE_SUBMISSION_REQUIRED"), anyString());
+        AgentTurnResult result = service.execute(input("论文准确率是多少？"));
+
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        assertThat(result.message()).contains("95%").doesNotContain("[S1]");
+        assertThat(result.citations()).hasSize(1);
+        assertThat(gateway.requests.get(1).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("\"citationLabel\":\"S1\""));
+        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
+                entry.role() == AgentChatEntry.Role.TOOL
+                        && entry.content().contains("\"ready_for_answer\""));
     }
 
     @Test
@@ -683,7 +741,7 @@ class AgentLoopServiceTest {
     }
 
     @Test
-    void stoppedNeedsDoNotExecuteRetrievalAgain() {
+    void identicalEvidenceRequestsAreIdempotentWithoutRetiringTheTool() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         String request = "{\"needs\":[{\"id\":\"accuracy\",\"objective\":\"确认准确率\",\"query\":\"accuracy\"}]}";
@@ -704,12 +762,12 @@ class AgentLoopServiceTest {
         verify(tools, times(1)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
         assertThat(gateway.requests.get(3).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("\"status\":\"need_stopped\"")
-                        && entry.content().contains("\"recommendedAction\":\"answer\""));
+                        && entry.content().contains("\"status\":\"already_available\"")
+                        && entry.content().contains("\"newInformation\":false"));
     }
 
     @Test
-    void repeatedStaticValidationFailureStopsTheNeed() {
+    void repeatedInvalidRequestIsIdempotentWithoutClosingEvidenceCapability() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         String request = "{\"needs\":[{\"id\":\"missing\",\"objective\":\"确认目标\"}]}";
@@ -730,12 +788,11 @@ class AgentLoopServiceTest {
         verify(tools, times(1)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
         assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("\"status\":\"need_stopped\"")
-                        && entry.content().contains("连续两次未通过输入契约"));
+                        && entry.content().contains("\"status\":\"already_available\""));
     }
 
     @Test
-    void invalidContinuationExplainsObjectiveAndRefinementContractWithoutCallingSearchAgain() {
+    void changedEvidenceObjectivesRemainExecutableAgentChoices() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
@@ -755,17 +812,14 @@ class AgentLoopServiceTest {
         AgentTurnResult result = service.execute(input("论文准确率是多少？"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
-        verify(tools, times(1)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
-        assertThat(gateway.requests).anySatisfy(request -> assertThat(request.messages()).anyMatch(entry ->
+        verify(tools, times(3)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("NEED_OBJECTIVE_CHANGED")));
-        assertThat(gateway.requests).anySatisfy(request -> assertThat(request.messages()).anyMatch(entry ->
-                entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("MISSING_REFINEMENT_REASON")));
+                        && entry.content().contains("\"recommendedAction\":\"judge\""));
     }
 
     @Test
-    void newNeedAfterTheInitialPlanGetsOneChanceToReturnToTheOriginalId() {
+    void agentMayAddANewEvidenceNeedAfterInitialRetrieval() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
@@ -785,11 +839,10 @@ class AgentLoopServiceTest {
         AgentTurnResult result = service.execute(input("论文准确率和数据集是什么？"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
-        verify(tools, times(2)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        verify(tools, times(3)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
         assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
-                entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("NEW_NEED_NOT_ALLOWED")
-                        && entry.content().contains("\"status\":\"invalid_request\""));
+                entry.role() == AgentChatEntry.Role.ASSISTANT_TOOL
+                        && entry.content().contains("\"id\":\"dataset\""));
     }
 
     @Test
@@ -815,39 +868,37 @@ class AgentLoopServiceTest {
         AgentTurnResult result = service.execute(input("论文中的机制是什么？"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
-        assertThat(gateway.requests.get(3).messages()).anyMatch(entry ->
+        assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("\"outcome\":\"same_sources\"")
-                        && entry.content().contains("\"recommendedAction\":\"stop\""));
+                        && entry.content().contains("\"outcome\":\"new_sources\"")
+                        && entry.content().contains("\"recommendedAction\":\"judge\""));
     }
 
     @Test
-    void stopsOneNeedAfterThreeEffectiveEvidenceReads() {
+    void distinctEvidenceRefinementsRemainAvailableBeyondTwoCalls() {
         PaperSourceCatalog catalog = catalog();
         when(assembler.assemble(any())).thenReturn(context(catalog));
         gateway.add(decisionTool("m1", "retrieve_paper_evidence",
                 "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认核心公式\",\"query\":\"formula 1\"}]}"));
-        for (int attempt = 2; attempt <= 5; attempt++) {
+        for (int attempt = 2; attempt <= 4; attempt++) {
             gateway.add(decisionTool("m" + attempt, "retrieve_paper_evidence",
                     "{\"needs\":[{\"id\":\"formula\",\"objective\":\"确认核心公式\","
                             + "\"query\":\"formula " + attempt + "\","
                             + "\"refinementReason\":\"上一批未找到可确认的核心公式\"}]}"));
         }
-        gateway.add(decisionTool("m6", "submit_answer",
+        gateway.add(decisionTool("m5", "submit_answer",
                 "{\"groundingMode\":\"PAPER\",\"answerBlocks\":[{\"text\":\"仅确认公式作用。\",\"sourceObjectIds\":[\"src-1\"]}]}"));
         when(tools.execute(eq(catalog), eq("retrieve_paper_evidence"), anyString()))
                 .thenReturn(
-                        evidenceResult("src-1"), evidenceResult("src-2"),
-                        evidenceResult("src-3"), evidenceResult("src-4"));
+                        evidenceResult("src-1"), evidenceResult("src-2"), evidenceResult("src-3"));
 
         AgentTurnResult result = service.execute(input("核心公式是什么？"));
 
         assertThat(result.status()).isEqualTo("COMPLETED");
-        verify(tools, times(3)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
-        assertThat(gateway.requests.get(5).messages()).anyMatch(entry ->
+        verify(tools, times(4)).execute(eq(catalog), eq("retrieve_paper_evidence"), anyString());
+        assertThat(gateway.requests.get(4).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
-                        && entry.content().contains("本轮证据检索已达到三次")
-                        && entry.content().contains("need_stopped"));
+                        && entry.content().contains("\"attempt\":4"));
     }
 
     @Test
@@ -876,7 +927,7 @@ class AgentLoopServiceTest {
                 entry.role() == AgentChatEntry.Role.TOOL
                         && entry.content().contains("\"outcome\":\"new_sources\"")
                         && entry.content().contains("\"outcome\":\"no_match\"")
-                        && entry.content().contains("\"recommendedAction\":\"refine_once\"")
+                        && entry.content().contains("\"recommendedAction\":\"refine\"")
                         && entry.content().contains("\"newDistinctSources\":1")
                         && entry.content().contains("\"noProgress\":false")
                         && entry.content().contains("\"stopRecommended\":false")
@@ -905,7 +956,7 @@ class AgentLoopServiceTest {
         assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
                         && entry.content().contains("\"outcome\":\"no_match\"")
-                        && entry.content().contains("\"recommendedAction\":\"refine_once\""));
+                        && entry.content().contains("\"recommendedAction\":\"refine\""));
         assertThat(gateway.requests.get(2).messages()).anyMatch(entry ->
                 entry.role() == AgentChatEntry.Role.TOOL
                         && entry.content().contains("\"outcome\":\"no_match\"")
@@ -919,6 +970,36 @@ class AgentLoopServiceTest {
 
         assertThatThrownBy(() -> service.execute(input("hello"))).hasMessageContaining("timeout");
         verify(runtime).transitionRun("run-1", AgentRunStatus.FAILED, null, "MODEL_TIMEOUT", "timeout");
+    }
+
+    @Test
+    void frameworkGuardFailureIsPersistedBeforeTheWatchdogCanRelabelItAsTimeout() {
+        when(assembler.assemble(any())).thenReturn(context(null));
+        gateway.failure = new AgentFrameworkExecutionException(
+                new IllegalStateException("MODEL_CALL_LIMIT_EXCEEDED"),
+                new AgentFrameworkResult(null, 8, 4, 0, 0));
+
+        assertThatThrownBy(() -> service.execute(input("请回答")))
+                .isInstanceOf(AgentFrameworkExecutionException.class)
+                .hasMessageContaining("MODEL_CALL_LIMIT_EXCEEDED");
+
+        verify(runtime).transitionRun("run-1", AgentRunStatus.FAILED, null,
+                "AGENT_CALL_LIMIT", "MODEL_CALL_LIMIT_EXCEEDED");
+    }
+
+    @Test
+    void currentResultExplainsHistoricalWatchdogTimeoutUsingThePersistedTrace() {
+        run.setStatus(AgentRunStatus.FAILED.name());
+        run.setErrorCode("RUN_TIMEOUT");
+        run.setModelTraceJson("[{\"ordinal\":8,\"status\":\"FAILED\","
+                + "\"estimatedPromptTokens\":11000,\"responseKind\":\"NOT_SENT\"}]");
+        run.setMaxModelCalls(7);
+        when(runtime.getTurnForRun("run-1")).thenReturn(turn);
+
+        AgentTurnResult result = service.currentResult("run-1");
+
+        assertThat(result.status()).isEqualTo(AgentRunStatus.FAILED.name());
+        assertThat(result.message()).contains("调用次数已达上限");
     }
 
     @Test
@@ -1138,7 +1219,7 @@ class AgentLoopServiceTest {
             int modelCalls = 0;
             int toolCalls = 0;
             List<AgentChatEntry> transcript = new java.util.ArrayList<>(messages);
-            while (true) {
+            agentLoop: while (true) {
                 requests.add(new RequestSnapshot(List.copyOf(transcript), tools, skills));
                 ScriptedDecision decision = decisions.remove();
                 modelCalls++;
@@ -1147,12 +1228,31 @@ class AgentLoopServiceTest {
                 }
                 for (AgentToolRequest call : decision.toolCalls()) {
                     toolCalls++;
+                    if ("submit_answer".equals(call.name())) {
+                        JsonNode submission;
+                        try { submission = new ObjectMapper().readTree(call.argumentsJson()); }
+                        catch (Exception error) { throw new IllegalArgumentException(error); }
+                        AgentToolRequest finish = new AgentToolRequest(call.id(), "finish_research",
+                                "{\"groundingMode\":\""
+                                        + submission.path("groundingMode").asText("GENERAL_KNOWLEDGE")
+                                        + "\",\"responseMode\":\"CONTENT\"}");
+                        transcript.add(AgentChatEntry.assistantTool(finish.id(), finish.name(), finish.argumentsJson()));
+                        AgentToolExecution gate = handler.execute(finish);
+                        transcript.add(AgentChatEntry.tool(finish.id(), finish.name(), gate.resultJson()));
+                        try {
+                            if (!"ready_for_answer".equals(new ObjectMapper().readTree(gate.resultJson())
+                                    .path("status").asText())) continue agentLoop;
+                        } catch (Exception error) {
+                            throw new IllegalArgumentException(error);
+                        }
+                        return new AgentFrameworkResult(legacyAnswer(call.argumentsJson(), transcript),
+                                modelCalls, toolCalls, 0, 0);
+                    }
                     transcript.add(AgentChatEntry.assistantTool(call.id(), call.name(), call.argumentsJson()));
                     try {
                         AgentToolExecution execution = handler.execute(call);
                         String result = execution.resultJson();
-                        if ("submit_answer".equals(call.name()) || "ask_clarification".equals(call.name())
-                                || "paper_action".equals(call.name())) {
+                        if ("submit_answer".equals(call.name()) || "ask_clarification".equals(call.name())) {
                             return new AgentFrameworkResult(result, modelCalls, toolCalls, 0, 0);
                         }
                         transcript.add(AgentChatEntry.tool(call.id(), call.name(), result));
@@ -1167,6 +1267,41 @@ class AgentLoopServiceTest {
         private static String json(String value) {
             try { return new ObjectMapper().writeValueAsString(value); }
             catch (Exception error) { throw new IllegalArgumentException(error); }
+        }
+
+        private static String legacyAnswer(String argumentsJson, List<AgentChatEntry> transcript) {
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode submission = mapper.readTree(argumentsJson);
+                if (!submission.path("clarification").asText("").isBlank()) {
+                    return submission.path("clarification").asText();
+                }
+                Map<String, String> labels = new LinkedHashMap<>();
+                for (AgentChatEntry entry : transcript) {
+                    if (entry.role() != AgentChatEntry.Role.TOOL) continue;
+                    JsonNode result = mapper.readTree(entry.content());
+                    for (JsonNode source : result.path("sources")) {
+                        String id = source.path("sourceObjectId").asText("");
+                        if (!id.isBlank()) labels.computeIfAbsent(id, ignored -> "S" + (labels.size() + 1));
+                    }
+                    for (JsonNode source : result.path("visualSources")) {
+                        String id = source.path("sourceObjectId").asText("");
+                        if (!id.isBlank()) labels.computeIfAbsent(id, ignored -> "S" + (labels.size() + 1));
+                    }
+                }
+                StringBuilder answer = new StringBuilder();
+                for (JsonNode block : submission.path("answerBlocks")) {
+                    if (answer.length() > 0) answer.append("\n\n");
+                    answer.append(block.path("text").asText());
+                    for (JsonNode sourceId : block.path("sourceObjectIds")) {
+                        String label = labels.get(sourceId.asText());
+                        if (label != null) answer.append('[').append(label).append(']');
+                    }
+                }
+                return answer.toString();
+            } catch (Exception error) {
+                throw new IllegalArgumentException(error);
+            }
         }
     }
 

@@ -329,16 +329,20 @@ public final class PdfMetadataHeuristics {
     }
 
     private boolean looksLikeAuthorLine(String line) {
-        String lower = line.toLowerCase(java.util.Locale.ROOT);
+        boolean leadingBy = line != null && line.matches("(?i)^\\s*by\\s+.*");
+        String candidate = line == null ? "" : line.replaceFirst("(?i)^\\s*by\\s+", "");
+        String lower = candidate.toLowerCase(java.util.Locale.ROOT);
         if (lower.contains("member, ieee")
                 || lower.contains("senior member")
                 || lower.contains("corresponding author")
                 || lower.contains("e-mail")
                 || lower.contains("email")
-                || line.contains("@")) {
+                || candidate.contains("@")) {
             return true;
         }
-        return extractAuthorNames(line).size() >= 2;
+        List<String> names = extractAuthorNames(candidate);
+        return names.size() >= 2 || names.size() == 1 && (leadingBy
+                || candidate.matches(".*\\b[A-Z]\\.\\s+(?:[A-Z]\\.\\s+)*[A-Z][A-Za-z'’-]+.*"));
     }
 
     private boolean looksLikeAuthorBlock(String block) {
@@ -420,6 +424,7 @@ public final class PdfMetadataHeuristics {
     private List<String> extractAuthorNames(String line) {
         if (line == null || line.isBlank()) return List.of();
         String normalized = line
+                .replaceFirst("(?i)^\\s*by\\s+", "")
                 .replaceAll("(?i),?\\s*(?:member|senior member|fellow),?\\s*ieee", "")
                 .replaceAll("[0-9*†‡∗]+", "")
                 .replaceAll("(?i)\\s+(?:and|&)\\s+", ",");
@@ -436,7 +441,8 @@ public final class PdfMetadataHeuristics {
         String lower = value.toLowerCase(java.util.Locale.ROOT);
         if (lower.matches(".*(?:university|laboratory|institute|department|school|college|"
                 + "shenzhen|china|email|corresponding|ieee|abstract).*")) return false;
-        return value.matches("(?:[A-ZÀ-ÖØ-Þ][\\p{L}'’-]+\\s+){1,3}[A-ZÀ-ÖØ-Þ][\\p{L}'’-]+")
+        return value.matches("(?:[A-ZÀ-ÖØ-Þ](?:[\\p{L}'’-]+|\\.)\\s+){1,5}"
+                + "[A-ZÀ-ÖØ-Þ][\\p{L}'’-]+")
                 || value.matches("[\\p{IsHan}]{2,4}");
     }
 

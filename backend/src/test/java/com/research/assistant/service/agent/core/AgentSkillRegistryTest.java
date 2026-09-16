@@ -96,6 +96,6 @@ class AgentSkillRegistryTest {
         assertThat(schema.at("/properties/content/maxLength").asInt()).isEqualTo(2000);
         assertThat(schema.at("/properties/operations/items/properties/actionType/type").asText())
                 .isEqualTo("string");
-        assertThat(schema.at("/required").isArray()).isTrue();
+        assertThat(schema.path("properties").has("responseMode")).isFalse();
     }
 }

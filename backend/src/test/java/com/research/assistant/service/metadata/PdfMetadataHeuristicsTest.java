@@ -209,4 +209,17 @@ class PdfMetadataHeuristicsTest {
         assertEquals("19th International Symposium on Wireless Communication Systems (ISWCS)", result.source());
         assertEquals(2024, result.year());
     }
+
+    @Test
+    void shouldExtractOlderTitleAndInitialedAuthorWithoutAbstract() {
+        PdfMetadataHeuristics.Metadata result = extractor.extract("""
+                A Mathematical Theory of Communication
+                C. E. Shannon
+                INTRODUCTION
+                The recent development of communication theory motivates this work.
+                """);
+
+        assertEquals("A Mathematical Theory of Communication", result.title());
+        assertEquals("C. E. Shannon", result.authors());
+    }
 }

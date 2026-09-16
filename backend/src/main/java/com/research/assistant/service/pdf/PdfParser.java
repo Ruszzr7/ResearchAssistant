@@ -5,7 +5,7 @@ import java.io.File;
 /**
  * PDF 解析器抽象接口。
  * <p>
- * 不同实现可基于 PDFBox、Marker、MinerU、Grobid 等，返回统一字段。
+ * 本地 PDF 解析实现返回统一字段。
  */
 public interface PdfParser {
 

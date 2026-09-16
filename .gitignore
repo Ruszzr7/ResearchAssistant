@@ -13,6 +13,7 @@ target/
 # Runtime data
 data/
 backups/
+runtime/
 *.log
 *.pid
 scripts/local-config.cmd

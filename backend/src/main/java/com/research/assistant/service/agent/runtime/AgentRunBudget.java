@@ -10,8 +10,12 @@ public record AgentRunBudget(int maxModelCalls, int maxToolCalls, int tokenBudge
     public static AgentRunBudget defaults() {
         // This is the default runtime input budget for the single-paper agent.
         // It is deliberately a broad resource budget, not a per-skill workflow limit.
-        // Keep the existing 90-second durable run boundary until real traces justify
-        // changing it. Call counts are both persisted diagnostics and hard safeguards.
-        return new AgentRunBudget(7, 10, 110_000, 90_000);
+        // The Agent performs several sequential model/tool rounds.  Keep the durable
+        // deadline above the per-request model timeout and reserve time for the final
+        // answer plus persistence. maxModelCalls limits research decision calls;
+        // the executor additionally reserves one provider round for the terminal
+        // finish_research decision and one tool-free final-answer call. Call
+        // counts remain emergency safeguards.
+        return new AgentRunBudget(10, 12, 160_000, 900_000);
     }
 }

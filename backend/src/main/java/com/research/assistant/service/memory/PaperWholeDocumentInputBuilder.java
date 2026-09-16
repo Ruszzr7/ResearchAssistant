@@ -52,6 +52,14 @@ public class PaperWholeDocumentInputBuilder {
     private static final long MAX_IMAGE_BYTES = 64L * 1024 * 1024;
     private static final int INPUT_VISUAL_TOKEN_BUDGET = 90_000;
     private static final int VISUAL_PART_TOKEN_ESTIMATE = 1_024;
+    /*
+     * Recovery text is already present in the ordered semantic spans.  Keeping
+     * the complete copy in every recovery entry can multiply the request size
+     * on papers with many uncertain regions (especially older two-column PDFs).
+     * A bounded excerpt is enough to label the region; the image remains the
+     * source of truth for correction.
+     */
+    private static final int MAX_RECOVERY_RAW_TEXT_CHARS = 600;
 
     private final PaperMapper paperMapper;
     private final PaperPdfFileResolver fileResolver;
@@ -131,25 +139,29 @@ public class PaperWholeDocumentInputBuilder {
         contents.add(TextContent.from("\n下面是按页排列的论文文本；页面图片用于校正双栏、公式、图表和版式。\n"
                 + structuredText + recoveryManifest));
         int visualCapacity = visualPartCapacity(prompt, structuredText, recoveryManifest);
-        List<Integer> readingOrderPages = readingOrderPages(regions);
+        List<RecoveryImage> requestRecoveryImages = limitRecoveryImages(recoveryImages, visualCapacity);
+        int pageImageCapacity = Math.max(0, visualCapacity - requestRecoveryImages.size());
+        List<Integer> readingOrderPages = readingOrderPages(regions).stream()
+                .limit(pageImageCapacity)
+                .toList();
         List<PageImage> images = renderPageImages(pdf, readingOrderPages);
         for (PageImage image : images) {
             contents.add(TextContent.from("\n[页面图像 page=" + image.page() + "]"));
             contents.add(ImageContent.from(Base64.getEncoder().encodeToString(image.bytes()),
                     "image/jpeg"));
         }
-        appendRecoveryImages(contents, recoveryImages);
-        int optionalVisualParts = Math.max(0, visualCapacity - recoveryImages.size() - images.size());
+        appendRecoveryImages(contents, requestRecoveryImages);
+        int optionalVisualParts = Math.max(0, visualCapacity - requestRecoveryImages.size() - images.size());
         Set<String> recoveryBlockIds = recoveryBlockIds(regions);
         List<VisualImage> visualSources = renderVisualSourceImages(pdf, artifact, recoveryBlockIds,
                 optionalVisualParts);
         appendVisualSourceImages(contents, visualSources);
         List<byte[]> allImages = new ArrayList<>(images.stream().map(PageImage::bytes).toList());
-        allImages.addAll(recoveryImages.stream().map(RecoveryImage::bytes).toList());
+        allImages.addAll(requestRecoveryImages.stream().map(RecoveryImage::bytes).toList());
         allImages.addAll(visualSources.stream().map(VisualImage::bytes).toList());
         ensureImageBudget(allImages);
         return new PaperWholeDocumentInput("page-images", structure.pageCount(), images.size(),
-                recoveryImages.size(), contents, spanBlockIds, regionMap);
+                requestRecoveryImages.size(), contents, spanBlockIds, regionMap);
     }
 
     private String renderRecoveryManifest(List<LayoutUncertainRegion> regions) {
@@ -163,7 +175,7 @@ public class PaperWholeDocumentInputBuilder {
                     .append(" blockIds=").append(String.join(",", region.blockIds()))
                     .append(" pages=").append(region.pageAreas().stream()
                             .map(area -> Integer.toString(area.page())).distinct().toList())
-                    .append("\nrawText:\n").append(region.rawText()).append("\n");
+                    .append("\nrawText:\n").append(limitRecoveryText(region.rawText())).append("\n");
         }
         text.append("只修复以上区域；无法从页面确认时返回 UNRESOLVED。\n");
         return text.toString();
@@ -310,6 +322,22 @@ public class PaperWholeDocumentInputBuilder {
         } catch (IOException error) {
             throw new IllegalStateException("论文异常区域图片生成失败", error);
         }
+    }
+
+    private List<RecoveryImage> limitRecoveryImages(List<RecoveryImage> images, int capacity) {
+        if (images.isEmpty() || capacity <= 0) return List.of();
+        return images.size() <= capacity ? images : images.subList(0, capacity);
+    }
+
+    private String limitRecoveryText(String value) {
+        if (value == null || value.length() <= MAX_RECOVERY_RAW_TEXT_CHARS) {
+            return value == null ? "" : value;
+        }
+        int suffix = Math.max(80, MAX_RECOVERY_RAW_TEXT_CHARS / 4);
+        int prefix = MAX_RECOVERY_RAW_TEXT_CHARS - suffix - 24;
+        return value.substring(0, Math.max(0, prefix))
+                + " … [区域文本已截断] … "
+                + value.substring(Math.max(0, value.length() - suffix));
     }
 
     private byte[] crop(BufferedImage page, com.research.assistant.service.pdf.layout.NormalizedBoundingBox box)

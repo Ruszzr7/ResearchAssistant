@@ -55,7 +55,11 @@ public class PaperMemoryService {
                 PaperStructure.SCHEMA_VERSION);
         if (!forceRefresh && existing != null) {
             try {
-                return fromRecord(existing, artifact);
+                PaperMemoryState cached = fromRecord(existing, artifact);
+                if (sameTitle(paper.getTitle(), cached.structure().metadata().title())) {
+                    return cached;
+                }
+                log.info("paper_memory_metadata_changed paperId={} recordId={}", paperId, existing.getId());
             } catch (IllegalStateException exception) {
                 log.warn("paper_memory_cache_invalid paperId={} recordId={}", paperId, existing.getId());
             }
@@ -70,6 +74,15 @@ public class PaperMemoryService {
                 artifact.parserVersion(),
                 PaperStructure.SCHEMA_VERSION);
         return fromRecord(persisted == null ? saved : persisted, artifact);
+    }
+
+    private boolean sameTitle(String current, String cached) {
+        return normalizeTitle(current).equals(normalizeTitle(cached));
+    }
+
+    private String normalizeTitle(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim()
+                .toLowerCase(java.util.Locale.ROOT);
     }
 
     public PaperMemoryState latestStructure(Long paperId) {

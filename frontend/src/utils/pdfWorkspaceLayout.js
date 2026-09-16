@@ -43,7 +43,10 @@ export function workbenchWidthForContainer(
 
   const minimum = Math.min(MIN_WORKBENCH_WIDTH, usableWidth * 0.45)
   const requestedPdfMinimum = Math.max(MIN_PDF_WIDTH, Number(minimumPdfWidth) || 0)
-  const maximum = Math.max(minimum, usableWidth - requestedPdfMinimum)
+  // Keep the assistant usable at roughly 40% of the reader area. When the
+  // measured PDF page is wider than the remaining space, the PDF may scroll
+  // horizontally instead of shrinking the assistant below that ceiling.
+  const maximum = Math.max(minimum, usableWidth * 0.4, usableWidth - requestedPdfMinimum)
   return Math.round(clamp(usableWidth * normalizeWorkbenchRatio(ratio), minimum, maximum))
 }
 

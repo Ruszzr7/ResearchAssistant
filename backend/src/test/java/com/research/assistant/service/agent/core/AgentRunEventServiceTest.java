@@ -106,6 +106,27 @@ class AgentRunEventServiceTest {
     }
 
     @Test
+    void exposesSkillNameForActivationDiagnostics() {
+        AgentLoopService loop = mock(AgentLoopService.class);
+        AgentToolCallMapper calls = mock(AgentToolCallMapper.class);
+        when(loop.currentResult("run-skill")).thenReturn(new AgentTurnResult("turn-skill", "run-skill", "COMPLETED",
+                "answer", List.of(), List.of()));
+        AgentToolCallRecord call = new AgentToolCallRecord();
+        call.setToolCallId("tool-skill");
+        call.setToolName("activate_skill");
+        call.setStatus("COMPLETED");
+        call.setResultJson("{\"skillName\":\"paper-evidence\",\"instructions\":\"private instructions\"}");
+        when(calls.selectByRunId("run-skill")).thenReturn(List.of(call));
+
+        AgentRunEvent event = new AgentRunEventService(loop, calls, new ObjectMapper()).events("run-skill", 0).get(1);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) event.data();
+
+        assertThat(data).containsEntry("skillName", "paper-evidence");
+        assertThat(data.toString()).doesNotContain("private instructions");
+    }
+
+    @Test
     void exposesDurableFailureCodeForTimeoutDiagnostics() {
         AgentLoopService loop = mock(AgentLoopService.class);
         AgentToolCallMapper calls = mock(AgentToolCallMapper.class);
@@ -127,6 +148,39 @@ class AgentRunEventServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> data = (Map<String, Object>) event.data();
         assertThat(data).containsEntry("errorCode", "QUEUE_TIMEOUT")
-                .containsEntry("errorMessage", "agent run queue exceeded 90000 ms");
+                .containsEntry("errorMessage", "agent run queue exceeded 90000 ms")
+                .containsEntry("failureCategory", "PROJECT_SCHEDULER")
+                .containsEntry("retryable", true);
+    }
+
+    @Test
+    void infersHistoricalLocalGuardBehindAWatchdogTimeout() {
+        AgentLoopService loop = mock(AgentLoopService.class);
+        AgentToolCallMapper calls = mock(AgentToolCallMapper.class);
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        when(loop.currentResult("run-6")).thenReturn(new AgentTurnResult("turn-6", "run-6", "FAILED",
+                "模型响应超时，请稍后重试", List.of(), List.of()));
+        when(calls.selectByRunId("run-6")).thenReturn(List.of());
+        AgentRunRecord run = new AgentRunRecord();
+        run.setRunId("run-6");
+        run.setStatus("FAILED");
+        run.setErrorCode("RUN_TIMEOUT");
+        run.setErrorMessage("agent run exceeded 90000 ms");
+        run.setMaxModelCalls(7);
+        run.setModelTraceJson("[{\"ordinal\":8,\"status\":\"FAILED\","
+                + "\"estimatedPromptTokens\":11000,\"responseKind\":\"NOT_SENT\"}]");
+        when(runs.selectByRunId("run-6")).thenReturn(run);
+
+        AgentRunEvent event = new AgentRunEventService(loop, calls, new ObjectMapper(), runs)
+                .events("run-6", 0).stream()
+                .filter(value -> "run.failed".equals(value.type())).findFirst().orElseThrow();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) event.data();
+        assertThat(data).containsEntry("errorCode", "RUN_TIMEOUT")
+                .containsEntry("inferredErrorCode", "AGENT_CALL_LIMIT")
+                .containsEntry("inferredMessage", "论文助手调用次数已达上限，请缩小问题范围后重试")
+                .containsEntry("failureCategory", "PROJECT_LIMIT")
+                .containsEntry("retryable", false);
     }
 }

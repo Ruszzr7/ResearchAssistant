@@ -29,6 +29,9 @@ class AgentRunFailureClassifierTest {
         assertThat(AgentRunFailureClassifier.classify(
                 new RuntimeException("model returned an empty response")).code())
                 .isEqualTo("MODEL_EMPTY_RESPONSE");
+        assertThat(AgentRunFailureClassifier.classify(
+                new RuntimeException("MODEL_EMPTY_RESPONSE: 模型返回了空响应"))
+                .category()).isEqualTo(AgentRunFailureClassifier.PROVIDER_TRANSIENT);
         assertThat(AgentRunFailureClassifier.userMessage("MODEL_EMPTY_RESPONSE"))
                 .isEqualTo("模型未返回有效内容，请重试");
         assertThat(AgentRunFailureClassifier.userMessage("ANSWER_SUBMISSION_REQUIRED"))
@@ -43,5 +46,21 @@ class AgentRunFailureClassifierTest {
                 .contains("排队时间过长");
         assertThat(AgentRunFailureClassifier.userMessage("RUN_TIMEOUT"))
                 .contains("模型响应超时");
+    }
+
+    @Test
+    void exposesRetryPolicyWithoutTreatingProjectGuardsAsProviderBusy() {
+        assertThat(AgentRunFailureClassifier.fromCode("MODEL_OVERLOADED"))
+                .extracting(AgentRunFailureClassifier.Failure::category,
+                        AgentRunFailureClassifier.Failure::retryable)
+                .containsExactly(AgentRunFailureClassifier.PROVIDER_TRANSIENT, true);
+        assertThat(AgentRunFailureClassifier.fromCode("CONTEXT_BUDGET_EXCEEDED"))
+                .extracting(AgentRunFailureClassifier.Failure::category,
+                        AgentRunFailureClassifier.Failure::retryable)
+                .containsExactly(AgentRunFailureClassifier.PROJECT_LIMIT, false);
+        assertThat(AgentRunFailureClassifier.fromCode("AGENT_CALL_LIMIT"))
+                .extracting(AgentRunFailureClassifier.Failure::category,
+                        AgentRunFailureClassifier.Failure::retryable)
+                .containsExactly(AgentRunFailureClassifier.PROJECT_LIMIT, false);
     }
 }

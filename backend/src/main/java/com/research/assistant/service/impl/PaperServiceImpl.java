@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.research.assistant.common.DuplicatePaperException;
 import com.research.assistant.common.PaperFileValidationException;
+import com.research.assistant.common.PaperMetadataValidationException;
 import com.research.assistant.constant.AcquisitionMethod;
 import com.research.assistant.constant.ReadingStatus;
 import com.research.assistant.entity.Paper;
@@ -247,7 +248,11 @@ public class PaperServiceImpl implements PaperService {
         PaperDocumentReviewer.Review review = paperDocumentReviewer
                 .review(texts.identityText(), texts.metadataText());
         if (review.status() == PaperDocumentReviewer.Status.NOT_PAPER) {
-            throw new PaperFileValidationException(review.message());
+            // Content classification is advisory. A valid user-supplied PDF with explicit
+            // metadata must remain importable even when an old, scanned or unusual layout
+            // provides too little text for the lightweight reviewer.
+            log.info("paper_document_review_advisory status={} storedName={}",
+                    review.status(), stored.storedName());
         }
     }
 
@@ -330,6 +335,7 @@ public class PaperServiceImpl implements PaperService {
             throw new IllegalArgumentException("标题不能为空");
         }
         normalizeAuthors(paper);
+        validateMetadataLengths(paper);
         if (paper.getReadingStatus() == null || paper.getReadingStatus().isBlank()) {
             if (creating) paper.setReadingStatus(ReadingStatus.UNREAD);
         } else {
@@ -353,6 +359,24 @@ public class PaperServiceImpl implements PaperService {
             paper.setAcquisitionMethod(method);
         }
         validateFolder(paper.getFolderId());
+    }
+
+    private void validateMetadataLengths(Paper paper) {
+        requireMax("title", "标题", paper.getTitle(), 500);
+        requireMax("authors", "作者信息", paper.getAuthors(), 20_000);
+        requireMax("source", "来源", paper.getSource(), 500);
+        requireMax("doi", "DOI", paper.getDoi(), 200);
+        requireMax("arxivId", "arXiv ID", paper.getArxivId(), 100);
+        requireMax("semanticScholarId", "Semantic Scholar ID", paper.getSemanticScholarId(), 200);
+        requireMax("sourceUrl", "来源链接", paper.getSourceUrl(), 2_000);
+        requireMax("abstractText", "摘要", paper.getAbstractText(), 50_000);
+        requireMax("keywords", "关键词", paper.getKeywords(), 4_000);
+    }
+
+    private void requireMax(String field, String label, String value, int maximum) {
+        if (value != null && value.length() > maximum) {
+            throw new PaperMetadataValidationException(field, label + "长度不能超过 " + maximum);
+        }
     }
 
     private void preserveServerManagedFields(Paper update, Paper existing) {

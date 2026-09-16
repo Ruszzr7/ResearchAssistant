@@ -2,6 +2,7 @@ package com.research.assistant.service.agent.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.research.assistant.service.ai.LangChain4jModelFactory;
+import com.research.assistant.service.agent.runtime.AgentRunBudget;
 import dev.langchain4j.agent.tool.ReturnBehavior;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -39,6 +40,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -52,9 +54,11 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
     // own broad emergency safeguard; the Agent decides whether another capability
     // call is useful after seeing the previous result.
     static final int MEMORY_TOKEN_LIMIT = 110_000;
-    static final int INPUT_HARD_LIMIT_TOKENS = 16_000;
-    static final int MAX_MODEL_CALLS = 7;
-    static final int MAX_TOOL_CALLS = 10;
+    // maxModelCalls is the research decision budget. A terminal decision still
+    // needs one provider round to call finish_research, followed by the separate
+    // tool-free final answer round.
+    static final int MAX_RESEARCH_DECISION_CALLS = AgentRunBudget.defaults().maxModelCalls();
+    static final int MAX_TOOL_CALLS = AgentRunBudget.defaults().maxToolCalls();
 
     private final LangChain4jModelFactory modelFactory;
     private final ObjectMapper objectMapper;
@@ -122,11 +126,13 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
         List<AgentChatEntry> input = combineSystemMessages(messages);
 
         InvocationVisualBuffer visualBuffer = new InvocationVisualBuffer();
+        InvocationControl invocationControl = new InvocationControl();
         AtomicInteger toolInvocationCounter = new AtomicInteger();
         AtomicInteger modelCallCounter = new AtomicInteger();
         AtomicInteger observedPromptTokens = new AtomicInteger();
         AtomicInteger observedCompletionTokens = new AtomicInteger();
-        Skills skillSet = createSkills(skills, handler, visualBuffer, toolInvocationCounter);
+        Skills skillSet = createSkills(skills, handler, visualBuffer, toolInvocationCounter,
+                invocationControl);
         input = withSkillMetadata(input, skillSet);
         AgentChatEntry current = input.get(input.size() - 1);
         if (current.role() != AgentChatEntry.Role.USER) {
@@ -143,12 +149,13 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
         }
 
         List<AiServiceTool> serviceTools = tools.stream()
-                .map(definition -> toTool(definition, handler, visualBuffer, toolInvocationCounter))
+                .map(definition -> toTool(definition, handler, visualBuffer, toolInvocationCounter,
+                        invocationControl))
                 .toList();
         AgentRunContextHarness contextHarness = new AgentRunContextHarness(objectMapper);
         PaperAssistantAiService assistant = assistant(observed(model, observer, contextHarness,
-                        modelCallCounter, observedPromptTokens, observedCompletionTokens), memory, serviceTools,
-                skillSet, visualBuffer, activationHandler, contextHarness);
+                        modelCallCounter, observedPromptTokens, observedCompletionTokens, invocationControl),
+                memory, serviceTools, skillSet, visualBuffer, activationHandler, contextHarness, invocationControl);
 
         try {
             Result<String> result = assistant.chat(current.content());
@@ -157,31 +164,6 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
             int promptTokens = tokenCount(result.tokenUsage() == null ? null : result.tokenUsage().inputTokenCount());
             int completionTokens = tokenCount(result.tokenUsage() == null ? null : result.tokenUsage().outputTokenCount());
 
-            // Some OpenAI-compatible providers return a final prose message instead of
-            // calling the terminal answer tool.  A structured terminal is required for
-            // every normal Agent answer: paper answers need source bindings, while
-            // general-knowledge answers simply submit empty sourceObjectIds.  Reuse the
-            // same chat memory for one constrained continuation.  This is protocol
-            // recovery, not another evidence search and does not add a second model or
-            // a second Skill.
-            boolean answerToolAvailable = tools.stream().anyMatch(tool -> "submit_answer".equals(tool.name()));
-            if (requiresStructuredSubmission(result, answerToolAvailable)) {
-                String recoveryPrompt = hasAnyTool(result)
-                        ? "[协议恢复] 已使用工具但未提交终态。请现在立即调用 submit_answer，只提交已确认内容，不要输出普通文本。"
-                        : "[协议恢复] 刚才没有调用任何工具。若问题依赖论文，请按论文画像 Skill→证据 Skill处理；否则直接调用 submit_answer。不要输出普通文本。";
-                Result<String> submission = assistant.chat(recoveryPrompt);
-                if (!hasTerminalTool(submission)) {
-                    throw new IllegalStateException("ANSWER_SUBMISSION_REQUIRED：最终答案必须通过 submit_answer 提交");
-                }
-                result = submission;
-                modelCalls += submission.intermediateResponses() == null
-                        ? 1 : submission.intermediateResponses().size() + 1;
-                toolCalls += submission.toolExecutions() == null ? 0 : submission.toolExecutions().size();
-                promptTokens += tokenCount(submission.tokenUsage() == null
-                        ? null : submission.tokenUsage().inputTokenCount());
-                completionTokens += tokenCount(submission.tokenUsage() == null
-                        ? null : submission.tokenUsage().outputTokenCount());
-            }
             String content = result.content();
             if ((content == null || content.isBlank()) && result.toolExecutions() != null
                     && !result.toolExecutions().isEmpty()) {
@@ -203,20 +185,6 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
         }
     }
 
-    private static boolean requiresStructuredSubmission(Result<String> result, boolean answerToolAvailable) {
-        return answerToolAvailable && !hasTerminalTool(result);
-    }
-
-    private static boolean hasTerminalTool(Result<String> result) {
-        if (result == null || result.toolExecutions() == null) return false;
-        return result.toolExecutions().stream()
-                .anyMatch(execution -> isTerminal(execution.request().name()));
-    }
-
-    private static boolean hasAnyTool(Result<String> result) {
-        return result != null && result.toolExecutions() != null && !result.toolExecutions().isEmpty();
-    }
-
     private static int tokenCount(Integer value) {
         return value == null ? 0 : value;
     }
@@ -225,29 +193,42 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
                                       AgentRunContextHarness contextHarness,
                                       AtomicInteger modelCallCounter,
                                       AtomicInteger observedPromptTokens,
-                                      AtomicInteger observedCompletionTokens) {
+                                      AtomicInteger observedCompletionTokens,
+                                      InvocationControl invocationControl) {
         return new ChatModel() {
             @Override
             public ChatResponse doChat(dev.langchain4j.model.chat.request.ChatRequest request) {
+                // LangChain4j appends service tools after the request transformer runs.  Strip
+                // them again at the model boundary for the plain-text answer phase so the
+                // provider receives a true no-tool request.
+                dev.langchain4j.model.chat.request.ChatRequest effectiveRequest =
+                        request.toolChoice() == ToolChoice.NONE ? withoutTools(request) : request;
                 int call = modelCallCounter.incrementAndGet();
                 long started = System.nanoTime();
                 AgentRunContextHarness.RequestMetrics metrics = contextHarness.lastMetrics();
                 int estimatedPromptTokensBefore = metrics == null
-                        ? AgentRunContextHarness.estimatedRequestTokens(request)
+                        ? AgentRunContextHarness.estimatedRequestTokens(effectiveRequest)
                         : metrics.estimatedPromptTokensBefore();
                 int estimatedPromptTokens = metrics == null
-                        ? AgentRunContextHarness.estimatedRequestTokens(request)
+                        ? AgentRunContextHarness.estimatedRequestTokens(effectiveRequest)
                         : metrics.estimatedPromptTokensAfter();
                 boolean compacted = metrics != null && metrics.compacted();
                 boolean providerInvoked = false;
                 try {
-                    if (call > MAX_MODEL_CALLS) throw new IllegalStateException("MODEL_CALL_LIMIT_EXCEEDED");
-                    if (estimatedPromptTokens > INPUT_HARD_LIMIT_TOKENS) {
-                        throw new IllegalArgumentException("CONTEXT_BUDGET_EXCEEDED");
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new IllegalStateException("RUN_CANCELLED");
                     }
-                    contextHarness.markRequestSent();
+                    boolean terminalFallback = invocationControl.beforeModelCall(
+                            effectiveRequest, call, MAX_RESEARCH_DECISION_CALLS);
+                    if (terminalFallback) {
+                        // A provider that keeps exploring past the research budget
+                        // must still yield a user-visible answer. This is an
+                        // emergency boundary only: the model remains free to stop
+                        // or call any capability on all normal rounds.
+                        effectiveRequest = terminalFallbackRequest(effectiveRequest);
+                    }
                     providerInvoked = true;
-                    ChatResponse response = delegate.chat(request);
+                    ChatResponse response = delegate.chat(effectiveRequest);
                     TokenUsage usage = response.tokenUsage();
                     int promptTokens = token(usage == null ? null : usage.inputTokenCount());
                     int completionTokens = token(usage == null ? null : usage.outputTokenCount());
@@ -256,8 +237,8 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
                     AgentRunContextHarness.RunStats stats = contextHarness.recordActualPromptTokens(promptTokens);
                     ResponseTelemetry responseTelemetry = responseTelemetry(response);
                     notifyObserver(observer, new AgentModelCallTrace(call, "COMPLETED", elapsedMs(started),
-                            request.messages().size(), request.toolSpecifications() == null
-                            ? 0 : request.toolSpecifications().size(),
+                            effectiveRequest.messages().size(), effectiveRequest.toolSpecifications() == null
+                            ? 0 : effectiveRequest.toolSpecifications().size(),
                             estimatedPromptTokensBefore, estimatedPromptTokens, promptTokens, completionTokens,
                             stats.cumulativeEstimatedPromptTokens(), stats.cumulativePromptTokens(),
                             stats.maxEstimatedPromptTokens(), stats.maxPromptTokens(),
@@ -267,8 +248,8 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
                 } catch (RuntimeException error) {
                     AgentRunContextHarness.RunStats stats = contextHarness.runStats();
                     notifyObserver(observer, new AgentModelCallTrace(call, "FAILED", elapsedMs(started),
-                            request.messages() == null ? 0 : request.messages().size(),
-                            request.toolSpecifications() == null ? 0 : request.toolSpecifications().size(),
+                            effectiveRequest.messages() == null ? 0 : effectiveRequest.messages().size(),
+                            effectiveRequest.toolSpecifications() == null ? 0 : effectiveRequest.toolSpecifications().size(),
                             estimatedPromptTokensBefore, estimatedPromptTokens, 0, 0,
                             stats.cumulativeEstimatedPromptTokens(), stats.cumulativePromptTokens(),
                             stats.maxEstimatedPromptTokens(), stats.maxPromptTokens(), null,
@@ -278,6 +259,31 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
                 }
             }
         };
+    }
+
+    private static dev.langchain4j.model.chat.request.ChatRequest withoutTools(
+            dev.langchain4j.model.chat.request.ChatRequest request) {
+        return dev.langchain4j.model.chat.request.ChatRequest.builder()
+                .messages(request.messages())
+                .modelName(request.modelName())
+                .temperature(request.temperature())
+                .topP(request.topP())
+                .topK(request.topK())
+                .frequencyPenalty(request.frequencyPenalty())
+                .presencePenalty(request.presencePenalty())
+                .maxOutputTokens(request.maxOutputTokens())
+                .stopSequences(request.stopSequences())
+                .toolChoice(ToolChoice.NONE)
+                .responseFormat(request.responseFormat())
+                .build();
+    }
+
+    private static dev.langchain4j.model.chat.request.ChatRequest terminalFallbackRequest(
+            dev.langchain4j.model.chat.request.ChatRequest request) {
+        List<ChatMessage> messages = new ArrayList<>(request.messages() == null
+                ? List.of() : request.messages());
+        messages.add(UserMessage.from("研究阶段已达到安全预算。请基于当前已读取的论文证据和对话，直接输出能够确认的最终 Markdown 回答；不要再调用工具，不要编造缺失事实。"));
+        return withoutTools(request.toBuilder().messages(messages).build());
     }
 
     private static ResponseTelemetry responseTelemetry(ChatResponse response) {
@@ -313,7 +319,8 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
                                                Skills skills,
                                                InvocationVisualBuffer visualBuffer,
                                                SkillActivationHandler activationHandler,
-                                               AgentRunContextHarness contextHarness) {
+                                               AgentRunContextHarness contextHarness,
+                                               InvocationControl invocationControl) {
         var builder = AiServices.builder(PaperAssistantAiService.class)
                 .chatModel(model)
                 .chatMemory(memory)
@@ -341,13 +348,21 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
                     }
                 })
                 .chatRequestTransformer(request -> {
+                    var parameterOverride = ChatRequestParameters.builder();
+                    if (invocationControl.finalAnswer()) {
+                        // Research has ended.  The final response is ordinary Markdown:
+                        // no answer-shaped tool JSON, no tool retry loop.
+                        parameterOverride.toolChoice(ToolChoice.NONE)
+                                .toolSpecifications(List.of());
+                    } else {
+                        // During research the model decides whether another capability
+                        // is useful.  Requiring a tool on every round prevents it from
+                        // stopping after the evidence is sufficient and turns the
+                        // harness into a fixed workflow.
+                        parameterOverride.toolChoice(ToolChoice.AUTO);
+                    }
                     var transformed = request.toBuilder()
-                        .parameters(request.parameters().overrideWith(ChatRequestParameters.builder()
-                                // The model still selects the next business tool. REQUIRED
-                                // only enforces the framework protocol: every model step
-                                // must be represented by a registered tool call, and the
-                                // server continues to validate the selected tool arguments.
-                                .toolChoice(ToolChoice.REQUIRED).build()));
+                            .parameters(request.parameters().overrideWith(parameterOverride.build()));
                     List<AgentVisualContent> visuals = visualBuffer.drain();
                     if (!visuals.isEmpty()) {
                         List<ChatMessage> messages = new ArrayList<>(request.messages());
@@ -376,12 +391,14 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
     private Skills createSkills(List<AgentSkillBinding> bindings,
                                 ToolHandler handler,
                                 InvocationVisualBuffer visualBuffer,
-                                AtomicInteger toolInvocationCounter) {
+                                AtomicInteger toolInvocationCounter,
+                                InvocationControl invocationControl) {
         if (bindings == null || bindings.isEmpty()) return null;
         List<Skill> configured = new ArrayList<>();
         for (AgentSkillBinding binding : bindings) {
             List<AiServiceTool> scopedTools = binding.tools().stream()
-                    .map(definition -> toTool(definition, handler, visualBuffer, toolInvocationCounter))
+                    .map(definition -> toTool(definition, handler, visualBuffer, toolInvocationCounter,
+                            invocationControl))
                     .toList();
             ToolProvider provider = request -> new ToolProviderResult(scopedTools);
             Skill source = binding.skill();
@@ -427,7 +444,8 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
 
     private AiServiceTool toTool(AgentToolDefinition definition, ToolHandler handler,
                                  InvocationVisualBuffer visualBuffer,
-                                 AtomicInteger toolInvocationCounter) {
+                                 AtomicInteger toolInvocationCounter,
+                                 InvocationControl invocationControl) {
         ToolSpecification specification = toSpecification(definition);
         ReturnBehavior behavior = isTerminal(definition.name())
                 ? ReturnBehavior.IMMEDIATE_IF_LAST : ReturnBehavior.TO_LLM;
@@ -437,10 +455,18 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
                     if (toolInvocationCounter.incrementAndGet() > MAX_TOOL_CALLS) {
                         throw new IllegalStateException("TOOL_CALL_LIMIT_EXCEEDED");
                     }
-                    AgentToolExecution result = handler.execute(new AgentToolRequest(
-                            stableId(request), request.name(), request.arguments()));
-                    visualBuffer.add(result.visuals());
-                    return result.resultJson();
+                    try {
+                        AgentToolExecution result = handler.execute(new AgentToolRequest(
+                                stableId(request), request.name(), request.arguments()));
+                        if ("finish_research".equals(request.name())
+                                && readyForFinalAnswer(result.resultJson())) {
+                            invocationControl.requireFinalAnswer();
+                        }
+                        visualBuffer.add(result.visuals());
+                        return result.resultJson();
+                    } catch (RuntimeException error) {
+                        throw error;
+                    }
                 })
                 .returnBehavior(behavior)
                 .build();
@@ -498,8 +524,15 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
     }
 
     private static boolean isTerminal(String name) {
-        return "submit_answer".equals(name) || "ask_clarification".equals(name)
-                || "paper_action".equals(name);
+        return "ask_clarification".equals(name);
+    }
+
+    private boolean readyForFinalAnswer(String resultJson) {
+        try {
+            return "ready_for_answer".equals(objectMapper.readTree(resultJson).path("status").asText());
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private static String stableId(ToolExecutionRequest request) {
@@ -542,6 +575,44 @@ public class LangChain4jPaperAgentExecutor implements PaperAgentFrameworkExecuto
             List<AgentVisualContent> result = List.copyOf(pending);
             pending.clear();
             return result;
+        }
+    }
+
+    private static final class InvocationControl {
+        private final AtomicBoolean finalAnswer = new AtomicBoolean();
+        private final AtomicBoolean finalAnswerCallClaimed = new AtomicBoolean();
+
+        void requireFinalAnswer() {
+            finalAnswer.set(true);
+        }
+
+        boolean finalAnswer() {
+            return finalAnswer.get();
+        }
+
+        boolean beforeModelCall(dev.langchain4j.model.chat.request.ChatRequest request,
+                                int totalCallOrdinal,
+                                int maxResearchCalls) {
+            if (!finalAnswer()) {
+                // Reserve one decision round after the research budget. If that
+                // round does not call finish_research, use a tool-free terminal
+                // fallback so a provider that keeps exploring cannot erase the
+                // user-visible answer.
+                if (totalCallOrdinal > maxResearchCalls + 1) {
+                    finalAnswer.set(true);
+                    return true;
+                }
+                return false;
+            }
+            boolean toolsDisabled = request.toolChoice() == ToolChoice.NONE
+                    && (request.toolSpecifications() == null || request.toolSpecifications().isEmpty());
+            if (!toolsDisabled) {
+                throw new IllegalStateException("FINAL_ANSWER_TOOLS_ENABLED");
+            }
+            if (!finalAnswerCallClaimed.compareAndSet(false, true)) {
+                throw new IllegalStateException("FINAL_ANSWER_CALL_LIMIT_EXCEEDED");
+            }
+            return false;
         }
     }
 }

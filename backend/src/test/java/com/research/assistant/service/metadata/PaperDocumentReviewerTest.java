@@ -48,4 +48,24 @@ class PaperDocumentReviewerTest {
 
         assertThat(result.status()).isEqualTo(PaperDocumentReviewer.Status.UNCERTAIN);
     }
+
+    @Test
+    void acceptsOlderPaperWithInitialsAndNoAbstractHeading() {
+        String paper = """
+                A Mathematical Theory of Communication
+                C. E. Shannon
+                INTRODUCTION
+                The recent development of various methods of modulation has intensified the
+                interest in a general theory of communication. A basis for such a theory is
+                contained in earlier work, and the present paper extends it with new factors.
+                The fundamental problem of communication is that of reproducing at one point
+                either exactly or approximately a message selected at another point. This
+                substantial body text continues with definitions, arguments, and examples.
+                %s
+                """.formatted("Communication systems and information measures. ".repeat(20));
+
+        PaperDocumentReviewer.Review result = reviewer.review(paper, paper);
+
+        assertThat(result.status()).isEqualTo(PaperDocumentReviewer.Status.PAPER);
+    }
 }

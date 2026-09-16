@@ -38,7 +38,8 @@ public class ActionTicketService {
         if (call == null || !runId.equals(call.getRunId())) throw new IllegalArgumentException("tool call does not belong to run");
         Instant expiresAt = Instant.now().plusSeconds(TICKET_SECONDS);
         ActionTicketPayload payload = new ActionTicketPayload(runId, call.getToolCallId(), target.paperId(),
-                target.documentHash(), target.sourceObjectId(), type, content, color, expiresAt, UUID.randomUUID().toString());
+                target.documentHash(), target.sourceObjectId(), type, content, color, expiresAt,
+                UUID.randomUUID().toString(), target.locatorIds());
         String ticket = encode(payload);
         int updated = toolCallMapper.storeActionTicket(call.getId(), value(call.getVersion()), sha256(ticket),
                 LocalDateTime.ofInstant(expiresAt, ZoneOffset.UTC));

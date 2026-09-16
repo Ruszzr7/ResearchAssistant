@@ -4,6 +4,8 @@ import com.research.assistant.service.agent.source.PaperSourceCatalog;
 
 import java.util.List;
 import java.util.Set;
+import java.util.LinkedHashSet;
+import java.util.Collections;
 
 public record AgentContextSnapshot(long sessionId, Long paperId, PaperSourceCatalog sourceCatalog,
                                    boolean profileAvailable,
@@ -11,7 +13,8 @@ public record AgentContextSnapshot(long sessionId, Long paperId, PaperSourceCata
                                    String snapshotJson) {
     public AgentContextSnapshot {
         messages = messages == null ? List.of() : List.copyOf(messages);
-        preReadSourceIds = preReadSourceIds == null ? Set.of() : Set.copyOf(preReadSourceIds);
+        preReadSourceIds = preReadSourceIds == null ? Set.of()
+                : Collections.unmodifiableSet(new LinkedHashSet<>(preReadSourceIds));
     }
 
     /** Compatibility constructor for focused callers that do not provide profile state. */

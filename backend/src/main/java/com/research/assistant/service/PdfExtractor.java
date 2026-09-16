@@ -2,6 +2,9 @@ package com.research.assistant.service;
 
 import com.research.assistant.service.pdf.PdfBoxPdfParser;
 import com.research.assistant.service.pdf.PdfParseResult;
+import com.research.assistant.service.metadata.PdfDocumentMetadata;
+import com.research.assistant.service.metadata.PdfLayoutMetadataExtractor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,9 +25,18 @@ public class PdfExtractor {
     private String pdfStorageDir;
 
     private final PdfBoxPdfParser pdfParser;
+    private final PdfLayoutMetadataExtractor layoutMetadataExtractor;
 
+    @Autowired
+    public PdfExtractor(PdfBoxPdfParser pdfParser, PdfLayoutMetadataExtractor layoutMetadataExtractor) {
+        this.pdfParser = pdfParser;
+        this.layoutMetadataExtractor = layoutMetadataExtractor;
+    }
+
+    /** Compatibility constructor for focused parser tests. */
     public PdfExtractor(PdfBoxPdfParser pdfParser) {
         this.pdfParser = pdfParser;
+        this.layoutMetadataExtractor = null;
     }
 
     /**
@@ -86,7 +98,7 @@ public class PdfExtractor {
      */
     public MetadataTextExtraction extractMetadataTextExtraction(MultipartFile file, int maxPages) {
         if (file == null || file.isEmpty()) {
-            return new MetadataTextExtraction("", "");
+            return new MetadataTextExtraction("", "", PdfDocumentMetadata.empty());
         }
         try {
             Path temp = Files.createTempFile("upload-", ".pdf");
@@ -97,7 +109,7 @@ public class PdfExtractor {
                 Files.deleteIfExists(temp);
             }
         } catch (Exception e) {
-            return new MetadataTextExtraction("", "");
+            return new MetadataTextExtraction("", "", PdfDocumentMetadata.empty());
         }
     }
 
@@ -107,7 +119,7 @@ public class PdfExtractor {
     public MetadataTextExtraction extractMetadataTextExtraction(String pdfPath, int maxPages) {
         File file = resolveFile(pdfPath);
         if (file == null) {
-            return new MetadataTextExtraction("", "");
+            return new MetadataTextExtraction("", "", PdfDocumentMetadata.empty());
         }
         return extractMetadataTextExtraction(file, maxPages);
     }
@@ -136,9 +148,13 @@ public class PdfExtractor {
         PdfParseResult metadata = maxPages <= 1
                 ? identity
                 : pdfParser.parseFirstPagesForMetadata(file, maxPages);
+        PdfDocumentMetadata localMetadata = layoutMetadataExtractor == null
+                ? PdfDocumentMetadata.empty()
+                : layoutMetadataExtractor.extract(file, maxPages);
         return new MetadataTextExtraction(
                 identity.success() ? identity.text() : "",
-                metadata.success() ? metadata.text() : "");
+                metadata.success() ? metadata.text() : "",
+                localMetadata);
     }
 
     /**
@@ -165,6 +181,17 @@ public class PdfExtractor {
     }
 
     /** PDF 元数据识别所需的两种文本视图。 */
-    public record MetadataTextExtraction(String identityText, String metadataText) {
+    public record MetadataTextExtraction(String identityText,
+                                         String metadataText,
+                                         PdfDocumentMetadata documentMetadata) {
+        public MetadataTextExtraction(String identityText, String metadataText) {
+            this(identityText, metadataText, PdfDocumentMetadata.empty());
+        }
+
+        public MetadataTextExtraction {
+            identityText = identityText == null ? "" : identityText;
+            metadataText = metadataText == null ? "" : metadataText;
+            documentMetadata = documentMetadata == null ? PdfDocumentMetadata.empty() : documentMetadata;
+        }
     }
 }

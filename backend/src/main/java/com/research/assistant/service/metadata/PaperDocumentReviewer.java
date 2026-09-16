@@ -59,6 +59,11 @@ public final class PaperDocumentReviewer {
         if (sectionCount >= 2 && proseChars >= MIN_PROSE_CHARS && !fragmented) {
             return new Review(Status.PAPER, "检测到多个论文章节和连续正文，允许导入");
         }
+        // Older papers often start directly with Introduction and use initials in the byline.
+        // One clear author line plus a section and substantial prose is sufficient evidence.
+        if (hasAuthor && sectionCount >= 1 && proseChars >= MIN_PROSE_CHARS && !fragmented) {
+            return new Review(Status.PAPER, "检测到作者、论文章节和连续正文，允许导入");
+        }
 
         // 只拦截证据非常明确的非论文：没有论文身份/结构，且文本主要是短标签或极少内容。
         // 文本为空的扫描版不在这里拒绝，而是返回 UNCERTAIN 交给用户确认。
@@ -86,8 +91,9 @@ public final class PaperDocumentReviewer {
                     || lower.contains("大学")) {
                 return true;
             }
-            // 常见英文姓名行：至少两个词，且不是完整句子或章节标题。
-            if (line.matches("(?i)^[A-Z][A-Za-z'\\-]+(?:\\s+[A-Z][A-Za-z'\\-]+){1,7}(?:\\s*[,*†‡].*)?$")) {
+            // English bylines may contain initials (for example "C. E. Shannon") or a leading "by".
+            if (line.matches("(?i)^(?:by\\s+)?(?:[A-Z](?:[A-Za-z'\\-]+|\\.)\\s+){1,7}"
+                    + "[A-Z][A-Za-z'\\-]+(?:\\s*[,*†‡].*)?$")) {
                 return true;
             }
         }

@@ -230,5 +230,5 @@ echo [ERROR] Invalid database ownership record: %DATABASE_PID_FILE%
 exit /b 1
 
 :port_listening
-powershell.exe -NoProfile -Command "$connections = @(Get-NetTCPConnection -LocalPort ([int]$env:RA_DB_PORT) -State Listen -ErrorAction SilentlyContinue); if ($connections.Count -gt 0) { exit 0 }; exit 1" >nul 2>&1
+powershell.exe -NoProfile -Command "$client = New-Object Net.Sockets.TcpClient; try { $pending = $client.BeginConnect($env:RA_DB_HOST, [int]$env:RA_DB_PORT, $null, $null); if (-not $pending.AsyncWaitHandle.WaitOne(750)) { exit 1 }; $client.EndConnect($pending); exit 0 } catch { exit 1 } finally { $client.Dispose() }" >nul 2>&1
 exit /b %ERRORLEVEL%

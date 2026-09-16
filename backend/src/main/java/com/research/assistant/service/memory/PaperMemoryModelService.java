@@ -26,7 +26,7 @@ import java.util.function.Function;
 @Service
 public class PaperMemoryModelService {
 
-    static final String WHOLE_PROMPT_VERSION = "paper-memory-whole-v12-visual-fallback";
+    static final String WHOLE_PROMPT_VERSION = "paper-memory-whole-v13-bounded-recovery";
     private static final Logger log = LoggerFactory.getLogger(PaperMemoryModelService.class);
 
     private static final LlmCallPolicy WHOLE_POLICY = new LlmCallPolicy(
@@ -43,7 +43,7 @@ public class PaperMemoryModelService {
             优先回答“研究什么、如何做、有何贡献、得到什么结论、有何局限”。
             若输入含 LAYOUT_RECOVERY_REGIONS，先根据对应页面或局部图像核对这些区域，再基于核对后的
             内容生成画像。视觉内容区域主要用于理解页面；公式、图表或表格无法逐字可靠确认时，返回
-            UNRESOLVED，不得猜测、概括或补写其原始内容。只修复能够准确转写的列出区域。
+            UNRESOLVED，不得猜测、概括或补写其原始内容。只修复能够准确转写的列出区域。版面恢复不是论文画像主体：无法确认的区域直接省略，系统会自动记为 UNRESOLVED。
             不确定的信息留空。只返回 JSON，不要 Markdown、解释或推理过程。
             """;
 
@@ -168,8 +168,9 @@ public class PaperMemoryModelService {
                     }
                   ]
                 }
-                layoutRecoveries 对每个给出的 regionId 最多返回一项；没有区域时返回空数组。
-                贡献和发现各最多5条，局限最多3条；其余数组各最多5项。
+                layoutRecoveries 只返回你能根据页面图像准确核对的区域，最多12项；不要输出 UNRESOLVED 条目，未列出的区域由系统自动记为 UNRESOLVED。
+                贡献和发现各最多5条，局限最多3条；benchmarkResults、datasets、models、metrics、openQuestions 各最多5项。
+                这是严格的紧凑输出：每条 statement 不超过80个汉字，researchProblem 和 methodSummary 各不超过250个汉字；如果接近输出上限，优先保留研究问题、方法、贡献和关键发现，删除低优先级数组项。
                 """;
     }
 

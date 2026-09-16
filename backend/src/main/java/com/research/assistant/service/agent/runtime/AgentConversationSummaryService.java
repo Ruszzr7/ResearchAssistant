@@ -74,7 +74,7 @@ public class AgentConversationSummaryService {
                 ? 0 : latest.getCoveredThroughMessageId();
         java.util.List<ResearchMessage> loaded = messageMapper.selectFinalAfter(sessionId, boundary);
         java.util.List<ResearchMessage> pending = loaded == null ? java.util.List.of() : loaded.stream()
-                .filter(message -> message != null && !"RUN_STATUS".equalsIgnoreCase(message.getMessageType()))
+                .filter(AgentConversationSummaryService::semanticConversationMessage)
                 .toList();
         int characters = pending.stream().mapToInt(message -> message.getContent() == null
                 ? 0 : message.getContent().length()).sum();
@@ -202,6 +202,12 @@ public class AgentConversationSummaryService {
 
     private static String normalizedRole(String role) {
         return "ASSISTANT".equalsIgnoreCase(role) ? "Assistant" : "User";
+    }
+
+    private static boolean semanticConversationMessage(ResearchMessage message) {
+        if (message == null) return false;
+        String type = message.getMessageType();
+        return !"RUN_STATUS".equalsIgnoreCase(type) && !"ACTION_RECEIPT".equalsIgnoreCase(type);
     }
 
     private static String boundedMessage(String content) {

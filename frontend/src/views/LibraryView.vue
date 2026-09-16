@@ -1285,7 +1285,7 @@ function fillFormFromEnrichment(data) {
     ? (data.message || '') : ''
   if (data.documentType === 'NOT_PAPER') return
   const empty = v => v == null || v === '' || (typeof v === 'string' && v.trim() === '')
-  if (data.documentType !== 'UNCERTAIN' && empty(form.value.title) && data.title) form.value.title = decodeHtmlEntities(data.title)
+  if (empty(form.value.title) && data.title) form.value.title = decodeHtmlEntities(data.title)
   if (empty(form.value.authors) && data.authors) form.value.authors = formatAuthors(data.authors)
   if (empty(form.value.year) && data.year) form.value.year = data.year
   if (empty(form.value.source) && data.source) form.value.source = decodeHtmlEntities(data.source)

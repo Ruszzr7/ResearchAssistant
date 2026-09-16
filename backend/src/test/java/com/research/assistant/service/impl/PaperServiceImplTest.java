@@ -171,20 +171,25 @@ class PaperServiceImplTest {
     }
 
     @Test
-    void rejectsClearlyNonPaperPdfBeforeInsertingPaper() throws Exception {
+    void keepsContentClassificationAdvisoryForAValidUserSuppliedPdf() throws Exception {
         when(paperDocumentReviewer.review(any(), any()))
                 .thenReturn(new PaperDocumentReviewer.Review(
                         PaperDocumentReviewer.Status.NOT_PAPER, "导入文件不是有效论文"));
+        AtomicReference<Paper> saved = new AtomicReference<>();
+        doAnswer(invocation -> {
+            Paper paper = invocation.getArgument(0);
+            paper.setId(12L);
+            saved.set(paper);
+            return 1;
+        }).when(paperMapper).insert(any(Paper.class));
+        when(paperMapper.selectById(12L)).thenAnswer(invocation -> saved.get());
 
-        assertThatThrownBy(() -> service.uploadPdfAndCreate(
+        Paper result = service.uploadPdfAndCreate(
                 new MockMultipartFile("file", "diagram.pdf", "application/pdf", pdfBytes(1)),
-                paper("图示文件"), false))
-                .hasMessage("导入文件不是有效论文");
+                paper("用户确认的论文"), false);
 
-        org.mockito.Mockito.verify(paperMapper, never()).insert(any(Paper.class));
-        try (var entries = Files.list(tempDir.resolve("papers"))) {
-            assertThat(entries.toList()).isEmpty();
-        }
+        assertThat(result.getId()).isEqualTo(12L);
+        org.mockito.Mockito.verify(paperMapper).insert(any(Paper.class));
     }
 
     @Test
@@ -242,6 +247,16 @@ class PaperServiceImplTest {
         invalid.setReadingStatus("DONE");
         assertThatThrownBy(() -> service.create(invalid))
                 .hasMessage("阅读状态必须是 UNREAD、READING 或 READ");
+    }
+
+    @Test
+    void rejectsOversizedMetadataBeforeDatabaseWrite() {
+        Paper paper = paper("论文");
+        paper.setKeywords("k".repeat(4_001));
+
+        assertThatThrownBy(() -> service.create(paper))
+                .hasMessage("关键词长度不能超过 4000");
+        org.mockito.Mockito.verify(paperMapper, never()).insert(any(Paper.class));
     }
 
     private Paper paper(String title) {
