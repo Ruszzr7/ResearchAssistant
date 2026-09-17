@@ -71,7 +71,7 @@ MySQL / 本地 PDF
 - API Key 可由环境变量覆盖；设置 `RA_MASTER_KEY` 后使用 AES-GCM 加密保存。
 - 生产环境要求明确的 CORS 白名单、MySQL 地址和 PDF 目录。
 - 日志和指标不记录密钥、完整 Prompt、论文正文或 Provider 响应体。
-- 默认部署为 MySQL + Spring Boot + Nginx/Vue；不引入 Redis、向量数据库或额外检索服务。
+- 默认通过 Windows 本地启动脚本运行 MySQL、Spring Boot 和 Vite；不引入 Redis、向量数据库或额外检索服务。
 
 ## 当前重点
 

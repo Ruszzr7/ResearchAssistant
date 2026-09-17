@@ -77,7 +77,7 @@ class AgentSkillEvalDatasetTest {
         assertThat(total).isEqualTo(300);
         assertThat(casesByPaper.keySet()).containsExactlyInAnyOrderElementsOf(EXPECTED_PAPER_IDS);
         assertThat(casesByPaper.values()).allMatch(count -> count == 10);
-        assertThat(positivesBySkill).containsEntry("paper-profile", 40)
+        assertThat(positivesBySkill).containsEntry("paper-profile", 39)
                 .containsEntry("paper-evidence", 220)
                 .containsEntry("paper-action", 80);
     }
@@ -89,13 +89,12 @@ class AgentSkillEvalDatasetTest {
         item.path("allowedSkills").forEach(skill -> allowed.add(skill.asText()));
         if (caseNumber == 1) {
             assertThat(gold).containsExactlyInAnyOrder("paper-profile", "paper-evidence");
+        } else if (caseNumber == 3) {
+            assertThat(gold).containsExactly("paper-evidence");
+            assertThat(allowed).containsExactlyInAnyOrder("paper-evidence", "paper-profile");
         } else if (caseNumber >= 2 && caseNumber <= 6) {
             assertThat(gold).containsExactly("paper-evidence");
-            if (caseNumber == 2 || caseNumber == 4) {
-                assertThat(allowed).containsExactlyInAnyOrder("paper-evidence", "paper-profile");
-            } else {
-                assertThat(allowed).containsExactly("paper-evidence");
-            }
+            assertThat(allowed).containsExactlyInAnyOrder("paper-evidence", "paper-profile");
         } else if (caseNumber == 7) {
             assertThat(gold).isEmpty();
             assertThat(item.path("caseType").asText()).isEqualTo("rewrite");
@@ -112,7 +111,7 @@ class AgentSkillEvalDatasetTest {
         }
 
         if (gold.contains("paper-profile")) {
-            assertThat(item.path("question").asText()).containsAnyOf("全文", "核心结论");
+            assertThat(item.path("question").asText()).containsAnyOf("全文", "核心结论", "讲了什么", "核心创新点", "如何实现");
         }
         if (!gold.contains("paper-action")) {
             assertThat(item.path("question").asText()).doesNotContain("跳转并高亮");

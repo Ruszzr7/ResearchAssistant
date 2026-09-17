@@ -10,7 +10,7 @@ import java.util.Collections;
 public record AgentContextSnapshot(long sessionId, Long paperId, PaperSourceCatalog sourceCatalog,
                                    boolean profileAvailable,
                                    List<AgentChatEntry> messages, Set<String> preReadSourceIds,
-                                   String snapshotJson) {
+                                   String snapshotJson, AgentSelectionContext selectionContext) {
     public AgentContextSnapshot {
         messages = messages == null ? List.of() : List.copyOf(messages);
         preReadSourceIds = preReadSourceIds == null ? Set.of()
@@ -21,6 +21,13 @@ public record AgentContextSnapshot(long sessionId, Long paperId, PaperSourceCata
     public AgentContextSnapshot(long sessionId, Long paperId, PaperSourceCatalog sourceCatalog,
                                 List<AgentChatEntry> messages, Set<String> preReadSourceIds,
                                 String snapshotJson) {
-        this(sessionId, paperId, sourceCatalog, false, messages, preReadSourceIds, snapshotJson);
+        this(sessionId, paperId, sourceCatalog, false, messages, preReadSourceIds, snapshotJson, null);
+    }
+
+    /** Compatibility constructor for callers that provide profile state. */
+    public AgentContextSnapshot(long sessionId, Long paperId, PaperSourceCatalog sourceCatalog,
+                                boolean profileAvailable, List<AgentChatEntry> messages,
+                                Set<String> preReadSourceIds, String snapshotJson) {
+        this(sessionId, paperId, sourceCatalog, profileAvailable, messages, preReadSourceIds, snapshotJson, null);
     }
 }

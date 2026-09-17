@@ -23,6 +23,7 @@ scripts/local-config.cmd
 
 # Codex local configuration
 .codex/
+AGENTS.md
 
 # MCP test artifacts
 .playwright-mcp/

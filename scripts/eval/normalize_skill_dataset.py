@@ -37,23 +37,28 @@ def normalize(row: dict) -> dict:
             NO_ACTION,
         )
     elif number == 2:
-        row["question"] = f"论文对“{hint}”报告了什么结果？请说明比较条件、主要结论和适用范围。"
+        row["question"] = f"论文的实验或比较结果是什么？请针对“{hint}”列出比较对象、指标、条件和主要结论，并给出论文依据。"
         row["goldSkills"] = ["paper-evidence"]
         set_rationale(row, NO_PROFILE, NEEDS_EVIDENCE, NO_ACTION)
     elif number == 3:
-        row["question"] = f"论文如何实现“{hint}”？请解释关键机制及各组成部分的作用。"
+        row["question"] = f"论文的核心创新点是什么？请围绕“{hint}”说明整体方法，以及各组成部分分别解决的问题，并给出论文依据。"
         row["goldSkills"] = ["paper-evidence"]
-        set_rationale(row, NO_PROFILE, NEEDS_EVIDENCE, NO_ACTION)
+        set_rationale(
+            row,
+            "问题锁定明确的机制、组件或方法贡献，原文证据可以直接完成回答；画像可以辅助导航但不是必需。",
+            NEEDS_EVIDENCE,
+            NO_ACTION,
+        )
     elif number == 4:
-        row["question"] = f"论文关于“{hint}”给出了哪些比较结果？请说明指标、条件和结论。"
+        row["question"] = f"论文对“{hint}”的实验或比较结果是什么？请列出指标、比较条件和主要结论，并给出论文依据。"
         row["goldSkills"] = ["paper-evidence"]
         set_rationale(row, NO_PROFILE, NEEDS_EVIDENCE, NO_ACTION)
     elif number == 5:
-        row["question"] = f"请解释论文中的“{hint}”，说明关键组成及其在方法中的作用。"
+        row["question"] = f"论文中的“{hint}”具体讲了什么？请解释关键公式、变量或组成及其作用，并给出论文依据。"
         row["goldSkills"] = ["paper-evidence"]
         set_rationale(row, NO_PROFILE, NEEDS_EVIDENCE, NO_ACTION)
     elif number == 6:
-        row["question"] = f"根据论文，能否得出“{hint}”？请用原文说明结论成立的条件和范围。"
+        row["question"] = f"论文是否支持“{hint}”？请先回答支持或不支持，再给出原文中的成立条件、适用范围和限制。"
         row["goldSkills"] = ["paper-evidence"]
         set_rationale(row, NO_PROFILE, NEEDS_EVIDENCE, NO_ACTION)
     elif number == 7:
@@ -115,10 +120,15 @@ def normalize(row: dict) -> dict:
         parts = [part.strip() for part in hint.replace("；", ";").split(";") if part.strip()]
         target = parts[-1] if parts else topic
         row["question"] = f"请概括《{topic}》的核心结论，并找到与“{target}”相关的关键原文进行黄色高亮。"
-        row["goldSkills"] = ["paper-profile", "paper-evidence", "paper-action"]
+        if row["caseId"] == "paper-09-case-10":
+            row["goldSkills"] = ["paper-evidence", "paper-action"]
+            profile_rationale = "问题的全文概括可直接结合证据完成，画像可作为导航辅助但非必需。"
+        else:
+            row["goldSkills"] = ["paper-profile", "paper-evidence", "paper-action"]
+            profile_rationale = "问题要求概括全文核心结论，当前没有可复用画像。"
         set_rationale(
             row,
-            "问题要求概括全文核心结论，当前没有可复用画像。",
+            profile_rationale,
             "回答和高亮目标都依赖当前论文中的真实证据。",
             "用户明确要求高亮找到的关键原文。",
         )
@@ -126,6 +136,25 @@ def normalize(row: dict) -> dict:
         row["goldSkills"] = []
         set_rationale(row, "问题明确不依赖当前论文，不需要论文画像。", NO_EVIDENCE, NO_ACTION)
 
+    row["requiredSkills"] = list(row["goldSkills"])
+    if number == 1:
+        row["allowedSkills"] = ["paper-profile", "paper-evidence"]
+    elif number == 3:
+        row["allowedSkills"] = ["paper-evidence", "paper-profile"]
+    elif number in (2, 4, 5, 6):
+        row["allowedSkills"] = ["paper-evidence", "paper-profile"]
+    elif number == 7:
+        row["allowedSkills"] = []
+    elif number == 8:
+        row["allowedSkills"] = ["paper-action"]
+    elif number == 9:
+        row["allowedSkills"] = ["paper-evidence", "paper-action", "paper-profile"]
+    elif number == 10 and row["caseType"] == "ambiguous-action":
+        row["allowedSkills"] = ["paper-action", "paper-profile", "paper-evidence"]
+    elif number == 10 and row["caseType"] == "compound":
+        row["allowedSkills"] = ["paper-profile", "paper-evidence", "paper-action"]
+    else:
+        row["allowedSkills"] = []
     return row
 
 

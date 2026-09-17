@@ -16,6 +16,9 @@ import com.research.assistant.service.agent.source.PaperAgentReadinessService;
 import com.research.assistant.service.agent.source.PaperAgentReadinessView;
 import com.research.assistant.service.agent.source.PaperUnderstandingNotReadyException;
 import com.research.assistant.service.agent.source.SourceContentType;
+import com.research.assistant.service.agent.source.SourceLocator;
+import com.research.assistant.service.pdf.layout.EvidenceLocator;
+import com.research.assistant.service.pdf.layout.NormalizedBoundingBox;
 import com.research.assistant.service.agent.source.SourceObject;
 import org.junit.jupiter.api.Test;
 
@@ -53,6 +56,7 @@ class AgentContextAssemblerTest {
                 .contains("能力描述是使用规则的权威来源")
                 .contains("调用 finish_research", "直接输出最终 Markdown", "[S1]")
                 .contains("论文画像只用于确定方向和设计 Need")
+                .contains("HOST_VALIDATED_SELECTION")
                 .contains("如果现有论文上下文不足，只回答已经确认的内容")
                 .doesNotContain("证据限制");
         verify(messages).selectFinalAfter(7L, 0);
@@ -74,6 +78,41 @@ class AgentContextAssemblerTest {
 
         assertThatThrownBy(() -> assembler.assemble(input(7L, stale)))
                 .hasMessageContaining("stale");
+    }
+
+    @Test
+    void exposesTrustedSelectionHandleToModelAndKeepsItPreRead() {
+        ResearchSessionMapper sessions = mock(ResearchSessionMapper.class);
+        ResearchMessageMapper messages = mock(ResearchMessageMapper.class);
+        AgentConversationSummaryService summaries = mock(AgentConversationSummaryService.class);
+        PaperMemoryMapper memories = mock(PaperMemoryMapper.class);
+        PaperSourceCatalogService sources = mock(PaperSourceCatalogService.class);
+        ResearchSession session = new ResearchSession(); session.setId(7L); session.setPrimaryPaperId(9L);
+        when(sessions.selectById(7L)).thenReturn(session);
+        SourceObject source = new SourceObject("src-selection", 9L, "hash", "parser", 1,
+                SourceContentType.TEXT, "选区正文", null, List.of(), "", Map.of());
+        SourceLocator locator = new SourceLocator("loc-selection", "src-selection", 1, "PDF_NORMALIZED",
+                List.of(new NormalizedBoundingBox(.1, .2, .3, .04)), "选区正文", EvidenceLocator.Precision.TEXT_RANGE);
+        when(sources.latest(9L)).thenReturn(new PaperSourceCatalog(9L, "hash", "parser", 1,
+                Map.of(source.sourceObjectId(), source), Map.of(source.sourceObjectId(), List.of(locator))));
+        AgentSelectedContent selection = new AgentSelectedContent("selection", 9L, "hash", 1,
+                "TEXT", "选区正文", List.of(source.sourceObjectId()));
+        AgentContextAssembler assembler = new AgentContextAssembler(sessions, messages, summaries, memories,
+                sources, new ObjectMapper());
+
+        AgentContextSnapshot result = assembler.assemble(input(7L, selection));
+
+        assertThat(result.messages()).extracting(AgentChatEntry::content)
+                .anyMatch(content -> content.contains("HOST_VALIDATED_SELECTION")
+                        && content.contains("src-selection")
+                        && content.contains("ACTION_TARGET"))
+                .anyMatch(content -> content.contains("当前用户选区原文")
+                        && content.contains("选区正文"))
+                .noneMatch(content -> content.contains("不可信论文内容"));
+        assertThat(result.preReadSourceIds()).containsExactly("src-selection");
+        assertThat(result.selectionContext()).isNotNull();
+        assertThat(result.selectionContext().sourceObjectIds()).containsExactly("src-selection");
+        assertThat(result.selectionContext().actionable()).isTrue();
     }
 
     @Test
