@@ -143,6 +143,58 @@ flowchart TD
 | `paper-action` 路由 | 80 个必需正例 | Precision 100.00% / Recall 100.00% / F1 100.00% |
 | 结果有效性 | 300 条结果记录 | 300 / 300；失败记录 0；无效请求 0 |
 
+## 功能展示
+
+### 证据回链与论文引用
+
+回答中的引用可以跳转到当前 PDF 的页码和页面区域，右侧同时保留引用来源和回答上下文。
+
+![论文证据回链到 PDF 页面](docs/assets/readme/02-evidence-deep-link.png)
+
+### 公式框选与 LaTeX 辅助
+
+框选公式后，系统提供公式区域识别和可编辑的 LaTeX 辅助内容；最终依据仍然是当前 PDF 页面。
+
+![公式框选与 LaTeX 识别](docs/assets/readme/05-formula-selection.png)
+
+### Agent 页面操作
+
+用户明确提出“把当前选区高亮为黄色”等请求后，Agent 负责理解意图，系统完成真实页面执行并保存结果。
+
+![Agent 将论文选区高亮](docs/assets/readme/04-agent-page-action.png)
+
+### 研究档案与多会话
+
+同一篇论文可以拥有多个相互隔离的研究对话，消息数量、运行次数和最近阅读页码都会进入研究档案。
+
+![研究档案中的多论文多会话记录](docs/assets/readme/03-research-archive.png)
+
+## 技术栈
+
+| 层次 | 技术 |
+|---|---|
+| 前端 | Vue 3、Vite、Element Plus、vxe-table、PDF.js、PDFium/WASM |
+| 后端 | Java 17、Spring Boot 3.2.6、Maven、MyBatis-Plus |
+| Agent | LangChain4j 1.15.1、OpenAI-compatible API、Gemini Native、Agent Skill |
+| 数据 | MySQL 8、Flyway；测试使用 H2 |
+| PDF | Apache PDFBox、PDF.js、PDFium/WASM |
+| 通信 | HTTP REST、SSE |
+
+## 数据与隐私
+
+论文、批注、研究会话等业务数据默认保存在本机 MySQL 与本地文件系统中。配置 `RA_MASTER_KEY` 后，模型 API Key 使用 AES-GCM 加密保存。
+
+使用第三方模型供应商时，与模型交互所需的论文内容、上下文和问题可能发送至对应服务商；请根据实际使用的模型供应商确认其数据处理政策。密码、API Key 和主密钥不应写入 Git。
+
+默认本地数据目录如下：
+
+~~~text
+data/papers/              # 导入的论文 PDF
+data/figures/             # 论文图像或派生图像
+data/agent-attachments/   # Agent 对话附件
+runtime/                  # 本地运行日志和进程状态
+~~~
+
 ## 项目启动
 
 ### 方式 A — Windows 一键启动
@@ -214,58 +266,6 @@ cd frontend
 npm.cmd ci
 npm.cmd run test:unit
 npm.cmd run build
-~~~
-
-## 功能展示
-
-### 证据回链与论文引用
-
-回答中的引用可以跳转到当前 PDF 的页码和页面区域，右侧同时保留引用来源和回答上下文。
-
-![论文证据回链到 PDF 页面](docs/assets/readme/02-evidence-deep-link.png)
-
-### 公式框选与 LaTeX 辅助
-
-框选公式后，系统提供公式区域识别和可编辑的 LaTeX 辅助内容；最终依据仍然是当前 PDF 页面。
-
-![公式框选与 LaTeX 识别](docs/assets/readme/05-formula-selection.png)
-
-### Agent 页面操作
-
-用户明确提出“把当前选区高亮为黄色”等请求后，Agent 负责理解意图，系统完成真实页面执行并保存结果。
-
-![Agent 将论文选区高亮](docs/assets/readme/04-agent-page-action.png)
-
-### 研究档案与多会话
-
-同一篇论文可以拥有多个相互隔离的研究对话，消息数量、运行次数和最近阅读页码都会进入研究档案。
-
-![研究档案中的多论文多会话记录](docs/assets/readme/03-research-archive.png)
-
-## 技术栈
-
-| 层次 | 技术 |
-|---|---|
-| 前端 | Vue 3、Vite、Element Plus、vxe-table、PDF.js、PDFium/WASM |
-| 后端 | Java 17、Spring Boot 3.2.6、Maven、MyBatis-Plus |
-| Agent | LangChain4j 1.15.1、OpenAI-compatible API、Gemini Native、Agent Skill |
-| 数据 | MySQL 8、Flyway；测试使用 H2 |
-| PDF | Apache PDFBox、PDF.js、PDFium/WASM |
-| 通信 | HTTP REST、SSE |
-
-## 数据与隐私
-
-论文、批注、研究会话等业务数据默认保存在本机 MySQL 与本地文件系统中。配置 `RA_MASTER_KEY` 后，模型 API Key 使用 AES-GCM 加密保存。
-
-使用第三方模型供应商时，与模型交互所需的论文内容、上下文和问题可能发送至对应服务商；请根据实际使用的模型供应商确认其数据处理政策。密码、API Key 和主密钥不应写入 Git。
-
-默认本地数据目录如下：
-
-~~~text
-data/papers/              # 导入的论文 PDF
-data/figures/             # 论文图像或派生图像
-data/agent-attachments/   # Agent 对话附件
-runtime/                  # 本地运行日志和进程状态
 ~~~
 
 ## 项目结构

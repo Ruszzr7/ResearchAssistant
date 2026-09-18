@@ -143,6 +143,58 @@ Evaluation data is located at `backend/src/test/resources/eval/agent-skill-300.j
 | `paper-action` routing | 80 required positives | Precision 100.00% / Recall 100.00% / F1 100.00% |
 | Result validity | 300 result records | 300 / 300; 0 failed records; 0 invalid requests |
 
+## Feature Showcase
+
+### Evidence deep links and paper citations
+
+Citations in an answer can jump to the page and region of the current PDF while keeping the cited source and answer context visible on the right.
+
+![Paper evidence linked back to the PDF page](docs/assets/readme/02-evidence-deep-link.png)
+
+### Formula selection and LaTeX assistance
+
+After selecting a formula region, the system provides formula-region recognition and editable LaTeX assistance. The final evidence still comes from the current PDF page.
+
+![Formula selection and LaTeX recognition](docs/assets/readme/05-formula-selection.png)
+
+### Agent page actions
+
+When the user explicitly asks to “highlight the current selection in yellow,” the Agent interprets the intent, and the system performs the real page action and saves the result.
+
+![Agent highlighting a selected paper passage](docs/assets/readme/04-agent-page-action.png)
+
+### Research archives and multiple sessions
+
+One paper can have multiple isolated research conversations. Message counts, run counts, and the most recently read page are stored in the research archive.
+
+![Multiple papers and conversations in the research archive](docs/assets/readme/03-research-archive.png)
+
+## Technology Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | Vue 3, Vite, Element Plus, vxe-table, PDF.js, PDFium/WASM |
+| Backend | Java 17, Spring Boot 3.2.6, Maven, MyBatis-Plus |
+| Agent | LangChain4j 1.15.1, OpenAI-compatible API, Gemini Native, Agent Skills |
+| Data | MySQL 8, Flyway; H2 for tests |
+| PDF | Apache PDFBox, PDF.js, PDFium/WASM |
+| Communication | HTTP REST, SSE |
+
+## Data and Privacy
+
+Paper, annotation, and research-session data are stored by default in the local MySQL instance and local file system. When `RA_MASTER_KEY` is configured, model API keys are stored using AES-GCM encryption.
+
+When a third-party model provider is used, paper content, context, and questions required for the model interaction may be sent to that provider. Check the data-processing policy of the provider you actually use. Do not commit passwords, API keys, or the master key to Git.
+
+The default local data directories are:
+
+~~~text
+data/papers/              # Imported paper PDFs
+data/figures/             # Paper images or derived images
+data/agent-attachments/   # Agent conversation attachments
+runtime/                  # Local runtime logs and process state
+~~~
+
 ## Running the Project
 
 ### Option A — Windows one-click startup
@@ -214,58 +266,6 @@ cd frontend
 npm.cmd ci
 npm.cmd run test:unit
 npm.cmd run build
-~~~
-
-## Feature Showcase
-
-### Evidence deep links and paper citations
-
-Citations in an answer can jump to the page and region of the current PDF while keeping the cited source and answer context visible on the right.
-
-![Paper evidence linked back to the PDF page](docs/assets/readme/02-evidence-deep-link.png)
-
-### Formula selection and LaTeX assistance
-
-After selecting a formula region, the system provides formula-region recognition and editable LaTeX assistance. The final evidence still comes from the current PDF page.
-
-![Formula selection and LaTeX recognition](docs/assets/readme/05-formula-selection.png)
-
-### Agent page actions
-
-When the user explicitly asks to “highlight the current selection in yellow,” the Agent interprets the intent, and the system performs the real page action and saves the result.
-
-![Agent highlighting a selected paper passage](docs/assets/readme/04-agent-page-action.png)
-
-### Research archives and multiple sessions
-
-One paper can have multiple isolated research conversations. Message counts, run counts, and the most recently read page are stored in the research archive.
-
-![Multiple papers and conversations in the research archive](docs/assets/readme/03-research-archive.png)
-
-## Technology Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | Vue 3, Vite, Element Plus, vxe-table, PDF.js, PDFium/WASM |
-| Backend | Java 17, Spring Boot 3.2.6, Maven, MyBatis-Plus |
-| Agent | LangChain4j 1.15.1, OpenAI-compatible API, Gemini Native, Agent Skills |
-| Data | MySQL 8, Flyway; H2 for tests |
-| PDF | Apache PDFBox, PDF.js, PDFium/WASM |
-| Communication | HTTP REST, SSE |
-
-## Data and Privacy
-
-Paper, annotation, and research-session data are stored by default in the local MySQL instance and local file system. When `RA_MASTER_KEY` is configured, model API keys are stored using AES-GCM encryption.
-
-When a third-party model provider is used, paper content, context, and questions required for the model interaction may be sent to that provider. Check the data-processing policy of the provider you actually use. Do not commit passwords, API keys, or the master key to Git.
-
-The default local data directories are:
-
-~~~text
-data/papers/              # Imported paper PDFs
-data/figures/             # Paper images or derived images
-data/agent-attachments/   # Agent conversation attachments
-runtime/                  # Local runtime logs and process state
 ~~~
 
 ## Project Structure
